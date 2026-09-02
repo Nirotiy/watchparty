@@ -1,0 +1,44 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 8080
+      # WatchParty talks to OpenList directly (no separate gateway process).
+      # Locally OpenList Desktop runs on the host; on the VPS point this at
+      # whatever OpenList instance can reach the cloud storage.
+      OPENLIST_URL: ${OPENLIST_URL:-http://host.docker.internal:5244}
+      OPENLIST_PUBLIC_URL: ${OPENLIST_PUBLIC_URL:?set OPENLIST_PUBLIC_URL to the browser-facing OpenList origin (e.g. https://watch.example.com)}
+      OPENLIST_USERNAME: ${OPENLIST_USERNAME:-admin}
+      OPENLIST_PASSWORD: ${OPENLIST_PASSWORD:-}
+      WATCHPARTY_MEDIA_ID_KEY: ${WATCHPARTY_MEDIA_ID_KEY:?set WATCHPARTY_MEDIA_ID_KEY to a long random value}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${WATCHPARTY_BACKEND_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/ping').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    environment:
+      NODE_ENV: production
+      BACKEND_ORIGIN: http://backend:8080
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${WATCHPARTY_FRONTEND_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

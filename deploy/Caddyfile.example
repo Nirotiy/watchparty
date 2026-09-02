@@ -1,0 +1,26 @@
+# WatchParty reverse-proxy example. Only /p/* (media stream), /api/* and
+# /socket.io/* are exposed; the OpenList admin UI stays off the public network.
+watch.example.test {
+  basic_auth {
+    alice $2a$14$REPLACE_WITH_CADDY_HASH
+  }
+
+  # OpenList streaming proxy published same-origin: <video> stays behind the
+  # same Basic Auth, no mixed content, no CORS. Requires the OpenList storage
+  # to keep web_proxy enabled (Baidu needs the proxy for its UA requirement).
+  handle /p/* {
+    reverse_proxy 127.0.0.1:5244
+  }
+
+  handle /api/* {
+    reverse_proxy 127.0.0.1:8080
+  }
+
+  handle /socket.io/* {
+    reverse_proxy 127.0.0.1:8080
+  }
+
+  handle {
+    reverse_proxy 127.0.0.1:3000
+  }
+}

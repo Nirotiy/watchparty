@@ -1,0 +1,27 @@
+FROM node:24-alpine AS dependencies
+WORKDIR /app/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci && npm cache clean --force
+
+FROM node:24-alpine AS builder
+WORKDIR /app/web
+COPY --from=dependencies /app/web/node_modules ./node_modules
+COPY web ./
+ARG BACKEND_ORIGIN=http://backend:8080
+ENV BACKEND_ORIGIN=${BACKEND_ORIGIN}
+ENV NODE_ENV=production
+RUN npm run build
+
+FROM node:24-alpine
+WORKDIR /app/web
+ENV NODE_ENV=production
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
+COPY --from=dependencies /app/web/node_modules ./node_modules
+COPY --from=builder /app/web/.next ./.next
+COPY --from=builder /app/web/public ./public
+COPY --from=builder /app/web/package.json ./package.json
+COPY --from=builder /app/web/next.config.ts ./next.config.ts
+
+EXPOSE 3000
+CMD ["npm", "start"]
