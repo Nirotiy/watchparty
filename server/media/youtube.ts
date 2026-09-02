@@ -1,11 +1,12 @@
 import { youtube, type youtube_v3 } from "@googleapis/youtube";
-import config from "../config.ts";
+import { loadConfig } from "../config.ts";
 
 let disabledLogged = false;
 let client: youtube_v3.Youtube | null = null;
 
 function api(): youtube_v3.Youtube | null {
-  if (!config.youtubeApiKey) {
+  const apiKey = loadConfig().youtubeApiKey;
+  if (!apiKey) {
     if (!disabledLogged) {
       disabledLogged = true;
       console.log("youtube search disabled (no YOUTUBE_API_KEY)");
@@ -15,7 +16,7 @@ function api(): youtube_v3.Youtube | null {
   if (!client) {
     client = youtube({
       version: "v3",
-      auth: config.youtubeApiKey,
+      auth: apiKey,
     });
   }
   return client;

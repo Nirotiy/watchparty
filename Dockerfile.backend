@@ -1,0 +1,23 @@
+FROM node:24-alpine AS checker
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY server ./server
+COPY words ./words
+COPY global.d.ts ./global.d.ts
+RUN npm run typecheckServer
+
+FROM node:24-alpine
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY --from=checker /app/server ./server
+COPY --from=checker /app/words ./words
+COPY --from=checker /app/global.d.ts ./global.d.ts
+
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=8080
+
+EXPOSE 8080
+CMD ["node", "server/main.ts"]

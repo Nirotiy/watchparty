@@ -1,294 +1,188 @@
-import type { Namespace, Socket } from "socket.io";
+import type { Socket } from "socket.io";
 import type {
   ClientToServerEvents,
+  CommandAck,
   CoreServer,
   InterServerEvents,
-  RoomEvent,
-  RoomEventTarget,
   ServerToClientEvents,
   SocketData,
 } from "../protocol.ts";
-import { CORE_CMD, CORE_REC, hostStateForClient } from "../protocol.ts";
-import type { Room } from "../room/Room.ts";
+import { ERROR_MESSAGES, errorResult, isValidUUID } from "../protocol.ts";
+import { validateMediaSource, validateRevision } from "../media.ts";
+import type { Room, RoomEvent } from "../room/Room.ts";
 import type { RoomRegistry } from "../room/registry.ts";
 
-type RoomNamespace = Namespace<
-  ClientToServerEvents,
-  ServerToClientEvents,
-  InterServerEvents,
-  SocketData
->;
-type RoomSocket = Socket<
+ type RoomSocket = Socket<
   ClientToServerEvents,
   ServerToClientEvents,
   InterServerEvents,
   SocketData
 >;
 
-const ROOM_NAMESPACE = /^\/[a-z][a-z0-9-]*$/i;
-
-/** Bind the legacy per-room namespace contract through one dynamic namespace. */
+/** Bind the root Socket.io namespace and authenticate every room connection. */
 export function bindRooms(io: CoreServer, registry: RoomRegistry): void {
-  const rooms = io.of(ROOM_NAMESPACE);
   const socketIdsByRoom = new Map<string, Map<string, string>>();
   const bridgedRooms = new WeakSet<Room>();
 
-  rooms.use((socket, next) => {
-    const room = registry.get(socket.nsp.name);
-    if (!room) {
-      next(new Error("Invalid namespace"));
+  io.use((socket, next) => {
+    const auth = socket.handshake.auth as Partial<SocketData> | undefined;
+    const roomId = auth?.roomId;
+    const clientId = auth?.clientId;
+    const access = registry.authenticate(roomId ?? "", clientId ?? "", auth?.accessToken);
+    if (!roomId || !access) {
+      next(socketError("ACCESS_TOKEN_INVALID"));
       return;
     }
-    if (!registry.canJoin(room.id, socket.handshake.auth?.roomToken)) {
-      next(new Error("Room authentication required"));
-      return;
-    }
-    const clientId = socket.handshake.query?.clientId;
-    if (typeof clientId !== "string") {
-      next(new Error("Invalid clientId type"));
-      return;
-    }
-    if (!isValidUUID(clientId)) {
-      next(new Error("Invalid clientId format"));
-      return;
-    }
-
-    const socketIds = getSocketIds(socketIdsByRoom, room.id);
-    const previousSocketId = socketIds.get(clientId);
-    if (previousSocketId) {
-      socket.nsp.sockets.get(previousSocketId)?.disconnect();
-    }
-    socketIds.set(clientId, socket.id);
-    socket.data.clientId = clientId;
-    socket.data.uid = "";
-    socket.data.isSub = false;
-    room.join(clientId);
+    socket.data.roomId = roomId;
+    socket.data.clientId = clientId ?? "";
+    socket.data.accessToken = auth?.accessToken ?? "";
+    socket.data.ownerToken = typeof auth?.ownerToken === "string" ? auth.ownerToken : undefined;
+    socket.data.nickname = access.nickname;
     next();
   });
 
-  rooms.on("connection", (socket: RoomSocket) => {
-    const room = registry.get(socket.nsp.name);
+  io.on("connection", (socket) => {
+    const room = registry.get(socket.data.roomId);
     if (!room) {
-      socket.disconnect();
+      socket.disconnect(true);
       return;
     }
-
     const clientId = socket.data.clientId;
     const socketIds = getSocketIds(socketIdsByRoom, room.id);
-    bridgeRoomEvents(socket.nsp, room, socketIds, bridgedRooms);
+    const previousSocketId = socketIds.get(clientId);
+    if (previousSocketId) io.sockets.sockets.get(previousSocketId)?.disconnect(true);
+    socketIds.set(clientId, socket.id);
+    socket.join(room.id);
+    room.join(clientId, socket.data.nickname);
+    bridgeRoomEvents(io, room, bridgedRooms);
 
-    const snap = room.snapshot();
-    socket.emit(CORE_REC.host, hostStateForClient(snap));
-    socket.emit(CORE_REC.nameMap, snap.nameMap);
-    socket.emit(CORE_REC.pictureMap, snap.pictureMap);
-    socket.emit(CORE_REC.tsMap, snap.tsMap);
-    socket.emit(CORE_REC.lock, snap.isLocked);
-    socket.emit(CORE_REC.chatinit, snap.chat);
-    socket.emit(CORE_REC.playlist, snap.playlist);
-    socket.nsp.emit(CORE_REC.roster, snap.roster);
+    socket.emit("REC:snapshot", room.snapshot());
+    socket.emit("REC:members", membersForRoom(room));
+    if (socket.data.ownerToken && !registry.isOwner(room.id, clientId, socket.data.ownerToken)) {
+      socket.emit("REC:error", { code: "OWNER_TOKEN_INVALID", message: ERROR_MESSAGES.OWNER_TOKEN_INVALID });
+    }
 
-    bindCoreCommands(socket, room, clientId);
-
+    bindCommands(socket, room, registry, io);
     socket.on("disconnect", () => {
-      if (socket.id !== socketIds.get(clientId)) {
-        return;
-      }
-      room.leave(clientId);
+      if (socketIds.get(clientId) !== socket.id) return;
       socketIds.delete(clientId);
-      if (socketIds.size === 0) {
-        socketIdsByRoom.delete(room.id);
-      }
+      room.leave(clientId);
+      if (socketIds.size === 0) socketIdsByRoom.delete(room.id);
     });
   });
 }
 
-function bindCoreCommands(
-  socket: RoomSocket,
-  room: Room,
-  clientId: string,
-): void {
-  socket.on(CORE_CMD.name, (name) => {
-    room.apply(clientId, { type: "name", name: String(name) });
-  });
-  socket.on(CORE_CMD.picture, (url) => {
-    room.setPicture(clientId, String(url));
-  });
-  socket.on(CORE_CMD.host, (url) => {
-    room.apply(clientId, { type: "host", url: String(url) });
-  });
-  socket.on(CORE_CMD.play, () => room.apply(clientId, { type: "play" }));
-  socket.on(CORE_CMD.pause, () => room.apply(clientId, { type: "pause" }));
-  socket.on(CORE_CMD.seek, (t) => {
-    room.apply(clientId, { type: "seek", t: Number(t) });
-  });
-  socket.on(CORE_CMD.playbackRate, (rate) => {
-    room.apply(clientId, { type: "playbackRate", rate: Number(rate) });
-  });
-  socket.on(CORE_CMD.loop, (on) => {
-    room.apply(clientId, { type: "loop", on: Boolean(on) });
-  });
-  socket.on(CORE_CMD.lock, (locked) => {
-    if (typeof locked === "boolean") {
-      room.apply(clientId, { type: "lock", locked });
-    }
-  });
-  socket.on(CORE_CMD.ts, (t) => {
-    room.apply(clientId, { type: "ts", t: Number(t) });
-  });
-  socket.on(CORE_CMD.chat, (msg) => {
-    if (typeof msg === "string") {
-      room.apply(clientId, { type: "chat", msg });
-    }
-  });
-  socket.on(CORE_CMD.chatV2, (payload) => {
-    if (!payload || typeof payload.msg !== "string") {
+function bindCommands(socket: RoomSocket, room: Room, registry: RoomRegistry, io: CoreServer): void {
+  const owner = () => registry.isOwner(room.id, socket.data.clientId, socket.data.ownerToken);
+  const run = (payload: unknown, command: Parameters<Room["execute"]>[1], ack: (result: CommandAck) => void) => {
+    const expectedRevision = isRecord(payload) ? payload.expectedRevision : undefined;
+    if (!validateRevision(expectedRevision)) {
+      ack(errorResult("INVALID_REQUEST"));
       return;
     }
-    room.apply(clientId, {
-      type: "chat",
-      msg: payload.msg,
-      replyToId:
-        typeof payload.replyToId === "string" ? payload.replyToId : undefined,
-      replyToTimestamp:
-        typeof payload.replyToTimestamp === "string"
-          ? payload.replyToTimestamp
-          : undefined,
-    });
+    ack(room.execute(socket.data.clientId, command, expectedRevision, owner()));
+  };
+
+  socket.on("CMD:name", (payload, ack) => {
+    const result = room.rename(socket.data.clientId, payload?.name);
+    if (result.ok) registry.updateNickname(room.id, socket.data.accessToken, payload?.name ?? "");
+    ack(result);
   });
-  socket.on(CORE_CMD.addReaction, (reaction) => {
-    if (reaction?.value && reaction.msgId && reaction.msgTimestamp) {
-      room.addReaction(clientId, reaction);
-    }
-  });
-  socket.on(CORE_CMD.removeReaction, (reaction) => {
-    if (reaction?.value && reaction.msgId && reaction.msgTimestamp) {
-      room.removeReaction(clientId, reaction);
-    }
-  });
-  socket.on(CORE_CMD.askHost, () => {
-    socket.emit(CORE_REC.host, hostStateForClient(room.snapshot()));
-  });
-  socket.on(CORE_CMD.playlistNext, (url) => {
-    room.apply(clientId, {
-      type: "playlistNext",
-      url: url != null && url !== "" ? String(url) : undefined,
-    });
-  });
-  socket.on(CORE_CMD.playlistAdd, (url) => {
-    room.apply(clientId, { type: "playlistAdd", url: String(url) });
-  });
-  socket.on(CORE_CMD.playlistMove, (move) => {
-    if (
-      move == null ||
-      typeof move.index !== "number" ||
-      typeof move.toIndex !== "number"
-    ) {
+  socket.on("CMD:clockSync", (payload, ack) => {
+    if (!isRecord(payload) || typeof payload.clientSentAtMs !== "number" || !Number.isFinite(payload.clientSentAtMs)) {
+      ack(errorResult("INVALID_REQUEST"));
       return;
     }
-    room.apply(clientId, {
-      type: "playlistMove",
-      index: move.index,
-      toIndex: move.toIndex,
-    });
+    ack({ ok: true, revision: room.snapshot().revision, data: { serverTimeMs: room.snapshot().serverTimeMs } });
   });
-  socket.on(CORE_CMD.playlistDelete, (index) => {
-    room.apply(clientId, { type: "playlistDelete", index: Number(index) });
+  socket.on("CMD:play", (payload, ack) => run(payload, { type: "play" }, ack));
+  socket.on("CMD:pause", (payload, ack) => run(payload, { type: "pause" }, ack));
+  socket.on("CMD:seek", (payload, ack) => {
+    if (!isRecord(payload) || typeof payload.positionSeconds !== "number") return ack(errorResult("INVALID_REQUEST"));
+    run(payload, { type: "seek", positionSeconds: payload.positionSeconds }, ack);
+  });
+  socket.on("CMD:rate", (payload, ack) => {
+    if (!isRecord(payload) || typeof payload.rate !== "number") return ack(errorResult("INVALID_REQUEST"));
+    run(payload, { type: "rate", rate: payload.rate }, ack);
+  });
+  socket.on("CMD:loop", (payload, ack) => {
+    if (!isRecord(payload) || typeof payload.loop !== "boolean") return ack(errorResult("INVALID_REQUEST"));
+    run(payload, { type: "loop", loop: payload.loop }, ack);
+  });
+  socket.on("CMD:lock", (payload, ack) => {
+    if (!isRecord(payload) || typeof payload.locked !== "boolean") return ack(errorResult("INVALID_REQUEST"));
+    run(payload, { type: "lock", locked: payload.locked }, ack);
+  });
+  socket.on("CMD:mediaSet", (payload, ack) => {
+    if (!isRecord(payload) || !validateMediaSource(payload.media)) return ack(errorResult("INVALID_REQUEST"));
+    run(payload, { type: "mediaSet", media: payload.media }, ack);
+  });
+  socket.on("CMD:playlistAdd", (payload, ack) => {
+    if (!isRecord(payload) || !validateMediaSource(payload.media)) return ack(errorResult("INVALID_REQUEST"));
+    run(payload, { type: "playlistAdd", media: payload.media }, ack);
+  });
+  socket.on("CMD:playlistRemove", (payload, ack) => {
+    if (!isRecord(payload) || typeof payload.itemId !== "string") return ack(errorResult("INVALID_REQUEST"));
+    run(payload, { type: "playlistRemove", itemId: payload.itemId }, ack);
+  });
+  socket.on("CMD:playlistMove", (payload, ack) => {
+    if (!isRecord(payload) || typeof payload.itemId !== "string" || typeof payload.targetIndex !== "number") return ack(errorResult("INVALID_REQUEST"));
+    run(payload, { type: "playlistMove", itemId: payload.itemId, targetIndex: payload.targetIndex }, ack);
+  });
+  socket.on("CMD:playlistPlay", (payload, ack) => {
+    if (!isRecord(payload) || typeof payload.itemId !== "string") return ack(errorResult("INVALID_REQUEST"));
+    run(payload, { type: "playlistPlay", itemId: payload.itemId }, ack);
+  });
+  socket.on("CMD:playlistNext", (payload, ack) => run(payload, { type: "playlistNext" }, ack));
+  socket.on("CMD:transferOwner", (payload, ack) => {
+    if (!isRecord(payload) || typeof payload.targetClientId !== "string") return ack(errorResult("INVALID_REQUEST"));
+    const expectedRevision = payload.expectedRevision;
+    if (!validateRevision(expectedRevision)) return ack(errorResult("INVALID_REQUEST"));
+    if (expectedRevision !== room.snapshot().revision) return ack(errorResult("REVISION_CONFLICT"));
+    if (!owner()) return ack(errorResult("OWNER_TOKEN_INVALID"));
+    const result = registry.transferOwner(room.id, socket.data.clientId, socket.data.ownerToken, payload.targetClientId);
+    if (!result.ok) return ack(errorResult(result.code));
+    const targetSocketId = findSocketId(io, room.id, payload.targetClientId);
+    if (targetSocketId) io.to(targetSocketId).emit("REC:ownerToken", result.ownerToken);
+    socket.data.ownerToken = undefined;
+    ack({ ok: true, revision: room.snapshot().revision });
   });
 }
 
-function bridgeRoomEvents(
-  namespace: RoomNamespace,
-  room: Room,
-  socketIds: Map<string, string>,
-  bridgedRooms: WeakSet<Room>,
-): void {
-  if (bridgedRooms.has(room)) {
-    return;
-  }
+function bridgeRoomEvents(io: CoreServer, room: Room, bridgedRooms: WeakSet<Room>): void {
+  if (bridgedRooms.has(room)) return;
   bridgedRooms.add(room);
-  room.onEvent((event) => emitRoomEvent(namespace, socketIds, event));
+  room.onEvent((event) => {
+    if (event.event === "snapshot") io.to(room.id).emit("REC:snapshot", event.payload);
+    else io.to(room.id).emit("REC:members", event.payload);
+  });
 }
 
-function emitRoomEvent(
-  namespace: RoomNamespace,
-  socketIds: Map<string, string>,
-  roomEvent: RoomEvent,
-): void {
-  switch (roomEvent.event) {
-    case CORE_REC.host:
-      emitToTarget(
-        namespace,
-        socketIds,
-        roomEvent.target,
-        roomEvent.event,
-        hostStateForClient(roomEvent.payload),
-      );
-      return;
-    case CORE_REC.pause:
-      emitToTarget(namespace, socketIds, roomEvent.target, roomEvent.event);
-      return;
-    case CORE_REC.play:
-    case CORE_REC.seek:
-    case CORE_REC.playbackRate:
-    case CORE_REC.loop:
-    case CORE_REC.lock:
-    case CORE_REC.tsMap:
-    case CORE_REC.chat:
-    case CORE_REC.nameMap:
-    case CORE_REC.pictureMap:
-    case CORE_REC.addReaction:
-    case CORE_REC.removeReaction:
-    case CORE_REC.playlist:
-    case CORE_REC.roster:
-      emitToTarget(
-        namespace,
-        socketIds,
-        roomEvent.target,
-        roomEvent.event,
-        roomEvent.payload,
-      );
-      return;
-  }
+function membersForRoom(room: Room): Parameters<ServerToClientEvents["REC:members"]>[0] {
+  return room.snapshotMembers();
 }
 
-function emitToTarget<Event extends keyof ServerToClientEvents>(
-  namespace: RoomNamespace,
-  socketIds: Map<string, string>,
-  target: RoomEventTarget | undefined,
-  event: Event,
-  ...args: Parameters<ServerToClientEvents[Event]>
-): void {
-  const targetId = target?.to ? socketIds.get(target.to) : undefined;
-  if (target?.to) {
-    if (targetId) {
-      namespace.to(targetId).emit(event, ...args);
-    }
-    return;
+function findSocketId(io: CoreServer, roomId: string, clientId: string): string | undefined {
+  for (const socket of io.sockets.sockets.values()) {
+    if (socket.data.roomId === roomId && socket.data.clientId === clientId) return socket.id;
   }
-
-  const exceptId = target?.except ? socketIds.get(target.except) : undefined;
-  if (exceptId) {
-    namespace.except(exceptId).emit(event, ...args);
-    return;
-  }
-  namespace.emit(event, ...args);
+  return undefined;
 }
 
-function getSocketIds(
-  socketIdsByRoom: Map<string, Map<string, string>>,
-  roomId: string,
-): Map<string, string> {
-  const existing = socketIdsByRoom.get(roomId);
-  if (existing) {
-    return existing;
-  }
+function getSocketIds(map: Map<string, Map<string, string>>, roomId: string): Map<string, string> {
+  const current = map.get(roomId);
+  if (current) return current;
   const created = new Map<string, string>();
-  socketIdsByRoom.set(roomId, created);
+  map.set(roomId, created);
   return created;
 }
 
-function isValidUUID(id: string): boolean {
-  return /^[0-9A-F]{8}-[0-9A-F]{4}-[4][0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}$/i.test(
-    id,
-  );
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function socketError(code: "ACCESS_TOKEN_INVALID"): Error & { data: { code: string; message: string } } {
+  const error = new Error(ERROR_MESSAGES[code]) as Error & { data: { code: string; message: string } };
+  error.data = { code, message: ERROR_MESSAGES[code] };
+  return error;
 }

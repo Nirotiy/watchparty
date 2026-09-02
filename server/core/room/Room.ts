@@ -1,496 +1,301 @@
-import { YOUTUBE_VIDEO_ID_REGEX } from "../../utils/regex.ts";
+import { randomUUID } from "node:crypto";
 import type {
-  CoreHostState,
-  RoomCommand,
-  RoomEvent,
-  RoomEventHandler,
-  ReactionCommand,
+  ApiError,
+  CommandAck,
+  MediaSource,
+  PlaylistItem,
+  RoomMember,
   RoomSnapshot,
 } from "../protocol.ts";
-import { CORE_REC } from "../protocol.ts";
+import { errorResult, ERROR_MESSAGES, okResult } from "../protocol.ts";
+import { validateMediaSource, validateNickname } from "../media.ts";
 
-const MAX_HOST_URL = 50000;
-const MAX_PLAYLIST_URL = 20000;
-const MAX_CHAT = 10000;
-const MAX_NAME = 50;
-const MAX_PICTURE = 10000;
-const MAX_NUMBER_STRING = 100;
-const MAX_CHAT_HISTORY = 100;
-const MAX_REACTION = 8;
-const TS_IGNORE_MS = 1000;
+const MAX_PLAYLIST_ITEMS = 200;
+const MAX_RATE = 2;
+const MIN_RATE = 0.25;
+const MAX_POSITION = 1_000_000_000;
 
-export type RoomOptions = {
-  now?: () => number;
-};
+type SharedCommand =
+  | { type: "play" }
+  | { type: "pause" }
+  | { type: "seek"; positionSeconds: number }
+  | { type: "rate"; rate: number }
+  | { type: "loop"; loop: boolean }
+  | { type: "lock"; locked: boolean }
+  | { type: "mediaSet"; media: MediaSource }
+  | { type: "playlistAdd"; media: MediaSource }
+  | { type: "playlistRemove"; itemId: string }
+  | { type: "playlistMove"; itemId: string; targetIndex: number }
+  | { type: "playlistPlay"; itemId: string }
+  | { type: "playlistNext" };
+
+export type RoomEvent =
+  | { event: "snapshot"; payload: RoomSnapshot }
+  | { event: "members"; payload: RoomMember[] };
+
+export type RoomOptions = { now?: () => number; initialMedia?: MediaSource };
+export type RoomEventHandler = (event: RoomEvent) => void;
 
 export class Room {
   readonly id: string;
-  lastUpdateTime: Date = new Date();
-  roster: User[] = [];
+  lastUpdateTime: Date;
 
-  private video = "";
-  private videoTS = 0;
-  private subtitle = "";
-  private playbackRate = 1;
-  private paused = false;
-  private loop = false;
-  private controller: string | undefined;
-  private isLocked = false;
-  private chat: ChatMessage[] = [];
-  private nameMap: StringDict = {};
-  private pictureMap: StringDict = {};
-  private playlist: PlaylistVideo[] = [];
-  private tsMap: NumberDict = {};
-  private lastTsMap = 0;
-  private ignoreTsUntil = 0;
   private readonly now: () => number;
   private readonly handlers: RoomEventHandler[] = [];
-  private tsInterval: NodeJS.Timeout | undefined;
+  private readonly members = new Map<string, RoomMember>();
+  private ownerClientId: string;
+  private source: MediaSource | null;
+  private currentPlaylistItemId: string | undefined;
+  private positionSeconds = 0;
+  private stateChangedAtMs: number;
+  private paused = true;
+  private playbackRate = 1;
+  private loop = false;
+  private locked = true;
+  private playlist: PlaylistItem[] = [];
+  private revision = 0;
+  private snapshotInterval: NodeJS.Timeout | undefined;
 
-  constructor(id: string, options: RoomOptions = {}) {
+  constructor(id: string, ownerClientId: string, options: RoomOptions = {}) {
     this.id = id;
+    this.ownerClientId = ownerClientId;
     this.now = options.now ?? Date.now;
-    this.lastTsMap = this.now();
-    this.tsInterval = setInterval(() => {
-      const memberIds = this.roster.map((p) => p.id);
-      for (const key of Object.keys(this.tsMap)) {
-        if (!memberIds.includes(key)) {
-          delete this.tsMap[key];
-        }
-      }
-      if (this.video) {
-        this.lastTsMap = this.now();
-        this.emit({ event: CORE_REC.tsMap, payload: this.tsMap });
-      }
-    }, 1000);
-    this.tsInterval.unref();
+    this.stateChangedAtMs = this.now();
+    this.lastUpdateTime = new Date(this.stateChangedAtMs);
+    this.source = options.initialMedia ?? null;
+    this.snapshotInterval = setInterval(() => {
+      if (this.source && !this.paused) this.emitSnapshot();
+    }, 2_000);
+    this.snapshotInterval.unref();
   }
 
   get roomId(): string {
     return this.id;
   }
 
+  get ownerId(): string {
+    return this.ownerClientId;
+  }
+
+  get onlineCount(): number {
+    return this.members.size;
+  }
+
+  isOnline(clientId: string): boolean {
+    return this.members.has(clientId);
+  }
+
   onEvent(handler: RoomEventHandler): void {
     this.handlers.push(handler);
   }
 
-  apply(clientId: string, cmd: RoomCommand): void {
-    if (
-      this.isLocked &&
-      cmd.type !== "lock" &&
-      isLockedControl(cmd) &&
-      clientId !== this.controller
-    ) {
-      return;
+  join(clientId: string, name: string): void {
+    const member: RoomMember = {
+      clientId,
+      name: validateNickname(name) ? name.trim() : "观众",
+      isOwner: clientId === this.ownerClientId,
+    };
+    this.members.set(clientId, member);
+    this.emitMembers();
+  }
+
+  leave(clientId: string): void {
+    if (!this.members.delete(clientId)) return;
+    this.emitMembers();
+  }
+
+  rename(clientId: string, name: string): CommandAck {
+    if (!validateNickname(name)) return this.invalidRequest();
+    const member = this.members.get(clientId);
+    if (!member) return this.invalidRequest();
+    member.name = name.trim();
+    this.touch();
+    this.emitMembers();
+    return okResult(this.revision);
+  }
+
+  execute(clientId: string, command: SharedCommand, expectedRevision: number, isOwner: boolean): CommandAck {
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+      return this.invalidRequest();
     }
-    switch (cmd.type) {
-      case "host":
-        this.host(clientId, cmd.url);
-        return;
+    if (expectedRevision !== this.revision) return errorResult("REVISION_CONFLICT");
+    if (command.type === "lock" && !isOwner) return errorResult("FORBIDDEN");
+    if (this.locked && !isOwner) return errorResult("FORBIDDEN");
+
+    switch (command.type) {
       case "play":
-        this.play(clientId);
-        return;
+        this.setPaused(false);
+        break;
       case "pause":
-        this.pause(clientId);
-        return;
+        this.setPaused(true);
+        break;
       case "seek":
-        this.seek(clientId, cmd.t);
-        return;
-      case "playbackRate":
-        this.setPlaybackRate(clientId, cmd.rate);
-        return;
+        if (!isValidPosition(command.positionSeconds)) return this.invalidRequest();
+        this.setPosition(command.positionSeconds);
+        break;
+      case "rate":
+        if (!Number.isFinite(command.rate) || command.rate < MIN_RATE || command.rate > MAX_RATE) return this.invalidRequest();
+        this.setPosition(this.currentPosition());
+        this.playbackRate = command.rate;
+        break;
       case "loop":
-        this.setLoop(cmd.on);
-        return;
+        if (typeof command.loop !== "boolean") return this.invalidRequest();
+        this.loop = command.loop;
+        break;
       case "lock":
-        this.setLock(clientId, cmd.locked);
-        return;
-      case "ts":
-        this.setTimestamp(clientId, cmd.t);
-        return;
-      case "name":
-        this.setName(clientId, cmd.name);
-        return;
-      case "chat":
-        this.chatFrom(clientId, cmd.msg, cmd.replyToId, cmd.replyToTimestamp);
-        return;
+        if (typeof command.locked !== "boolean") return this.invalidRequest();
+        this.locked = command.locked;
+        break;
+      case "mediaSet":
+        if (!validateMediaSource(command.media)) return this.invalidRequest();
+        this.source = command.media;
+        this.currentPlaylistItemId = undefined;
+        this.positionSeconds = 0;
+        this.paused = true;
+        this.playbackRate = 1;
+        this.loop = false;
+        this.stateChangedAtMs = this.now();
+        break;
       case "playlistAdd":
-        this.playlistAdd(clientId, cmd.url);
-        return;
-      case "playlistMove":
-        this.playlistMove(cmd.index, cmd.toIndex);
-        return;
-      case "playlistDelete":
-        this.playlistDelete(cmd.index);
-        return;
-      case "playlistNext":
-        this.advancePlaylist(cmd.url);
-        return;
+        if (!validateMediaSource(command.media)) return this.invalidRequest();
+        if (this.playlist.length >= MAX_PLAYLIST_ITEMS) return errorResult("PLAYLIST_FULL");
+        this.playlist.push({
+          id: randomUUID(),
+          media: command.media,
+          addedByClientId: clientId,
+          addedAtMs: this.now(),
+        });
+        break;
+      case "playlistRemove": {
+        const index = this.playlist.findIndex((item) => item.id === command.itemId);
+        if (index < 0) return errorResult("MEDIA_NOT_FOUND");
+        this.playlist.splice(index, 1);
+        break;
+      }
+      case "playlistMove": {
+        if (!Number.isInteger(command.targetIndex) || command.targetIndex < 0 || command.targetIndex >= this.playlist.length) return this.invalidRequest();
+        const index = this.playlist.findIndex((item) => item.id === command.itemId);
+        if (index < 0) return errorResult("MEDIA_NOT_FOUND");
+        const [item] = this.playlist.splice(index, 1);
+        if (!item) return this.invalidRequest();
+        this.playlist.splice(command.targetIndex, 0, item);
+        break;
+      }
+      case "playlistPlay": {
+        const item = this.playlist.find((candidate) => candidate.id === command.itemId);
+        if (!item) return errorResult("MEDIA_NOT_FOUND");
+        this.source = item.media;
+        this.currentPlaylistItemId = item.id;
+        this.positionSeconds = 0;
+        this.paused = true;
+        this.playbackRate = 1;
+        this.loop = false;
+        this.stateChangedAtMs = this.now();
+        break;
+      }
+      case "playlistNext": {
+        const next = this.nextPlaylistItem();
+        if (!next) return okResult(this.revision);
+        this.source = next.media;
+        this.currentPlaylistItemId = next.id;
+        this.positionSeconds = 0;
+        this.paused = true;
+        this.playbackRate = 1;
+        this.loop = false;
+        this.stateChangedAtMs = this.now();
+        break;
+      }
     }
+
+    this.revision += 1;
+    this.touch();
+    this.emitSnapshot();
+    return okResult(this.revision);
+  }
+
+  setOwner(clientId: string): void {
+    this.ownerClientId = clientId;
+    for (const member of this.members.values()) member.isOwner = member.clientId === clientId;
+    this.revision += 1;
+    this.touch();
+    this.emitSnapshot();
+    this.emitMembers();
+  }
+
+  snapshotMembers(): RoomMember[] {
+    return [...this.members.values()].map((member) => ({ ...member }));
   }
 
   snapshot(): RoomSnapshot {
     return {
-      ...this.hostState(),
-      chat: this.chat,
-      playlist: this.playlist,
-      roster: this.roster,
-      nameMap: this.nameMap,
-      pictureMap: this.pictureMap,
-      tsMap: this.tsMap,
+      revision: this.revision,
+      source: this.source,
+      ...(this.currentPlaylistItemId ? { currentPlaylistItemId: this.currentPlaylistItemId } : {}),
+      positionSeconds: this.currentPosition(),
+      serverTimeMs: this.now(),
+      paused: this.paused,
+      playbackRate: this.playbackRate,
+      loop: this.loop,
+      locked: this.locked,
+      ownerClientId: this.ownerClientId,
+      playlist: this.playlist.map((item) => ({ ...item, media: { ...item.media } })),
     };
   }
 
   destroy(): void {
-    if (this.tsInterval) {
-      clearInterval(this.tsInterval);
-      this.tsInterval = undefined;
+    if (this.snapshotInterval) {
+      clearInterval(this.snapshotInterval);
+      this.snapshotInterval = undefined;
     }
+    this.handlers.length = 0;
+    this.members.clear();
   }
 
-  join(clientId: string): void {
-    if (!this.roster.some((user) => user.id === clientId)) {
-      this.roster.push({ id: clientId });
-      this.controller ??= clientId;
-    }
+  private nextPlaylistItem(): PlaylistItem | undefined {
+    if (!this.playlist.length) return undefined;
+    const currentIndex = this.currentPlaylistItemId
+      ? this.playlist.findIndex((item) => item.id === this.currentPlaylistItemId)
+      : -1;
+    return this.playlist[currentIndex + 1] ?? this.playlist[0];
   }
 
-  leave(clientId: string): void {
-    this.roster = this.roster.filter((user) => user.id !== clientId);
-    delete this.tsMap[clientId];
-    if (this.controller === clientId) {
-      this.controller = this.roster[0]?.id;
-      this.emit({ event: CORE_REC.host, payload: this.hostState() });
-    }
-    this.emit({ event: CORE_REC.roster, payload: this.roster });
+  private setPaused(paused: boolean): void {
+    this.setPosition(this.currentPosition());
+    this.paused = paused;
   }
 
-  setPicture(clientId: string, url: string): void {
-    if (url && url.length > MAX_PICTURE) {
-      return;
-    }
-    this.pictureMap[clientId] = url;
-    this.emit({ event: CORE_REC.pictureMap, payload: this.pictureMap });
+  private setPosition(position: number): void {
+    this.positionSeconds = position;
+    this.stateChangedAtMs = this.now();
   }
 
-  addReaction(clientId: string, data: ReactionCommand): void {
-    const users = this.reactionUsers(data, true);
-    if (!users) {
-      return;
-    }
-    if (!users.includes(clientId)) {
-      users.push(clientId);
-      this.emit({
-        event: CORE_REC.addReaction,
-        payload: { user: clientId, ...data },
-      });
-    }
+  private currentPosition(): number {
+    if (this.paused) return this.positionSeconds;
+    return this.positionSeconds + ((this.now() - this.stateChangedAtMs) / 1000) * this.playbackRate;
   }
 
-  removeReaction(clientId: string, data: ReactionCommand): void {
-    const users = this.reactionUsers(data, false);
-    if (!users) {
-      return;
-    }
-    const index = users.indexOf(clientId);
-    if (index === -1) {
-      return;
-    }
-    users.splice(index, 1);
-    this.emit({
-      event: CORE_REC.removeReaction,
-      payload: { user: clientId, ...data },
-    });
+  private invalidRequest(): { ok: false; error: ApiError } {
+    return { ok: false, error: { code: "INVALID_REQUEST", message: ERROR_MESSAGES.INVALID_REQUEST } };
   }
 
-  private host(clientId: string, url: string): void {
-    if (url && url.length > MAX_HOST_URL) {
-      return;
-    }
-    this.setHost(url, clientId);
-    if (url === "") {
-      this.advancePlaylist();
-    }
+  private touch(): void {
+    this.lastUpdateTime = new Date(this.now());
   }
 
-  private setHost(url: string, clientId?: string): void {
-    this.video = url;
-    this.videoTS = 0;
-    this.paused = false;
-    this.subtitle = "";
-    this.loop = false;
-    this.playbackRate = 1;
-    this.tsMap = {};
-    this.ignoreTsUntil = this.now() + TS_IGNORE_MS;
-    this.emit({ event: CORE_REC.tsMap, payload: this.tsMap });
-    this.emit({ event: CORE_REC.host, payload: this.hostState() });
-    if (clientId && url) {
-      this.pushChat(clientId, { id: clientId, cmd: "host", msg: url });
-    }
-    this.emit({ event: CORE_REC.roster, payload: this.roster });
+  private emitSnapshot(): void {
+    this.emit({ event: "snapshot", payload: this.snapshot() });
   }
 
-  private play(clientId: string): void {
-    this.paused = false;
-    this.emit({
-      event: CORE_REC.play,
-      payload: this.video,
-      target: { except: clientId },
-    });
-    this.pushChat(clientId, {
-      id: clientId,
-      cmd: "play",
-      msg: this.tsMap[clientId]?.toString(),
-    });
-  }
-
-  private pause(clientId: string): void {
-    this.paused = true;
-    this.emit({
-      event: CORE_REC.pause,
-      payload: undefined,
-      target: { except: clientId },
-    });
-    this.pushChat(clientId, {
-      id: clientId,
-      cmd: "pause",
-      msg: this.tsMap[clientId]?.toString(),
-    });
-  }
-
-  private seek(clientId: string, t: number): void {
-    if (!this.isShortNumber(t)) {
-      return;
-    }
-    this.videoTS = t;
-    this.emit({
-      event: CORE_REC.seek,
-      payload: t,
-      target: { except: clientId },
-    });
-    this.pushChat(clientId, { id: clientId, cmd: "seek", msg: t?.toString() });
-  }
-
-  private setPlaybackRate(clientId: string, rate: number): void {
-    if (!this.isShortNumber(rate)) {
-      return;
-    }
-    this.playbackRate = Number(rate);
-    this.emit({ event: CORE_REC.playbackRate, payload: Number(rate) });
-    this.pushChat(clientId, {
-      id: clientId,
-      cmd: "playbackRate",
-      msg: rate?.toString(),
-    });
-  }
-
-  private setLoop(on: boolean): void {
-    if (String(on).length > MAX_NUMBER_STRING) {
-      return;
-    }
-    this.loop = on;
-    this.emit({ event: CORE_REC.loop, payload: on });
-  }
-
-  private setLock(clientId: string, locked: boolean): void {
-    if (clientId !== this.controller || typeof locked !== "boolean") {
-      return;
-    }
-    this.isLocked = locked;
-    this.emit({ event: CORE_REC.lock, payload: locked });
-  }
-
-  private setTimestamp(clientId: string, t: number): void {
-    if (!this.isShortNumber(t)) {
-      return;
-    }
-    if (this.now() < this.ignoreTsUntil) {
-      return;
-    }
-    // Negative is live-stream offset; otherwise timestamps only move forward.
-    if (t < 0 || t > this.videoTS) {
-      this.videoTS = t;
-    }
-    const timeSinceTsMap = this.now() - this.lastTsMap;
-    this.tsMap[clientId] = t - timeSinceTsMap / 1000 + 1;
-  }
-
-  private setName(clientId: string, name: string): void {
-    if (!name || name.length > MAX_NAME) {
-      return;
-    }
-    this.nameMap[clientId] = name;
-    this.emit({ event: CORE_REC.nameMap, payload: this.nameMap });
-  }
-
-  private chatFrom(
-    clientId: string,
-    msg: string,
-    replyToId?: string,
-    replyToTimestamp?: string,
-  ): void {
-    if (!msg || msg.length > MAX_CHAT) {
-      return;
-    }
-    if (Boolean(replyToId) !== Boolean(replyToTimestamp)) {
-      return;
-    }
-    const baseMsg: ChatMessageBase = { id: clientId, msg };
-    if (!replyToId || !replyToTimestamp) {
-      this.pushChat(clientId, baseMsg);
-      return;
-    }
-    const target = this.chat.find(
-      (m) => m.id === replyToId && m.timestamp === replyToTimestamp,
-    );
-    if (!target) {
-      this.pushChat(clientId, baseMsg);
-      return;
-    }
-    this.pushChat(clientId, {
-      ...baseMsg,
-      replyToId,
-      replyToTimestamp,
-      replyToUserId: replyToId,
-      replyToMsg: target.msg || "",
-    });
-  }
-
-  private playlistAdd(clientId: string, url: string): void {
-    if (!url || url.length > MAX_PLAYLIST_URL) {
-      return;
-    }
-    this.playlist.push({
-      name: url,
-      channel: "Video URL",
-      duration: 0,
-      url,
-      type: url.startsWith("magnet:") ? "magnet" : "file",
-    });
-    this.emit({ event: CORE_REC.playlist, payload: this.playlist });
-    if (clientId) {
-      this.pushChat(clientId, { id: clientId, cmd: "playlistAdd", msg: url });
-    }
-    if (!this.video) {
-      this.advancePlaylist();
-    }
-  }
-
-  private playlistDelete(index: number): void {
-    if (
-      !Number.isInteger(index) ||
-      index < 0 ||
-      index >= this.playlist.length
-    ) {
-      return;
-    }
-    this.playlist.splice(index, 1);
-    this.emit({ event: CORE_REC.playlist, payload: this.playlist });
-  }
-
-  private playlistMove(index: number, toIndex: number): void {
-    if (!Number.isInteger(index) || !Number.isInteger(toIndex)) {
-      return;
-    }
-    if (
-      index < 0 ||
-      index >= this.playlist.length ||
-      toIndex < 0 ||
-      toIndex >= this.playlist.length
-    ) {
-      return;
-    }
-    const items = this.playlist.splice(index, 1);
-    if (!items[0]) {
-      return;
-    }
-    this.playlist.splice(toIndex, 0, items[0]);
-    this.emit({ event: CORE_REC.playlist, payload: this.playlist });
-  }
-
-  private advancePlaylist(currentUrl?: string): void {
-    if (
-      currentUrl &&
-      this.video &&
-      currentUrl !== this.video &&
-      youtubeVideoId(currentUrl) !== youtubeVideoId(this.video)
-    ) {
-      return;
-    }
-    const next = this.playlist.shift();
-    this.emit({ event: CORE_REC.playlist, payload: this.playlist });
-    if (next) {
-      this.setHost(next.url);
-    }
-  }
-
-  private pushChat(clientId: string, chatMsg: ChatMessageBase): void {
-    const chatWithTime: ChatMessage = {
-      ...chatMsg,
-      timestamp: new Date(this.now()).toISOString(),
-      videoTS: clientId ? this.tsMap[clientId] : undefined,
-    };
-    this.chat.push(chatWithTime);
-    this.chat = this.chat.splice(-MAX_CHAT_HISTORY);
-    this.emit({ event: CORE_REC.chat, payload: chatWithTime });
-  }
-
-  private hostState(): CoreHostState {
-    return {
-      video: this.video ?? "",
-      videoTS: this.videoTS,
-      subtitle: this.subtitle,
-      playbackRate: this.playbackRate,
-      paused: this.paused,
-      loop: this.loop,
-      controller: this.controller,
-      isLocked: this.isLocked,
-    };
+  private emitMembers(): void {
+    this.emit({ event: "members", payload: [...this.members.values()].map((member) => ({ ...member })) });
   }
 
   private emit(event: RoomEvent): void {
     this.lastUpdateTime = new Date(this.now());
-    for (const handler of this.handlers) {
-      handler(event);
-    }
-  }
-
-  private isShortNumber(value: number): boolean {
-    return Number.isFinite(value) && String(value).length <= MAX_NUMBER_STRING;
-  }
-
-  private reactionUsers(
-    data: ReactionCommand,
-    create: boolean,
-  ): string[] | undefined {
-    if (
-      !data.value ||
-      data.value.length > MAX_REACTION ||
-      !data.msgId ||
-      !data.msgTimestamp
-    ) {
-      return undefined;
-    }
-    const message = this.chat.find(
-      (candidate) =>
-        candidate.id === data.msgId &&
-        candidate.timestamp === data.msgTimestamp,
-    );
-    if (!message) {
-      return undefined;
-    }
-    const reactions = (message.reactions ??= {});
-    if (create) {
-      return (reactions[data.value] ??= []);
-    }
-    return reactions[data.value];
+    for (const handler of this.handlers) handler(event);
   }
 }
 
-function isLockedControl(cmd: RoomCommand): boolean {
-  return cmd.type === "play" || cmd.type === "pause" || cmd.type === "seek";
-}
-
-function youtubeVideoId(url: string): string | undefined {
-  return YOUTUBE_VIDEO_ID_REGEX.exec(url)?.[1];
+function isValidPosition(value: number): boolean {
+  return Number.isFinite(value) && value >= 0 && value <= MAX_POSITION;
 }

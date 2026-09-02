@@ -1,109 +1,139 @@
-import type { Express } from "express";
-import { makeRoomName, makeUserName } from "../../utils/moniker.ts";
-import { searchYoutube, youtubePlaylist } from "../../media/youtube.ts";
-import type { Room } from "../room/Room.ts";
+import type { Express, Request, Response } from "express";
+import { makeUserName } from "../../utils/moniker.ts";
+import { validateMediaSource, validateNickname, validateRoomId } from "../media.ts";
+import { ERROR_MESSAGES } from "../protocol.ts";
 import type { RoomRegistry } from "../room/registry.ts";
+import type { AppConfig } from "../../config.ts";
+import { createOpenlistClient, OpenlistServiceError } from "../../media/openlist.ts";
+import { createWatchpartyMedia } from "../../media/watchparty-media.ts";
 
-/** Core HTTP whitelist used by the Vite UI. */
-export function registerCoreHttp(app: Express, registry: RoomRegistry): void {
-  app.get("/ping", (_req, res) => {
-    res.json("pong");
+/** Register room lifecycle and media APIs. Video bytes never pass through this service. */
+export function registerCoreHttp(app: Express, registry: RoomRegistry, appConfig: AppConfig): void {
+  const media = createWatchpartyMedia(createOpenlistClient(appConfig), {
+    mediaIdKey: appConfig.watchPartyMediaIdKey,
+    internalBaseUrl: appConfig.openlistUrl,
+    publicBaseUrl: appConfig.openlistPublicUrl || appConfig.openlistUrl,
   });
+  app.get("/ping", (_req, res): void => { res.json("pong"); });
+  app.get("/generateName", (_req, res): void => { res.send(makeUserName()); });
 
-  app.post("/createRoom", (req, res) => {
-    const name = "/" + makeRoomName();
-    const password =
-      typeof req.body?.password === "string" ? req.body.password : undefined;
-    let newRoom: Room;
-    try {
-      newRoom = registry.create(name, { password });
-    } catch (error) {
-      res.status(400).json({
-        error: error instanceof Error ? error.message : "Invalid room",
-      });
-      return;
-    }
-    console.log("created room %s", name);
-    const preload = String(req.body?.video ?? "").slice(0, 20000);
-    if (preload) {
-      newRoom.apply("", { type: "host", url: preload });
-      newRoom.apply("", { type: "pause" });
-    }
-    const prePlaylist = Array.isArray(req.body?.playlist)
-      ? req.body.playlist
-      : [];
-    for (const item of prePlaylist) {
-      const url = typeof item === "string" ? item : item?.url;
-      if (url) {
-        newRoom.apply("", { type: "playlistAdd", url: String(url) });
-      }
-    }
-    res.json({ name, isProtected: registry.isProtected(name) });
-  });
-
-  app.get("/roomInfo/:roomId", (req, res) => {
-    const roomId = normalizeRoomId(req.params.roomId);
-    const room = registry.get(roomId);
-    res.json({
-      roomId: roomId.slice(1),
-      exists: Boolean(room),
-      isProtected: registry.isProtected(roomId),
-      onlineCount: room?.roster.length ?? 0,
-    });
-  });
-
-  app.post("/verifyRoomPin", (req, res) => {
-    const roomId = normalizeRoomId(req.body?.roomId);
-    const room = registry.get(roomId);
-    if (!room) {
-      res.status(404).json({ valid: false, error: "Room not found" });
-      return;
-    }
-    if (!registry.isProtected(roomId)) {
-      res.json({ valid: true });
-      return;
-    }
-    const pin = typeof req.body?.pin === "string" ? req.body.pin : "";
-    const token = registry.verifyPin(roomId, pin);
-    if (!token) {
-      res.status(401).json({ valid: false, error: "Invalid PIN" });
-      return;
-    }
-    res.json({ valid: true, token });
-  });
-
-  app.get("/youtube", async (req, res) => {
-    if (typeof req.query.q !== "string") {
-      res.status(500).json({ error: "query must be a string" });
+  app.post("/api/rooms", (req, res): void => {
+    const clientId = req.body?.clientId;
+    const nickname = req.body?.nickname;
+    const pin = req.body?.pin;
+    const hasInitialMedia = req.body?.initialMedia !== undefined;
+    const hasInitialSource = req.body?.initialSource !== undefined;
+    const initialValue = hasInitialMedia ? req.body.initialMedia : req.body?.initialSource;
+    const initialMedia = initialValue === undefined ? undefined : validateMediaSource(initialValue);
+    if (typeof clientId !== "string" || !validateNickname(nickname) ||
+      (hasInitialMedia && hasInitialSource) ||
+      (pin !== undefined && (typeof pin !== "string" || !/^\d{4}$/.test(pin))) ||
+      (initialValue !== undefined && !initialMedia)) {
+      sendError(res, 400, "INVALID_REQUEST");
       return;
     }
     try {
-      const items = await searchYoutube(req.query.q);
-      res.json(items);
+      const created = registry.create({ clientId, nickname, pin, initialMedia });
+      res.status(200).json({ roomId: created.room.id, accessToken: created.accessToken, ownerToken: created.ownerToken });
     } catch {
-      res.status(500).json({ error: "youtube error" });
+      sendError(res, 400, "INVALID_REQUEST");
     }
   });
 
-  app.get("/youtubePlaylist/:playlistId", async (req, res) => {
+  app.get("/api/rooms/:roomId", (req, res): void => {
+    const roomId = String(req.params.roomId);
+    const room = validateRoomId(roomId) ? registry.get(roomId) : undefined;
+    if (!room) { sendError(res, 404, "ROOM_NOT_FOUND"); return; }
+    res.json({ roomId, isProtected: registry.isProtected(roomId), onlineCount: room.onlineCount });
+  });
+
+  app.post("/api/rooms/:roomId/access", (req, res): void => {
+    const roomId = String(req.params.roomId);
+    if (!validateRoomId(roomId) || !registry.get(roomId)) { sendError(res, 404, "ROOM_NOT_FOUND"); return; }
+    const { clientId, nickname, pin } = req.body ?? {};
+    if (typeof clientId !== "string" || typeof nickname !== "string" || !validateNickname(nickname)) {
+      sendError(res, 400, "INVALID_REQUEST");
+      return;
+    }
+    const result = registry.issueAccess(roomId, clientId, nickname, typeof pin === "string" ? pin : undefined, requestIp(req));
+    if (!result.ok) { sendError(res, result.code === "RATE_LIMITED" ? 429 : 401, result.code); return; }
+    res.json({ accessToken: result.accessToken });
+  });
+
+  app.get("/api/media/roots", (_req, res): void => {
+    res.json(media.rootNames());
+  });
+
+  app.get("/api/media/list", async (req, res) => {
+    const root = req.query.root;
+    const relativePath = typeof req.query.path === "string" ? req.query.path : "/";
+    const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
+    if (!media.isRoot(root)) { sendError(res, 400, "INVALID_REQUEST"); return; }
+    try { res.json(await media.list(root, relativePath, cursor)); }
+    catch (error: unknown) { respondToError(res, error); }
+  });
+
+  app.get("/api/media/search", async (req, res) => {
+    const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    const root = req.query.root;
+    const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
+    if (!query || query.length > 200) { sendError(res, 400, "INVALID_REQUEST"); return; }
+    if (root !== undefined && !media.isRoot(root)) { sendError(res, 400, "INVALID_REQUEST"); return; }
+    try { res.json(await media.search(query, media.isRoot(root) ? root : undefined, cursor)); }
+    catch (error: unknown) { respondToError(res, error); }
+  });
+
+  app.post("/api/rooms/:roomId/media/resolve", async (req, res) => {
+    const roomId = String(req.params.roomId);
+    if (!validateRoomId(roomId) || !registry.get(roomId)) { sendError(res, 404, "ROOM_NOT_FOUND"); return; }
+    if (!registry.authenticateToken(roomId, bearerToken(req))) { sendError(res, 401, "ACCESS_TOKEN_INVALID"); return; }
+    if (typeof req.body?.mediaId !== "string" || !req.body.mediaId) { sendError(res, 400, "INVALID_REQUEST"); return; }
     try {
-      const items = await youtubePlaylist(req.params.playlistId);
-      res.json(items);
-    } catch {
-      res.status(500).json({ error: "youtube error" });
-    }
+      const resolved = await media.resolve(req.body.mediaId);
+      if (resolved === undefined) { sendError(res, 404, "MEDIA_NOT_FOUND"); return; }
+      if (resolved === null) { sendError(res, 400, "MEDIA_UNSUPPORTED"); return; }
+      res.json(resolved);
+    } catch (error: unknown) { respondToError(res, error); }
   });
 
-  app.get("/generateName", (_req, res) => {
-    res.send(makeUserName());
+  app.get("/api/rooms/:roomId/media/subtitle", async (req, res) => {
+    const roomId = String(req.params.roomId);
+    const mediaId = typeof req.query.mediaId === "string" ? req.query.mediaId : "";
+    if (!validateRoomId(roomId) || !registry.get(roomId)) { sendError(res, 404, "ROOM_NOT_FOUND"); return; }
+    if (!mediaId) { sendError(res, 400, "INVALID_REQUEST"); return; }
+    if (!registry.authenticateToken(roomId, bearerToken(req))) { sendError(res, 401, "ACCESS_TOKEN_INVALID"); return; }
+    try {
+      const subtitle = await media.loadSubtitle(mediaId);
+      if (subtitle === undefined) { sendError(res, 404, "MEDIA_NOT_FOUND"); return; }
+      res.type("text/plain").send(subtitle);
+    } catch (error: unknown) { respondToError(res, error); }
   });
 
-  app.get("/resolveShard/:roomId", (_req, res) => {
-    res.send("");
+  app.get("/api/rooms/:roomId/media/subtitles", async (req, res) => {
+    const roomId = String(req.params.roomId);
+    const mediaId = typeof req.query.mediaId === "string" ? req.query.mediaId : "";
+    if (!validateRoomId(roomId) || !registry.get(roomId)) { sendError(res, 404, "ROOM_NOT_FOUND"); return; }
+    if (!mediaId) { sendError(res, 400, "INVALID_REQUEST"); return; }
+    if (!registry.authenticateToken(roomId, bearerToken(req))) { sendError(res, 401, "ACCESS_TOKEN_INVALID"); return; }
+    try {
+      const tracks = await media.discoverSubtitles(mediaId);
+      if (tracks === undefined) { sendError(res, 404, "MEDIA_NOT_FOUND"); return; }
+      res.json(tracks);
+    } catch (error: unknown) { respondToError(res, error); }
   });
 }
 
-function normalizeRoomId(value: unknown): string {
-  const raw = typeof value === "string" ? value : "";
-  return "/" + raw.replace(/^\/+/, "");
+function requestIp(req: Request): string { return req.ip || req.socket.remoteAddress || "unknown"; }
+function bearerToken(req: Request): string | undefined {
+  const value = req.headers.authorization;
+  if (typeof value !== "string") return undefined;
+  const [scheme, token] = value.split(" ");
+  return scheme === "Bearer" && token ? token : undefined;
+}
+function respondToError(res: Response, error: unknown): void {
+  if (error instanceof OpenlistServiceError) { sendError(res, 502, "OPENLIST_UNAVAILABLE"); return; }
+  sendError(res, 400, "INVALID_REQUEST");
+}
+function sendError(res: Response, status: number, code: keyof typeof ERROR_MESSAGES): void {
+  res.status(status).json({ code, message: ERROR_MESSAGES[code] });
 }

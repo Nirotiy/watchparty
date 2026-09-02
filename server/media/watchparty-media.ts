@@ -1,0 +1,387 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+import path from "node:path";
+import { OpenlistServiceError, type OpenlistClient } from "./openlist.ts";
+
+export const WATCHPARTY_ROOTS = {
+  Anime: "/media/openlist-bdyun/Multimedia/Anime",
+  Film: "/media/openlist-bdyun/Multimedia/Film",
+  "TV Shows": "/media/openlist-bdyun/Multimedia/TV Shows",
+} as const;
+
+export type WatchpartyRoot = keyof typeof WATCHPARTY_ROOTS;
+
+type OpenlistEntry = { name: string; isDir: boolean; size?: number; path: string };
+
+const PAGE_SIZE = 100;
+/**
+ * Hard cap on entries materialized from a single directory listing or search.
+ * OpenList returns the full set (per_page: 0); sorting/paging happens here, so
+ * unbounded directories would grow memory per page request.
+ */
+const MAX_DIRECTORY_ENTRIES = 2000;
+const SUBTITLE_CAP_BYTES = 5 * 1024 * 1024;
+const SUBTITLE_EXTENSIONS = new Set(["ass", "ssa", "srt", "vtt"]);
+const SUPPORTED_VIDEO_EXTENSIONS = new Set(["mp4", "webm", "m3u8", "mov", "m4v", "ogv"]);
+const MAYBE_VIDEO_EXTENSIONS = new Set(["avi", "flv", "ts", "mpeg", "mpg"]);
+
+const LANGUAGE_TOKENS: Record<string, string> = {
+  chs: "zh-Hans",
+  sc: "zh-Hans",
+  gb: "zh-Hans",
+  cht: "zh-Hant",
+  tc: "zh-Hant",
+  big5: "zh-Hant",
+  zh: "zh",
+  cn: "zh",
+  jp: "ja",
+  jpn: "ja",
+  en: "en",
+  eng: "en",
+  kor: "ko",
+  rus: "ru",
+};
+
+export type MediaItem = {
+  id: string;
+  name: string;
+  type: "file" | "dir";
+  size?: number;
+  extension?: string;
+  compatibility: "supported" | "maybe" | "unsupported";
+  compatibilityReason?: string;
+  displayPath?: string;
+};
+
+export type DirectoryResult = {
+  root?: WatchpartyRoot;
+  currentPath: string;
+  breadcrumbs: string[];
+  hasMore: boolean;
+  nextCursor?: string;
+  items: MediaItem[];
+};
+
+export type ResolvedMedia = {
+  url: string;
+  size?: number;
+  mime?: string;
+  requiresCustomHeaders: boolean;
+};
+
+export type SubtitleTrack = {
+  id: string;
+  mediaId: string;
+  label: string;
+  format: "ass" | "ssa" | "srt" | "vtt";
+  language?: string;
+};
+
+export type WatchpartyMedia = {
+  rootNames(): WatchpartyRoot[];
+  isRoot(value: unknown): value is WatchpartyRoot;
+  list(root: WatchpartyRoot, relativePath: string, cursor?: string): Promise<DirectoryResult>;
+  search(query: string, root?: WatchpartyRoot, cursor?: string): Promise<DirectoryResult>;
+  /** null = unsupported/not playable, undefined = invalid or forged mediaId. */
+  resolve(mediaId: string): Promise<ResolvedMedia | null | undefined>;
+  /** undefined = invalid or forged mediaId; empty array = no matching subtitles. */
+  discoverSubtitles(mediaId: string): Promise<SubtitleTrack[] | undefined>;
+  loadSubtitle(mediaId: string): Promise<string | undefined>;
+};
+
+export type WatchpartyMediaOptions = {
+  mediaIdKey: string;
+  /** Origin the backend itself uses to reach OpenList. */
+  internalBaseUrl: string;
+  /** Origin browsers use to reach OpenList (differs on VPS deployments). */
+  publicBaseUrl: string;
+};
+
+/**
+ * WatchParty's OpenList media adapter. mediaId values are HMAC-signed opaque
+ * tokens; every use re-validates the decoded path against the allowed roots.
+ * Video bytes are never proxied through this process: resolve returns the
+ * OpenList proxy URL rewritten to the browser-facing origin.
+ */
+export function createWatchpartyMedia(client: OpenlistClient, options: WatchpartyMediaOptions): WatchpartyMedia {
+  const { mediaIdKey, internalBaseUrl, publicBaseUrl } = options;
+
+  function rewriteToPublicBase(url: string): string | null {
+    let parsed: URL;
+    let internal: URL;
+    let target: URL;
+    try {
+      parsed = new URL(url);
+      internal = new URL(internalBaseUrl);
+      target = new URL(publicBaseUrl);
+    } catch {
+      return null;
+    }
+    if (parsed.origin === internal.origin) {
+      return `${target.origin}${parsed.pathname}${parsed.search}`;
+    }
+    return parsed.protocol === "https:" ? url : null;
+  }
+
+  function sign(payload: string): string {
+    return createHmac("sha256", mediaIdKey).update(payload).digest("base64url");
+  }
+
+  function encodeMediaId(mediaPath: string): string {
+    const payload = Buffer.from(mediaPath).toString("base64url");
+    return `${payload}.${sign(payload)}`;
+  }
+
+  function decodeMediaId(mediaId: string): string | undefined {
+    const [payload, signature, extra] = mediaId.split(".");
+    if (!payload || !signature || extra || !safeSignatureEquals(signature, sign(payload))) return undefined;
+    try {
+      const mediaPath = Buffer.from(payload, "base64url").toString("utf8");
+      return mediaPath.startsWith("/") && mediaPath.length <= 4096 ? mediaPath : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function listOpenlist(directoryPath: string): Promise<OpenlistEntry[]> {
+    const response = await client.list(directoryPath);
+    if (!response || response.code !== 200) {
+      throw new OpenlistServiceError("OPENLIST_UNAVAILABLE", "OpenList directory request failed", 502);
+    }
+    return toEntries(response.data?.content, directoryPath)
+      .filter((entry) => isDirectChild(directoryPath, entry.path))
+      .slice(0, MAX_DIRECTORY_ENTRIES);
+  }
+
+  async function list(root: WatchpartyRoot, relativePath: string, cursor?: string): Promise<DirectoryResult> {
+    const directoryPath = toAbsolutePath(root, relativePath);
+    const content = (await listOpenlist(directoryPath)).sort((left, right) => naturalCompare(left.name, right.name));
+    const page = pageItems(content, cursor);
+    const currentRelative = fromAbsolutePath(root, directoryPath);
+    return {
+      root,
+      currentPath: currentRelative,
+      breadcrumbs: breadcrumbsOf(currentRelative),
+      hasMore: page.end < content.length,
+      ...(page.end < content.length ? { nextCursor: String(page.end) } : {}),
+      items: page.items.map((entry) => toMediaItem(entry, encodeMediaId)),
+    };
+  }
+
+  async function search(query: string, root?: WatchpartyRoot, cursor?: string): Promise<DirectoryResult> {
+    const response = await client.search(query, root ? WATCHPARTY_ROOTS[root] : undefined);
+    const entries = toEntries(response?.data?.content)
+      .filter((entry) => isAllowedPath(entry.path))
+      .slice(0, MAX_DIRECTORY_ENTRIES);
+    const page = pageItems(entries.sort((a, b) => naturalCompare(a.name, b.name)), cursor);
+    return {
+      ...(root ? { root } : {}),
+      currentPath: "/",
+      breadcrumbs: [],
+      hasMore: page.end < entries.length,
+      ...(page.end < entries.length ? { nextCursor: String(page.end) } : {}),
+      items: page.items.map((entry) => toMediaItem(entry, encodeMediaId)),
+    };
+  }
+
+  async function resolve(mediaId: string): Promise<ResolvedMedia | null | undefined> {
+    const mediaPath = decodeMediaId(mediaId);
+    if (!mediaPath || !isAllowedPath(mediaPath)) return undefined;
+    const extension = extensionOf(mediaPath);
+    if (!SUPPORTED_VIDEO_EXTENSIONS.has(extension) && !MAYBE_VIDEO_EXTENSIONS.has(extension)) return null;
+    const info = await client.getDownloadInfo(mediaPath);
+    if (!info?.url) return null;
+    const url = rewriteToPublicBase(info.url);
+    if (!url) return null;
+    return {
+      url,
+      ...(info.size === null ? {} : { size: info.size }),
+      mime: mimeTypeFor(mediaPath),
+      requiresCustomHeaders: false,
+    };
+  }
+
+  /**
+   * Subtitle discovery: same directory, normalized same primary filename
+   * (language suffixes like "Episode 2.chs.ass" match). Token comparison —
+   * not prefix matching — prevents "Episode 2" from matching "Episode 20".
+   */
+  async function discoverSubtitles(mediaId: string): Promise<SubtitleTrack[] | undefined> {
+    const videoPath = decodeMediaId(mediaId);
+    if (!videoPath || !isAllowedPath(videoPath)) return undefined;
+    const videoTokens = stemTokens(stemOf(videoPath));
+    const tracks = (await listOpenlist(path.posix.dirname(videoPath)))
+      .filter((entry) => !entry.isDir && isSubtitlePath(entry.path))
+      .filter((entry) => subtitleMatchesVideo(videoTokens, entry.path))
+      .sort((left, right) => naturalCompare(left.name, right.name))
+      .map(toSubtitleTrack);
+    return tracks;
+  }
+
+  async function loadSubtitle(mediaId: string): Promise<string | undefined> {
+    const mediaPath = decodeMediaId(mediaId);
+    if (!mediaPath || !isAllowedPath(mediaPath) || !isSubtitlePath(mediaPath)) return undefined;
+    const info = await client.getDownloadInfo(mediaPath);
+    if (!info?.url || (info.size !== null && info.size > SUBTITLE_CAP_BYTES)) return undefined;
+    const fetched = await client.fetchOriginText(info.url, SUBTITLE_CAP_BYTES);
+    if (!fetched || fetched.status < 200 || fetched.status >= 300) return undefined;
+    return fetched.text;
+  }
+
+  function toSubtitleTrack(entry: OpenlistEntry): SubtitleTrack {
+    const subtitleId = encodeMediaId(entry.path);
+    return {
+      id: subtitleId,
+      mediaId: subtitleId,
+      label: entry.name,
+      format: extensionOf(entry.path) as SubtitleTrack["format"],
+      ...languageOf(stemOf(entry.name)),
+    };
+  }
+
+  return {
+    rootNames: () => Object.keys(WATCHPARTY_ROOTS) as WatchpartyRoot[],
+    isRoot: (value): value is WatchpartyRoot => typeof value === "string" && value in WATCHPARTY_ROOTS,
+    list,
+    search,
+    resolve,
+    discoverSubtitles,
+    loadSubtitle,
+  };
+}
+
+function safeSignatureEquals(left: string, right: string): boolean {
+  const actual = Buffer.from(left);
+  const expected = Buffer.from(right);
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function toEntries(content: unknown, parentPath?: string): OpenlistEntry[] {
+  if (!Array.isArray(content)) return [];
+  return content.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const item = entry as Record<string, unknown>;
+    const name = typeof item.name === "string" ? item.name : "";
+    const itemPath = typeof item.path === "string"
+      ? item.path
+      : parentPath ? path.posix.join(parentPath, name) : "";
+    if (!name || !itemPath || name.includes("/") || name.includes("\\")) return [];
+    const rawSize = item.size;
+    const size = typeof rawSize === "number" && Number.isSafeInteger(rawSize) && rawSize >= 0 ? rawSize : undefined;
+    return [{ name, path: itemPath, isDir: item.is_dir === true, ...(size === undefined ? {} : { size }) }];
+  });
+}
+
+function toAbsolutePath(root: WatchpartyRoot, relativePath: string): string {
+  const base = WATCHPARTY_ROOTS[root];
+  const relative = relativePath.replace(/^\/+/, "");
+  if (!relative) return base;
+  const segments = relative.split("/");
+  if (segments.some((segment) => !segment || segment === "." || segment === ".." || segment.includes("\\"))) {
+    throw new Error("Invalid media path");
+  }
+  const resolved = path.posix.join(base, ...segments);
+  if (!isPathUnder(base, resolved)) throw new Error("Media path is outside allowed root");
+  return resolved;
+}
+
+function fromAbsolutePath(root: WatchpartyRoot, absolutePath: string): string {
+  const relative = path.posix.relative(WATCHPARTY_ROOTS[root], absolutePath);
+  return relative ? `/${relative}` : "/";
+}
+
+function isAllowedPath(mediaPath: string): boolean {
+  if (!mediaPath.startsWith("/") || mediaPath.includes("\\")) return false;
+  const normalized = path.posix.normalize(mediaPath);
+  if (normalized !== mediaPath) return false;
+  return Object.values(WATCHPARTY_ROOTS).some((root) => isPathUnder(root, normalized));
+}
+
+function isPathUnder(root: string, candidate: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}/`);
+}
+
+function isDirectChild(directoryPath: string, candidate: string): boolean {
+  return path.posix.dirname(candidate) === directoryPath;
+}
+
+function toMediaItem(entry: OpenlistEntry, encodeMediaId: (mediaPath: string) => string): MediaItem {
+  const extension = extensionOf(entry.name);
+  const compatibility = compatibilityOf(entry.isDir, extension);
+  return {
+    id: encodeMediaId(entry.path),
+    name: entry.name,
+    type: entry.isDir ? "dir" : "file",
+    ...(entry.size === undefined ? {} : { size: entry.size }),
+    ...(extension ? { extension } : {}),
+    ...compatibility,
+    ...(entry.isDir ? {} : { displayPath: entry.path }),
+  };
+}
+
+function compatibilityOf(isDir: boolean, extension: string) {
+  if (isDir || SUPPORTED_VIDEO_EXTENSIONS.has(extension)) return { compatibility: "supported" as const };
+  if (extension === "mkv") return { compatibility: "unsupported" as const, compatibilityReason: "浏览器不支持 MKV 封装" };
+  if (MAYBE_VIDEO_EXTENSIONS.has(extension)) {
+    return { compatibility: "maybe" as const, compatibilityReason: "浏览器是否支持此封装取决于编码" };
+  }
+  return { compatibility: "unsupported" as const, compatibilityReason: "不是浏览器可播放的视频文件" };
+}
+
+function pageItems<T>(items: T[], cursor: string | undefined) {
+  const start = cursor && /^\d+$/.test(cursor) ? Number(cursor) : 0;
+  if (!Number.isSafeInteger(start) || start < 0 || start > items.length) throw new Error("Invalid cursor");
+  const end = Math.min(start + PAGE_SIZE, items.length);
+  return { items: items.slice(start, end), end };
+}
+
+function breadcrumbsOf(relativePath: string): string[] {
+  if (relativePath === "/") return [];
+  return relativePath.slice(1).split("/");
+}
+
+function extensionOf(name: string): string {
+  const index = name.lastIndexOf(".");
+  return index > 0 ? name.slice(index + 1).toLowerCase() : "";
+}
+
+function mimeTypeFor(name: string): string | undefined {
+  return {
+    mp4: "video/mp4",
+    webm: "video/webm",
+    m3u8: "application/vnd.apple.mpegurl",
+    mov: "video/quicktime",
+    m4v: "video/x-m4v",
+    ogv: "video/ogg",
+  }[extensionOf(name)];
+}
+
+function isSubtitlePath(mediaPath: string): boolean {
+  return SUBTITLE_EXTENSIONS.has(extensionOf(mediaPath));
+}
+
+function stemOf(filePath: string): string {
+  const name = filePath.slice(filePath.lastIndexOf("/") + 1);
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(0, dot) : name;
+}
+
+function stemTokens(stem: string): string[] {
+  return stem.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+}
+
+function subtitleMatchesVideo(videoTokens: string[], subtitlePath: string): boolean {
+  if (videoTokens.length === 0) return false;
+  const subtitleTokens = stemTokens(stemOf(subtitlePath));
+  if (subtitleTokens.length < videoTokens.length) return false;
+  if (!videoTokens.every((token, index) => subtitleTokens[index] === token)) return false;
+  return subtitleTokens.slice(videoTokens.length).every((token) => token in LANGUAGE_TOKENS);
+}
+
+function languageOf(stem: string): { language: string } | Record<string, never> {
+  const token = stemTokens(stem).reverse().find((candidate) => candidate in LANGUAGE_TOKENS);
+  return token ? { language: LANGUAGE_TOKENS[token] } : {};
+}
+
+function naturalCompare(left: string, right: string): number {
+  return left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
+}

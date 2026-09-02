@@ -1,120 +1,133 @@
-/**
- * Core watch-together socket and HTTP contract.
- * Event names stay `CMD:*` / `REC:*` so the Vite UI keeps working.
- */
+import type { Server } from "socket.io";
 
-export type RoomCommand =
-  | { type: "host"; url: string }
-  | { type: "play" }
-  | { type: "pause" }
-  | { type: "seek"; t: number }
-  | { type: "playbackRate"; rate: number }
-  | { type: "loop"; on: boolean }
-  | { type: "lock"; locked: boolean }
-  | { type: "ts"; t: number }
-  | { type: "name"; name: string }
-  | { type: "chat"; msg: string; replyToId?: string; replyToTimestamp?: string }
-  | { type: "playlistAdd"; url: string }
-  | { type: "playlistMove"; index: number; toIndex: number }
-  | { type: "playlistDelete"; index: number }
-  | { type: "playlistNext"; url?: string };
+export type MediaSource =
+  | {
+      kind: "openlist";
+      mediaId: string;
+      title: string;
+      container: string;
+      displayPath?: string;
+    }
+  | { kind: "http"; url: string; title?: string }
+  | { kind: "hls"; url: string; title?: string }
+  | { kind: "youtube"; videoId: string; title?: string };
 
-/** Who should receive a Room event on the wire. */
-export type RoomEventTarget = {
-  to?: string;
-  except?: string;
+export type PlaylistItem = {
+  id: string;
+  media: MediaSource;
+  addedByClientId: string;
+  addedAtMs: number;
 };
 
-export type CoreHostState = {
-  video: string;
-  videoTS: number;
-  subtitle: string;
+export type RoomSnapshot = {
+  revision: number;
+  source: MediaSource | null;
+  currentPlaylistItemId?: string;
+  positionSeconds: number;
+  serverTimeMs: number;
   paused: boolean;
   playbackRate: number;
   loop: boolean;
-  controller?: string;
-  isLocked: boolean;
+  locked: boolean;
+  ownerClientId: string;
+  playlist: PlaylistItem[];
 };
 
-/** Payload the Vite UI reads from REC:host / askHost. */
-export type WireHostState = CoreHostState & {
-  isVBrowserLarge: boolean;
-};
-
-export type RoomSnapshot = CoreHostState & {
-  chat: ChatMessage[];
-  playlist: PlaylistVideo[];
-  roster: User[];
-  nameMap: StringDict;
-  pictureMap: StringDict;
-  tsMap: NumberDict;
-};
-
-export type ReactionCommand = {
-  value: string;
-  msgId: string;
-  msgTimestamp: string;
-};
-
-export type ChatV2Payload = {
-  msg: string;
-  replyToId?: string;
-  replyToTimestamp?: string;
-};
-
-export type PlaylistMovePayload = {
-  index: number;
-  toIndex: number;
-};
-
-export type SocketData = {
+export type RoomMember = {
   clientId: string;
-  uid: string;
-  isSub: boolean;
+  name: string;
+  isOwner: boolean;
 };
+
+export type ErrorCode =
+  | "INVALID_REQUEST"
+  | "ROOM_NOT_FOUND"
+  | "INVALID_PIN"
+  | "RATE_LIMITED"
+  | "ACCESS_TOKEN_INVALID"
+  | "OWNER_TOKEN_INVALID"
+  | "FORBIDDEN"
+  | "OPENLIST_UNAVAILABLE"
+  | "MEDIA_NOT_FOUND"
+  | "MEDIA_UNSUPPORTED"
+  | "PLAYLIST_FULL"
+  | "REVISION_CONFLICT"
+  | "OWNER_TARGET_OFFLINE";
+
+export type ApiError = { code: ErrorCode | string; message: string };
+
+export type CommandAck<T = undefined> =
+  | { ok: true; revision: number; data?: T }
+  | { ok: false; error: ApiError };
+
+export type CommandInput = { expectedRevision: number };
 
 export interface ClientToServerEvents {
-  "CMD:name": (name: string) => void;
-  "CMD:picture": (url: string) => void;
-  "CMD:host": (url: string) => void;
-  "CMD:play": () => void;
-  "CMD:pause": () => void;
-  "CMD:seek": (t: number) => void;
-  "CMD:playbackRate": (rate: number) => void;
-  "CMD:loop": (on: boolean) => void;
-  "CMD:lock": (locked: boolean) => void;
-  "CMD:ts": (t: number) => void;
-  "CMD:chat": (msg: string) => void;
-  "CMD:chatV2": (payload: ChatV2Payload) => void;
-  "CMD:addReaction": (payload: ReactionCommand) => void;
-  "CMD:removeReaction": (payload: ReactionCommand) => void;
-  "CMD:askHost": () => void;
-  "CMD:playlistNext": (url?: string) => void;
-  "CMD:playlistAdd": (url: string) => void;
-  "CMD:playlistMove": (payload: PlaylistMovePayload) => void;
-  "CMD:playlistDelete": (index: number) => void;
+  "CMD:name": (payload: { name: string }, ack: (result: CommandAck) => void) => void;
+  "CMD:clockSync": (
+    payload: { clientSentAtMs: number },
+    ack: (result: CommandAck<{ serverTimeMs: number }>) => void,
+  ) => void;
+  "CMD:play": (payload: CommandInput, ack: (result: CommandAck) => void) => void;
+  "CMD:pause": (payload: CommandInput, ack: (result: CommandAck) => void) => void;
+  "CMD:seek": (
+    payload: CommandInput & { positionSeconds: number },
+    ack: (result: CommandAck) => void,
+  ) => void;
+  "CMD:rate": (
+    payload: CommandInput & { rate: number },
+    ack: (result: CommandAck) => void,
+  ) => void;
+  "CMD:loop": (
+    payload: CommandInput & { loop: boolean },
+    ack: (result: CommandAck) => void,
+  ) => void;
+  "CMD:lock": (
+    payload: CommandInput & { locked: boolean },
+    ack: (result: CommandAck) => void,
+  ) => void;
+  "CMD:mediaSet": (
+    payload: CommandInput & { media: MediaSource },
+    ack: (result: CommandAck) => void,
+  ) => void;
+  "CMD:playlistAdd": (
+    payload: CommandInput & { media: MediaSource },
+    ack: (result: CommandAck) => void,
+  ) => void;
+  "CMD:playlistRemove": (
+    payload: CommandInput & { itemId: string },
+    ack: (result: CommandAck) => void,
+  ) => void;
+  "CMD:playlistMove": (
+    payload: CommandInput & { itemId: string; targetIndex: number },
+    ack: (result: CommandAck) => void,
+  ) => void;
+  "CMD:playlistPlay": (
+    payload: CommandInput & { itemId: string },
+    ack: (result: CommandAck) => void,
+  ) => void;
+  "CMD:playlistNext": (payload: CommandInput, ack: (result: CommandAck) => void) => void;
+  "CMD:transferOwner": (
+    payload: CommandInput & { targetClientId: string },
+    ack: (result: CommandAck) => void,
+  ) => void;
 }
 
 export interface ServerToClientEvents {
-  "REC:host": (state: WireHostState) => void;
-  "REC:play": (video: string) => void;
-  "REC:pause": () => void;
-  "REC:seek": (t: number) => void;
-  "REC:playbackRate": (rate: number) => void;
-  "REC:loop": (on: boolean) => void;
-  "REC:tsMap": (tsMap: NumberDict) => void;
-  "REC:chat": (msg: ChatMessage) => void;
-  "REC:nameMap": (nameMap: StringDict) => void;
-  "REC:pictureMap": (pictureMap: StringDict) => void;
-  "REC:addReaction": (payload: Reaction & { user: string }) => void;
-  "REC:removeReaction": (payload: Reaction & { user: string }) => void;
-  "REC:lock": (locked: boolean) => void;
-  chatinit: (chat: ChatMessage[]) => void;
-  playlist: (playlist: PlaylistVideo[]) => void;
-  roster: (roster: User[]) => void;
+  "REC:snapshot": (snapshot: RoomSnapshot) => void;
+  "REC:members": (members: RoomMember[]) => void;
+  "REC:ownerToken": (ownerToken: string) => void;
+  "REC:error": (error: ApiError) => void;
 }
 
 export type InterServerEvents = Record<string, never>;
+export type SocketData = {
+  roomId: string;
+  clientId: string;
+  accessToken: string;
+  ownerToken?: string;
+  nickname: string;
+};
 
 export type CoreServer = Server<
   ClientToServerEvents,
@@ -123,86 +136,33 @@ export type CoreServer = Server<
   SocketData
 >;
 
-type RoomEventPayloads = {
-  "REC:host": CoreHostState;
-  "REC:play": string;
-  "REC:pause": undefined;
-  "REC:seek": number;
-  "REC:playbackRate": number;
-  "REC:loop": boolean;
-  "REC:lock": boolean;
-  "REC:tsMap": NumberDict;
-  "REC:chat": ChatMessage;
-  "REC:nameMap": StringDict;
-  "REC:pictureMap": StringDict;
-  "REC:addReaction": Reaction;
-  "REC:removeReaction": Reaction;
-  playlist: PlaylistVideo[];
-  roster: User[];
+export const ERROR_MESSAGES: Record<ErrorCode, string> = {
+  INVALID_REQUEST: "请求参数无效",
+  ROOM_NOT_FOUND: "房间不存在或已解散",
+  INVALID_PIN: "PIN 码错误",
+  RATE_LIMITED: "PIN 尝试次数过多，请稍后重试",
+  ACCESS_TOKEN_INVALID: "访问凭据已失效",
+  OWNER_TOKEN_INVALID: "房主凭据已失效",
+  FORBIDDEN: "当前房间锁定，只有房主可以执行此操作",
+  OPENLIST_UNAVAILABLE: "OpenList 媒体服务暂时不可用",
+  MEDIA_NOT_FOUND: "媒体不存在或已下架",
+  MEDIA_UNSUPPORTED: "该媒体格式不受支持",
+  PLAYLIST_FULL: "播放列表已达到 200 项上限",
+  REVISION_CONFLICT: "房间状态已更新，请重新同步后重试",
+  OWNER_TARGET_OFFLINE: "目标成员当前不在线",
 };
 
-export type RoomEvent = {
-  [Event in keyof RoomEventPayloads]: {
-    event: Event;
-    payload: RoomEventPayloads[Event];
-    target?: RoomEventTarget;
-  };
-}[keyof RoomEventPayloads];
-
-export type RoomEventHandler = (event: RoomEvent) => void;
-
-export function hostStateForClient(state: CoreHostState): WireHostState {
-  return {
-    video: state.video,
-    videoTS: state.videoTS,
-    subtitle: state.subtitle,
-    paused: state.paused,
-    playbackRate: state.playbackRate,
-    loop: state.loop,
-    controller: state.controller,
-    isLocked: state.isLocked,
-    isVBrowserLarge: false,
-  };
+export function errorResult(code: ErrorCode): { ok: false; error: ApiError } {
+  return { ok: false, error: { code, message: ERROR_MESSAGES[code] } };
 }
 
-export const CORE_CMD = {
-  name: "CMD:name",
-  picture: "CMD:picture",
-  host: "CMD:host",
-  play: "CMD:play",
-  pause: "CMD:pause",
-  seek: "CMD:seek",
-  playbackRate: "CMD:playbackRate",
-  loop: "CMD:loop",
-  lock: "CMD:lock",
-  ts: "CMD:ts",
-  chat: "CMD:chat",
-  chatV2: "CMD:chatV2",
-  addReaction: "CMD:addReaction",
-  removeReaction: "CMD:removeReaction",
-  askHost: "CMD:askHost",
-  playlistNext: "CMD:playlistNext",
-  playlistAdd: "CMD:playlistAdd",
-  playlistMove: "CMD:playlistMove",
-  playlistDelete: "CMD:playlistDelete",
-} as const;
+export function okResult(revision: number): CommandAck {
+  return { ok: true, revision };
+}
 
-export const CORE_REC = {
-  host: "REC:host",
-  play: "REC:play",
-  pause: "REC:pause",
-  seek: "REC:seek",
-  playbackRate: "REC:playbackRate",
-  loop: "REC:loop",
-  tsMap: "REC:tsMap",
-  chat: "REC:chat",
-  nameMap: "REC:nameMap",
-  pictureMap: "REC:pictureMap",
-  addReaction: "REC:addReaction",
-  removeReaction: "REC:removeReaction",
-  lock: "REC:lock",
-  chatinit: "chatinit",
-  playlist: "playlist",
-  roster: "roster",
-} as const;
-import type { Server } from "socket.io";
+export function isValidUUID(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  );
+}

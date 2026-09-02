@@ -5,7 +5,7 @@ import path from "node:path";
 import cors from "cors";
 import express, { type Express } from "express";
 import { Server } from "socket.io";
-import config, { type AppConfig } from "./config.ts";
+import { loadConfig, type AppConfig } from "./config.ts";
 import { registerCoreHttp } from "./core/http/routes.ts";
 import { RoomRegistry } from "./core/room/registry.ts";
 import { bindRooms } from "./core/socket/bindRooms.ts";
@@ -38,16 +38,12 @@ export type Backend = {
   close(): Promise<void>;
 };
 
-type EngineRequest = {
-  _query?: { roomId?: string | string[] };
-};
-
 /**
  * Assemble Express + Socket.io + the in-memory room table.
  * Does not listen until start() is called.
  */
 export function createBackend(options: CreateBackendOptions = {}): Backend {
-  const cfg = options.config ?? config;
+  const cfg = options.config ?? loadConfig();
   const host = options.host ?? cfg.host;
   const requestedPort = options.port ?? cfg.port;
   const pruneIntervalMs = options.pruneIntervalMs ?? cfg.pruneIntervalMs;
@@ -75,7 +71,7 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
     SocketData
   >(httpServer, {
     cors: {},
-    transports: ["websocket"],
+    transports: ["polling", "websocket"],
     cleanupEmptyChildNamespaces: true,
   });
 
@@ -86,27 +82,11 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
 
   bindRooms(io, registry);
 
-  registerCoreHttp(app, registry);
+  registerCoreHttp(app, registry, cfg);
 
   if (options.serveStatic !== false) {
     mountLegacyUi(app, cfg.buildDirectory);
   }
-
-  io.engine.use(
-    (req: EngineRequest, _res: unknown, next: (err?: Error) => void) => {
-      const raw = (req as EngineRequest)._query?.roomId;
-      const roomId = Array.isArray(raw) ? raw[0] : raw;
-      if (!roomId) {
-        next();
-        return;
-      }
-      if (!registry.get("/" + roomId)) {
-        next(new Error("Invalid namespace"));
-        return;
-      }
-      next();
-    },
-  );
 
   const timers: NodeJS.Timeout[] = [];
   let closed = false;
