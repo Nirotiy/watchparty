@@ -196,12 +196,15 @@ export interface RoomMember {
   ```ts
   {
     url: string;               // 浏览器可达的绝对播放地址：OpenList 代理地址（带 sign）或 HTTPS 直链
-    expiresAt?: number;        // 时间戳毫秒；OpenList 代理模式下地址为确定性签名，不过期
+    expiresAt?: number;        // 时间戳毫秒；签名有效期取决于 OpenList link_expiration 配置（当前实例为 0 = 不过期），客户端契约始终是失败后重新 resolve
     requiresCustomHeaders?: boolean; // 若为 true 则网页端标记不可播放，不走后端伪装代理
   }
   ```
   *注：百度网盘直链要求 `User-Agent: pan.baidu.com`（大于约 20MB 的文件，OpenList 官方文档），浏览器无法携带该请求头，因此存储需保持 `web_proxy: true`，
   `url` 实际为 OpenList 的 `/p/...?sign=` 代理地址；后端通过 `OPENLIST_PUBLIC_URL` 将其改写为浏览器可达的源。*
+  *MPV 插件扩展（已实测验证）：`resolve` 将新增仅供 MPV 使用的 `directUrl`（来自管理员 `/api/fs/link`，返回头仅含 `User-Agent: pan.baidu.com`，无 Cookie/Authorization），
+  `directUrl` 不得进入房间快照或播放列表广播；MPV 端必须显式设置 `--user-agent=pan.baidu.com`（实测对直链与 `/p/` 回退均必需，缺失时百度侧会挂起）；
+  实测 v4.2.6 下 `web_proxy=false + ProxyTypes` 无法放行 `/p/`（403 proxy not allowed），禁止用改配置的方式求直链；`/d/` 为 OpenList 策略路由，不属于本契约。*
 
 #### `GET /api/rooms/:roomId/media/subtitle?mediaId=<opaque-id>` (字幕文件拉取)
 - **鉴权**：`Authorization: Bearer <accessToken>`
@@ -335,7 +338,7 @@ WatchParty 后端**直接连接 OpenList 的 HTTP API**（不再存在独立 Gat
    - `mediaId` 为 HMAC-SHA256 签名的 opaque 值，每次使用都重新校验所属白名单根目录；
    - 严格限定白名单根目录：`Anime`, `Film`, `TV Shows`，禁止 `../` 路径穿越；
    - **流媒体直出**：视频字节由浏览器直连 OpenList（`/p/*` 流式代理），**绝不经由 WatchParty Node.js 转发**。
-3. **百度网盘约束**：大于约 20MB 的文件下载要求 `User-Agent: pan.baidu.com`（OpenList 官方文档），普通 `<video>` 无法注入该请求头，因此百度存储必须保持 `web_proxy: true`，`resolve` 返回 OpenList 的 `/p/...?sign=` 代理地址（确定性签名，不过期）。
+3. **百度网盘约束**：大于约 20MB 的文件下载要求 `User-Agent: pan.baidu.com`（OpenList 官方文档），普通 `<video>` 无法注入该请求头，因此百度存储必须保持 `web_proxy: true`，`resolve` 返回 OpenList 的 `/p/...?sign=` 代理地址（签名有效期取决于 `link_expiration` 配置，当前实例为 0 = 不过期）。
 4. **请求边界**：目录列表与搜索单次请求固定 `per_page: 2000`，响应体在解析前就由上游截断，内存峰值有界；WatchParty 在这批结果内自然排序并按 100 条分页，超出部分不返回。
 5. **部署容量**：每位观看者产生独立的 OpenList 代理流量（无跨用户缓存）；首期限定 3 个并发观看者、1080p、不转码。瓶颈为线路质量、百度限速、VPS 端口速率与月流量额度，而非 CPU/内存（流式转发，无转码）。
 
