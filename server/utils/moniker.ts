@@ -1,39 +1,30 @@
 import fs from "node:fs";
-import { resolveShard } from "./resolveShard.ts";
 
-let adjectives = fs
+const adjectives = fs
   .readFileSync(process.cwd() + "/words/adjectives.txt")
   .toString()
-  .split(/\r?\n/);
+  .split(/\r?\n/)
+  .filter(Boolean);
 const nouns = fs
   .readFileSync(process.cwd() + "/words/nouns.txt")
   .toString()
-  .split(/\r?\n/);
+  .split(/\r?\n/)
+  .filter(Boolean);
 const verbs = fs
   .readFileSync(process.cwd() + "/words/verbs.txt")
   .toString()
-  .split(/\r?\n/);
+  .split(/\r?\n/)
+  .filter(Boolean);
+
 const randomElement = (array: string[]) =>
   array[Math.floor(Math.random() * array.length)];
 
-export function makeRoomName(shard: number | undefined) {
-  let filteredAdjectives = adjectives;
-  if (shard) {
-    // Filter the adjective list by shard
-    filteredAdjectives = adjectives.filter(
-      (adj) => resolveShard(adj) === Number(shard),
-    );
-  }
-  const adjective = randomElement(filteredAdjectives);
-  const noun = randomElement(nouns);
-  const verb = randomElement(verbs);
-  return `${adjective}-${noun}-${verb}`;
+export function makeRoomName(): string {
+  return `${randomElement(adjectives)}-${randomElement(nouns)}-${randomElement(verbs)}`;
 }
 
-export function makeUserName() {
-  return `${capFirst(randomElement(adjectives))} ${capFirst(
-    randomElement(nouns),
-  )}`;
+export function makeUserName(): string {
+  return `${capFirst(randomElement(adjectives))} ${capFirst(randomElement(nouns))}`;
 }
 
 function capFirst(string: string) {
