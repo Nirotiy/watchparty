@@ -6,6 +6,9 @@
   "scripts": {
     "start": "node server/main.ts",
     "ui": "vite --host",
+    "web": "npm run dev --prefix web",
+    "web:build": "npm run build --prefix web",
+    "web:start": "npm run start --prefix web",
     "dev": "node --watch-path server --watch-path words server/main.ts",
     "build": "npm run buildReact && npm run typecheckServer",
     "buildReact": "vite build && npm run typecheck",
