@@ -39,6 +39,10 @@ export function bindRooms(io: CoreServer, registry: RoomRegistry): void {
       next(new Error("Invalid namespace"));
       return;
     }
+    if (!registry.canJoin(room.id, socket.handshake.auth?.roomToken)) {
+      next(new Error("Room authentication required"));
+      return;
+    }
     const clientId = socket.handshake.query?.clientId;
     if (typeof clientId !== "string") {
       next(new Error("Invalid clientId type"));
@@ -78,7 +82,7 @@ export function bindRooms(io: CoreServer, registry: RoomRegistry): void {
     socket.emit(CORE_REC.nameMap, snap.nameMap);
     socket.emit(CORE_REC.pictureMap, snap.pictureMap);
     socket.emit(CORE_REC.tsMap, snap.tsMap);
-    socket.emit(CORE_REC.lock, "");
+    socket.emit(CORE_REC.lock, snap.isLocked);
     socket.emit(CORE_REC.chatinit, snap.chat);
     socket.emit(CORE_REC.playlist, snap.playlist);
     socket.nsp.emit(CORE_REC.roster, snap.roster);
@@ -122,6 +126,11 @@ function bindCoreCommands(
   });
   socket.on(CORE_CMD.loop, (on) => {
     room.apply(clientId, { type: "loop", on: Boolean(on) });
+  });
+  socket.on(CORE_CMD.lock, (locked) => {
+    if (typeof locked === "boolean") {
+      room.apply(clientId, { type: "lock", locked });
+    }
   });
   socket.on(CORE_CMD.ts, (t) => {
     room.apply(clientId, { type: "ts", t: Number(t) });
@@ -222,6 +231,7 @@ function emitRoomEvent(
     case CORE_REC.seek:
     case CORE_REC.playbackRate:
     case CORE_REC.loop:
+    case CORE_REC.lock:
     case CORE_REC.tsMap:
     case CORE_REC.chat:
     case CORE_REC.nameMap:

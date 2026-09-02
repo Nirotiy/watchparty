@@ -10,6 +10,7 @@ export type RoomCommand =
   | { type: "seek"; t: number }
   | { type: "playbackRate"; rate: number }
   | { type: "loop"; on: boolean }
+  | { type: "lock"; locked: boolean }
   | { type: "ts"; t: number }
   | { type: "name"; name: string }
   | { type: "chat"; msg: string; replyToId?: string; replyToTimestamp?: string }
@@ -31,12 +32,13 @@ export type CoreHostState = {
   paused: boolean;
   playbackRate: number;
   loop: boolean;
+  controller?: string;
+  isLocked: boolean;
 };
 
 /** Payload the Vite UI reads from REC:host / askHost. */
 export type WireHostState = CoreHostState & {
   isVBrowserLarge: boolean;
-  controller?: string;
 };
 
 export type RoomSnapshot = CoreHostState & {
@@ -80,6 +82,7 @@ export interface ClientToServerEvents {
   "CMD:seek": (t: number) => void;
   "CMD:playbackRate": (rate: number) => void;
   "CMD:loop": (on: boolean) => void;
+  "CMD:lock": (locked: boolean) => void;
   "CMD:ts": (t: number) => void;
   "CMD:chat": (msg: string) => void;
   "CMD:chatV2": (payload: ChatV2Payload) => void;
@@ -105,7 +108,7 @@ export interface ServerToClientEvents {
   "REC:pictureMap": (pictureMap: StringDict) => void;
   "REC:addReaction": (payload: Reaction & { user: string }) => void;
   "REC:removeReaction": (payload: Reaction & { user: string }) => void;
-  "REC:lock": (lock: string) => void;
+  "REC:lock": (locked: boolean) => void;
   chatinit: (chat: ChatMessage[]) => void;
   playlist: (playlist: PlaylistVideo[]) => void;
   roster: (roster: User[]) => void;
@@ -127,6 +130,7 @@ type RoomEventPayloads = {
   "REC:seek": number;
   "REC:playbackRate": number;
   "REC:loop": boolean;
+  "REC:lock": boolean;
   "REC:tsMap": NumberDict;
   "REC:chat": ChatMessage;
   "REC:nameMap": StringDict;
@@ -155,8 +159,9 @@ export function hostStateForClient(state: CoreHostState): WireHostState {
     paused: state.paused,
     playbackRate: state.playbackRate,
     loop: state.loop,
+    controller: state.controller,
+    isLocked: state.isLocked,
     isVBrowserLarge: false,
-    controller: undefined,
   };
 }
 
@@ -169,6 +174,7 @@ export const CORE_CMD = {
   seek: "CMD:seek",
   playbackRate: "CMD:playbackRate",
   loop: "CMD:loop",
+  lock: "CMD:lock",
   ts: "CMD:ts",
   chat: "CMD:chat",
   chatV2: "CMD:chatV2",

@@ -47,7 +47,8 @@ test("create room snapshot is empty host state", () => {
   assert.equal(snap.loop, false);
   assert.equal(snap.playbackRate, 1);
   assert.equal("isVBrowserLarge" in snap, false);
-  assert.equal("controller" in snap, false);
+  assert.equal(snap.controller, undefined);
+  assert.equal(snap.isLocked, false);
   assert.deepEqual(snap.chat, []);
   assert.deepEqual(snap.playlist, []);
   assert.deepEqual(snap.roster, []);
@@ -87,6 +88,29 @@ test("play pause seek update state and exclude the commander", () => {
         e.target?.except === "c1",
     ),
   );
+});
+
+test("only the controller can lock and locked playback rejects guests", () => {
+  const { room, events } = createRoom();
+  room.join("host");
+  room.join("guest");
+  room.apply("guest", { type: "lock", locked: true });
+  assert.equal(room.snapshot().isLocked, false);
+
+  room.apply("host", { type: "lock", locked: true });
+  assert.equal(room.snapshot().isLocked, true);
+  room.apply("guest", { type: "pause" });
+  assert.equal(room.snapshot().paused, false);
+  room.apply("host", { type: "pause" });
+  assert.equal(room.snapshot().paused, true);
+  assert.ok(
+    events.some(
+      (event) => event.event === CORE_REC.lock && event.payload === true,
+    ),
+  );
+
+  room.leave("host");
+  assert.equal(room.snapshot().controller, "guest");
 });
 
 test("non-finite seek is ignored", () => {

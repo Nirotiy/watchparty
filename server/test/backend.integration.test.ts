@@ -58,11 +58,12 @@ function connect(
   backend: Backend,
   roomName: string,
   clientId: string,
+  roomToken?: string,
 ): TestSocket {
   const socket = clientIo(origin(backend) + roomName, {
     transports: ["websocket"],
     query: { clientId, roomId: roomName.slice(1) },
-    auth: { sessionId: crypto.randomUUID() },
+    auth: { sessionId: crypto.randomUUID(), roomToken },
     autoConnect: true,
   }) as TestSocket;
   sockets.push(socket);
@@ -170,6 +171,73 @@ test("ping and createRoom work; uid is ignored", async () => {
   assert.equal(room.snapshot().paused, true);
 });
 
+test("protected room exposes info, verifies PIN, and gates socket access", async () => {
+  const backend = await boot();
+  const created = await fetch(origin(backend) + "/createRoom", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "8024" }),
+  });
+  assert.equal(created.status, 200);
+  const creation = (await created.json()) as {
+    name: string;
+    isProtected: boolean;
+  };
+  assert.equal(creation.isProtected, true);
+
+  const roomId = creation.name.slice(1);
+  const info = await fetch(origin(backend) + `/roomInfo/${roomId}`);
+  assert.deepEqual(await info.json(), {
+    roomId,
+    exists: true,
+    isProtected: true,
+    onlineCount: 0,
+  });
+
+  const rejected = connect(backend, creation.name, crypto.randomUUID());
+  const rejection = await new Promise<Error>((resolve) => {
+    rejected.once("connect_error", resolve);
+  });
+  assert.match(rejection.message, /authentication required/i);
+
+  const invalidPin = await fetch(origin(backend) + "/verifyRoomPin", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ roomId, pin: "0000" }),
+  });
+  assert.equal(invalidPin.status, 401);
+
+  const validPin = await fetch(origin(backend) + "/verifyRoomPin", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ roomId, pin: "8024" }),
+  });
+  const verification = (await validPin.json()) as {
+    valid: boolean;
+    token: string;
+  };
+  assert.equal(verification.valid, true);
+  assert.ok(verification.token);
+
+  const accepted = connect(
+    backend,
+    creation.name,
+    crypto.randomUUID(),
+    verification.token,
+  );
+  await waitForConnect(accepted);
+});
+
+test("createRoom rejects passwords that are not four digit PINs", async () => {
+  const backend = await boot();
+  const response = await fetch(origin(backend) + "/createRoom", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "abc" }),
+  });
+  assert.equal(response.status, 400);
+});
+
 test("legacy SaaS routes are 404; resolveShard is empty", async () => {
   const backend = await boot();
   for (const path of [
@@ -208,7 +276,8 @@ test("two clients receive the initial snapshot", async () => {
   const host = await hostA;
   assert.equal(host.video, "");
   assert.equal(host.isVBrowserLarge, false);
-  assert.equal(host.controller, undefined);
+  assert.equal(host.controller, aId);
+  assert.equal(host.isLocked, false);
   const b = connect(backend, roomName, bId);
   const roster = await onceEvent(b, "roster");
   assert.ok(roster.some((user) => user.id === aId));
@@ -256,6 +325,27 @@ test("play pause seek are not echoed to the sender", async () => {
   await delay(80);
   assert.deepEqual(seeksA, []);
   assert.deepEqual(seeksB, [42]);
+});
+
+test("only the host can lock playback controls", async () => {
+  const backend = await boot();
+  const roomName = await createRoom(backend);
+  const host = connect(backend, roomName, crypto.randomUUID());
+  await waitForConnect(host);
+  const guest = connect(backend, roomName, crypto.randomUUID());
+  await waitForConnect(guest);
+
+  const lockedForGuest = onceEvent(guest, "REC:lock");
+  host.emit("CMD:lock", true);
+  assert.equal(await lockedForGuest, true);
+
+  guest.emit("CMD:pause");
+  await delay(50);
+  assert.equal(backend.registry.get(roomName)?.snapshot().paused, false);
+
+  host.emit("CMD:pause");
+  await delay(50);
+  assert.equal(backend.registry.get(roomName)?.snapshot().paused, true);
 });
 
 test("rate loop and timestamps are synchronized", async () => {

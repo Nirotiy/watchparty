@@ -34,6 +34,8 @@ export class Room {
   private playbackRate = 1;
   private paused = false;
   private loop = false;
+  private controller: string | undefined;
+  private isLocked = false;
   private chat: ChatMessage[] = [];
   private nameMap: StringDict = {};
   private pictureMap: StringDict = {};
@@ -73,6 +75,14 @@ export class Room {
   }
 
   apply(clientId: string, cmd: RoomCommand): void {
+    if (
+      this.isLocked &&
+      cmd.type !== "lock" &&
+      isLockedControl(cmd) &&
+      clientId !== this.controller
+    ) {
+      return;
+    }
     switch (cmd.type) {
       case "host":
         this.host(clientId, cmd.url);
@@ -91,6 +101,9 @@ export class Room {
         return;
       case "loop":
         this.setLoop(cmd.on);
+        return;
+      case "lock":
+        this.setLock(clientId, cmd.locked);
         return;
       case "ts":
         this.setTimestamp(clientId, cmd.t);
@@ -138,12 +151,17 @@ export class Room {
   join(clientId: string): void {
     if (!this.roster.some((user) => user.id === clientId)) {
       this.roster.push({ id: clientId });
+      this.controller ??= clientId;
     }
   }
 
   leave(clientId: string): void {
     this.roster = this.roster.filter((user) => user.id !== clientId);
     delete this.tsMap[clientId];
+    if (this.controller === clientId) {
+      this.controller = this.roster[0]?.id;
+      this.emit({ event: CORE_REC.host, payload: this.hostState() });
+    }
     this.emit({ event: CORE_REC.roster, payload: this.roster });
   }
 
@@ -272,6 +290,14 @@ export class Room {
     }
     this.loop = on;
     this.emit({ event: CORE_REC.loop, payload: on });
+  }
+
+  private setLock(clientId: string, locked: boolean): void {
+    if (clientId !== this.controller || typeof locked !== "boolean") {
+      return;
+    }
+    this.isLocked = locked;
+    this.emit({ event: CORE_REC.lock, payload: locked });
   }
 
   private setTimestamp(clientId: string, t: number): void {
@@ -417,6 +443,8 @@ export class Room {
       playbackRate: this.playbackRate,
       paused: this.paused,
       loop: this.loop,
+      controller: this.controller,
+      isLocked: this.isLocked,
     };
   }
 
@@ -457,6 +485,10 @@ export class Room {
     }
     return reactions[data.value];
   }
+}
+
+function isLockedControl(cmd: RoomCommand): boolean {
+  return cmd.type === "play" || cmd.type === "pause" || cmd.type === "seek";
 }
 
 function youtubeVideoId(url: string): string | undefined {
