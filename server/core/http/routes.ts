@@ -131,9 +131,15 @@ function bearerToken(req: Request): string | undefined {
   return scheme === "Bearer" && token ? token : undefined;
 }
 function respondToError(res: Response, error: unknown): void {
-  if (error instanceof OpenlistServiceError) { sendError(res, 502, "OPENLIST_UNAVAILABLE"); return; }
+  if (error instanceof OpenlistServiceError) {
+    sendError(res, 502, "OPENLIST_UNAVAILABLE", error.message);
+    return;
+  }
   sendError(res, 400, "INVALID_REQUEST");
 }
-function sendError(res: Response, status: number, code: keyof typeof ERROR_MESSAGES): void {
-  res.status(status).json({ code, message: ERROR_MESSAGES[code] });
+function sendError(res: Response, status: number, code: keyof typeof ERROR_MESSAGES, detail?: string): void {
+  res.status(status).json({
+    code,
+    message: detail ? `${ERROR_MESSAGES[code]}: ${detail}` : ERROR_MESSAGES[code],
+  });
 }

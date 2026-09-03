@@ -123,10 +123,13 @@ export function createOpenlistClient(cfg: AppConfig): OpenlistClient {
       per_page: OPENLIST_PAGE_SIZE,
       refresh: false,
     }),
+    // OpenList v4 requires parent_ids (array) and a numeric scope; the legacy
+    // parent/scope-string shape returns 400. Empty parent_ids searches every
+    // storage; watchparty-media filters results against the allowed roots.
     search: (keywords, parent) => request("/api/fs/search", {
       keywords,
-      parent: parent || "/",
-      scope: parent || "/",
+      parent_ids: parent ? [parent] : [],
+      scope: 0,
       page: 1,
       per_page: OPENLIST_PAGE_SIZE,
     }),

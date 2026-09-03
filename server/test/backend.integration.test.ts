@@ -103,7 +103,10 @@ test("media resolve requires room access and reports an unreachable OpenList saf
     body: JSON.stringify({ mediaId }),
   });
   assert.equal(unavailable.status, 502);
-  assert.deepEqual(await unavailable.json(), { code: "OPENLIST_UNAVAILABLE", message: "OpenList 媒体服务暂时不可用" });
+  assert.deepEqual(await unavailable.json(), {
+    code: "OPENLIST_UNAVAILABLE",
+    message: "OpenList 媒体服务暂时不可用: Openlist request failed",
+  });
 });
 
 test("media browsing, resolve, and subtitles run end-to-end against a local OpenList", async (context) => {
@@ -152,6 +155,31 @@ test("media browsing, resolve, and subtitles run end-to-end against a local Open
       });
       return;
     }
+    if (pathname === "/api/fs/search") {
+      assert.equal(request.headers.authorization, "fake-openlist-token");
+      let searchRaw = "";
+      request.on("data", (chunk: string) => { searchRaw += chunk; });
+      request.on("end", () => {
+        // OpenList v4 requires parent_ids (array) and a numeric scope.
+        const body = JSON.parse(searchRaw) as {
+          keywords: string;
+          parent_ids: string[];
+          scope: number;
+          page: number;
+          per_page: number;
+        };
+        assert.equal(body.keywords, "show");
+        assert.deepEqual(body.parent_ids, ["/media/openlist-bdyun/Multimedia/Anime"]);
+        assert.equal(typeof body.scope, "number");
+        assert.equal(body.page, 1);
+        assert.equal(body.per_page, 2000);
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ code: 200, data: { content: [
+          { name: "Show 01.mp4", parent: "/media/openlist-bdyun/Multimedia/Anime", is_dir: false, size: 10 },
+        ] } }));
+      });
+      return;
+    }
     if (pathname === "/d/sub.ass") {
       subtitleServed = true;
       response.setHeader("content-type", "text/plain; charset=utf-8");
@@ -182,6 +210,9 @@ test("media browsing, resolve, and subtitles run end-to-end against a local Open
   const directory = await (await fetch(`${origin(backend)}/api/media/list?root=Anime`)).json() as { items: Array<{ id: string; name: string }> };
   assert.deepEqual(directory.items.map((item) => item.name), ["Show 01.chs.ass", "Show 01.mp4"]);
   const videoId = directory.items[1]!.id;
+
+  const search = await (await fetch(`${origin(backend)}/api/media/search?q=show&root=Anime`)).json() as { items: Array<{ name: string }> };
+  assert.deepEqual(search.items.map((item) => item.name), ["Show 01.mp4"]);
 
   const resolved = await (await fetch(`${origin(backend)}/api/rooms/${created.roomId}/media/resolve`, {
     method: "POST", headers: { ...headers, "content-type": "application/json" },

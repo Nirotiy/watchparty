@@ -169,7 +169,17 @@ export function createWatchpartyMedia(client: OpenlistClient, options: Watchpart
 
   async function search(query: string, root?: WatchpartyRoot, cursor?: string): Promise<DirectoryResult> {
     const response = await client.search(query, root ? WATCHPARTY_ROOTS[root] : undefined);
-    const entries = toEntries(response?.data?.content)
+    if (!response || response.code !== 200) {
+      // Surface upstream failures (e.g. search index unavailable) instead of
+      // silently mapping them to an empty result.
+      throw new OpenlistServiceError(
+        "OPENLIST_UNAVAILABLE",
+        `OpenList search failed: ${response?.message ?? "no response"}`,
+        502,
+      );
+    }
+    const rawContent: unknown = response.data?.content;
+    const entries = toEntries(Array.isArray(rawContent) ? rawContent.map(joinSearchPath) : rawContent)
       .filter((entry) => isAllowedPath(entry.path))
       .slice(0, MAX_DIRECTORY_ENTRIES);
     const page = pageItems(entries.sort((a, b) => naturalCompare(a.name, b.name)), cursor);
@@ -253,6 +263,18 @@ function safeSignatureEquals(left: string, right: string): boolean {
   const actual = Buffer.from(left);
   const expected = Buffer.from(right);
   return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+/**
+ * fs/search returns { parent, name } entries without a path field, unlike
+ * fs/list; rebuild path so toEntries can process them. Unknown shapes pass
+ * through unchanged and are dropped by toEntries.
+ */
+function joinSearchPath(entry: unknown): unknown {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
+  const item = entry as Record<string, unknown>;
+  if (typeof item.path === "string" || typeof item.parent !== "string") return item;
+  return { ...item, path: path.posix.join(item.parent, typeof item.name === "string" ? item.name : "") };
 }
 
 function toEntries(content: unknown, parentPath?: string): OpenlistEntry[] {

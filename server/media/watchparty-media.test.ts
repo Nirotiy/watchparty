@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import { test } from "node:test";
 import type { OpenlistClient } from "./openlist.ts";
 import { createWatchpartyMedia, type WatchpartyMedia } from "./watchparty-media.ts";
+import { OpenlistServiceError } from "./openlist.ts";
 
 const KEY = "test-media-id-key";
 const ANIME = "/media/openlist-bdyun/Multimedia/Anime";
@@ -150,4 +151,27 @@ test("subtitle loading enforces the size guard and only serves OpenList-provided
     fetchOriginText: async () => ({ status: 200, text: "WEBVTT" }),
   }));
   assert.equal(await local.loadSubtitle(signedId(`${ANIME}/sub.ass`)), "WEBVTT");
+});
+
+test("search maps OpenList results into directory items", async () => {
+  const watchparty = media(fakeClient({
+    search: async () => ({ code: 200, data: { content: [
+      // fs/search returns parent+name without a path field.
+      { name: "Show 02.mp4", parent: ANIME, is_dir: false, size: 10 },
+    ] } }),
+  }));
+  const result = await watchparty.search("show", "Anime");
+  assert.deepEqual(result.items.map((item) => item.name), ["Show 02.mp4"]);
+});
+
+test("search failure surfaces OPENLIST_UNAVAILABLE instead of an empty result", async () => {
+  const watchparty = media(fakeClient({
+    search: async () => ({ code: 400, message: "handles.SearchReq.SearchReq: Scope: readUint64" }),
+  }));
+  await assert.rejects(
+    watchparty.search("show"),
+    (error: unknown) => error instanceof OpenlistServiceError
+      && error.code === "OPENLIST_UNAVAILABLE"
+      && error.message.includes("Scope: readUint64"),
+  );
 });
