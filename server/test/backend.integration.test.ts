@@ -52,7 +52,7 @@ async function createRoom(backend: Backend, pin?: string) {
 function connect(backend: Backend, roomId: string, clientId: string, accessToken: string, ownerToken?: string): TestSocket {
   const socket = clientIo(origin(backend), {
     transports: ["websocket"],
-    auth: { roomId, clientId, accessToken, ...(ownerToken ? { ownerToken } : {}) },
+    auth: { roomId, clientId, accessToken, clientProtocol: 2, ...(ownerToken ? { ownerToken } : {}) },
   }) as TestSocket;
   sockets.push(socket);
   return socket;

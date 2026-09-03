@@ -1,6 +1,7 @@
 import type { AppConfig } from "../config.ts";
 
-export type OpenlistErrorCode = "OPENLIST_AUTH_FAILED" | "OPENLIST_UNAVAILABLE" | "OPENLIST_BAD_RESPONSE";
+export type OpenlistErrorCode =
+  "OPENLIST_AUTH_FAILED" | "OPENLIST_UNAVAILABLE" | "OPENLIST_BAD_RESPONSE";
 
 export class OpenlistServiceError extends Error {
   readonly code: OpenlistErrorCode;
@@ -14,19 +15,34 @@ export class OpenlistServiceError extends Error {
   }
 }
 
-export type OpenlistResponse = { code: number; message?: string; data?: Record<string, unknown> };
+export type OpenlistResponse = {
+  code: number;
+  message?: string;
+  data?: Record<string, unknown>;
+};
 export type OpenlistDownloadInfo = { url: string; size: number | null };
+/**
+ * Result of the admin fs/link API: the raw direct URL plus the upstream's
+ * required request headers. WatchParty never forwards these headers as-is;
+ * resolve-mpv filters them down to User-Agent only.
+ */
+export type OpenlistLinkInfo = { url: string; header: Record<string, string> };
 
 export type OpenlistClient = {
   list(path: string): Promise<OpenlistResponse>;
   search(keywords: string, parent?: string): Promise<OpenlistResponse>;
   getDownloadInfo(path: string): Promise<OpenlistDownloadInfo | null>;
+  /** Admin-only fs/link: direct URL + upstream-required headers. */
+  getLinkInfo(path: string): Promise<OpenlistLinkInfo | null>;
   /**
    * Fetch text from a URL hosted on the configured OpenList origin only
    * (SSRF guard), aborting once the body exceeds capBytes. Returns undefined
    * when the body exceeds the cap.
    */
-  fetchOriginText(url: string, capBytes: number): Promise<{ status: number; text: string } | undefined>;
+  fetchOriginText(
+    url: string,
+    capBytes: number,
+  ): Promise<{ status: number; text: string } | undefined>;
 };
 
 /**
@@ -46,13 +62,21 @@ export function createOpenlistClient(cfg: AppConfig): OpenlistClient {
   let loginPromise: Promise<string> | null = null;
 
   async function authenticate(): Promise<string> {
-    const data = await postJson("/api/auth/login", {
-      username: cfg.openlistUsername,
-      password: cfg.openlistPassword,
-    }, false);
+    const data = await postJson(
+      "/api/auth/login",
+      {
+        username: cfg.openlistUsername,
+        password: cfg.openlistPassword,
+      },
+      false,
+    );
     const issued = data.data?.token;
     if (data.code !== 200 || typeof issued !== "string" || !issued) {
-      throw new OpenlistServiceError("OPENLIST_AUTH_FAILED", "Openlist authentication failed", 502);
+      throw new OpenlistServiceError(
+        "OPENLIST_AUTH_FAILED",
+        "Openlist authentication failed",
+        502,
+      );
     }
     return issued;
   }
@@ -66,8 +90,14 @@ export function createOpenlistClient(cfg: AppConfig): OpenlistClient {
     return token;
   }
 
-  async function postJson(apiPath: string, body: unknown, authenticated: boolean): Promise<OpenlistResponse> {
-    const headers: Record<string, string> = { "content-type": "application/json" };
+  async function postJson(
+    apiPath: string,
+    body: unknown,
+    authenticated: boolean,
+  ): Promise<OpenlistResponse> {
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+    };
     if (authenticated) headers.authorization = await ensureToken();
     let response: Response;
     try {
@@ -78,72 +108,133 @@ export function createOpenlistClient(cfg: AppConfig): OpenlistClient {
         signal: AbortSignal.timeout(cfg.openlistRequestTimeoutMs),
       });
     } catch {
-      throw new OpenlistServiceError("OPENLIST_UNAVAILABLE", "Openlist request failed", 503);
+      throw new OpenlistServiceError(
+        "OPENLIST_UNAVAILABLE",
+        "Openlist request failed",
+        503,
+      );
     }
     const contentType = response.headers.get("content-type") ?? "";
     if (!contentType.toLowerCase().includes("application/json")) {
-      throw new OpenlistServiceError("OPENLIST_BAD_RESPONSE", "Openlist returned a non-JSON response", 502);
+      throw new OpenlistServiceError(
+        "OPENLIST_BAD_RESPONSE",
+        "Openlist returned a non-JSON response",
+        502,
+      );
     }
     const payload: unknown = await response.json().catch(() => undefined);
-    const record = payload && typeof payload === "object" && !Array.isArray(payload)
-      ? payload as Record<string, unknown>
-      : undefined;
+    const record =
+      payload && typeof payload === "object" && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>)
+        : undefined;
     if (!record || typeof record.code !== "number") {
-      throw new OpenlistServiceError("OPENLIST_BAD_RESPONSE", "Openlist returned an invalid payload", 502);
+      throw new OpenlistServiceError(
+        "OPENLIST_BAD_RESPONSE",
+        "Openlist returned an invalid payload",
+        502,
+      );
     }
     return {
       code: record.code,
-      ...(typeof record.message === "string" ? { message: record.message } : {}),
-      ...(record.data && typeof record.data === "object" && !Array.isArray(record.data)
+      ...(typeof record.message === "string"
+        ? { message: record.message }
+        : {}),
+      ...(record.data &&
+      typeof record.data === "object" &&
+      !Array.isArray(record.data)
         ? { data: record.data as Record<string, unknown> }
         : {}),
     };
   }
 
   function isExpired(data: OpenlistResponse): boolean {
-    return data.code === 401 || data.message?.trim().toLowerCase() === "token is expired";
+    return (
+      data.code === 401 ||
+      data.message?.trim().toLowerCase() === "token is expired"
+    );
   }
 
-  async function request(apiPath: string, body: unknown): Promise<OpenlistResponse> {
+  async function request(
+    apiPath: string,
+    body: unknown,
+  ): Promise<OpenlistResponse> {
     let data = await postJson(apiPath, body, true);
     if (!isExpired(data)) return data;
     token = "";
     data = await postJson(apiPath, body, true);
     if (isExpired(data)) {
-      throw new OpenlistServiceError("OPENLIST_AUTH_FAILED", "Openlist authentication expired after refresh", 502);
+      throw new OpenlistServiceError(
+        "OPENLIST_AUTH_FAILED",
+        "Openlist authentication expired after refresh",
+        502,
+      );
     }
     return data;
   }
 
   return {
-    list: (mediaPath) => request("/api/fs/list", {
-      path: mediaPath,
-      password: "",
-      page: 1,
-      per_page: OPENLIST_PAGE_SIZE,
-      refresh: false,
-    }),
+    list: (mediaPath) =>
+      request("/api/fs/list", {
+        path: mediaPath,
+        password: "",
+        page: 1,
+        per_page: OPENLIST_PAGE_SIZE,
+        refresh: false,
+      }),
     // OpenList v4 requires parent_ids (array) and a numeric scope; the legacy
     // parent/scope-string shape returns 400. Empty parent_ids searches every
     // storage; watchparty-media filters results against the allowed roots.
-    search: (keywords, parent) => request("/api/fs/search", {
-      keywords,
-      parent_ids: parent ? [parent] : [],
-      scope: 0,
-      page: 1,
-      per_page: OPENLIST_PAGE_SIZE,
-    }),
+    search: (keywords, parent) =>
+      request("/api/fs/search", {
+        keywords,
+        parent_ids: parent ? [parent] : [],
+        scope: 0,
+        page: 1,
+        per_page: OPENLIST_PAGE_SIZE,
+      }),
     getDownloadInfo: async (mediaPath) => {
-      const data = await request("/api/fs/get", { path: mediaPath, password: "" });
+      const data = await request("/api/fs/get", {
+        path: mediaPath,
+        password: "",
+      });
       if (data.code !== 200) return null;
       const rawUrl = data.data?.raw_url;
       const rawSize = data.data?.size;
-      const size = typeof rawSize === "number"
-        ? rawSize
-        : typeof rawSize === "string" ? Number(rawSize) : Number.NaN;
+      const size =
+        typeof rawSize === "number"
+          ? rawSize
+          : typeof rawSize === "string"
+            ? Number(rawSize)
+            : Number.NaN;
       return typeof rawUrl === "string"
-        ? { url: rawUrl, size: Number.isSafeInteger(size) && size >= 0 ? size : null }
+        ? {
+            url: rawUrl,
+            size: Number.isSafeInteger(size) && size >= 0 ? size : null,
+          }
         : null;
+    },
+    getLinkInfo: async (mediaPath) => {
+      const data = await request("/api/fs/link", {
+        path: mediaPath,
+        password: "",
+      });
+      if (data.code !== 200) return null;
+      const url = data.data?.url;
+      if (typeof url !== "string" || !url) return null;
+      const rawHeader: unknown = data.data?.header;
+      const header: Record<string, string> = {};
+      if (
+        rawHeader &&
+        typeof rawHeader === "object" &&
+        !Array.isArray(rawHeader)
+      ) {
+        for (const [key, value] of Object.entries(
+          rawHeader as Record<string, unknown>,
+        )) {
+          if (typeof value === "string") header[key] = value;
+        }
+      }
+      return { url, header };
     },
     fetchOriginText: async (url, capBytes) => {
       let target: URL;
@@ -152,19 +243,34 @@ export function createOpenlistClient(cfg: AppConfig): OpenlistClient {
         target = new URL(url);
         origin = new URL(baseUrl);
       } catch {
-        throw new OpenlistServiceError("OPENLIST_BAD_RESPONSE", "Openlist returned an invalid media URL", 502);
+        throw new OpenlistServiceError(
+          "OPENLIST_BAD_RESPONSE",
+          "Openlist returned an invalid media URL",
+          502,
+        );
       }
       if (target.origin !== origin.origin) {
-        throw new OpenlistServiceError("OPENLIST_BAD_RESPONSE", "Media URL is outside the OpenList origin", 502);
+        throw new OpenlistServiceError(
+          "OPENLIST_BAD_RESPONSE",
+          "Media URL is outside the OpenList origin",
+          502,
+        );
       }
       let response: Response;
       try {
-        response = await fetch(url, { signal: AbortSignal.timeout(cfg.openlistRequestTimeoutMs) });
+        response = await fetch(url, {
+          signal: AbortSignal.timeout(cfg.openlistRequestTimeoutMs),
+        });
       } catch {
-        throw new OpenlistServiceError("OPENLIST_UNAVAILABLE", "Openlist media request failed", 503);
+        throw new OpenlistServiceError(
+          "OPENLIST_UNAVAILABLE",
+          "Openlist media request failed",
+          503,
+        );
       }
       const contentLength = Number(response.headers.get("content-length"));
-      if (Number.isFinite(contentLength) && contentLength > capBytes) return undefined;
+      if (Number.isFinite(contentLength) && contentLength > capBytes)
+        return undefined;
       if (!response.body) return undefined;
       const reader = response.body.getReader();
       const chunks: Uint8Array[] = [];
@@ -185,7 +291,10 @@ export function createOpenlistClient(cfg: AppConfig): OpenlistClient {
         merged.set(chunk, offset);
         offset += chunk.byteLength;
       }
-      return { status: response.status, text: new TextDecoder().decode(merged) };
+      return {
+        status: response.status,
+        text: new TextDecoder().decode(merged),
+      };
     },
   };
 }

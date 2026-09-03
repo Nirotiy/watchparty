@@ -52,24 +52,34 @@ export type ErrorCode =
   | "MEDIA_UNSUPPORTED"
   | "PLAYLIST_FULL"
   | "REVISION_CONFLICT"
-  | "OWNER_TARGET_OFFLINE";
+  | "OWNER_TARGET_OFFLINE"
+  | "HANDOFF_TICKET_INVALID"
+  | "PROTOCOL_VERSION_MISMATCH";
 
 export type ApiError = { code: ErrorCode | string; message: string };
 
 export type CommandAck<T = undefined> =
-  | { ok: true; revision: number; data?: T }
-  | { ok: false; error: ApiError };
+  { ok: true; revision: number; data?: T } | { ok: false; error: ApiError };
 
 export type CommandInput = { expectedRevision: number };
 
 export interface ClientToServerEvents {
-  "CMD:name": (payload: { name: string }, ack: (result: CommandAck) => void) => void;
+  "CMD:name": (
+    payload: { name: string },
+    ack: (result: CommandAck) => void,
+  ) => void;
   "CMD:clockSync": (
     payload: { clientSentAtMs: number },
     ack: (result: CommandAck<{ serverTimeMs: number }>) => void,
   ) => void;
-  "CMD:play": (payload: CommandInput, ack: (result: CommandAck) => void) => void;
-  "CMD:pause": (payload: CommandInput, ack: (result: CommandAck) => void) => void;
+  "CMD:play": (
+    payload: CommandInput,
+    ack: (result: CommandAck) => void,
+  ) => void;
+  "CMD:pause": (
+    payload: CommandInput,
+    ack: (result: CommandAck) => void,
+  ) => void;
   "CMD:seek": (
     payload: CommandInput & { positionSeconds: number },
     ack: (result: CommandAck) => void,
@@ -106,7 +116,10 @@ export interface ClientToServerEvents {
     payload: CommandInput & { itemId: string },
     ack: (result: CommandAck) => void,
   ) => void;
-  "CMD:playlistNext": (payload: CommandInput, ack: (result: CommandAck) => void) => void;
+  "CMD:playlistNext": (
+    payload: CommandInput,
+    ack: (result: CommandAck) => void,
+  ) => void;
   "CMD:transferOwner": (
     payload: CommandInput & { targetClientId: string },
     ack: (result: CommandAck) => void,
@@ -127,6 +140,8 @@ export type SocketData = {
   accessToken: string;
   ownerToken?: string;
   nickname: string;
+  /** Protocol version sent by the client during handshake (spec 9.1). */
+  clientProtocol?: number;
 };
 
 export type CoreServer = Server<
@@ -135,6 +150,8 @@ export type CoreServer = Server<
   InterServerEvents,
   SocketData
 >;
+
+export const PROTOCOL_VERSION = 2 as const;
 
 export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   INVALID_REQUEST: "请求参数无效",
@@ -150,6 +167,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   PLAYLIST_FULL: "播放列表已达到 200 项上限",
   REVISION_CONFLICT: "房间状态已更新，请重新同步后重试",
   OWNER_TARGET_OFFLINE: "目标成员当前不在线",
+  HANDOFF_TICKET_INVALID: "交接票据无效、已使用或已过期，请重新发射",
+  PROTOCOL_VERSION_MISMATCH: "客户端协议版本不兼容，请升级客户端",
 };
 
 export function errorResult(code: ErrorCode): { ok: false; error: ApiError } {
@@ -163,6 +182,8 @@ export function okResult(revision: number): CommandAck {
 export function isValidUUID(value: unknown): value is string {
   return (
     typeof value === "string" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    )
   );
 }

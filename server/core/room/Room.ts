@@ -15,7 +15,7 @@ const MAX_RATE = 2;
 const MIN_RATE = 0.25;
 const MAX_POSITION = 1_000_000_000;
 
-type SharedCommand =
+export type SharedCommand =
   | { type: "play" }
   | { type: "pause" }
   | { type: "seek"; positionSeconds: number }
@@ -27,7 +27,7 @@ type SharedCommand =
   | { type: "playlistRemove"; itemId: string }
   | { type: "playlistMove"; itemId: string; targetIndex: number }
   | { type: "playlistPlay"; itemId: string }
-  | { type: "playlistNext" };
+  | { type: "playlistNext"; expectedCurrentPlaylistItemId?: string };
 
 export type RoomEvent =
   | { event: "snapshot"; payload: RoomSnapshot }
@@ -114,11 +114,17 @@ export class Room {
     return okResult(this.revision);
   }
 
-  execute(clientId: string, command: SharedCommand, expectedRevision: number, isOwner: boolean): CommandAck {
+  execute(
+    clientId: string,
+    command: SharedCommand,
+    expectedRevision: number,
+    isOwner: boolean,
+  ): CommandAck {
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
       return this.invalidRequest();
     }
-    if (expectedRevision !== this.revision) return errorResult("REVISION_CONFLICT");
+    if (expectedRevision !== this.revision)
+      return errorResult("REVISION_CONFLICT");
     if (command.type === "lock" && !isOwner) return errorResult("FORBIDDEN");
     if (this.locked && !isOwner) return errorResult("FORBIDDEN");
 
@@ -130,11 +136,17 @@ export class Room {
         this.setPaused(true);
         break;
       case "seek":
-        if (!isValidPosition(command.positionSeconds)) return this.invalidRequest();
+        if (!isValidPosition(command.positionSeconds))
+          return this.invalidRequest();
         this.setPosition(command.positionSeconds);
         break;
       case "rate":
-        if (!Number.isFinite(command.rate) || command.rate < MIN_RATE || command.rate > MAX_RATE) return this.invalidRequest();
+        if (
+          !Number.isFinite(command.rate) ||
+          command.rate < MIN_RATE ||
+          command.rate > MAX_RATE
+        )
+          return this.invalidRequest();
         this.setPosition(this.currentPosition());
         this.playbackRate = command.rate;
         break;
@@ -158,7 +170,8 @@ export class Room {
         break;
       case "playlistAdd":
         if (!validateMediaSource(command.media)) return this.invalidRequest();
-        if (this.playlist.length >= MAX_PLAYLIST_ITEMS) return errorResult("PLAYLIST_FULL");
+        if (this.playlist.length >= MAX_PLAYLIST_ITEMS)
+          return errorResult("PLAYLIST_FULL");
         this.playlist.push({
           id: randomUUID(),
           media: command.media,
@@ -167,14 +180,23 @@ export class Room {
         });
         break;
       case "playlistRemove": {
-        const index = this.playlist.findIndex((item) => item.id === command.itemId);
+        const index = this.playlist.findIndex(
+          (item) => item.id === command.itemId,
+        );
         if (index < 0) return errorResult("MEDIA_NOT_FOUND");
         this.playlist.splice(index, 1);
         break;
       }
       case "playlistMove": {
-        if (!Number.isInteger(command.targetIndex) || command.targetIndex < 0 || command.targetIndex >= this.playlist.length) return this.invalidRequest();
-        const index = this.playlist.findIndex((item) => item.id === command.itemId);
+        if (
+          !Number.isInteger(command.targetIndex) ||
+          command.targetIndex < 0 ||
+          command.targetIndex >= this.playlist.length
+        )
+          return this.invalidRequest();
+        const index = this.playlist.findIndex(
+          (item) => item.id === command.itemId,
+        );
         if (index < 0) return errorResult("MEDIA_NOT_FOUND");
         const [item] = this.playlist.splice(index, 1);
         if (!item) return this.invalidRequest();
@@ -182,7 +204,9 @@ export class Room {
         break;
       }
       case "playlistPlay": {
-        const item = this.playlist.find((candidate) => candidate.id === command.itemId);
+        const item = this.playlist.find(
+          (candidate) => candidate.id === command.itemId,
+        );
         if (!item) return errorResult("MEDIA_NOT_FOUND");
         this.source = item.media;
         this.currentPlaylistItemId = item.id;
@@ -194,6 +218,14 @@ export class Room {
         break;
       }
       case "playlistNext": {
+        // Old clients (e.g. an MPV that just finished a superseded media) must
+        // not advance a playlist entry they no longer correspond to.
+        if (
+          command.expectedCurrentPlaylistItemId !== undefined &&
+          command.expectedCurrentPlaylistItemId !== this.currentPlaylistItemId
+        ) {
+          return errorResult("REVISION_CONFLICT");
+        }
         const next = this.nextPlaylistItem();
         if (!next) return okResult(this.revision);
         this.source = next.media;
@@ -215,7 +247,8 @@ export class Room {
 
   setOwner(clientId: string): void {
     this.ownerClientId = clientId;
-    for (const member of this.members.values()) member.isOwner = member.clientId === clientId;
+    for (const member of this.members.values())
+      member.isOwner = member.clientId === clientId;
     this.revision += 1;
     this.touch();
     this.emitSnapshot();
@@ -230,7 +263,9 @@ export class Room {
     return {
       revision: this.revision,
       source: this.source,
-      ...(this.currentPlaylistItemId ? { currentPlaylistItemId: this.currentPlaylistItemId } : {}),
+      ...(this.currentPlaylistItemId
+        ? { currentPlaylistItemId: this.currentPlaylistItemId }
+        : {}),
       positionSeconds: this.currentPosition(),
       serverTimeMs: this.now(),
       paused: this.paused,
@@ -238,7 +273,10 @@ export class Room {
       loop: this.loop,
       locked: this.locked,
       ownerClientId: this.ownerClientId,
-      playlist: this.playlist.map((item) => ({ ...item, media: { ...item.media } })),
+      playlist: this.playlist.map((item) => ({
+        ...item,
+        media: { ...item.media },
+      })),
     };
   }
 
@@ -251,12 +289,22 @@ export class Room {
     this.members.clear();
   }
 
+  /**
+   * Next playlist entry. With loop=false the list ends at the last item (no
+   * wrap); loop=true wraps back to the first. A current source that is not a
+   * playlist entry always starts from the first item.
+   */
   private nextPlaylistItem(): PlaylistItem | undefined {
     if (!this.playlist.length) return undefined;
     const currentIndex = this.currentPlaylistItemId
-      ? this.playlist.findIndex((item) => item.id === this.currentPlaylistItemId)
+      ? this.playlist.findIndex(
+          (item) => item.id === this.currentPlaylistItemId,
+        )
       : -1;
-    return this.playlist[currentIndex + 1] ?? this.playlist[0];
+    const next = this.playlist[currentIndex + 1];
+    if (next) return next;
+    if (currentIndex >= 0 && !this.loop) return undefined;
+    return this.playlist[0];
   }
 
   private setPaused(paused: boolean): void {
@@ -271,11 +319,20 @@ export class Room {
 
   private currentPosition(): number {
     if (this.paused) return this.positionSeconds;
-    return this.positionSeconds + ((this.now() - this.stateChangedAtMs) / 1000) * this.playbackRate;
+    return (
+      this.positionSeconds +
+      ((this.now() - this.stateChangedAtMs) / 1000) * this.playbackRate
+    );
   }
 
   private invalidRequest(): { ok: false; error: ApiError } {
-    return { ok: false, error: { code: "INVALID_REQUEST", message: ERROR_MESSAGES.INVALID_REQUEST } };
+    return {
+      ok: false,
+      error: {
+        code: "INVALID_REQUEST",
+        message: ERROR_MESSAGES.INVALID_REQUEST,
+      },
+    };
   }
 
   private touch(): void {
@@ -287,7 +344,10 @@ export class Room {
   }
 
   private emitMembers(): void {
-    this.emit({ event: "members", payload: [...this.members.values()].map((member) => ({ ...member })) });
+    this.emit({
+      event: "members",
+      payload: [...this.members.values()].map((member) => ({ ...member })),
+    });
   }
 
   private emit(event: RoomEvent): void {

@@ -15,7 +15,7 @@
     "pm2": "pm2 start server/main.ts",
     "deploy": "git fetch && git reset --hard origin/release && pm2 flush && pm2 delete all && pm2 start server/ecosystem.config.js",
     "prettier": "npx prettier --write .",
-    "test": "node --test --test-timeout=15000 server/config.test.ts server/media/watchparty-media.test.ts server/core/room/Room.test.ts server/core/room/registry.test.ts server/test/backend.integration.test.ts",
+    "test": "node --test --test-timeout=15000 server/config.test.ts server/media/watchparty-media.test.ts server/core/room/Room.test.ts server/core/room/registry.test.ts server/test/backend.integration.test.ts server/test/mpv-handoff.test.ts",
     "typecheckServer": "tsc --project server/tsconfig.json",
     "typecheck": "tsc --project src/tsconfig.json --noEmit",
     "ncu": "ncu --semverLevel major -u",

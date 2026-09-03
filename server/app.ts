@@ -7,6 +7,9 @@ import express, { type Express } from "express";
 import { Server } from "socket.io";
 import { loadConfig, type AppConfig } from "./config.ts";
 import { registerCoreHttp } from "./core/http/routes.ts";
+import { registerMpvHttp } from "./core/http/mpv-routes.ts";
+import { createWatchpartyMedia } from "./media/watchparty-media.ts";
+import { createOpenlistClient } from "./media/openlist.ts";
 import { RoomRegistry } from "./core/room/registry.ts";
 import { bindRooms } from "./core/socket/bindRooms.ts";
 import type {
@@ -80,9 +83,16 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
     idleTtlMs,
   });
 
+  const media = createWatchpartyMedia(createOpenlistClient(cfg), {
+    mediaIdKey: cfg.watchPartyMediaIdKey,
+    internalBaseUrl: cfg.openlistUrl,
+    publicBaseUrl: cfg.openlistPublicUrl || cfg.openlistUrl,
+  });
+
   bindRooms(io, registry);
 
-  registerCoreHttp(app, registry, cfg);
+  registerCoreHttp(app, registry, cfg, media);
+  registerMpvHttp(app, registry, media);
 
   if (options.serveStatic !== false) {
     mountLegacyUi(app, cfg.buildDirectory);

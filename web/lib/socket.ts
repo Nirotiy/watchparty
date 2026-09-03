@@ -56,6 +56,8 @@ export class WatchPartySocket {
         clientId: this.options.clientId,
         accessToken: this.options.accessToken,
         ownerToken: this.options.ownerToken,
+        // Spec 9.1: must match the backend PROTOCOL_VERSION or the handshake is rejected (426 semantics).
+        clientProtocol: 2,
       },
     });
 
@@ -69,12 +71,15 @@ export class WatchPartySocket {
       this.options.onDisconnect?.(reason);
     });
 
-    this.socket.on("connect_error", (err: Error & { data?: { code: string; message: string } }) => {
-      this.options.onError?.({
-        code: err.data?.code || "CONNECT_ERROR",
-        message: err.data?.message || err.message,
-      });
-    });
+    this.socket.on(
+      "connect_error",
+      (err: Error & { data?: { code: string; message: string } }) => {
+        this.options.onError?.({
+          code: err.data?.code || "CONNECT_ERROR",
+          message: err.data?.message || err.message,
+        });
+      },
+    );
 
     this.socket.on("REC:snapshot", (snapshot: RoomSnapshot) => {
       this.options.onSnapshot(snapshot);
@@ -125,7 +130,10 @@ export class WatchPartySocket {
     if (offsets.length > 0) {
       offsets.sort((a, b) => a - b);
       const mid = Math.floor(offsets.length / 2);
-      this.clockOffsetMs = offsets.length % 2 !== 0 ? offsets[mid] : (offsets[mid - 1] + offsets[mid]) / 2;
+      this.clockOffsetMs =
+        offsets.length % 2 !== 0
+          ? offsets[mid]
+          : (offsets[mid - 1] + offsets[mid]) / 2;
     }
 
     // 后续每 30 秒定期采样微调
@@ -153,9 +161,12 @@ export class WatchPartySocket {
     const clientSentAtMs = Date.now();
 
     try {
-      const res = await this.emitCommand<{ serverTimeMs: number }>("CMD:clockSync", {
-        clientSentAtMs,
-      });
+      const res = await this.emitCommand<{ serverTimeMs: number }>(
+        "CMD:clockSync",
+        {
+          clientSentAtMs,
+        },
+      );
       if (res.ok && res.data) {
         const clientReceivedAtMs = Date.now();
         const rtt = clientReceivedAtMs - clientSentAtMs;
@@ -168,7 +179,11 @@ export class WatchPartySocket {
     return null;
   }
 
-  private emitCommand<T = undefined>(event: string, payload: Record<string, unknown>, timeoutMs = 5000): Promise<CommandAck<T>> {
+  private emitCommand<T = undefined>(
+    event: string,
+    payload: Record<string, unknown>,
+    timeoutMs = 5000,
+  ): Promise<CommandAck<T>> {
     return new Promise((resolve) => {
       if (!this.socket || !this.socket.connected) {
         resolve({
@@ -184,7 +199,10 @@ export class WatchPartySocket {
           isSettled = true;
           resolve({
             ok: false,
-            error: { code: "TIMEOUT", message: `指令 ${event} 请求超时，服务端未在 ${timeoutMs}ms 内回执` },
+            error: {
+              code: "TIMEOUT",
+              message: `指令 ${event} 请求超时，服务端未在 ${timeoutMs}ms 内回执`,
+            },
           });
         }
       }, timeoutMs);
@@ -193,7 +211,12 @@ export class WatchPartySocket {
         if (!isSettled) {
           isSettled = true;
           clearTimeout(timer);
-          resolve(response || { ok: false, error: { code: "INVALID_ACK", message: "服务端回执为空" } });
+          resolve(
+            response || {
+              ok: false,
+              error: { code: "INVALID_ACK", message: "服务端回执为空" },
+            },
+          );
         }
       });
     });
@@ -212,7 +235,10 @@ export class WatchPartySocket {
     return this.emitCommand("CMD:pause", { expectedRevision });
   }
 
-  public seek(positionSeconds: number, expectedRevision: number): Promise<CommandAck> {
+  public seek(
+    positionSeconds: number,
+    expectedRevision: number,
+  ): Promise<CommandAck> {
     return this.emitCommand("CMD:seek", { positionSeconds, expectedRevision });
   }
 
@@ -228,23 +254,43 @@ export class WatchPartySocket {
     return this.emitCommand("CMD:lock", { locked, expectedRevision });
   }
 
-  public mediaSet(media: MediaSource, expectedRevision: number): Promise<CommandAck> {
+  public mediaSet(
+    media: MediaSource,
+    expectedRevision: number,
+  ): Promise<CommandAck> {
     return this.emitCommand("CMD:mediaSet", { media, expectedRevision });
   }
 
-  public playlistAdd(media: MediaSource, expectedRevision: number): Promise<CommandAck> {
+  public playlistAdd(
+    media: MediaSource,
+    expectedRevision: number,
+  ): Promise<CommandAck> {
     return this.emitCommand("CMD:playlistAdd", { media, expectedRevision });
   }
 
-  public playlistRemove(itemId: string, expectedRevision: number): Promise<CommandAck> {
+  public playlistRemove(
+    itemId: string,
+    expectedRevision: number,
+  ): Promise<CommandAck> {
     return this.emitCommand("CMD:playlistRemove", { itemId, expectedRevision });
   }
 
-  public playlistMove(itemId: string, targetIndex: number, expectedRevision: number): Promise<CommandAck> {
-    return this.emitCommand("CMD:playlistMove", { itemId, targetIndex, expectedRevision });
+  public playlistMove(
+    itemId: string,
+    targetIndex: number,
+    expectedRevision: number,
+  ): Promise<CommandAck> {
+    return this.emitCommand("CMD:playlistMove", {
+      itemId,
+      targetIndex,
+      expectedRevision,
+    });
   }
 
-  public playlistPlay(itemId: string, expectedRevision: number): Promise<CommandAck> {
+  public playlistPlay(
+    itemId: string,
+    expectedRevision: number,
+  ): Promise<CommandAck> {
     return this.emitCommand("CMD:playlistPlay", { itemId, expectedRevision });
   }
 
@@ -252,7 +298,13 @@ export class WatchPartySocket {
     return this.emitCommand("CMD:playlistNext", { expectedRevision });
   }
 
-  public transferOwner(targetClientId: string, expectedRevision: number): Promise<CommandAck> {
-    return this.emitCommand("CMD:transferOwner", { targetClientId, expectedRevision });
+  public transferOwner(
+    targetClientId: string,
+    expectedRevision: number,
+  ): Promise<CommandAck> {
+    return this.emitCommand("CMD:transferOwner", {
+      targetClientId,
+      expectedRevision,
+    });
   }
 }
