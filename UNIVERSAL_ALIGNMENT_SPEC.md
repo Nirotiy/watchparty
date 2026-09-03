@@ -92,6 +92,8 @@ export interface RoomMember {
 | `PLAYLIST_FULL` | 400 | 播放列表已达 200 项硬上限 |
 | `REVISION_CONFLICT` | 409 | 客户端提交的 `expectedRevision` 与服务端当前版本不一致 |
 | `OWNER_TARGET_OFFLINE` | 400 | 房主转让的目标成员已离线或不存在 |
+| `PROTOCOL_VERSION_MISMATCH` | 426 | 客户端协议版本与服务端不兼容，拒绝连接（见第 9 节） |
+| `HANDOFF_TICKET_INVALID` | 401 | MPV 交接票据不存在、过期、已使用或房间不符 |
 
 ---
 
@@ -202,9 +204,10 @@ export interface RoomMember {
   ```
   *注：百度网盘直链要求 `User-Agent: pan.baidu.com`（大于约 20MB 的文件，OpenList 官方文档），浏览器无法携带该请求头，因此存储需保持 `web_proxy: true`，
   `url` 实际为 OpenList 的 `/p/...?sign=` 代理地址；后端通过 `OPENLIST_PUBLIC_URL` 将其改写为浏览器可达的源。*
-  *MPV 插件扩展（已实测验证）：`resolve` 将新增仅供 MPV 使用的 `directUrl`（来自管理员 `/api/fs/link`，返回头仅含 `User-Agent: pan.baidu.com`，无 Cookie/Authorization），
-  `directUrl` 不得进入房间快照或播放列表广播；MPV 端必须显式设置 `--user-agent=pan.baidu.com`（实测对直链与 `/p/` 回退均必需，缺失时百度侧会挂起）；
-  实测 v4.2.6 下 `web_proxy=false + ProxyTypes` 无法放行 `/p/`（403 proxy not allowed），禁止用改配置的方式求直链；`/d/` 为 OpenList 策略路由，不属于本契约。*
+  *实测记录（OpenList Desktop v4.2.6，真实 462MB 百度 MP4）：双链可行性已验证——`/p/` 匿名 206 可播放可 seek，管理员 `/api/fs/link` 返回真实直链且实测仅含
+  `User-Agent` 头；mpv 必须显式 `--user-agent=pan.baidu.com`（对直链与 `/p/` 回退均必需，缺失时百度侧挂起）；`web_proxy=false + ProxyTypes` 无法放行
+  `/p/`（403 proxy not allowed），禁止用改配置的方式求直链；`/d/` 为 OpenList 策略路由，不属于本契约。*
+  *本接口保持单链（仅 `url`）；MPV 专用双链接口（directUrl）为未实现的冻结契约，见第 9 节。*
 
 #### `GET /api/rooms/:roomId/media/subtitle?mediaId=<opaque-id>` (字幕文件拉取)
 - **鉴权**：`Authorization: Bearer <accessToken>`
@@ -331,7 +334,7 @@ WatchParty 后端**直接连接 OpenList 的 HTTP API**（不再存在独立 Gat
 1. **环境变量**：
    - `OPENLIST_URL`：后端自身访问 OpenList 的地址（本机 `http://127.0.0.1:5244`，Docker 下 `http://host.docker.internal:5244`）；
    - `OPENLIST_PUBLIC_URL`：**浏览器**可达的 OpenList 源（仅支持 origin，不支持路径前缀）；VPS 部署时指向 Caddy 暴露的 `https://<域名>`，缺省回退到 `OPENLIST_URL`；
-   - `OPENLIST_USERNAME` / `OPENLIST_PASSWORD`：OpenList 凭据；建议创建一个仅可读取三个媒体目录的专用账户，不要长期使用管理员账户；
+   - `OPENLIST_USERNAME` / `OPENLIST_PASSWORD`：OpenList 管理员凭据（`/api/fs/link` 是管理员接口，见 9.6 的凭据边界）；
    - `WATCHPARTY_MEDIA_ID_KEY`：mediaId 签名密钥；**生产模式必须配置，否则拒绝启动**。
 2. **安全要求**：
    - OpenList 管理后台不得暴露公网；浏览器仅通过 Caddy 同源代理 `/p/*`（媒体流）访问，且受同一 Basic Auth 保护；
@@ -385,3 +388,49 @@ WatchParty 后端**直接连接 OpenList 的 HTTP API**（不再存在独立 Gat
    - **场景 D（并发版本冲突）**：两客户端并发提交 `CMD:playlistAdd`，版本落后者正确收到 `REVISION_CONFLICT` 并自动拉取最新快照重试；
    - **场景 E（房主转让）**：房主将所有权转让给访客 B；B 收到 `REC:ownerToken` 成为新房主；A 的旧 `ownerToken` 作废降级为普通访客；B 刷新页面后凭 `ownerToken` 恢复房主身份；
    - **场景 F（OpenList 检索与字幕）**：在媒体库中按 A-Z 快速过滤与全局搜索，批量入队自然排序剧集；加载 ASS 字幕并在本地微调偏移 $\pm 0.2\text{s}$。
+
+---
+
+## 9. MPV 客户端扩展（契约冻结，未实现）
+
+> **状态**：本节为已冻结的契约定义，代码尚未实现。实现完成前，MPV 插件仅可开发"壳"与本地播放器控制。
+> **实测基线**：双链可行性已验证（见 3.2 resolve 注记）；过期恢复链路未强测，待插件集成测试；生产 Caddy `/p/` 回退认证未验证（见 9.5）。
+
+### 9.1 协议版本
+- 常量 `PROTOCOL_VERSION = 2`（v1 = 纯浏览器协议，仅作历史参考）。
+- Socket 握手 `auth` 与所有 `/api/mpv/*` 请求必须携带 `clientProtocol: 2`。
+- 服务端版本不匹配时返回 `PROTOCOL_VERSION_MISMATCH` (426) 并拒绝连接，不做降级。
+
+### 9.2 Handoff 票据（浏览器 → MPV 交接）
+- `POST /api/rooms/:roomId/handoff`（浏览器 accessToken 鉴权）→ `{ ticket, ticketExpiresAt }`。
+- ticket：128-bit 随机值，TTL 120 秒，**一次性**；签发时记录 roomId 与发起方浏览器 clientId（仅审计）。
+- `POST /api/mpv/handoff` `{ ticket }` → 一次性兑换：服务端为 MPV 生成**独立** clientId 与 accessToken（token 记录 `clientType=mpv`），响应含 `protocolVersion`、房间摘要与首个 `RoomSnapshot`。
+- 票据不可续期；MPV 重连使用本地保存的 accessToken，不再经票据。ownerToken 不经票据传递——MPV 永远是普通成员，房主身份留在浏览器。
+
+### 9.3 MPV 专用接口（`clientType=mpv` 的 token 鉴权，浏览器 token 调用返回 403）
+- `GET /api/rooms/:roomId/mpv/snapshot?since=<revision>`：revision 落后时返回完整 `RoomSnapshot`；相同则 `204 No Content`。轮询间隔建议 2s，与浏览器快照节奏一致。
+- `POST /api/rooms/:roomId/mpv/command` `{ type, expectedRevision, ...payload }`：`CommandAck` 语义与 Socket `CMD:*` 完全一致（type 即事件名去掉 `CMD:` 前缀）；`clockSync` 不需要——权威时钟由 `snapshot.serverTimeMs` 提供。
+- `POST /api/rooms/:roomId/media/resolve-mpv` `{ mediaId }` → `{ directUrl?, headers, fallbackUrl }`：
+  - `directUrl` 来自管理员 `/api/fs/link`；**headers 为服务端白名单过滤后的结果，仅允许 `User-Agent`**，`Cookie`/`Authorization`/`Referer` 等一律剔除；若上游直链必需被剔除的头，则 `directUrl` 置空（不可用），MPV 直接使用 `fallbackUrl`；
+  - `fallbackUrl` = 与浏览器相同的 `/p/` 代理地址（MPV 直连失败时的回退）；
+  - 浏览器 resolve 保持单链（仅 `url`）；MPV 隔离由 `clientType=mpv` token 在服务端强制，而非文字约定。
+
+### 9.4 客户端行为契约
+- MPV 必须显式设置 `--user-agent=pan.baidu.com`（对 `directUrl` 与 `fallbackUrl` 均必需）。
+- 乐观执行本地操作，revision 冲突时让位服务端快照。
+- `end-file`（正常播完）→ 发 `playlistNext`；多 MPV 竞态由 revision 冲突自然收敛，失败方静默。
+- 播放失败（连接错误/401/403/410）→ 重新 `resolve-mpv` 一次；仍失败 → 切换 `fallbackUrl` 并 OSD 提示"直连失败，已切换服务器中转"；单个观众独立回退，不影响房间。
+- `directUrl`、headers 仅存在于 MPV 进程内存，不写入任何广播或持久化。
+
+### 9.5 生产回退认证（未验证，列为部署阶段 E2E 项）
+- 生产中 `/p/*` 位于 Caddy Basic Auth 之后；MPV 回退播放需要凭据。
+- 方案：MPV 插件本地配置项 `media_basic_auth`（一次性人工配置，存放于 MPV 配置目录），仅用于 `fallbackUrl` 播放；票据与 `resolve-mpv` 响应**不携带** Basic Auth 凭据（站点级凭据不得扩散到房间成员）。
+- 生产 E2E（Caddy + Basic Auth + MPV 回退播放 + seek）为部署阶段必过项。
+
+### 9.6 管理员凭据边界（默认：接受）
+- WatchParty 后端持有 OpenList 管理员凭据（`fs/list`、`fs/get`、`fs/link` 所需）。约束：
+  1. OpenList 仅监听回环/内网地址，不经 Caddy 暴露管理接口；
+  2. 凭据仅存于后端环境变量，不写日志、不回传客户端；
+  3. `resolve-mpv` 的请求头白名单在服务端执行（9.3），即使上游返回 Cookie 也不会泄漏；
+  4. "实测仅返回 User-Agent" 是经验观察而非契约，白名单才是长期保证。
+- 若不接受该边界，替代方案是放弃 `directUrl`（全员走 `/p/` 代理、消耗 VPS 带宽）——需用户明确选择。
