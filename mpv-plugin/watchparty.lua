@@ -76,6 +76,10 @@ local state = {
     -- 远端状态应用标记：应用快照触发的属性变化不得回传命令（阶段 2）。
     applyingRemote = false,
     suppressDeadline = 0,
+    -- 微调追帧的临时倍速（不在房间状态里，收敛后恢复房间倍速）。
+    nudge = nil,
+    -- 锁定房间 FORBIDDEN 的 OSD 节流。
+    forbiddenQuietUntil = 0,
 }
 
 -- 本地 epoch 毫秒估计：os.time()（整数秒）锚定 + mp 单调钟细分。
@@ -304,8 +308,10 @@ end
 
 -- ============================================================
 -- HTTP：curl 子进程。
--- token / ticket / 请求体只经 stdin 的 curl 配置（-K -）传入，
+-- token / ticket / 请求体只经临时 curl 配置文件传入，
 -- 不出现在进程列表或命令历史（spec 9.2 / 风险表：凭据泄漏）。
+-- Windows 下 mpv subprocess 的 stdin_data 不能可靠地传给 curl，
+-- 因此不能使用 --config -。
 -- ============================================================
 
 local function curl_escape_config(value)
@@ -324,12 +330,32 @@ local function http_request(req, callback)
         config_lines[#config_lines + 1] = 'data = "' .. curl_escape_config(req.body) .. '"'
     end
 
+    local config_path = os.tmpname()
+    local config_file = io.open(config_path, "w")
+    if not config_file then
+        callback(nil, nil)
+        return
+    end
+    config_file:write(table.concat(config_lines, "\n"), "\n")
+    config_file:close()
+    if mp.get_property("platform") ~= "windows" then
+        mp.command_native_async({
+            name = "subprocess",
+            args = { "chmod", "600", config_path },
+            playback_only = false,
+        }, function() end)
+    end
+
+    local function cleanup()
+        os.remove(config_path)
+    end
+
     local args = {
         "curl", "-s", "-S",
         "--connect-timeout", tostring(CONNECT_TIMEOUT),
         "--max-time", tostring(OVERALL_TIMEOUT),
         "--write-out", "\n%{http_code}",
-        "--config", "-",
+        "--config", config_path,
         "-X", req.method,
     }
     for _, h in ipairs(req.headers or {}) do
@@ -341,11 +367,11 @@ local function http_request(req, callback)
     mp.command_native_async({
         name = "subprocess",
         args = args,
-        stdin_data = table.concat(config_lines, "\n"),
         playback_only = false,
         capture_stdout = true,
         capture_stderr = true,
     }, function(success, result, err)
+        cleanup()
         if not success or not result or result.status ~= 0 then
             if o.debug then
                 msg.debug("http failed: " .. tostring(err or (result and result.stderr) or "?"))
@@ -542,7 +568,7 @@ function update_clock(snap, t0)
 end
 
 -- ============================================================
--- 快照应用（阶段 1 只读：媒体、暂停、倍速、进度）
+-- 快照应用（媒体、暂停、倍速、进度 + 微调追帧）
 -- ============================================================
 
 local function media_key(source)
@@ -597,12 +623,28 @@ function apply_snapshot(snap)
     local pos = mp.get_property_number("time-pos")
     if not pos then return end
     local diff = math.abs(pos - target)
-    if diff > o.sync_seek_threshold then
+    if diff <= 0.25 then
+        -- 已收敛：清除微调，恢复房间倍速
+        if state.nudge then
+            state.nudge = nil
+            mark_remote_apply()
+            mp.set_property_number("playback-rate", snap.playbackRate)
+        end
+    elseif diff <= o.sync_seek_threshold then
+        -- 250ms ～ 1s：短暂 ±5% 微调追帧，收敛后恢复
+        local desired = snap.playbackRate * (pos < target and 1.05 or 0.95)
+        if not state.nudge or math.abs(state.nudge.rate - desired) > 0.001 then
+            state.nudge = { rate = desired }
+            mark_remote_apply()
+            mp.set_property_number("playback-rate", desired)
+        end
+    else
+        -- 超 1s：直接纠偏 seek（远端纠偏产生的 seek 由抑制标记拦截，不回传）
+        state.nudge = nil
         msg.debug(string.format("sync seek: local=%.2f target=%.2f", pos, target))
         mark_remote_apply()
         mp.commandv("seek", string.format("%.3f", target), "absolute", "exact")
     end
-    -- 阈值以内的偏差由 2s 快照节奏自然收敛；微调追帧留给阶段 2。
 end
 
 -- ============================================================
@@ -699,6 +741,7 @@ function load_media(snap)
     state.fallbackUsed = false
     state.resolveRetried = false
     state.mediaLoaded = false
+    state.nudge = nil
 
     if snap.source.kind == "openlist" then
         osd("加载媒体…", 2)
@@ -721,6 +764,70 @@ function load_media(snap)
 end
 
 -- ============================================================
+-- 本地操作回传（阶段 2）：pause/play、seek、rate → CMD:*
+-- 乐观执行；REVISION_CONFLICT 时让位服务端快照并最多重试一次。
+-- ============================================================
+
+-- 立即拉取一次快照（绕开轮询节奏），用于冲突后快速收敛/取新 revision。
+local function fetch_snapshot(callback)
+    http_request({
+        method = "GET",
+        url = api_url("/api/rooms/" .. state.roomId .. "/mpv/snapshot"),
+        secret_headers = mpv_secret_headers(),
+    }, function(status, body)
+        if status == 200 and body then
+            local snap = json.parse(body)
+            if type(snap) == "table" and type(snap.revision) == "number"
+                and (state.lastRevision == nil or snap.revision >= state.lastRevision) then
+                update_clock(snap, now_ms())
+                apply_snapshot(snap)
+                state.lastRevision = snap.revision
+            end
+        end
+        if callback then callback() end
+    end)
+end
+
+local function send_command(payload)
+    if not state.joined then return end
+    payload.expectedRevision = state.lastRevision or 0
+    local attempt = 0
+    local function dispatch()
+        http_request({
+            method = "POST",
+            url = api_url("/api/rooms/" .. state.roomId .. "/mpv/command"),
+            body = json.stringify(payload),
+            secret_headers = mpv_secret_headers(),
+            headers = { "Content-Type: application/json" },
+        }, function(status, body)
+            if not state.joined then return end
+            local ack = status and body and json.parse(body)
+            if ack and ack.ok then
+                state.lastRevision = ack.revision -- 快路径推进本地 revision
+                return
+            end
+            local code = ack and ack.error and ack.error.code
+            if code == "REVISION_CONFLICT" and attempt == 0 then
+                attempt = attempt + 1
+                -- 先拉最新快照（让位服务端状态），再带新 revision 重试一次
+                fetch_snapshot(dispatch)
+                return
+            end
+            if code == "FORBIDDEN" then
+                -- 锁定房间：只提示一次，不刷屏（spec 9.4）
+                if mp.get_time() > state.forbiddenQuietUntil then
+                    state.forbiddenQuietUntil = mp.get_time() + 30
+                    osd("房间已锁定，只有房主可以操作", 4)
+                end
+                return
+            end
+            -- 其他错误：静默让位，等待快照收敛
+        end)
+    end
+    dispatch()
+end
+
+-- ============================================================
 -- 播放器事件
 -- ============================================================
 
@@ -731,8 +838,22 @@ mp.register_event("file-loaded", function()
     end
 end)
 
--- end-file：错误结束 → 有限重试（re-resolve 一次 → fallback），禁止无限循环
+-- 正常播完（eof）：仍对应当前条目时驱动列表推进；
+-- 双 MPV 竞态由服务端 expectedCurrentPlaylistItemId + revision 收敛，失败方静默。
+-- 错误结束由下方有限状态机处理，禁止无限重试。
 mp.register_event("end-file", function(event)
+    if event.reason == "eof" then
+        local snap = state.lastSnapshot
+        if state.joined and snap and snap.currentPlaylistItemId
+            and state.currentMediaKey == media_key(snap.source)
+            and state.mediaLoaded then
+            send_command({
+                type = "playlistNext",
+                expectedCurrentPlaylistItemId = snap.currentPlaylistItemId,
+            })
+        end
+        return
+    end
     if event.reason ~= "error" then return end
     if not state.joined or not state.currentMediaKey or not state.lastSnapshot then return end
     if state.fallbackUsed or state.resolveRetried then
@@ -748,6 +869,46 @@ mp.register_event("end-file", function(event)
         resolved.directUrl = nil
         start_playback(resolved, gen)
     end)
+end)
+
+-- ============================================================
+-- 本地操作回传的 property observers（远端应用被抑制标记拦截）
+-- ============================================================
+
+mp.observe_property("pause", "bool", function(_, value)
+    if value == nil then return end
+    if not state.joined or not state.mediaLoaded then return end
+    if is_suppressed() then return end
+    local snap = state.lastSnapshot
+    if snap and snap.paused == value then return end -- 与房间状态一致，无需回传
+    send_command({ type = value and "pause" or "play" })
+end)
+
+-- 本地 seek：拖动结束后 400ms debounce 发送一次 CMD:seek；
+-- 远端纠偏产生的 seek 由抑制标记拦截（spec 9.4）。
+local seek_timer = nil
+mp.register_event("seek", function()
+    if not state.joined or not state.mediaLoaded then return end
+    if is_suppressed() then return end
+    if seek_timer then seek_timer:kill() end
+    seek_timer = mp.add_timeout(0.4, function()
+        seek_timer = nil
+        if not state.joined or not state.mediaLoaded or is_suppressed() then return end
+        local pos = mp.get_property_number("time-pos")
+        if not pos or pos < 0 then return end
+        msg.debug(string.format("user seek: %.2f", pos))
+        send_command({ type = "seek", positionSeconds = pos })
+    end)
+end)
+
+mp.observe_property("playback-rate", "number", function(_, value)
+    if value == nil then return end
+    if not state.joined or not state.mediaLoaded then return end
+    if is_suppressed() then return end
+    local snap = state.lastSnapshot
+    if snap and math.abs(snap.playbackRate - value) < 0.001 then return end
+    if value < 0.25 or value > 2 then return end -- 服务端会拒绝；等快照回写有效值
+    send_command({ type = "rate", rate = value })
 end)
 
 -- on_load hook：预留 watchparty:// 拦截（v2 再做系统注册与完整拦截）
