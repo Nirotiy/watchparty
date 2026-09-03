@@ -76,6 +76,8 @@ local state = {
     -- 远端状态应用标记：应用快照触发的属性变化不得回传命令（阶段 2）。
     applyingRemote = false,
     suppressDeadline = 0,
+    -- 最近一次远端纠偏 seek 的目标位置（用于区分远端纠偏与用户 seek）。
+    lastRemoteSeekTarget = nil,
     -- 微调追帧的临时倍速（不在房间状态里，收敛后恢复房间倍速）。
     nudge = nil,
     -- 锁定房间 FORBIDDEN 的 OSD 节流。
@@ -362,6 +364,11 @@ local function http_request(req, callback)
         args[#args + 1] = "-H"
         args[#args + 1] = h
     end
+    -- 所有请求统一附带 MPV 客户端标识头（spec 9.3）；协议不匹配服务端 426 硬拒绝。
+    args[#args + 1] = "-H"
+    args[#args + 1] = "X-WatchParty-Protocol: " .. PROTOCOL_VERSION
+    args[#args + 1] = "-H"
+    args[#args + 1] = "X-WatchParty-Client-Type: mpv"
     args[#args + 1] = req.url
 
     mp.command_native_async({
@@ -592,6 +599,11 @@ local function mark_remote_apply()
     state.suppressDeadline = mp.get_time() + REMOTE_SUPPRESS_SECONDS
 end
 
+-- 远端状态应用窗口期内：本地 observer 不得把远端触发的属性变化回传为命令。
+local function is_suppressed()
+    return state.applyingRemote or mp.get_time() < state.suppressDeadline
+end
+
 function apply_snapshot(snap)
     state.lastSnapshot = snap
     local key = media_key(snap.source)
@@ -615,8 +627,17 @@ function apply_snapshot(snap)
         mp.set_property_number("playback-rate", snap.playbackRate)
     end
 
-    -- 进度：以快照时刻为锚点，按服务器节奏外推目标位置
-    if snap.paused then return end
+    -- 进度：暂停时不外推，但位置偏差仍需纠偏（浏览器暂停时拖动进度的场景）
+    local pos = mp.get_property_number("time-pos")
+    if not pos then return end
+    if snap.paused then
+        if math.abs(pos - snap.positionSeconds) > o.sync_seek_threshold then
+            state.lastRemoteSeekTarget = snap.positionSeconds
+            mark_remote_apply()
+            mp.commandv("seek", string.format("%.3f", snap.positionSeconds), "absolute", "exact")
+        end
+        return
+    end
     local server_elapsed = (now_ms() + state.clockOffsetMs - snap.serverTimeMs) / 1000
     local target = snap.positionSeconds + server_elapsed * snap.playbackRate
     if target < 0 then target = 0 end
@@ -639,8 +660,9 @@ function apply_snapshot(snap)
             mp.set_property_number("playback-rate", desired)
         end
     else
-        -- 超 1s：直接纠偏 seek（远端纠偏产生的 seek 由抑制标记拦截，不回传）
+        -- 超 1s：直接纠偏 seek（产生的 seek 事件靠 lastRemoteSeekTarget 识别并抑制）
         state.nudge = nil
+        state.lastRemoteSeekTarget = target
         msg.debug(string.format("sync seek: local=%.2f target=%.2f", pos, target))
         mark_remote_apply()
         mp.commandv("seek", string.format("%.3f", target), "absolute", "exact")
@@ -742,6 +764,7 @@ function load_media(snap)
     state.resolveRetried = false
     state.mediaLoaded = false
     state.nudge = nil
+    state.lastRemoteSeekTarget = nil
 
     if snap.source.kind == "openlist" then
         osd("加载媒体…", 2)
@@ -885,17 +908,23 @@ mp.observe_property("pause", "bool", function(_, value)
 end)
 
 -- 本地 seek：拖动结束后 400ms debounce 发送一次 CMD:seek；
--- 远端纠偏产生的 seek 由抑制标记拦截（spec 9.4）。
+-- 远端纠偏产生的 seek 在窗口期内且位置与纠偏目标吻合时被识别并抑制（spec 9.4）。
 local seek_timer = nil
 mp.register_event("seek", function()
     if not state.joined or not state.mediaLoaded then return end
-    if is_suppressed() then return end
     if seek_timer then seek_timer:kill() end
     seek_timer = mp.add_timeout(0.4, function()
         seek_timer = nil
-        if not state.joined or not state.mediaLoaded or is_suppressed() then return end
+        if not state.joined or not state.mediaLoaded then return end
         local pos = mp.get_property_number("time-pos")
         if not pos or pos < 0 then return end
+        if mp.get_time() < state.suppressDeadline and state.lastRemoteSeekTarget
+            and math.abs(pos - state.lastRemoteSeekTarget) < 0.75 then
+            state.lastRemoteSeekTarget = nil
+            msg.debug("seek event is our own remote apply, suppressed")
+            return
+        end
+        state.lastRemoteSeekTarget = nil
         msg.debug(string.format("user seek: %.2f", pos))
         send_command({ type = "seek", positionSeconds = pos })
     end)
@@ -934,11 +963,7 @@ local function join_with_ticket(ticket)
         url = api_url("/api/mpv/handoff"),
         body = json.stringify({ ticket = ticket }),
         secret_headers = {},
-        headers = {
-            "Content-Type: application/json",
-            "X-WatchParty-Protocol: " .. PROTOCOL_VERSION,
-            "X-WatchParty-Client-Type: mpv",
-        },
+        headers = { "Content-Type: application/json" },
     }, function(status, body)
         if status == 200 then
             local result = body and json.parse(body)
