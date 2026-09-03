@@ -180,8 +180,13 @@ export interface RoomMember {
       size?: number;           // bytes
       extension?: string;
       duration?: number;       // seconds
-      compatibility: "supported" | "maybe" | "unsupported"; // MKV 标为 unsupported
-      compatibilityReason?: string; // 例如 "浏览器不支持 MKV 封装，需 mpv 客户端"
+      compatibility: {
+        browser: "supported" | "maybe" | "unsupported";
+        desktop: "supported" | "maybe" | "unsupported";
+        browserReason?: string;
+        desktopReason?: string;
+      }; // 播放责任按客户端类型分别声明
+      // MKV 示例：browser=unsupported，desktop=supported；浏览器必须指引 MPV/桌面客户端
     }>;
   }
   ```
@@ -359,9 +364,10 @@ WatchParty 后端**直接连接 OpenList 的 HTTP API**（不再存在独立 Gat
 ## 7. 真实播放器内核与字幕规范
 
 1. **播放器内核调度**：
-   - HTML5 原生 `<video>`：用于 HTTPS MP4 / WebM；
-   - `hls.js`：用于 `.m3u8` 流媒体；
+   - HTML5 原生 `<video>`：用于浏览器友好的 HTTPS MP4 / WebM；
+   - `hls.js`：用于浏览器友好的 `.m3u8` 流媒体；
    - YouTube IFrame API：用于 YouTube 视频；
+   - MKV、HEVC Main10、Hi10P、PGS、HDR 等不再由浏览器承担全库存必播责任，前端应明确指引 MPV 或 WatchParty 桌面客户端；浏览器 WASM 播放仅作为实验能力。
    - OpenList 直链失效处理：遇到 403 / 410 失效时，**前端仅自动调用一次 `/resolve` 重新获取直链**，若重试仍失败则弹出错误提示并暂停。
 2. **字幕渲染与本地隔离**：
    - ASS/SSA：使用 WASM libass 引擎 (`jassub`) 进行高帧率矢量特效渲染；

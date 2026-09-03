@@ -107,9 +107,14 @@ test("directory results are naturally sorted and expose compatibility metadata",
     result.items.map((item) => item.name),
     ["Episode 2.mp4", "Episode 10.mkv", "Trailers"],
   );
-  assert.equal(result.items[0]!.compatibility, "supported");
-  assert.equal(result.items[1]!.compatibility, "unsupported");
-  assert.equal(result.items[1]!.compatibilityReason, "浏览器不支持 MKV 封装");
+  assert.equal(result.items[0]!.compatibility.browser, "supported");
+  assert.equal(result.items[0]!.compatibility.desktop, "supported");
+  assert.equal(result.items[1]!.compatibility.browser, "unsupported");
+  assert.equal(result.items[1]!.compatibility.desktop, "supported");
+  assert.equal(
+    result.items[1]!.compatibility.browserReason,
+    "浏览器不承担 MKV 播放，请使用 MPV 或 WatchParty 桌面客户端",
+  );
   assert.equal(result.items[2]!.type, "dir");
   assert.equal(result.items[2]!.displayPath, undefined);
 });
@@ -189,6 +194,8 @@ test("resolve accepts direct https links and rejects unsupported files", async (
     requiresCustomHeaders: false,
   });
   assert.equal(await watchparty.resolve(signedId(`${ANIME}/movie.mkv`)), null);
+  const mpvMkv = await watchparty.resolveMpv(signedId(`${ANIME}/movie.mkv`));
+  assert.equal(mpvMkv?.fallbackUrl, "https://cdn.example/movie.mkv");
 
   const externalHttp = media(
     fakeClient({

@@ -115,6 +115,15 @@ export interface RoomAccessResponse {
 // 9. OpenList 媒体项与目录结构
 export type AllowedOpenListRoot = "Anime" | "Film" | "TV Shows";
 
+export type CompatibilityStatus = "supported" | "maybe" | "unsupported";
+
+export interface MediaCompatibility {
+  browser: CompatibilityStatus;
+  desktop: CompatibilityStatus;
+  browserReason?: string;
+  desktopReason?: string;
+}
+
 export interface OpenListItem {
   id: string;
   name: string;
@@ -122,8 +131,7 @@ export interface OpenListItem {
   size?: number;
   extension?: string;
   duration?: number;
-  compatibility: "supported" | "maybe" | "unsupported";
-  compatibilityReason?: string;
+  compatibility: MediaCompatibility;
   displayPath?: string;
 }
 

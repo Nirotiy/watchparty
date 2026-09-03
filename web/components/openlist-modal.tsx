@@ -196,7 +196,7 @@ export function OpenListModal({
       }
 
       const supported = allItems
-      .filter((item) => item.type === "file" && item.compatibility !== "unsupported")
+      .filter((item) => item.type === "file" && item.compatibility.browser !== "unsupported")
       .sort((left, right) =>
         left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" }),
       )
@@ -450,7 +450,7 @@ export function OpenListModal({
             <div className="space-y-1">
               {displayItems.map((item) => {
                 const isDir = item.type === "dir";
-                const isSupported = item.compatibility !== "unsupported";
+                const isSupported = item.compatibility.browser !== "unsupported";
 
                 return (
                   <div
@@ -481,6 +481,11 @@ export function OpenListModal({
                       <span className={`truncate ${isDir ? "font-medium text-white" : ""}`}>
                         {item.name}
                       </span>
+                      {!isDir && item.compatibility.desktop === "supported" && item.compatibility.browser === "unsupported" && (
+                        <span className="shrink-0 rounded border border-sky-800 bg-sky-950/40 px-1 py-0.5 text-[9px] text-sky-300">
+                          桌面端 / MPV
+                        </span>
+                      )}
                       {item.displayPath && (
                         <span className="font-mono text-[10px] text-neutral-600 truncate">
                           ({item.displayPath})
@@ -488,7 +493,7 @@ export function OpenListModal({
                       )}
                       {!isSupported && (
                         <span className="rounded border border-neutral-800 bg-neutral-900 px-1 py-0.5 text-[9px] text-neutral-500">
-                          {item.compatibilityReason || "格式不受支持"}
+                          {item.compatibility.browserReason || "浏览器不承担此媒体格式"}
                         </span>
                       )}
                     </div>

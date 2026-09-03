@@ -53,14 +53,22 @@ const LANGUAGE_TOKENS: Record<string, string> = {
   rus: "ru",
 };
 
+export type CompatibilityStatus = "supported" | "maybe" | "unsupported";
+
+export type MediaCompatibility = {
+  browser: CompatibilityStatus;
+  desktop: CompatibilityStatus;
+  browserReason?: string;
+  desktopReason?: string;
+};
+
 export type MediaItem = {
   id: string;
   name: string;
   type: "file" | "dir";
   size?: number;
   extension?: string;
-  compatibility: "supported" | "maybe" | "unsupported";
-  compatibilityReason?: string;
+  compatibility: MediaCompatibility;
   displayPath?: string;
 };
 
@@ -286,10 +294,27 @@ export function createWatchpartyMedia(
   async function resolveMpv(
     mediaId: string,
   ): Promise<ResolvedMpvMedia | null | undefined> {
-    const fallback = await resolve(mediaId);
-    if (!fallback) return fallback;
     const mediaPath = decodeMediaId(mediaId);
-    if (!mediaPath) return undefined;
+    if (!mediaPath || !isAllowedPath(mediaPath)) return undefined;
+    const extension = extensionOf(mediaPath);
+    if (
+      !SUPPORTED_VIDEO_EXTENSIONS.has(extension) &&
+      !MAYBE_VIDEO_EXTENSIONS.has(extension) &&
+      extension !== "mkv"
+    )
+      return null;
+
+    const info = await client.getDownloadInfo(mediaPath);
+    if (!info?.url) return null;
+    const fallbackUrl = rewriteToPublicBase(info.url);
+    if (!fallbackUrl) return null;
+
+    const fallback: ResolvedMedia = {
+      url: fallbackUrl,
+      ...(info.size === null ? {} : { size: info.size }),
+      mime: mimeTypeFor(mediaPath),
+      requiresCustomHeaders: false,
+    };
     const link = await client.getLinkInfo(mediaPath);
     const filtered = filterLinkHeaders(link?.header);
     if (!link?.url || filtered.blocked) {
@@ -494,28 +519,38 @@ function toMediaItem(
     type: entry.isDir ? "dir" : "file",
     ...(entry.size === undefined ? {} : { size: entry.size }),
     ...(extension ? { extension } : {}),
-    ...compatibility,
+    compatibility,
     ...(entry.isDir ? {} : { displayPath: entry.path }),
   };
 }
 
-function compatibilityOf(isDir: boolean, extension: string) {
-  if (isDir || SUPPORTED_VIDEO_EXTENSIONS.has(extension))
-    return { compatibility: "supported" as const };
-  if (extension === "mkv")
+function compatibilityOf(isDir: boolean, extension: string): MediaCompatibility {
+  if (isDir) {
+    return { browser: "supported", desktop: "supported" };
+  }
+  if (SUPPORTED_VIDEO_EXTENSIONS.has(extension)) {
+    return { browser: "supported", desktop: "supported" };
+  }
+  if (extension === "mkv") {
     return {
-      compatibility: "unsupported" as const,
-      compatibilityReason: "浏览器不支持 MKV 封装",
+      browser: "unsupported",
+      desktop: "supported",
+      browserReason: "浏览器不承担 MKV 播放，请使用 MPV 或 WatchParty 桌面客户端",
     };
+  }
   if (MAYBE_VIDEO_EXTENSIONS.has(extension)) {
     return {
-      compatibility: "maybe" as const,
-      compatibilityReason: "浏览器是否支持此封装取决于编码",
+      browser: "maybe",
+      desktop: "maybe",
+      browserReason: "浏览器是否支持此封装取决于编码",
+      desktopReason: "MPV 通常支持，但需以实际解码器和硬件能力为准",
     };
   }
   return {
-    compatibility: "unsupported" as const,
-    compatibilityReason: "不是浏览器可播放的视频文件",
+    browser: "unsupported",
+    desktop: "unsupported",
+    browserReason: "不是浏览器可播放的视频文件",
+    desktopReason: "不是当前媒体扫描器识别的视频文件",
   };
 }
 
