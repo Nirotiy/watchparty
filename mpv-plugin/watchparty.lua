@@ -1090,12 +1090,50 @@ mp.observe_property("playback-rate", "number", function(_, value)
     send_command({ type = "rate", rate = value })
 end)
 
--- on_load hook：预留 watchparty:// 拦截（v2 再做系统注册与完整拦截）
+-- on_load hook：拦截 watchparty://<roomId> 快捷方式（阶段 4）。
+-- URL 只携带 roomId，票据永远不进命令行（spec 9.2 红线）；
+-- 已加入过的房间用持久化 token 直接恢复，否则 OSD 引导首次加入。
+local function resume_persisted_room(target_room_id)
+    local saved = persist_load()
+    if saved and saved.accessToken and saved.clientId and saved.roomId
+        and saved.roomId == target_room_id then
+        if state.joined then
+            osd("已在房间 " .. tostring(state.roomId), 3)
+            return true
+        end
+        state.joined = true
+        state.roomId = saved.roomId
+        state.accessToken = saved.accessToken
+        state.clientId = saved.clientId
+        state.lastRevision = nil
+        msg.debug("resuming room " .. tostring(saved.roomId) .. " from persisted token")
+        osd("正在恢复房间连接…", 2)
+        poll_snapshot()
+        return true
+    end
+    return false
+end
+
+-- 拦截 watchparty://<roomId>：返回是否识别为快捷方式（供 on_load hook 使用）；
+-- 识别为快捷方式时自行取消这次伪协议加载。
+local function handle_watchparty_url(filename)
+    if filename:sub(1, 13) ~= "watchparty://" then return false end
+    local target = filename:sub(14):gsub("[/]+$", "")
+    if target == "" then
+        osd("URL 缺少房间号：watchparty://<roomId>", 5)
+    elseif resume_persisted_room(target) then
+        msg.info("watchparty:// resumed " .. tostring(target))
+    else
+        osd("尚未加入房间 " .. tostring(target) .. "：请先在网页发射并用 Ctrl+J 加入", 6)
+    end
+    -- 拦截完成：取消这次伪协议加载，回 idle
+    mp.commandv("stop")
+    return true
+end
+
 mp.add_hook("on_load", 50, function()
     local filename = mp.get_property("stream-open-filename", "")
-    if filename:sub(1, 13) == "watchparty://" then
-        msg.warn("watchparty:// handling arrives in v2")
-    end
+    handle_watchparty_url(filename)
 end)
 
 -- 退出时清理外挂字幕临时文件
@@ -1244,15 +1282,8 @@ local function startup()
 
     -- 持久化 token 且（未预设 room_id 或与预设一致）→ 静默恢复
     local saved = persist_load()
-    if saved and saved.accessToken and saved.clientId and saved.roomId
-        and (o.room_id == "" or o.room_id == saved.roomId) then
-        state.joined = true
-        state.roomId = saved.roomId
-        state.accessToken = saved.accessToken
-        state.clientId = saved.clientId
-        msg.debug("resuming room " .. tostring(saved.roomId) .. " from persisted token")
-        osd("正在恢复房间连接…", 2)
-        poll_snapshot()
+    if saved and saved.accessToken and saved.clientId and saved.roomId then
+        resume_persisted_room(o.room_id ~= "" and o.room_id or saved.roomId)
     end
 end
 

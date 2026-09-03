@@ -1,0 +1,20 @@
+Windows Registry Editor Version 5.00
+
+; WatchParty watchparty:// 协议注册模板（阶段 4，仅模板文档，不做自动化安装）
+;
+; 用法：
+;   1. 把下面两处路径改成你机器上的 mpv.com 与 watchparty.lua 实际路径
+;      （JSON 字符串里的反斜杠要写成 \\）
+;   2. 把 backend_origin 改成你的 WatchParty 后端地址
+;   3. 双击导入本 .reg 文件（写入的是 HKCU，不需要管理员）
+;   4. 在浏览器打开 watchparty://<roomId> 即可用已保存的凭据恢复房间
+;
+; 安全说明：URL 中只携带 roomId（不含交接票据），票据永远不进入命令行。
+; 首次加入房间仍需在 mpv 中按 Ctrl+J 读取剪贴板交接码。
+
+[HKEY_CURRENT_USER\Software\Classes\watchparty]
+@="URL:WatchParty MPV Protocol"
+"URL Protocol"=""
+
+[HKEY_CURRENT_USER\Software\Classes\watchparty\shell\open\command]
+@="\"C:\\path\\to\\mpv.com\" \"--no-config\" \"--script=C:\\path\\to\\watchparty.lua\" \"--script-opts=watchparty-backend_origin=http://your-server:8080\" \"%1\""

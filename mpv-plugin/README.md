@@ -52,6 +52,15 @@ directUrl、响应头、`media_basic_auth` 不会写入磁盘。
   下载到 UTF-8 临时文件后 `sub-add`（auto，不强制选中，用户在 mpv 里切换）；
   内嵌字幕走 mpv 原生 `sid`。临时文件在换片和退出时清理，不进入配置目录。
 
+## 快捷方式：watchparty:// 链接（阶段 4）
+
+已加入过的房间可以用浏览器直接打开 `watchparty://<roomId>` 恢复连接
+（插件用本地已保存的凭据静默重连）。
+
+URL 模板在 `mpv-plugin/url-scheme/`（Windows .reg / Linux .desktop）。
+安全边界：URL 只携带 roomId，**交接票据永远不进入 URL 或命令行**；
+首次加入仍走网页发射 + Ctrl+J 剪贴板流程；未加入过的房间会 OSD 引导。
+
 ## 故障排查
 
 | OSD 提示 | 含义 |

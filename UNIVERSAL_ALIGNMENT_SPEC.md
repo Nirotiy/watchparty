@@ -397,10 +397,10 @@ WatchParty 后端**直接连接 OpenList 的 HTTP API**（不再存在独立 Gat
 
 ---
 
-## 9. MPV 客户端扩展（契约冻结，未实现）
+## 9. MPV 客户端扩展（阶段 0 至 3 已实现）
 
-> **状态**：本节为已冻结的契约定义，代码尚未实现。实现完成前，MPV 插件仅可开发"壳"与本地播放器控制。
-> **实测基线**：双链可行性已验证（见 3.2 resolve 注记）；过期恢复链路未强测，待插件集成测试；生产 Caddy `/p/` 回退认证未验证（见 9.5）。
+> **状态**：契约已实现并经真机 mpv E2E 验证（handoff/快照/命令/resolve-mpv/外挂字幕/百度直链直连/暂停同步/深度 seek）。9.1 至 9.4、9.7 已落地；9.5 生产回退认证待 VPS 部署阶段验证。
+> **实测基线**：双链可行性已验证（见 3.2 resolve 注记）；直链过期场景因当前盘 link_expiration=0 暂无实测；生产 Caddy `/p/` 回退认证未验证（见 9.5）。
 
 ### 9.1 协议版本
 - 常量 `PROTOCOL_VERSION = 2`（v1 = 纯浏览器协议，仅作历史参考）。
@@ -433,6 +433,7 @@ WatchParty 后端**直接连接 OpenList 的 HTTP API**（不再存在独立 Gat
 - 方案：MPV 插件本地配置项 `media_basic_auth`（一次性人工配置，存放于 MPV 配置目录），仅用于 `fallbackUrl` 播放；票据与 `resolve-mpv` 响应**不携带** Basic Auth 凭据（站点级凭据不得扩散到房间成员）。
 - 生产 E2E（Caddy + Basic Auth + MPV 回退播放 + seek）为部署阶段必过项。
 
+
 ### 9.6 管理员凭据边界（默认：接受）
 - WatchParty 后端持有 OpenList 管理员凭据（`fs/list`、`fs/get`、`fs/link` 所需）。约束：
   1. OpenList 仅监听回环/内网地址，不经 Caddy 暴露管理接口；
@@ -440,3 +441,8 @@ WatchParty 后端**直接连接 OpenList 的 HTTP API**（不再存在独立 Gat
   3. `resolve-mpv` 的请求头白名单在服务端执行（9.3），即使上游返回 Cookie 也不会泄漏；
   4. "实测仅返回 User-Agent" 是经验观察而非契约，白名单才是长期保证。
 - 若不接受该边界，替代方案是放弃 `directUrl`（全员走 `/p/` 代理、消耗 VPS 带宽）——需用户明确选择。
+
+### 9.7 watchparty:// 快捷方式（阶段 4）
+- URL 形如 `watchparty://<roomId>`，仅携带 roomId；**交接票据永远不进入 URL scheme 或进程命令行**。
+- 已加入过的房间：插件用本地持久化的 accessToken/clientId 直接恢复轮询；未加入过的房间 OSD 引导首次加入流程。
+- 注册仅提供 Windows .reg / Linux .desktop 模板文档，不做自动化安装；可选对接社区 mpv-handler（同 roomId-only 约束）。
