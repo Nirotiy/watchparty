@@ -12,6 +12,7 @@ import {
   AllowedOpenListRoot,
   OpenListDirectory,
   SubtitleTrack,
+  HandoffTicketResponse,
 } from "./contracts";
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -124,4 +125,12 @@ export const api = {
       `/api/rooms/${encodeURIComponent(roomId)}/media/subtitles?mediaId=${encodeURIComponent(mediaId)}`,
       { headers: { Authorization: `Bearer ${accessToken}` } },
     ),
+
+  // 10. 签发一次性 MPV 交接票据（120s TTL，spec 9.2；页面只展示交接码，不进 URL）
+  issueHandoffTicket: (roomId: string, accessToken: string): Promise<HandoffTicketResponse> =>
+    request<HandoffTicketResponse>(`/api/rooms/${encodeURIComponent(roomId)}/handoff`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({}),
+    }),
 };

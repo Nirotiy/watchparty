@@ -158,3 +158,9 @@ export interface SubtitleTrack {
 export type CommandAck<T = undefined> =
   | { ok: true; revision: number; data?: T }
   | { ok: false; error: { code: string; message: string } };
+
+// 12. MPV 交接票据（POST /api/rooms/:roomId/handoff，spec 9.2）
+export interface HandoffTicketResponse {
+  ticket: string;
+  ticketExpiresAt: number;
+}

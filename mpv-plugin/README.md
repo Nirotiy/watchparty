@@ -1,0 +1,58 @@
+# WatchParty MPV 插件（watchparty.lua）
+
+MPV 侧支客户端：浏览器是唯一控制台，MPV 是被"发射"出来的纯渲染端。
+通过一次性交接码加入房间后，自动起播房间当前媒体，并与浏览器成员保持
+暂停 / 倍速 / 进度同步（阶段 1 为只读同步，本地操作回传在阶段 2 加入）。
+
+## 安装
+
+1. 把 `watchparty.lua` 放入 mpv 脚本目录：
+   - Windows：`%APPDATA%\mpv\scripts\watchparty.lua`
+   - macOS/Linux：`~/.config/mpv/scripts/watchparty.lua`
+2. 配置后端地址（`~~/script-opts/watchparty.conf`）：
+
+   ```ini
+   backend_origin=http://your-server:8080
+   # 可选：
+   # room_id=room-xxxxxxxx
+   # media_basic_auth=user:password   （生产 /p/ 回退认证，仅存内存）
+   # debug=yes
+   ```
+
+   或启动时用 `--script-opts=watchparty-backend_origin=http://...`。
+
+最低要求：mpv v0.33+（依赖 `mp.command_native_async`）与系统 `curl`。
+
+## 使用
+
+1. 在房间网页点击顶栏"发射到 MPV"，生成一次性交接码（120 秒内有效，
+   会自动复制到剪贴板）。
+2. 打开 mpv，按 **Ctrl+J**（默认键位 `watchparty-join`）读取剪贴板加入房间。
+   也可以用命令行方式传入：`mpv --script=watchparty.lua` 后执行
+   `script-message watchparty-join <交接码>`。
+3. 加入成功后 OSD 提示房间号并自动起播；之后每 2 秒轮询房间快照。
+
+重启 mpv 时，脚本会用本地保存的 token（`~~/watchparty.json`）静默重连
+当前房间；token 失效（401/404）或服务端重启后自动清除并要求重新发射。
+directUrl、响应头、`media_basic_auth` 不会写入磁盘。
+
+## 行为边界（spec 第 9 节）
+
+- MPV 永远是普通成员（`clientType=mpv`），不能获得房主权限。
+- 交接码一次性、120 秒 TTL，不进入 URL、日志或 shell 命令。
+- 直连百度直链（`directUrl`）失败时自动回退 OpenList `/p/` 中转并 OSD 提示；
+  每个媒体至多重试一次，不会无限循环。
+- 双链均强制 `User-Agent: pan.baidu.com`（缺失会挂起，gate 实测）。
+- 锁定房间中 MPV 收到 FORBIDDEN 只提示一次，不刷屏。
+
+## 故障排查
+
+| OSD 提示 | 含义 |
+| --- | --- |
+| 交接码无效、已使用或已过期 | 重新在网页生成 |
+| 协议版本不兼容 | 插件与服务端版本不匹配，更新后重试 |
+| 凭据已失效，请重新发射 | token 过期或服务端重启，已自动清除本地保存 |
+| 直连失败，已切换服务器中转 | 直链失效，正在走服务器回退链路 |
+
+调试：`--script-opts=watchparty-debug=yes`，日志输出到 mpv 终端（含
+RTT / 时钟偏移采样，敏感凭据不会打印）。

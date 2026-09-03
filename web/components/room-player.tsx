@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { OpenListModal } from "./openlist-modal";
 import { PlaylistModal } from "./playlist-modal";
 import { MembersModal } from "./members-modal";
+import { MpvLaunchModal } from "./mpv-launch-modal";
 import { PlayerAdapter, PlayerAdapterHandle } from "./player-adapter";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -181,6 +182,7 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
   const [isOpenListModalOpen, setIsOpenListModalOpen] = useState(false);
   const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
+  const [isMpvModalOpen, setIsMpvModalOpen] = useState(false);
 
   // 8. 实时 Socket 客户端实例引用
   const socketRef = useRef<WatchPartySocket | null>(null);
@@ -673,6 +675,7 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
             badge={members.length}
           />
           <IconControl icon="video_library" label="点播媒体库" onClick={() => setIsOpenListModalOpen(true)} />
+          <IconControl icon="tv" label="发射到 MPV" onClick={() => setIsMpvModalOpen(true)} />
         </div>
         <div className="mt-1.5 flex min-w-0 items-center gap-2">
           <span className="truncate text-xs font-medium text-white text-shadow-md [text-shadow:_0_1px_3px_rgb(0_0_0_/_80%)]">
@@ -1001,6 +1004,13 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
             socket.transferOwner(targetClientId, revision),
           );
         }}
+      />
+
+      <MpvLaunchModal
+        isOpen={isMpvModalOpen}
+        onClose={() => setIsMpvModalOpen(false)}
+        roomId={roomId}
+        accessToken={accessToken}
       />
     </div>
     </TooltipProvider>
