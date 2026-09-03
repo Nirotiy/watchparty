@@ -3,15 +3,15 @@
 ## Source and workflow
 
 - Fork: https://github.com/Nirotiy/mpv-winbuild-cmake
-- Fork commit: `eb7db6656674ac24481a1c3a17ac26900a1373e4`
+- Fork commits: `eb7db6656674ac24481a1c3a17ac26900a1373e4` (initial workflow), `3c9deb01ae698f364f716512fb8d2051da6e6146` (Git identity fix)
 - Workflow: https://github.com/Nirotiy/mpv-winbuild-cmake/actions/workflows/watchparty-libmpv.yml
-- Triggered run: https://github.com/Nirotiy/mpv-winbuild-cmake/actions/runs/33788790006
+- Triggered runs: first failed run https://github.com/Nirotiy/mpv-winbuild-cmake/actions/runs/33788790006; current run https://github.com/Nirotiy/mpv-winbuild-cmake/actions/runs/33791563865
 - Target: `x86_64-w64-mingw32`
 - mpv source: `v0.40.0`, commit `287d7cdb78975ae350d7c2a287eae3c2072c93f7`
 - Build mode: shared library, `-Dlibmpv=true`
 - Upload behavior: artifact only, no release and no SourceForge upload
 
-The fork workflow is still running its GCC toolchain phase. The run has passed container initialization, checkout, and CMake configuration; no failure has been reported. It must finish before its artifact can be treated as the reproducible build result.
+The first fork run failed in the dependency patch phase because the workflow omitted Git identity configuration. The workflow was fixed in `3c9deb0` and rerun. The current run has passed container initialization, checkout, Git configuration, and CMake configuration and is still building the GCC toolchain. It must finish before its artifact can be treated as the reproducible build result.
 
 ## Immediate compatible upstream artifact
 
