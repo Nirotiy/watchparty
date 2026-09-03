@@ -147,3 +147,26 @@ test("playlist end semantics follow the loop flag", () => {
   );
   assert.equal(room.snapshot().currentPlaylistItemId, first.id);
 });
+
+test("playlist playback keeps the room loop preference across play and next", () => {
+  const { room } = createRoom();
+  room.join(owner, "Owner");
+  room.execute(owner, { type: "lock", locked: false }, 0, true);
+  room.execute(owner, { type: "playlistAdd", media }, 1, true);
+  room.execute(owner, { type: "playlistAdd", media }, 2, true);
+  const [first, second] = room.snapshot().playlist;
+
+  room.execute(owner, { type: "loop", loop: true }, 3, true);
+  room.execute(owner, { type: "playlistPlay", itemId: second.id }, 4, true);
+  assert.equal(room.snapshot().loop, true);
+
+  const ack = room.execute(
+    owner,
+    { type: "playlistNext", expectedCurrentPlaylistItemId: second.id },
+    5,
+    true,
+  );
+  assert.equal(ack.ok, true);
+  assert.equal(room.snapshot().currentPlaylistItemId, first.id);
+  assert.equal(room.snapshot().loop, true);
+});

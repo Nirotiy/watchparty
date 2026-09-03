@@ -611,6 +611,11 @@ function apply_snapshot(snap)
         load_media(snap)
         return
     end
+    -- 播完推进后若新条目与当前媒体相同（mpv 已 idle），需要重新加载
+    if not state.mediaLoaded and not state.loading then
+        load_media(snap)
+        return
+    end
     if not state.mediaLoaded then return end
 
     -- 暂停状态
@@ -763,6 +768,7 @@ function load_media(snap)
     state.fallbackUsed = false
     state.resolveRetried = false
     state.mediaLoaded = false
+    state.loading = true
     state.nudge = nil
     state.lastRemoteSeekTarget = nil
 
@@ -811,11 +817,12 @@ local function fetch_snapshot(callback)
     end)
 end
 
-local function send_command(payload)
+local function send_command(payload, on_ok)
     if not state.joined then return end
     payload.expectedRevision = state.lastRevision or 0
     local attempt = 0
     local function dispatch()
+        payload.expectedRevision = state.lastRevision or 0
         http_request({
             method = "POST",
             url = api_url("/api/rooms/" .. state.roomId .. "/mpv/command"),
@@ -827,13 +834,18 @@ local function send_command(payload)
             local ack = status and body and json.parse(body)
             if ack and ack.ok then
                 state.lastRevision = ack.revision -- 快路径推进本地 revision
+                if on_ok then on_ok() end
                 return
             end
             local code = ack and ack.error and ack.error.code
             if code == "REVISION_CONFLICT" and attempt == 0 then
                 attempt = attempt + 1
-                -- 先拉最新快照（让位服务端状态），再带新 revision 重试一次
-                fetch_snapshot(dispatch)
+                -- 先拉最新快照（让位服务端状态），只有 revision 变化才重试。
+                local conflictedRevision = state.lastRevision
+                fetch_snapshot(function()
+                    if state.lastRevision == conflictedRevision then return end
+                    dispatch()
+                end)
                 return
             end
             if code == "FORBIDDEN" then
@@ -856,6 +868,7 @@ end
 
 mp.register_event("file-loaded", function()
     state.mediaLoaded = true
+    state.loading = false
     if state.lastSnapshot and state.joined then
         apply_snapshot(state.lastSnapshot)
     end
@@ -865,15 +878,19 @@ end)
 -- 双 MPV 竞态由服务端 expectedCurrentPlaylistItemId + revision 收敛，失败方静默。
 -- 错误结束由下方有限状态机处理，禁止无限重试。
 mp.register_event("end-file", function(event)
+    local snap = state.lastSnapshot
     if event.reason == "eof" then
-        local snap = state.lastSnapshot
         if state.joined and snap and snap.currentPlaylistItemId
             and state.currentMediaKey == media_key(snap.source)
             and state.mediaLoaded then
             send_command({
                 type = "playlistNext",
                 expectedCurrentPlaylistItemId = snap.currentPlaylistItemId,
-            })
+            }, function()
+                state.mediaLoaded = false
+                -- Ack 已推进 revision，但不包含新快照；立即拉取完整快照触发同媒体重载。
+                fetch_snapshot()
+            end)
         end
         return
     end

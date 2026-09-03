@@ -213,7 +213,6 @@ export class Room {
         this.positionSeconds = 0;
         this.paused = true;
         this.playbackRate = 1;
-        this.loop = false;
         this.stateChangedAtMs = this.now();
         break;
       }
@@ -233,7 +232,6 @@ export class Room {
         this.positionSeconds = 0;
         this.paused = true;
         this.playbackRate = 1;
-        this.loop = false;
         this.stateChangedAtMs = this.now();
         break;
       }
