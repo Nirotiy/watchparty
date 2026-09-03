@@ -17,6 +17,7 @@
 local mp = require "mp"
 local msg = require "mp.msg"
 local opt = require "mp.options"
+local unpack = unpack or table.unpack -- LuaJIT / Lua 5.4 兼容
 
 local o = {
     backend_origin = "",
@@ -37,7 +38,8 @@ opt.read_options(o, "watchparty")
 local PROTOCOL_VERSION = 2
 -- gate 实测：百度直链与 OpenList /p/ 代理均要求该 UA，缺失会挂起。
 local REQUIRED_USER_AGENT = "pan.baidu.com"
-local MAX_RESPONSE_BYTES = 1024 * 1024
+-- 响应上限：快照很小，但外挂字幕服务端允许到 5MB（SUBTITLE_CAP_BYTES）。
+local MAX_RESPONSE_BYTES = 6 * 1024 * 1024
 local CONNECT_TIMEOUT = 5
 local OVERALL_TIMEOUT = 12
 -- 网络连续失败的轮询退避序列（秒）；恢复后回到 poll_interval。
@@ -78,6 +80,9 @@ local state = {
     suppressDeadline = 0,
     -- 最近一次远端纠偏 seek 的目标位置（用于区分远端纠偏与用户 seek）。
     lastRemoteSeekTarget = nil,
+    -- 外挂字幕临时文件路径与已加载代次（换片/退出时清理）。
+    tempSubtitleFiles = nil,
+    subtitlesLoadedGen = nil,
     -- 微调追帧的临时倍速（不在房间状态里，收敛后恢复房间倍速）。
     nudge = nil,
     -- 锁定房间 FORBIDDEN 的 OSD 节流。
@@ -98,6 +103,7 @@ local schedule_poll
 local update_clock
 local apply_snapshot
 local load_media
+local cleanup_subtitle_files
 
 -- ============================================================
 -- 最小 JSON 实现（mpv Lua 环境无内置 JSON 库）
@@ -752,6 +758,7 @@ local function start_playback(resolved, gen)
 end
 
 function load_media(snap)
+    cleanup_subtitle_files() -- 换片：清掉上一媒体的临时字幕文件
     local key = media_key(snap.source)
     if not key then
         if state.currentMediaKey then
@@ -760,6 +767,7 @@ function load_media(snap)
             mark_remote_apply()
             mp.commandv("stop")
         end
+        cleanup_subtitle_files()
         return
     end
     state.loadGeneration = state.loadGeneration + 1
@@ -790,6 +798,105 @@ function load_media(snap)
         mp.commandv("loadfile", url, "replace")
         if snap.paused then mp.set_property_bool("pause", true) end
     end
+end
+
+-- ============================================================
+-- 外挂字幕（阶段 3）：discovery → 下载 → UTF-8 临时文件 → sub-add。
+-- 内嵌字幕由 mpv 原生 sid 处理，无需插件参与。临时文件在换片/退出时清理，
+-- 仅存于本地临时目录，不持久化到配置（spec 9.4）。
+-- ============================================================
+
+local SUBTITLE_FORMATS = { ass = true, ssa = true, srt = true, vtt = true }
+
+function cleanup_subtitle_files()
+    for _, path in ipairs(state.tempSubtitleFiles or {}) do
+        local removed = os.remove(path)
+        if not removed and o.debug then
+            msg.debug("subtitle temp file remove failed: " .. tostring(path))
+        end
+    end
+    state.tempSubtitleFiles = nil
+    state.subtitlesLoadedGen = nil
+end
+
+local function write_subtitle_tempfile(text, format)
+    local base = os.tmpname()
+    local path = base .. "." .. format
+    local f = io.open(path, "wb")
+    if not f then
+        msg.warn("cannot write subtitle tempfile " .. tostring(path))
+        return nil
+    end
+    f:write(text)
+    f:close()
+    if base ~= path then os.remove(base) end -- POSIX 的 os.tmpname 会创建空文件
+    return path
+end
+
+local function add_subtitle_track(path, track)
+    -- sub-add <file> auto <title> <lang>：不强制选中，用户在 mpv 里切换
+    local args = { "sub-add", path, "auto", tostring(track.label or "Subtitle") }
+    if track.language and track.language ~= "" then
+        args[#args + 1] = tostring(track.language)
+    end
+    mp.commandv(unpack(args))
+end
+
+local function download_subtitles(tracks, index, gen)
+    if gen ~= state.loadGeneration then return end -- 换片，放弃剩余字幕
+    if index > #tracks then
+        osd("已加载 " .. #tracks .. " 个外挂字幕", 2)
+        return
+    end
+    local track = tracks[index]
+    http_request({
+        method = "GET",
+        url = api_url("/api/rooms/" .. state.roomId .. "/media/subtitle?mediaId=" .. track.mediaId),
+        secret_headers = mpv_secret_headers(),
+    }, function(status, body)
+        if gen ~= state.loadGeneration then return end
+        if status == 200 and body and body ~= "" then
+            local path = write_subtitle_tempfile(body, track.format)
+            if path then
+                state.tempSubtitleFiles = state.tempSubtitleFiles or {}
+                state.tempSubtitleFiles[#state.tempSubtitleFiles + 1] = path
+                add_subtitle_track(path, track)
+                msg.debug("subtitle added: " .. tostring(track.label))
+            end
+        else
+            msg.debug("subtitle download failed: " .. tostring(track.label) .. " status=" .. tostring(status))
+        end
+        download_subtitles(tracks, index + 1, gen)
+    end)
+end
+
+local function discover_subtitles(gen)
+    if state.subtitlesLoadedGen == gen then return end
+    local source = state.lastSnapshot and state.lastSnapshot.source
+    if not source or source.kind ~= "openlist" or not source.mediaId then return end
+    state.subtitlesLoadedGen = gen
+    http_request({
+        method = "GET",
+        url = api_url("/api/rooms/" .. state.roomId .. "/media/subtitles?mediaId=" .. source.mediaId),
+        secret_headers = mpv_secret_headers(),
+    }, function(status, body)
+        if gen ~= state.loadGeneration then return end
+        if status ~= 200 then
+            msg.debug("subtitle discovery failed: status=" .. tostring(status))
+            return
+        end
+        local tracks = body and json.parse(body)
+        if type(tracks) ~= "table" then return end
+        local usable = {}
+        for _, track in ipairs(tracks) do
+            if type(track) == "table" and type(track.mediaId) == "string"
+                and SUBTITLE_FORMATS[track.format] then
+                usable[#usable + 1] = track
+            end
+        end
+        if #usable == 0 then return end
+        download_subtitles(usable, 1, gen)
+    end)
 end
 
 -- ============================================================
@@ -871,6 +978,7 @@ mp.register_event("file-loaded", function()
     state.loading = false
     if state.lastSnapshot and state.joined then
         apply_snapshot(state.lastSnapshot)
+        discover_subtitles(state.loadGeneration)
     end
 end)
 
@@ -964,6 +1072,9 @@ mp.add_hook("on_load", 50, function()
         msg.warn("watchparty:// handling arrives in v2")
     end
 end)
+
+-- 退出时清理外挂字幕临时文件
+mp.register_event("shutdown", cleanup_subtitle_files)
 
 -- ============================================================
 -- 加入流程
