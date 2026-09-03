@@ -808,6 +808,32 @@ end
 
 local SUBTITLE_FORMATS = { ass = true, ssa = true, srt = true, vtt = true }
 
+-- 临时字幕文件统一前缀：便于启动时清扫异常退出的残留（验收矩阵：异常退出后的残留清理）
+local SUBTITLE_TEMP_PREFIX = "watchparty-sub-"
+
+local function subtitle_temp_dir()
+    local base = os.tmpname()
+    local dir = base:match("^(.*[\\/])") or "."
+    os.remove(base)
+    return dir
+end
+
+local function cleanup_stale_subtitle_files()
+    local dir = subtitle_temp_dir()
+    local pattern = dir .. SUBTITLE_TEMP_PREFIX .. "*"
+    if mp.get_property("platform") == "windows" then
+        mp.command_native_async({
+            name = "subprocess", args = { "cmd", "/c", "del", "/q", pattern },
+            playback_only = false,
+        }, function() end)
+    else
+        mp.command_native_async({
+            name = "subprocess", args = { "sh", "-c", "rm -f '" .. pattern .. "'" },
+            playback_only = false,
+        }, function() end)
+    end
+end
+
 function cleanup_subtitle_files()
     for _, path in ipairs(state.tempSubtitleFiles or {}) do
         local removed = os.remove(path)
@@ -819,9 +845,9 @@ function cleanup_subtitle_files()
     state.subtitlesLoadedGen = nil
 end
 
-local function write_subtitle_tempfile(text, format)
-    local base = os.tmpname()
-    local path = base .. "." .. format
+local function write_subtitle_tempfile(text, format, index)
+    local path = subtitle_temp_dir() .. SUBTITLE_TEMP_PREFIX .. os.time() .. "-"
+        .. tostring(state.loadGeneration or 0) .. "-" .. index .. "." .. format
     local f = io.open(path, "wb")
     if not f then
         msg.warn("cannot write subtitle tempfile " .. tostring(path))
@@ -829,7 +855,6 @@ local function write_subtitle_tempfile(text, format)
     end
     f:write(text)
     f:close()
-    if base ~= path then os.remove(base) end -- POSIX 的 os.tmpname 会创建空文件
     return path
 end
 
@@ -856,7 +881,7 @@ local function download_subtitles(tracks, index, gen)
     }, function(status, body)
         if gen ~= state.loadGeneration then return end
         if status == 200 and body and body ~= "" then
-            local path = write_subtitle_tempfile(body, track.format)
+            local path = write_subtitle_tempfile(body, track.format, index)
             if path then
                 state.tempSubtitleFiles = state.tempSubtitleFiles or {}
                 state.tempSubtitleFiles[#state.tempSubtitleFiles + 1] = path
@@ -1206,6 +1231,8 @@ local function startup()
     end
 
     mp.add_key_binding("ctrl+j", "watchparty-join", function() join_flow() end)
+    -- 清扫上次异常退出残留的临时字幕文件（正常退出已由 shutdown 事件清理）
+    cleanup_stale_subtitle_files()
     mp.register_script_message("watchparty-join", function(...)
         local count = select("#", ...)
         if count > 0 then
