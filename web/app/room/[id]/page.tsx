@@ -3,6 +3,9 @@
 import React, { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { Lock, ArrowLeft, RefreshCw, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
 import RoomPlayer from "@/components/room-player";
 
@@ -178,13 +181,13 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
             请确认您输入的房间标识符是否正确，或返回大厅创建属于您的新房间。
           </p>
           <div className="pt-2">
-            <button
+            <Button
               onClick={() => router.push("/")}
-              className="flex w-full items-center justify-center gap-2 rounded bg-white py-2 text-xs font-semibold text-black hover:bg-neutral-200"
+              className="w-full bg-white py-2 text-xs font-semibold text-black hover:bg-neutral-200"
             >
               <ArrowLeft className="size-3.5" />
               <span>返回大厅首页</span>
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -204,19 +207,20 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
             <p className="text-xs text-rose-300">{errorMessage}</p>
           </div>
           <div className="flex gap-2 pt-2">
-            <button
+            <Button
+              variant="ghost"
               onClick={() => router.push("/")}
-              className="flex-1 rounded border border-neutral-800 bg-black py-2 text-xs text-neutral-400 hover:text-white"
+              className="flex-1 text-xs text-neutral-400 hover:text-white"
             >
               返回首页
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => window.location.reload()}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded bg-white py-2 text-xs font-semibold text-black hover:bg-neutral-200"
+              className="flex-1 bg-white text-xs font-semibold text-black hover:bg-neutral-200"
             >
               <RefreshCw className="size-3.5" />
               <span>重试连接</span>
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -243,16 +247,16 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
               </div>
             )}
 
-            <div>
-              <label className="block text-xs font-medium text-neutral-400">进入昵称</label>
-              <input
+            <div className="space-y-1.5">
+              <Label className="text-xs text-neutral-400">进入昵称</Label>
+              <Input
                 type="text"
                 value={nickname}
                 onChange={(e) => setNickname(e.target.value)}
                 placeholder="例如：Bob"
                 maxLength={24}
                 required
-                className="mt-1.5 w-full rounded border border-neutral-800 bg-black px-3 py-2 text-xs text-white placeholder-neutral-600 outline-none focus:border-sky-500"
+                className="bg-black text-xs"
               />
             </div>
 
@@ -276,20 +280,21 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
             </div>
 
             <div className="flex gap-2 pt-2">
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 onClick={() => router.push("/")}
-                className="flex-1 rounded border border-neutral-800 bg-black py-2 text-xs text-neutral-400 hover:text-white"
+                className="flex-1 text-xs text-neutral-400 hover:text-white"
               >
                 返回
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
                 disabled={isVerifying}
-                className="flex-1 rounded bg-sky-500 py-2 text-xs font-semibold text-black hover:bg-sky-400 disabled:opacity-50"
+                className="flex-1 bg-sky-500 text-xs font-semibold text-black hover:bg-sky-400"
               >
                 {isVerifying ? "验证中..." : "验证进入"}
-              </button>
+              </Button>
             </div>
           </form>
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Folder,
   Film,
@@ -10,11 +10,15 @@ import {
   ListPlus,
   ChevronRight,
   Link as LinkIcon,
+
   AlertCircle,
   RefreshCw,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { AllowedOpenListRoot, MediaSource, OpenListItem } from "@/lib/contracts";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 interface OpenListModalProps {
   isOpen: boolean;
@@ -63,27 +67,27 @@ export function OpenListModal({
 
   // 搜索态与搜索分页
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [isSearching, setIsSearching] = useState<boolean>(false);
+  const [activeSearchQuery, setActiveSearchQuery] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<OpenListItem[]>([]);
   const [searchHasMore, setSearchHasMore] = useState<boolean>(false);
   const [searchNextCursor, setSearchNextCursor] = useState<string | undefined>(undefined);
+  const requestSequenceRef = useRef(0);
 
   // 直链手动添加模式
   const [isManualUrlMode, setIsManualUrlMode] = useState<boolean>(false);
   const [customUrl, setCustomUrl] = useState<string>("");
   const [customTitle, setCustomTitle] = useState<string>("");
 
-  // A-Z 快速跳查字母过滤
-  const [activeLetter, setActiveLetter] = useState<string>("ALL");
-
   // 1. 获取目录内容 (真机接口请求，彻底删除 mock fallback)
   const loadDirectory = useCallback(async (root: AllowedOpenListRoot, path: string, cursor?: string) => {
+    const requestSequence = ++requestSequenceRef.current;
     setIsLoading(true);
     setErrorMsg(null);
     try {
       const res = await api.getMediaList(root, path, cursor);
+      if (requestSequence !== requestSequenceRef.current) return;
       // 自然排序
-      const sorted = (res.items || []).sort((a: OpenListItem, b: OpenListItem) =>
+      const sorted = [...(res.items || [])].sort((a: OpenListItem, b: OpenListItem) =>
         a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
       );
 
@@ -96,22 +100,25 @@ export function OpenListModal({
       setHasMore(res.hasMore || false);
       setNextCursor(res.nextCursor);
     } catch (err: unknown) {
+      if (requestSequence !== requestSequenceRef.current) return;
       const error = err as Error;
       setErrorMsg(error.message || "无法加载媒体目录，请检查网络或后端 Gateway");
       if (!cursor) setItems([]);
     } finally {
-      setIsLoading(false);
+      if (requestSequence === requestSequenceRef.current) setIsLoading(false);
     }
   }, []);
 
   // 2. 执行全局搜索
   const loadSearch = useCallback(async (query: string, root: AllowedOpenListRoot, cursor?: string) => {
     if (!query.trim()) return;
+    const requestSequence = ++requestSequenceRef.current;
     setIsLoading(true);
     setErrorMsg(null);
 
     try {
       const res = await api.searchMedia(query.trim(), root, cursor);
+      if (requestSequence !== requestSequenceRef.current) return;
       if (cursor) {
         setSearchResults((prev) => [...prev, ...(res.items || [])]);
       } else {
@@ -120,55 +127,60 @@ export function OpenListModal({
       setSearchHasMore(res.hasMore || false);
       setSearchNextCursor(res.nextCursor);
     } catch (err: unknown) {
+      if (requestSequence !== requestSequenceRef.current) return;
       const error = err as Error;
       setErrorMsg(error.message || "搜索失败，请稍后重试");
       if (!cursor) setSearchResults([]);
     } finally {
-      setIsLoading(false);
+      if (requestSequence === requestSequenceRef.current) setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (!isOpen) return;
-    let active = true;
-
-    async function init() {
-      if (active) {
-        await loadDirectory(selectedRoot, currentPath);
-      }
-    }
-
-    init();
+    const loadTimer = window.setTimeout(() => {
+      void loadDirectory(selectedRoot, currentPath);
+    }, 0);
     return () => {
-      active = false;
+      window.clearTimeout(loadTimer);
+      requestSequenceRef.current += 1;
     };
   }, [isOpen, selectedRoot, currentPath, loadDirectory]);
 
+  const clearSearch = useCallback(() => {
+    requestSequenceRef.current += 1;
+    setActiveSearchQuery(null);
+    setSearchQuery("");
+    setSearchResults([]);
+    setSearchHasMore(false);
+    setSearchNextCursor(undefined);
+    setErrorMsg(null);
+    setIsLoading(false);
+  }, []);
+
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!searchQuery.trim()) {
-      setIsSearching(false);
+    const query = searchQuery.trim();
+    if (!query) {
+      clearSearch();
       return;
     }
-    setIsSearching(true);
-    await loadSearch(searchQuery, selectedRoot);
+    setActiveSearchQuery(query);
+    setSearchResults([]);
+    setSearchHasMore(false);
+    setSearchNextCursor(undefined);
+    await loadSearch(query, selectedRoot);
+  };
+
+  const handleClose = () => {
+    clearSearch();
+    onClose();
   };
 
   if (!isOpen) return null;
 
-  // 快捷字母列表
-  const alphabet = ["ALL", ..."#ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")];
-
-  // 过滤展示项
-  const displayItems = isSearching
-    ? searchResults
-    : activeLetter === "ALL"
-    ? items
-    : items.filter((it) => {
-        const first = it.name.trim().charAt(0).toUpperCase();
-        if (activeLetter === "#") return /^[0-9]/.test(first);
-        return first === activeLetter;
-      });
+  const isSearching = activeSearchQuery !== null;
+  const displayItems = isSearching ? searchResults : items;
 
   // 一键入队当前目录全部支持文件
   const handleBatchAddCurrentDir = async () => {
@@ -199,7 +211,7 @@ export function OpenListModal({
 
       if (supported.length > 0) {
         await onBatchAdd(supported);
-        onClose();
+        handleClose();
       }
     } catch (error: unknown) {
       setErrorMsg(error instanceof Error ? error.message : "批量读取目录失败");
@@ -229,13 +241,13 @@ export function OpenListModal({
     } else {
       onAddToQueue(media);
     }
-    onClose();
+    handleClose();
   };
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
         className="flex h-[620px] max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950 shadow-2xl shadow-black"
@@ -252,144 +264,128 @@ export function OpenListModal({
             {/* 根目录 Tab */}
             <div className="flex rounded border border-neutral-800 bg-black p-0.5 text-xs">
               {(["Anime", "Film", "TV Shows"] as AllowedOpenListRoot[]).map((root) => (
-                <button
+                <Button
                   key={root}
+                  variant="ghost"
+                  size="sm"
                   onClick={() => {
                     setSelectedRoot(root);
                     setCurrentPath("/");
-                    setIsSearching(false);
+                    clearSearch();
                   }}
-                  className={`rounded px-2.5 py-1 transition ${
+                  className={cn(
+                    "px-2.5",
                     selectedRoot === root
-                      ? "bg-sky-500 font-semibold text-black"
-                      : "text-neutral-400 hover:text-white"
-                  }`}
+                      ? "bg-sky-500 font-semibold text-black hover:bg-sky-500 hover:text-black"
+                      : "font-normal text-neutral-400 hover:text-white",
+                  )}
                 >
                   {root === "Anime" ? "番剧 (Anime)" : root === "Film" ? "电影 (Film)" : "剧集 (TV)"}
-                </button>
+                </Button>
               ))}
             </div>
 
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setIsManualUrlMode(!isManualUrlMode)}
-              className={`flex items-center gap-1 rounded border px-2 py-1 text-xs transition ${
+              className={cn(
                 isManualUrlMode
                   ? "border-sky-500 bg-sky-950/40 text-sky-400"
-                  : "border-neutral-800 bg-black text-neutral-400 hover:text-white"
-              }`}
+                  : "bg-black text-neutral-400 hover:text-white",
+              )}
             >
               <LinkIcon className="size-3" />
               <span>直链添加</span>
-            </button>
+            </Button>
           </div>
 
-          <button
-            onClick={onClose}
-            className="flex size-7 items-center justify-center rounded text-neutral-400 hover:bg-neutral-800 hover:text-white"
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={handleClose}
+            aria-label="关闭媒体库"
+            className="text-neutral-400 hover:bg-neutral-800 hover:text-white"
           >
             <X className="size-4" />
-          </button>
+          </Button>
         </div>
 
         {/* 直链输入栏 */}
         {isManualUrlMode && (
           <div className="border-b border-neutral-800 bg-neutral-900/60 p-4 space-y-2.5">
             <div className="text-xs font-semibold text-neutral-300">手动添加外部 HTTPS 直链 / HLS 流</div>
-            <div className="flex gap-2">
-              <input
+            <div className="flex flex-1 gap-2">
+              <Input
                 type="text"
                 value={customUrl}
                 onChange={(e) => setCustomUrl(e.target.value)}
                 placeholder="https://example.com/video.mp4 或 .m3u8"
-                className="flex-1 rounded border border-neutral-800 bg-black px-3 py-1.5 font-mono text-xs text-white outline-none focus:border-sky-500"
+                className="h-8 flex-1 bg-black font-mono text-xs"
               />
-              <input
+              <Input
                 type="text"
                 value={customTitle}
                 onChange={(e) => setCustomTitle(e.target.value)}
                 placeholder="片名备注 (可选)"
-                className="w-48 rounded border border-neutral-800 bg-black px-3 py-1.5 text-xs text-white outline-none focus:border-sky-500"
+                className="h-8 w-48 bg-black text-xs"
               />
-              <button
-                onClick={() => handleAddCustomUrl(true)}
-                className="rounded bg-sky-500 px-3 py-1.5 text-xs font-semibold text-black hover:bg-sky-400"
-              >
+              <Button size="sm" onClick={() => handleAddCustomUrl(true)} className="bg-sky-500 font-semibold text-black hover:bg-sky-400">
                 立即播放
-              </button>
-              <button
-                onClick={() => handleAddCustomUrl(false)}
-                className="rounded border border-neutral-700 bg-neutral-800 px-3 py-1.5 text-xs text-white hover:border-neutral-600"
-              >
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => handleAddCustomUrl(false)}>
                 加入清单
-              </button>
+              </Button>
             </div>
           </div>
         )}
 
-        {/* 检索栏与 A-Z 快速过滤条 */}
-        <div className="flex shrink-0 items-center justify-between border-b border-neutral-800/80 bg-neutral-900/30 px-5 py-2">
-          {/* 搜索输入 */}
-          <form onSubmit={handleSearch} className="flex items-center gap-2">
-            <div className="relative">
+        {/* 当前分类全局搜索 */}
+        <div className="flex shrink-0 border-b border-neutral-800/80 bg-neutral-900/30 px-5 py-2">
+          <form onSubmit={handleSearch} className="flex w-full min-w-0 items-center gap-2">
+            <div className="relative min-w-0 flex-1">
               <Search className="absolute left-2.5 top-2 size-3.5 text-neutral-500" />
-              <input
+              <Input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="在当前分类全局搜索..."
-                className="w-56 rounded border border-neutral-800 bg-black pl-8 pr-3 py-1 text-xs text-white outline-none focus:border-sky-500"
+                aria-label={`在 ${selectedRoot} 分类中搜索`}
+                className="h-8 w-full bg-black pl-8 text-xs"
               />
             </div>
-            <button
+            <Button
               type="submit"
-              className="rounded border border-neutral-800 bg-neutral-900 px-2.5 py-1 text-xs text-neutral-300 hover:border-sky-500"
+              variant="outline"
+              size="sm"
+              disabled={isLoading}
+              className="shrink-0 whitespace-nowrap text-neutral-300"
             >
               搜索
-            </button>
+            </Button>
             {isSearching && (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => {
-                  setIsSearching(false);
-                  setSearchQuery("");
+                  clearSearch();
                 }}
-                className="text-xs text-neutral-500 hover:text-white"
+                className="shrink-0 whitespace-nowrap text-neutral-400 hover:text-white"
               >
                 清除搜索
-              </button>
+              </Button>
             )}
           </form>
-
-          {/* A-Z 快速跳查条 */}
-          {!isSearching && (
-            <div className="flex items-center gap-0.5 overflow-x-auto text-[11px] font-mono">
-              {alphabet.map((char) => (
-                <button
-                  key={char}
-                  onClick={() => setActiveLetter(char)}
-                  className={`size-5 rounded text-center leading-5 transition ${
-                    activeLetter === char
-                      ? "bg-white font-bold text-black"
-                      : "text-neutral-500 hover:text-white"
-                  }`}
-                >
-                  {char}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
 
         {/* 面包屑与批量操作 */}
         <div className="flex shrink-0 items-center justify-between border-b border-neutral-800/80 bg-black/40 px-5 py-2 text-xs">
           <div className="flex items-center gap-1.5 font-mono text-neutral-400">
-            <button
-              onClick={() => setCurrentPath("/")}
-              className="hover:text-white flex items-center gap-1"
-            >
+            <Button variant="ghost" size="sm" onClick={() => setCurrentPath("/")} className="h-6 px-1 font-normal hover:text-white">
               <Folder className="size-3 text-sky-400" />
               <span>{selectedRoot}</span>
-            </button>
+            </Button>
             {breadcrumbs.map((crumb, idx) => (
               <React.Fragment key={idx}>
                 <ChevronRight className="size-3 text-neutral-600" />
@@ -399,13 +395,15 @@ export function OpenListModal({
           </div>
 
           {!isSearching && items.some((it) => it.type === "file") && (
-            <button
+            <Button
+              variant="link"
+              size="sm"
               onClick={() => void handleBatchAddCurrentDir()}
-              className="flex items-center gap-1 text-[11px] font-medium text-sky-400 hover:underline"
+              className="h-6 px-1 text-[11px] font-medium text-sky-400 underline-offset-2 hover:text-sky-300 hover:no-underline"
             >
               <ListPlus className="size-3.5" />
               <span>+ 添加当前文件夹全部剧集至播放清单</span>
-            </button>
+            </Button>
           )}
         </div>
 
@@ -417,13 +415,21 @@ export function OpenListModal({
                 <AlertCircle className="size-4 shrink-0" />
                 <span>{errorMsg}</span>
               </div>
-              <button
-                onClick={() => loadDirectory(selectedRoot, currentPath)}
-                className="flex items-center gap-1 text-white hover:underline"
+              <Button
+                variant="link"
+                size="sm"
+                onClick={() => {
+                  if (activeSearchQuery) {
+                    void loadSearch(activeSearchQuery, selectedRoot);
+                  } else {
+                    void loadDirectory(selectedRoot, currentPath);
+                  }
+                }}
+                className="h-6 px-1 text-white underline-offset-2"
               >
                 <RefreshCw className="size-3" />
                 <span>重试</span>
-              </button>
+              </Button>
             </div>
           )}
 
@@ -433,7 +439,12 @@ export function OpenListModal({
             </div>
           ) : displayItems.length === 0 ? (
             <div className="flex h-48 flex-col items-center justify-center text-xs text-neutral-600 space-y-1">
-              <span>{isSearching ? "未找到匹配的媒体文件" : "当前目录为空"}</span>
+              <span>{isSearching ? `未找到与“${activeSearchQuery}”匹配的媒体文件` : "当前目录为空"}</span>
+              {isSearching && (
+                <span className="text-[11px] text-neutral-500">
+                  如果确认文件存在，请检查 OpenList 是否已启用并构建搜索索引
+                </span>
+              )}
             </div>
           ) : (
             <div className="space-y-1">
@@ -484,37 +495,40 @@ export function OpenListModal({
 
                     {!isDir && isSupported && (
                       <div className="flex items-center gap-2 shrink-0">
-                        <button
+                        <Button
+                          size="sm"
+                          className="h-7 bg-white px-2 text-[11px] font-semibold text-black hover:bg-neutral-200"
                           onClick={() => {
                             onPlayNow({
                               kind: "openlist",
                               mediaId: item.id,
                               title: item.name,
                               container: item.extension || "mp4",
-                              displayPath: `${selectedRoot}${currentPath}`,
+                              displayPath: item.displayPath || `${selectedRoot}${currentPath}`,
                             });
-                            onClose();
+                            handleClose();
                           }}
-                          className="flex items-center gap-1 rounded bg-white px-2 py-1 text-[11px] font-semibold text-black hover:bg-neutral-200"
                         >
                           <Play className="size-3 fill-black" />
                           <span>立即播放</span>
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-[11px] text-neutral-300"
                           onClick={() => {
                             onAddToQueue({
                               kind: "openlist",
                               mediaId: item.id,
                               title: item.name,
                               container: item.extension || "mp4",
-                              displayPath: `${selectedRoot}${currentPath}`,
+                              displayPath: item.displayPath || `${selectedRoot}${currentPath}`,
                             });
                           }}
-                          className="flex items-center gap-1 rounded border border-neutral-800 bg-neutral-900 px-2 py-1 text-[11px] text-neutral-300 hover:border-neutral-700 hover:text-white"
                         >
                           <ListPlus className="size-3" />
                           <span>加入清单</span>
-                        </button>
+                        </Button>
                       </div>
                     )}
                   </div>
@@ -523,19 +537,21 @@ export function OpenListModal({
 
               {((!isSearching && hasMore) || (isSearching && searchHasMore)) && (
                 <div className="pt-2 text-center">
-                  <button
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => {
                       if (isSearching) {
-                        loadSearch(searchQuery, selectedRoot, searchNextCursor);
+                        void loadSearch(activeSearchQuery, selectedRoot, searchNextCursor);
                       } else {
-                        loadDirectory(selectedRoot, currentPath, nextCursor);
+                        void loadDirectory(selectedRoot, currentPath, nextCursor);
                       }
                     }}
                     disabled={isLoading}
-                    className="rounded border border-neutral-800 bg-neutral-900 px-4 py-1.5 text-xs text-neutral-300 hover:border-sky-500 hover:text-white"
+                    className="text-neutral-300"
                   >
                     {isLoading ? "正在加载更多..." : "加载更多项目"}
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>

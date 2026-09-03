@@ -2,6 +2,7 @@
 
 import React from "react";
 import { ListVideo, Trash2, Play, Plus, X, Layers, ArrowUp, ArrowDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { PlaylistItem } from "@/lib/contracts";
 
 interface PlaylistModalProps {
@@ -50,22 +51,26 @@ export function PlaylistModal({
             <span className="font-mono text-xs text-neutral-500">[{playlist.length}/200]</span>
           </div>
           <div className="flex items-center gap-2">
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => {
                 onClose();
                 onOpenMediaSelector();
               }}
-              className="flex items-center gap-1 rounded border border-neutral-700 bg-neutral-900 px-2.5 py-1 text-xs font-medium text-white transition hover:border-sky-500 hover:text-sky-400"
             >
               <Plus className="size-3" />
               <span>添加片源</span>
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
               onClick={onClose}
-              className="flex size-7 items-center justify-center rounded text-neutral-400 hover:bg-neutral-800 hover:text-white"
+              aria-label="关闭"
+              className="text-neutral-400 hover:bg-neutral-800 hover:text-white"
             >
               <X className="size-4" />
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -104,42 +109,50 @@ export function PlaylistModal({
                     {/* 上移 / 下移 */}
                     {canControl && (
                       <div className="flex items-center gap-0.5">
-                        <button
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="size-6 text-neutral-500 hover:bg-neutral-800 hover:text-white"
                           disabled={idx === 0}
                           onClick={() => onMoveItem(item.id, idx - 1)}
-                          className="rounded p-1 text-neutral-500 hover:bg-neutral-800 hover:text-white disabled:opacity-30"
                           title="上移"
                         >
                           <ArrowUp className="size-3" />
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="size-6 text-neutral-500 hover:bg-neutral-800 hover:text-white"
                           disabled={idx === playlist.length - 1}
                           onClick={() => onMoveItem(item.id, idx + 1)}
-                          className="rounded p-1 text-neutral-500 hover:bg-neutral-800 hover:text-white disabled:opacity-30"
                           title="下移"
                         >
                           <ArrowDown className="size-3" />
-                        </button>
+                        </Button>
                       </div>
                     )}
 
                     {!isCurrent && canControl && (
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="size-6 bg-white text-black hover:bg-neutral-200"
                         onClick={() => onPlayItem(item.id)}
-                        className="rounded bg-white p-1 text-black hover:bg-neutral-200"
                         title="立即切到此项"
                       >
                         <Play className="size-3 fill-black" />
-                      </button>
+                      </Button>
                     )}
                     {canControl && (
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="size-6 text-neutral-500 hover:bg-neutral-800 hover:text-rose-400"
                         onClick={() => onRemoveItem(item.id)}
-                        className="rounded p-1 text-neutral-500 hover:bg-neutral-800 hover:text-rose-400"
                         title="从清单中移除"
                       >
                         <Trash2 className="size-3.5" />
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </div>

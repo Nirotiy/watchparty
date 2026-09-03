@@ -1,26 +1,16 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import {
-  Play,
-  Pause,
-  Repeat,
-  Volume2,
-  VolumeX,
-  Maximize,
-  Minimize,
-  Lock,
-  Unlock,
-  Users,
-  Folder,
-  ListVideo,
-  Subtitles,
-  AlertCircle,
-} from "lucide-react";
 import { OpenListModal } from "./openlist-modal";
 import { PlaylistModal } from "./playlist-modal";
 import { MembersModal } from "./members-modal";
 import { PlayerAdapter, PlayerAdapterHandle } from "./player-adapter";
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import {
   CommandAck,
   MediaSource,
@@ -35,6 +25,66 @@ import { createVttBlobUrl } from "@/lib/subtitle-parser";
 interface RoomPlayerProps {
   roomId: string;
   accessToken?: string;
+}
+
+const CONTROLS_HIDE_DELAY_MS = 2400;
+
+/** Material Symbols 图标；sizePx 控制字号，filled 启用填充变体。 */
+function MsIcon({ name, className, filled }: { name: string; className?: string; filled?: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={cn("material-symbols-outlined select-none leading-none", filled && "[font-variation-settings:'FILL'_1]", className)}
+    >
+      {name}
+    </span>
+  );
+}
+
+/** 图标按钮 + Tooltip 的统一封装（呼出层内所有 icon-only 控件都用它）。 */
+function IconControl({
+  icon,
+  label,
+  onClick,
+  active,
+  filled,
+  badge,
+  className,
+}: {
+  icon: string;
+  label: string;
+  onClick: () => void;
+  active?: boolean;
+  filled?: boolean;
+  badge?: number | string;
+  className?: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onClick}
+          aria-label={label}
+          aria-pressed={active}
+          className={cn(
+            "relative text-white/85 hover:bg-white/15 hover:text-white",
+            active && "text-sky-400 hover:text-sky-300",
+            className,
+          )}
+        >
+          <MsIcon name={icon} filled={filled ?? active} className="text-[20px]" />
+          {badge !== undefined && badge !== 0 && (
+            <span className="pointer-events-none absolute -top-0.5 -right-0.5 min-w-4 rounded-full bg-sky-600 px-1 text-center text-[9px] leading-4 font-medium text-white">
+              {badge}
+            </span>
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent className="bg-neutral-900 text-neutral-100 border border-neutral-700">{label}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 function mediaSourceKey(source: MediaSource): string {
@@ -87,6 +137,8 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
   const [totalDuration, setTotalDuration] = useState(0);
   const [bufferedPercent, setBufferedPercent] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [areControlsVisible, setAreControlsVisible] = useState(true);
+  const [seekPreview, setSeekPreview] = useState<number | null>(null);
 
   // 5. 字幕核心状态 (本地隔离，支持 SRT 动态转 VTT)
   const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([]);
@@ -133,6 +185,94 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
   // 8. 实时 Socket 客户端实例引用
   const socketRef = useRef<WatchPartySocket | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
+  const controlsHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const shouldPinControls =
+    !snapshot?.source ||
+    snapshot.paused !== false ||
+    showSubtitleMenu ||
+    isOpenListModalOpen ||
+    isPlaylistModalOpen ||
+    isMembersModalOpen;
+
+  const clearControlsHideTimer = useCallback(() => {
+    if (!controlsHideTimerRef.current) return;
+    clearTimeout(controlsHideTimerRef.current);
+    controlsHideTimerRef.current = null;
+  }, []);
+
+  const scheduleControlsHide = useCallback(() => {
+    clearControlsHideTimer();
+    if (shouldPinControls) return;
+    controlsHideTimerRef.current = setTimeout(() => {
+      controlsHideTimerRef.current = null;
+      if (controlsRef.current?.contains(document.activeElement)) return;
+      setAreControlsVisible(false);
+    }, CONTROLS_HIDE_DELAY_MS);
+  }, [clearControlsHideTimer, shouldPinControls]);
+
+  const revealControls = useCallback(() => {
+    setAreControlsVisible(true);
+    scheduleControlsHide();
+  }, [scheduleControlsHide]);
+
+  // 顶部与底部呼出层共用的指针/焦点处理：停留时保持显示，移开后计时收起。
+  const overlayPointerHandlers = {
+    onPointerEnter: () => {
+      clearControlsHideTimer();
+      setAreControlsVisible(true);
+    },
+    onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => {
+      event.stopPropagation();
+      clearControlsHideTimer();
+      setAreControlsVisible(true);
+    },
+    onPointerLeave: () => {
+      scheduleControlsHide();
+    },
+    onFocusCapture: () => {
+      clearControlsHideTimer();
+      setAreControlsVisible(true);
+    },
+    onBlurCapture: (event: React.FocusEvent<HTMLDivElement>) => {
+      const nextFocusedElement = event.relatedTarget;
+      if (nextFocusedElement instanceof Node && event.currentTarget.contains(nextFocusedElement)) return;
+      scheduleControlsHide();
+    },
+  };
+
+  const controlsOverlayProps = {
+    ref: controlsRef,
+    "data-controls-pinned": shouldPinControls,
+    "data-controls-state": shouldPinControls || areControlsVisible ? "visible" : "hidden",
+    ...overlayPointerHandlers,
+  };
+
+  useEffect(() => {
+    if (shouldPinControls) {
+      clearControlsHideTimer();
+      return;
+    }
+    scheduleControlsHide();
+    return clearControlsHideTimer;
+  }, [clearControlsHideTimer, scheduleControlsHide, shouldPinControls]);
+
+  // 隐藏后根节点通常没有焦点，Tab/方向键等事件不会冒泡到播放器。
+  // 在组件存活期间监听文档级键盘输入，确保键盘也能重新呼出控制层。
+  useEffect(() => {
+    const handleDocumentKeyDown = () => revealControls();
+    document.addEventListener("keydown", handleDocumentKeyDown);
+    return () => document.removeEventListener("keydown", handleDocumentKeyDown);
+  }, [revealControls]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === containerRef.current);
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
 
   // 房主锁操作拦截气泡
   const triggerLockWarning = useCallback((actionText: string) => {
@@ -404,16 +544,43 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
     }
   };
 
-  const handleSeek = async (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleSeekCommit = async (values: number[]) => {
+    setSeekPreview(null);
     if (!snapshot || !socketRef.current || totalDuration === 0) return;
     if (!canControl) {
       triggerLockWarning("调整播放进度");
       return;
     }
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const targetSecs = ratio * totalDuration;
+    const targetSecs = values[0] ?? 0;
     await runCommand((socket, revision) => socket.seek(targetSecs, revision));
+  };
+
+  const toggleMute = () => {
+    const nextMuted = !isMuted;
+    setIsMuted(nextMuted);
+    playerRef.current?.setMuted(nextMuted);
+  };
+
+  const handlePrevTrack = async () => {
+    if (!snapshot || !socketRef.current) return;
+    if (!canControl) {
+      triggerLockWarning("切换播放条目");
+      return;
+    }
+    const playlist = snapshot.playlist;
+    const currentIndex = playlist.findIndex((item) => item.id === snapshot.currentPlaylistItemId);
+    const previous = currentIndex > 0 ? playlist[currentIndex - 1] : undefined;
+    if (!previous) return;
+    await runCommand((socket, revision) => socket.playlistPlay(previous.id, revision));
+  };
+
+  const handleNextTrack = async () => {
+    if (!snapshot || !socketRef.current) return;
+    if (!canControl) {
+      triggerLockWarning("切换播放条目");
+      return;
+    }
+    await runCommand((socket, revision) => socket.playlistNext(revision));
   };
 
   const handleToggleLock = async () => {
@@ -444,14 +611,12 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
     await runCommand((socket, revision) => socket.loop(!snapshot.loop, revision));
   };
 
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen();
-      setIsFullscreen(true);
-    } else {
-      document.exitFullscreen();
-      setIsFullscreen(false);
+  const toggleFullscreen = async () => {
+    if (document.fullscreenElement === containerRef.current) {
+      await document.exitFullscreen();
+      return;
     }
+    await containerRef.current?.requestFullscreen();
   };
 
   const formatTime = (secs: number) => {
@@ -460,87 +625,72 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
-  const progressPercent = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0;
   const currentMediaTitle =
     snapshot?.source && "title" in snapshot.source && snapshot.source.title
       ? snapshot.source.title
       : "暂未载入媒体";
 
   return (
+    <TooltipProvider>
     <div
       ref={containerRef}
-      className="relative flex h-screen w-screen flex-col overflow-hidden bg-black font-sans text-white select-none"
+      onPointerMove={revealControls}
+      onPointerDown={revealControls}
+      onKeyDown={revealControls}
+      className="relative flex h-dvh w-screen flex-col overflow-hidden bg-black font-sans text-white select-none"
     >
-      {/* ================= 1. 顶部精密导航栏 (保留发丝线与设计体系) ================= */}
-      <div className="z-30 flex h-12 shrink-0 items-center justify-between border-b border-white/10 bg-black/85 px-4 backdrop-blur-md">
+      {/* ================= 1. 顶部呼出层：房间状态 + 锁/成员/媒体库 + 标题来源 ================= */}
+      <div
+        data-controls-state={shouldPinControls || areControlsVisible ? "visible" : "hidden"}
+        className={cn(
+          "absolute inset-x-0 top-0 z-30 bg-gradient-to-b from-black/85 via-black/60 to-transparent px-4 pt-3 pb-10 transition-opacity duration-150 ease-out motion-reduce:transition-none",
+          shouldPinControls || areControlsVisible ? "opacity-100" : "pointer-events-none opacity-0",
+        )}
+        {...overlayPointerHandlers}
+      >
         <div className="flex items-center gap-3">
-          <span className="text-sm font-bold text-white tracking-tight">WatchParty</span>
-          <span className="font-mono text-xs text-neutral-400">/{roomId}</span>
-          <div className="flex items-center gap-1.5 rounded border border-neutral-800 bg-neutral-900 px-2 py-0.5 font-mono text-[11px] text-neutral-300">
-            <div
-              className={`size-1.5 rounded-full ${
-                isSocketConnected ? "bg-emerald-400" : "bg-rose-500"
-              }`}
-            ></div>
-            <span>{isSocketConnected ? "已连接" : "重连中..."}</span>
-          </div>
-        </div>
-
-        {/* 右侧动作入口 */}
-        <div className="flex items-center gap-2">
-          {/* 房主锁 */}
-          <button
+          <span className="font-mono text-[11px] text-neutral-400">/{roomId}</span>
+          <span
+            className={cn(
+              "flex items-center gap-1.5 font-mono text-[11px]",
+              isSocketConnected ? "text-emerald-400" : "text-rose-400",
+            )}
+          >
+            <span className={cn("size-1.5 rounded-full", isSocketConnected ? "bg-emerald-400" : "bg-rose-500")} />
+            {isSocketConnected ? "已连接" : "重连中..."}
+          </span>
+          <span className="flex-1" />
+          <IconControl
+            icon={isLocked ? "lock" : "lock_open"}
+            label={isLocked ? "房主锁已开启" : "自由控制"}
             onClick={handleToggleLock}
-            className={`flex items-center gap-1 rounded border px-2.5 py-1 font-mono text-xs transition ${
-              isLocked
-                ? "border-sky-500/40 bg-sky-950/30 text-sky-400 hover:bg-sky-900/40"
-                : "border-neutral-800 bg-neutral-900 text-neutral-400 hover:text-white"
-            }`}
-          >
-            {isLocked ? <Lock className="size-3.5 text-sky-400" /> : <Unlock className="size-3.5" />}
-            <span>{isLocked ? "房主锁开启" : "自由控制"}</span>
-          </button>
-
-          {/* 媒体库点播 */}
-          <button
-            onClick={() => setIsOpenListModalOpen(true)}
-            className="flex items-center gap-1.5 rounded border border-neutral-800 bg-neutral-900 px-3 py-1 text-xs text-neutral-200 transition hover:border-sky-500 hover:text-white"
-          >
-            <Folder className="size-3.5 text-sky-400" />
-            <span>点播媒体库</span>
-          </button>
-
-          {/* 播放清单 */}
-          <button
-            onClick={() => setIsPlaylistModalOpen(true)}
-            className="flex items-center gap-1.5 rounded border border-neutral-800 bg-neutral-900 px-3 py-1 text-xs text-neutral-200 transition hover:border-sky-500 hover:text-white"
-          >
-            <ListVideo className="size-3.5 text-neutral-400" />
-            <span>播放清单 ({snapshot?.playlist.length || 0})</span>
-          </button>
-
-          {/* 在线成员 */}
-          <button
+            active={isLocked}
+          />
+          <IconControl
+            icon="group"
+            label={`在线成员 (${members.length})`}
             onClick={() => setIsMembersModalOpen(true)}
-            className="flex items-center gap-1.5 rounded border border-neutral-800 bg-neutral-900 px-3 py-1 text-xs text-neutral-200 transition hover:border-sky-500 hover:text-white"
-          >
-            <Users className="size-3.5 text-emerald-400" />
-            <span>在线 ({members.length})</span>
-          </button>
+            badge={members.length}
+          />
+          <IconControl icon="video_library" label="点播媒体库" onClick={() => setIsOpenListModalOpen(true)} />
+        </div>
+        <div className="mt-1.5 flex min-w-0 items-center gap-2">
+          <span className="truncate text-xs font-medium text-white text-shadow-md [text-shadow:_0_1px_3px_rgb(0_0_0_/_80%)]">
+            {currentMediaTitle}
+          </span>
+          {snapshot?.source && (
+            <Badge
+              variant="outline"
+              className="h-4 shrink-0 border-sky-500/40 bg-sky-500/10 px-1.5 font-mono text-[9px] font-normal text-sky-400"
+            >
+              {snapshot.source.kind.toUpperCase()}
+            </Badge>
+          )}
         </div>
       </div>
 
       {/* ================= 2. 真实视频播放区域 (Video Stage) ================= */}
-      <div className="relative flex flex-1 items-center justify-center bg-black">
-        {/* 片名标签浮层 */}
-        <div className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded border border-white/10 bg-black/70 px-3 py-1.5 backdrop-blur-sm">
-          <span className="font-medium text-xs text-white">{currentMediaTitle}</span>
-          {snapshot?.source && (
-            <span className="rounded bg-sky-500/20 px-1 font-mono text-[10px] text-sky-400">
-              {snapshot.source.kind.toUpperCase()}
-            </span>
-          )}
-        </div>
+      <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden bg-black">
 
         {/* 房主锁警告拦截提示 */}
         {lockWarning && (
@@ -552,7 +702,7 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
         {/* 全局异常提示 */}
         {globalError && (
           <div className="absolute top-16 z-40 flex items-center gap-2 rounded border border-rose-900/60 bg-rose-950/90 px-4 py-2 text-xs text-rose-300 shadow-xl backdrop-blur-sm">
-            <AlertCircle className="size-4 shrink-0" />
+            <MsIcon name="error" className="shrink-0 text-[16px]" />
             <span>{globalError}</span>
           </div>
         )}
@@ -585,174 +735,176 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
             onClick={() => setIsOpenListModalOpen(true)}
             className="flex size-full cursor-pointer flex-col items-center justify-center bg-radial from-neutral-900 to-black text-neutral-600 hover:text-neutral-400"
           >
-            <div className="flex size-16 items-center justify-center rounded-full border border-neutral-800 bg-neutral-950/80 mb-3">
-              <Play className="size-7 fill-current ml-1" />
+            <div className="mb-3 flex size-16 items-center justify-center rounded-full border border-neutral-800 bg-neutral-950/80">
+              <MsIcon name="play_arrow" filled className="text-[32px] text-neutral-500" />
             </div>
             <span className="text-xs">房间当前无播放媒体，点击此处打开媒体库点播</span>
           </div>
         )}
       </div>
 
-      {/* ================= 3. 底部 mpv 控制岛 (100% 保持既有视觉设计) ================= */}
-      <div className="z-30 flex shrink-0 flex-col gap-2 bg-gradient-to-t from-black via-black/95 to-transparent px-4 pb-4 pt-2">
-        {/* 进度条 */}
-        <div
-          onClick={handleSeek}
-          className="group relative h-2 w-full cursor-pointer rounded bg-white/20"
-        >
-          <div
-            className="absolute left-0 top-0 h-full rounded bg-white/30"
-            style={{ width: `${bufferedPercent}%` }}
-          ></div>
-          <div
-            className="absolute left-0 top-0 h-full rounded bg-white"
-            style={{ width: `${progressPercent}%` }}
-          ></div>
-          <div
-            className="absolute -top-1 size-4 -translate-x-1/2 rounded-full border-2 border-white bg-sky-400 opacity-90 transition-transform group-hover:scale-125"
-            style={{ left: `${progressPercent}%` }}
-          ></div>
+      {/* ================= 3. 自动隐藏的底部控制浮层 ================= */}
+      <div
+        {...controlsOverlayProps}
+        className={cn(
+          "absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black via-black/95 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-8 transition-opacity duration-150 ease-out motion-reduce:transition-none",
+          shouldPinControls || areControlsVisible ? "opacity-100" : "pointer-events-none opacity-0",
+        )}
+      >
+        {/* 进度行：当前时间 / 进度 / 总时长 */}
+        <div className="flex items-center gap-3">
+          <span className="w-12 text-right font-mono text-xs text-neutral-300 tabular-nums">
+            {formatTime(seekPreview ?? currentTime)}
+          </span>
+          <div className="relative flex-1">
+            {bufferedPercent > 0 && (
+              <div className="pointer-events-none absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-white/15">
+                <div className="h-full bg-white/25" style={{ width: `${bufferedPercent}%` }} />
+              </div>
+            )}
+            <Slider
+              value={[Math.min(seekPreview ?? currentTime, totalDuration || 0)]}
+              max={totalDuration || 1}
+              step={1}
+              disabled={!canControl || totalDuration === 0}
+              onValueChange={(values) => setSeekPreview(values[0] ?? null)}
+              onValueCommit={handleSeekCommit}
+              aria-label="播放进度"
+              className="cursor-pointer"
+            />
+          </div>
+          <span className="w-12 font-mono text-xs text-neutral-300 tabular-nums">{formatTime(totalDuration)}</span>
         </div>
 
-        {/* 控制按钮与时间块 */}
-        <div className="flex items-center justify-between text-xs">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleTogglePlay}
-              className="flex size-7 items-center justify-center rounded text-white hover:bg-neutral-800"
-            >
-              {snapshot?.paused ? <Play className="size-4 fill-white" /> : <Pause className="size-4" />}
-            </button>
-
-            {/* 深青高对比时间块 */}
-            <div className="flex items-center gap-1.5 font-mono">
-              <span className="rounded bg-[#113349] px-1.5 py-0.5 font-bold text-white">
-                {formatTime(currentTime)}
-              </span>
-              <span className="text-neutral-500">/</span>
-              <span className="text-neutral-400">{formatTime(totalDuration)}</span>
-            </div>
-
-            {/* 音量控制 */}
-            <div className="flex items-center gap-1 text-neutral-400">
-              <button
-                onClick={() => {
-                  const nextMuted = !isMuted;
-                  setIsMuted(nextMuted);
-                  playerRef.current?.setMuted(nextMuted);
-                }}
-                className="hover:text-white"
-              >
-                {isMuted || volume === 0 ? (
-                  <VolumeX className="size-4 text-rose-400" />
-                ) : (
-                  <Volume2 className="size-4" />
-                )}
-              </button>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={isMuted ? 0 : volume}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  setVolume(v);
-                  playerRef.current?.setVolume(v);
-                  playerRef.current?.setMuted(false);
-                  setIsMuted(false);
-                }}
-                className="h-1 w-16 accent-white"
-              />
-            </div>
-
-            {/* 字幕菜单与轨选择 */}
-            <div className="relative flex items-center gap-1">
-              <button
-                onClick={() => setShowSubtitleMenu(!showSubtitleMenu)}
-                className="flex items-center gap-1 rounded border border-neutral-800 bg-black px-2 py-0.5 font-mono text-[11px] text-sky-400 hover:border-sky-500"
-              >
-                <Subtitles className="size-3" />
-                <span>
-                  字幕 ({subtitleOffset >= 0 ? `+${subtitleOffset.toFixed(1)}s` : `${subtitleOffset.toFixed(1)}s`})
-                </span>
-              </button>
-
-              {showSubtitleMenu && (
-                <div className="absolute bottom-8 left-0 z-50 w-56 rounded border border-neutral-800 bg-neutral-950 p-3 shadow-2xl space-y-3">
-                  <div className="flex items-center justify-between border-b border-neutral-800 pb-1.5">
-                    <span className="text-[11px] font-semibold text-neutral-300">本地字幕控制</span>
-                    <button
-                      onClick={() => setShowSubtitleMenu(false)}
-                      className="text-neutral-500 hover:text-white"
-                    >
-                      ✕
-                    </button>
-                  </div>
-
-                  {/* 字幕轨选择 */}
+        {/* 控制行：左（音量/字幕）· 中（传输）· 右（倍速/清单/循环/全屏） */}
+        <div className="relative mt-1 flex items-center">
+          <div className="flex flex-1 items-center gap-1">
+            <IconControl
+              icon={isMuted || volume === 0 ? "volume_off" : "volume_up"}
+              label={isMuted || volume === 0 ? "取消静音" : "静音"}
+              onClick={toggleMute}
+              active={isMuted || volume === 0}
+            />
+            <Slider
+              value={[isMuted ? 0 : volume]}
+              max={100}
+              onValueChange={(values) => {
+                const v = values[0] ?? 0;
+                setVolume(v);
+                playerRef.current?.setVolume(v);
+                playerRef.current?.setMuted(false);
+                setIsMuted(false);
+              }}
+              aria-label="音量"
+              className="w-20"
+            />
+            <Popover open={showSubtitleMenu} onOpenChange={setShowSubtitleMenu}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="字幕"
+                  className="text-white/85 hover:bg-white/15 hover:text-white"
+                >
+                  <MsIcon name="subtitles" className="text-[20px]" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent side="top" align="start" className="w-64 p-3">
+                <div className="space-y-3">
+                  <div className="text-[11px] font-semibold text-neutral-300">本地字幕控制</div>
                   {subtitleTracks.length > 0 && (
                     <div className="space-y-1">
                       <div className="text-[10px] text-neutral-500">选择字幕轨</div>
-                      <div className="space-y-1">
-                        {subtitleTracks.map((tr) => (
-                          <button
-                            key={tr.id}
-                            onClick={() => void selectSubtitleTrack(tr)}
-                            className={`flex w-full items-center justify-between rounded px-2 py-1 text-xs transition ${
-                              activeSubtitleId === tr.id
-                                ? "bg-sky-500/20 text-sky-400"
-                                : "text-neutral-400 hover:bg-neutral-900"
-                            }`}
-                          >
-                            <span className="truncate">{tr.label}</span>
-                            <span className="font-mono text-[9px] uppercase">{tr.format}</span>
-                          </button>
-                        ))}
-                      </div>
+                      {subtitleTracks.map((tr) => (
+                        <Button
+                          key={tr.id}
+                          variant="ghost"
+                          onClick={() => void selectSubtitleTrack(tr)}
+                          className={cn(
+                            "h-8 w-full justify-between px-2 text-xs",
+                            activeSubtitleId === tr.id
+                              ? "bg-sky-500/20 text-sky-400 hover:bg-sky-500/20 hover:text-sky-400"
+                              : "font-normal text-neutral-400 hover:bg-neutral-900 hover:text-white",
+                          )}
+                        >
+                          <span className="truncate">{tr.label}</span>
+                          <span className="font-mono text-[9px] uppercase">{tr.format}</span>
+                        </Button>
+                      ))}
                     </div>
                   )}
-
-                  {/* 毫秒级时间轴微调 */}
                   <div className="space-y-1">
                     <div className="text-[10px] text-neutral-500">时间轴对齐 (仅本机生效)</div>
-                    <div className="flex items-center justify-between text-xs font-mono">
-                      <button
+                    <div className="flex items-center justify-between font-mono text-xs">
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => setSubtitleOffset((prev) => +(prev - 0.1).toFixed(1))}
-                        className="rounded border border-neutral-800 px-2 py-0.5 hover:bg-neutral-800"
                       >
                         -0.1s
-                      </button>
-                      <span className="text-sky-400 font-bold">{subtitleOffset.toFixed(1)}s</span>
-                      <button
+                      </Button>
+                      <span className="font-semibold text-sky-400">{subtitleOffset.toFixed(1)}s</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => setSubtitleOffset((prev) => +(prev + 0.1).toFixed(1))}
-                        className="rounded border border-neutral-800 px-2 py-0.5 hover:bg-neutral-800"
                       >
                         +0.1s
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
+              </PopoverContent>
+            </Popover>
+            {(activeSubtitleTrack || subtitleOffset !== 0) && (
+              <span className="font-mono text-[11px] text-sky-400">
+                {subtitleOffset >= 0 ? `+${subtitleOffset.toFixed(1)}s` : `${subtitleOffset.toFixed(1)}s`}
+              </span>
+            )}
           </div>
 
-          {/* 右侧：倍速 + 循环 + 全屏 */}
-          <div className="flex items-center gap-3">
-            <button
+          {/* 中置传输控制 */}
+          <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1">
+            <IconControl icon="skip_previous" label="上一项" onClick={handlePrevTrack} />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleTogglePlay}
+              aria-label={snapshot?.paused ? "播放" : "暂停"}
+              className="text-white hover:bg-white/15"
+            >
+              <MsIcon name={snapshot?.paused ? "play_arrow" : "pause"} filled className="text-[26px]" />
+            </Button>
+            <IconControl icon="skip_next" label="下一项" onClick={handleNextTrack} />
+          </div>
+
+          <div className="flex flex-1 items-center justify-end gap-1">
+            <Button
+              variant="ghost"
+              size="icon-sm"
               onClick={handleRateChange}
-              className="rounded border border-neutral-800 bg-black px-2 py-0.5 font-mono text-xs text-neutral-300 hover:border-neutral-700"
+              aria-label="倍速"
+              className="font-mono text-xs text-white/85 hover:bg-white/15 hover:text-white"
             >
               {(snapshot?.playbackRate || 1).toFixed(2)}x
-            </button>
-            <button
+            </Button>
+            <IconControl
+              icon="playlist_play"
+              label={`播放清单 (${snapshot?.playlist.length || 0})`}
+              onClick={() => setIsPlaylistModalOpen(true)}
+              badge={snapshot?.playlist.length || 0}
+            />
+            <IconControl
+              icon="repeat"
+              label={snapshot?.loop ? "循环播放已开启" : "循环播放"}
               onClick={handleToggleLoop}
-              className={`hover:text-white ${snapshot?.loop ? "text-sky-400" : "text-neutral-500"}`}
-            >
-              <Repeat className="size-4" />
-            </button>
-            <button onClick={toggleFullscreen} className="text-neutral-400 hover:text-white">
-              {isFullscreen ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
-            </button>
+              active={snapshot?.loop}
+            />
+            <IconControl
+              icon={isFullscreen ? "close_fullscreen" : "open_in_full"}
+              label={isFullscreen ? "退出全屏" : "进入全屏"}
+              onClick={() => void toggleFullscreen()}
+            />
           </div>
         </div>
       </div>
@@ -851,5 +1003,6 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
         }}
       />
     </div>
+    </TooltipProvider>
   );
 }

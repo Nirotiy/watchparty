@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Sparkles, ArrowRight, Clock, Trash2, KeyRound, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { CreateRoomModal } from "@/components/create-room-modal";
 import { OpenListModal } from "@/components/openlist-modal";
 import { CreateRoomResponse, MediaSource } from "@/lib/contracts";
@@ -109,13 +111,13 @@ export default function HomePage() {
           <div className="rounded-lg border border-neutral-800 bg-neutral-950 p-6 space-y-6 shadow-2xl shadow-black">
             {/* 1. 创建房间入口 */}
             <div className="space-y-2">
-              <button
+              <Button
                 onClick={() => setIsCreateModalOpen(true)}
-                className="flex w-full items-center justify-center gap-2 rounded bg-white py-2.5 text-xs font-semibold text-black transition hover:bg-neutral-200"
+                className="w-full bg-white py-2.5 text-xs font-semibold text-black hover:bg-neutral-200"
               >
                 <Plus className="size-4" />
                 <span>创建新的观影房间</span>
-              </button>
+              </Button>
             </div>
 
             <div className="relative flex items-center justify-center">
@@ -129,21 +131,22 @@ export default function HomePage() {
             <form onSubmit={handleJoin} className="space-y-3">
               <label className="block text-xs font-medium text-neutral-400">加入已有房间</label>
               <div className="flex gap-2">
-                <input
+                <Input
                   type="text"
                   value={joinRoomId}
                   onChange={(e) => setJoinRoomId(e.target.value)}
                   placeholder="输入房号，如：alpha-4"
-                  className="flex-1 rounded border border-neutral-800 bg-black px-3 py-2 font-mono text-xs text-white placeholder-neutral-600 outline-none focus:border-sky-500"
+                  className="flex-1 bg-black font-mono text-xs"
                 />
-                <button
+                <Button
                   type="submit"
+                  variant="outline"
                   disabled={!joinRoomId.trim()}
-                  className="flex items-center gap-1 rounded border border-neutral-700 bg-neutral-900 px-4 py-2 text-xs font-semibold text-white transition hover:border-sky-500 hover:text-sky-400 disabled:opacity-40"
+                  className="font-semibold"
                 >
                   <span>进入</span>
                   <ArrowRight className="size-3.5" />
-                </button>
+                </Button>
               </div>
             </form>
           </div>
@@ -156,30 +159,33 @@ export default function HomePage() {
                   <Clock className="size-3.5" />
                   <span>本机最近访问</span>
                 </div>
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={handleClearHistory}
-                  className="flex items-center gap-1 text-[11px] text-neutral-600 hover:text-rose-400"
+                  className="text-[11px] text-neutral-600 hover:text-rose-400"
                 >
                   <Trash2 className="size-3" />
                   <span>清除历史</span>
-                </button>
+                </Button>
               </div>
 
               <div className="space-y-1.5">
                 {history.map((room) => (
-                  <button
+                  <Button
                     key={room.id}
+                    variant="outline"
                     onClick={() => router.push(`/room/${encodeURIComponent(room.id)}`)}
-                    className="flex w-full items-center justify-between rounded border border-neutral-900 bg-neutral-950/80 p-2 text-xs text-neutral-300 transition hover:border-neutral-800 hover:text-white"
+                    className="w-full justify-between border-neutral-900 bg-neutral-950/80 p-2 text-xs font-normal text-neutral-300 hover:border-neutral-800 hover:text-white"
                   >
-                    <div className="flex items-center gap-2 font-mono">
+                    <span className="flex items-center gap-2 font-mono">
                       <span className="text-white">{room.name || room.id}</span>
                       {room.hasPin && <KeyRound className="size-3 text-amber-500/80" />}
-                    </div>
-                    <span className="text-[10px] text-neutral-600">
+                    </span>
+                    <span className="text-[10px] font-normal text-neutral-600">
                       {new Date(room.lastVisited).toLocaleDateString()}
                     </span>
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>

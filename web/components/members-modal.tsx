@@ -2,6 +2,8 @@
 
 import React, { useState } from "react";
 import { Users, Crown, ArrowRightLeft, ShieldCheck, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { RoomMember } from "@/lib/contracts";
 
 interface MembersModalProps {
@@ -45,12 +47,15 @@ export function MembersModal({
             <Users className="size-4 text-sky-400" />
             <span>在线成员与房主权限 ({members.length})</span>
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="icon-sm"
             onClick={onClose}
-            className="flex size-7 items-center justify-center rounded text-neutral-400 hover:bg-neutral-800 hover:text-white"
+            aria-label="关闭"
+            className="text-neutral-400 hover:bg-neutral-800 hover:text-white"
           >
             <X className="size-4" />
-          </button>
+          </Button>
         </div>
 
         {/* 成员列表 */}
@@ -67,26 +72,24 @@ export function MembersModal({
                   <div className="size-2 rounded-full bg-emerald-400"></div>
                 )}
                 <span className="font-medium text-white">{member.name}</span>
-                {member.isSelf && (
-                  <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] text-neutral-400">
-                    我
-                  </span>
-                )}
+                {member.isSelf && <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">我</Badge>}
                 {member.isOwner && (
-                  <span className="rounded border border-amber-800/50 bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
+                  <Badge className="border border-amber-800/50 bg-amber-950/40 px-1.5 py-0 text-[10px] font-medium text-amber-400">
                     房主
-                  </span>
+                  </Badge>
                 )}
               </div>
 
               {isOwner && !member.isOwner && (
-                <button
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => setConfirmTarget(member)}
-                  className="flex items-center gap-1 rounded border border-neutral-800 bg-neutral-900 px-2 py-1 text-[11px] text-neutral-300 hover:border-amber-500 hover:text-amber-400"
+                  className="h-7 px-2 text-[11px] text-neutral-300 hover:border-amber-500 hover:text-amber-400"
                 >
                   <ArrowRightLeft className="size-3" />
                   <span>移交房主</span>
-                </button>
+                </Button>
               )}
             </div>
           ))}
@@ -103,18 +106,14 @@ export function MembersModal({
               您即将把房主权限转让给 <strong className="text-white">{confirmTarget.name}</strong>。移交后您将失去房主锁和播放控制优先权。
             </p>
             <div className="flex justify-end gap-2 pt-1">
-              <button
-                onClick={() => setConfirmTarget(null)}
-                className="rounded border border-neutral-800 bg-black px-2.5 py-1 text-neutral-400 hover:text-white"
-              >
-                取消
-              </button>
-              <button
+              <Button variant="outline" size="sm" onClick={() => setConfirmTarget(null)}>取消</Button>
+              <Button
+                size="sm"
                 onClick={handleTransfer}
-                className="rounded bg-amber-500 px-3 py-1 font-semibold text-black hover:bg-amber-400"
+                className="bg-amber-500 font-semibold text-black hover:bg-amber-400"
               >
                 确认移交
-              </button>
+              </Button>
             </div>
           </div>
         )}

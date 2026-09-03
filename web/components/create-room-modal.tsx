@@ -2,6 +2,10 @@
 
 import React, { useState } from "react";
 import { Lock, X, ArrowRight, AlertCircle, Folder } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
 import { CreateRoomResponse, MediaSource } from "@/lib/contracts";
 
@@ -110,12 +114,15 @@ export function CreateRoomModal({
             <Lock className="size-4 text-sky-400" />
             <span>创建专属观影房间</span>
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="icon-sm"
             onClick={onClose}
-            className="flex size-7 items-center justify-center rounded text-neutral-400 hover:bg-neutral-800 hover:text-white"
+            aria-label="关闭"
+            className="text-neutral-400 hover:bg-neutral-800 hover:text-white"
           >
             <X className="size-4" />
-          </button>
+          </Button>
         </div>
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
@@ -126,16 +133,15 @@ export function CreateRoomModal({
             </div>
           )}
 
-          <div>
-            <label className="block text-xs font-medium text-neutral-400">房主昵称</label>
-            <input
+          <div className="space-y-1.5">
+            <Label className="text-xs text-neutral-400">房主昵称</Label>
+            <Input
               type="text"
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
               placeholder="例如：Alice"
               maxLength={24}
               required
-              className="mt-1.5 w-full rounded border border-neutral-800 bg-black px-3 py-2 text-sm text-white placeholder-neutral-600 outline-none focus:border-sky-500"
             />
           </div>
 
@@ -156,14 +162,16 @@ export function CreateRoomModal({
                 <span className="text-neutral-500">未选择初始媒体，可在进入房间后点播</span>
               )}
               {onSelectInitialMedia && (
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={onSelectInitialMedia}
-                  className="flex items-center gap-1 shrink-0 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-[11px] text-neutral-300 hover:border-sky-500 hover:text-white"
+                  className="shrink-0"
                 >
                   <Folder className="size-3 text-sky-400" />
                   <span>{selectedMedia ? "更改" : "从媒体库选择"}</span>
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -171,12 +179,12 @@ export function CreateRoomModal({
           {/* PIN 码保护选项 */}
           <div className="rounded border border-neutral-800/80 bg-black/60 p-3.5 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-neutral-300">启用 4 位数字房间 PIN 码</span>
-              <input
-                type="checkbox"
+              <Label htmlFor="use-pin-toggle" className="text-xs text-neutral-300">启用 4 位数字房间 PIN 码</Label>
+              <Checkbox
+                id="use-pin-toggle"
                 checked={usePin}
-                onChange={(e) => setUsePin(e.target.checked)}
-                className="size-4 accent-sky-500"
+                onCheckedChange={(checked) => setUsePin(checked === true)}
+                className="accent-sky-500"
               />
             </div>
 
@@ -205,21 +213,18 @@ export function CreateRoomModal({
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded border border-neutral-800 bg-black px-4 py-2 text-xs font-medium text-neutral-400 hover:text-white"
-            >
+            <Button type="button" variant="outline" size="sm" onClick={onClose}>
               取消
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
+              size="sm"
               disabled={isSubmitting}
-              className="flex items-center gap-1.5 rounded bg-sky-500 px-4 py-2 text-xs font-semibold text-black hover:bg-sky-400 disabled:opacity-50"
+              className="bg-sky-500 font-semibold text-black hover:bg-sky-400"
             >
               <span>{isSubmitting ? "创建中..." : "立即创建"}</span>
               <ArrowRight className="size-3.5" />
-            </button>
+            </Button>
           </div>
         </form>
       </div>
