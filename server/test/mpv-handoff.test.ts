@@ -203,14 +203,14 @@ test("handoff → mpv identity → snapshot polling → command ack full chain",
   );
   assert.equal(upToDate.status, 204);
 
-  // 4. Command via HTTP behaves like CMD:* (locked room → FORBIDDEN).
+  // 4. Command via HTTP behaves like CMD:* (locked room → FORBIDDEN 403).
   const locked = await post(
     backend,
     `/api/rooms/${roomId}/mpv/command`,
     { type: "play", expectedRevision: 0 },
     mpvHeaders(mpv.accessToken),
   );
-  assert.equal(locked.status, 400);
+  assert.equal(locked.status, 403);
   assert.equal(errorCode(await locked.json()), "FORBIDDEN");
 });
 
@@ -442,4 +442,92 @@ test("resolve-mpv rejects forged media ids and surfaces OpenList failures", asyn
     ((await unavailable.json()) as { code: string }).code,
     "OPENLIST_UNAVAILABLE",
   );
+});
+
+test("stale-pruned MPV with a valid token rejoins as a visible member on its next request", async () => {
+  // Virtual clock: silence beyond MPV_STALE_MS (120s) triggers the stale prune.
+  let now = 1_000_000;
+  const config = loadConfig({
+    ...process.env,
+    NODE_ENV: "test",
+    OPENLIST_URL: "http://127.0.0.1:1",
+    OPENLIST_USERNAME: "",
+    OPENLIST_PASSWORD: "",
+    WATCHPARTY_MEDIA_ID_KEY: "test-key",
+  });
+  const backend = createBackend({
+    host: "127.0.0.1",
+    port: 0,
+    pruneIntervalMs: 0,
+    serveStatic: false,
+    config,
+    now: () => now,
+  });
+  await backend.start();
+  backends.push(backend);
+
+  const created = await createRoom(backend);
+  const ticket = await issueTicket(
+    backend,
+    created.roomId,
+    created.accessToken,
+  );
+  const mpv = (await redeem(backend, ticket.ticket)).body as RedeemResult;
+  const headers = mpvHeaders(mpv.accessToken);
+  const room = backend.registry.get(created.roomId);
+  assert.ok(room);
+  assert.equal(room.isOnline(mpv.clientId), true);
+
+  // First poll establishes the MPV heartbeat (redeem no longer touches it).
+  const first = await fetch(
+    `${origin(backend)}/api/rooms/${created.roomId}/mpv/snapshot`,
+    { headers },
+  );
+  assert.equal(first.status, 200);
+
+  // Silence beyond the stale window drops the member, but the token stays valid.
+  now += 121_000;
+  backend.registry.pruneIdle();
+  assert.equal(room.isOnline(mpv.clientId), false);
+
+  // The next authenticated request restores membership instead of letting
+  // the token act as an invisible ghost controller.
+  const snapshot = await fetch(
+    `${origin(backend)}/api/rooms/${created.roomId}/mpv/snapshot`,
+    { headers },
+  );
+  assert.equal(snapshot.status, 200);
+  assert.equal(room.isOnline(mpv.clientId), true);
+
+  // Stale expectedRevision → REVISION_CONFLICT with the spec status code 409.
+  const conflict = await post(
+    backend,
+    `/api/rooms/${created.roomId}/mpv/command`,
+    { type: "seek", positionSeconds: 6, expectedRevision: 99 },
+    headers,
+  );
+  assert.equal(conflict.status, 409);
+  assert.equal(errorCode(await conflict.json()), "REVISION_CONFLICT");
+
+  // New rooms start locked; unlock as the owner so the member command is legal.
+  const unlock = room.execute(
+    created.clientId,
+    { type: "lock", locked: false },
+    room.snapshot().revision,
+    true,
+  );
+  assert.ok(unlock.ok);
+
+  // And a valid command from the returning member is accepted as a member.
+  const ok = await post(
+    backend,
+    `/api/rooms/${created.roomId}/mpv/command`,
+    {
+      type: "seek",
+      positionSeconds: 5,
+      expectedRevision: unlock.ok ? unlock.revision : 0,
+    },
+    headers,
+  );
+  assert.equal(ok.status, 200);
 });

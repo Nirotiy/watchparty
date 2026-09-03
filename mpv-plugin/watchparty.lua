@@ -8,11 +8,14 @@
 -- script-opts（~~/script-opts/watchparty.conf 或 --script-opts=watchparty-xxx=...）：
 --   backend_origin      后端地址，例如 http://127.0.0.1:8080（必填）
 --   room_id             预设房间号（可选；与持久化 token 一致时静默重连）
---   ticket              直接写在配置里的交接码（可选，调试用）
 --   media_basic_auth    生产 /p/ 回退的凭据 "user:password"（可选，仅存内存）
 --   poll_interval       快照轮询间隔秒（默认 2）
 --   sync_seek_threshold 追帧 seek 阈值秒（默认 1.0）
 --   debug               打印调试日志
+--
+-- 交接码传递边界（spec 9.2 红线）：ticket 只能经剪贴板（Ctrl+J）或
+-- mpv IPC socket（script-message，自动化/E2E 用）传入，
+-- 绝不提供 script-opts 项，避免 ticket 被持久化到 watchparty.conf。
 
 local mp = require "mp"
 local msg = require "mp.msg"
@@ -22,7 +25,6 @@ local unpack = unpack or table.unpack -- LuaJIT / Lua 5.4 兼容
 local o = {
     backend_origin = "",
     room_id = "",
-    ticket = "",
     media_basic_auth = "",
     poll_interval = 2,
     sync_seek_threshold = 1.0,
@@ -346,12 +348,21 @@ local function http_request(req, callback)
     end
     config_file:write(table.concat(config_lines, "\n"), "\n")
     config_file:close()
+    -- Windows：%TEMP% 与用户 profile 目录默认 ACL 已限制为当前用户，无需额外收紧。
+    -- Unix 下 /tmp 全局可读：必须在启动 curl 前同步（command_native）收紧权限，
+    -- 异步 chmod 会与 curl 启动竞速，留下其他本地进程可读凭据的窗口；
+    -- 收紧失败时 fail closed：删除文件并放弃本次请求。
     if mp.get_property("platform") ~= "windows" then
-        mp.command_native_async({
+        local chmod = mp.command_native({
             name = "subprocess",
             args = { "chmod", "600", config_path },
             playback_only = false,
-        }, function() end)
+        })
+        if type(chmod) ~= "table" or chmod.status ~= 0 then
+            os.remove(config_path)
+            callback(nil, nil)
+            return
+        end
     end
 
     local function cleanup()
@@ -449,12 +460,16 @@ local function persist_save()
         savedAt = math.floor(now_ms()),
     }))
     f:close()
+    -- 同步收紧权限，理由同 http_request（消除异步 chmod 竞态窗口）。
     if mp.get_property("platform") ~= "windows" then
-        mp.command_native_async({
+        local chmod = mp.command_native({
             name = "subprocess",
             args = { "chmod", "600", path },
             playback_only = false,
-        }, function() end)
+        })
+        if type(chmod) ~= "table" or chmod.status ~= 0 then
+            msg.warn("cannot restrict permissions on " .. tostring(path))
+        end
     end
 end
 
@@ -1245,6 +1260,10 @@ local function read_clipboard(callback)
     next_attempt()
 end
 
+-- join_flow(ticket_arg)：ticket_arg 只允许来自 mpv IPC socket 的
+-- script-message（本地 socket 通道，供自动化/E2E 使用）；
+-- 交互路径只有 Ctrl+J 剪贴板。交接码绝不写入 watchparty.conf 或
+-- 进程命令行（--script-msg）（spec 9.2 红线）。
 local function join_flow(ticket_arg)
     if state.joined then
         osd("已在房间 " .. tostring(state.roomId), 3)
@@ -1254,16 +1273,12 @@ local function join_flow(ticket_arg)
         join_with_ticket(ticket_arg)
         return
     end
-    if o.ticket ~= "" then
-        join_with_ticket(o.ticket)
-        return
-    end
     read_clipboard(function(ticket)
         if state.joined then return end
         if ticket then
             join_with_ticket(ticket)
         else
-            osd("无法读取剪贴板：请复制网页交接码后重试，或写入 script-opts 的 ticket 项", 6)
+            osd("无法读取剪贴板：请复制网页交接码后按 Ctrl+J 重试", 6)
         end
     end)
 end
@@ -1283,6 +1298,7 @@ local function startup()
     mp.add_key_binding("ctrl+j", "watchparty-join", function() join_flow() end)
     -- 清扫上次异常退出残留的临时字幕文件（正常退出已由 shutdown 事件清理）
     cleanup_stale_subtitle_files()
+    -- IPC 专用入口：ticket 只允许经本地 IPC socket 传入（不进命令行/配置）
     mp.register_script_message("watchparty-join", function(...)
         local count = select("#", ...)
         if count > 0 then

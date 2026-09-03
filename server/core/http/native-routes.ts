@@ -17,6 +17,18 @@ import { bearerToken, sendError } from "./shared.ts";
 type NativeClientType = Extract<ClientType, "mpv" | "desktop">;
 type HandoffTarget = NativeClientType;
 
+/**
+ * HTTP status for a failed CommandAck, per the spec error table: code-driven
+ * (REVISION_CONFLICT 409, FORBIDDEN/OWNER_TOKEN_INVALID 403, MEDIA_NOT_FOUND
+ * 404), everything else is a client-side 400.
+ */
+function errorHttpStatus(code: string): number {
+  if (code === "REVISION_CONFLICT") return 409;
+  if (code === "FORBIDDEN" || code === "OWNER_TOKEN_INVALID") return 403;
+  if (code === "MEDIA_NOT_FOUND") return 404;
+  return 400;
+}
+
 export type NativeRequestContext = {
   room: Room;
   clientId: string;
@@ -144,7 +156,7 @@ export function registerNativeClientHttp(
     const context = requireNativeContext(req, res, registry, clientType);
     if (!context) return;
     const ack = runNativeCommand(context.room, context.clientId, req.body);
-    res.status(ack.ok ? 200 : 400).json(ack);
+    res.status(ack.ok ? 200 : errorHttpStatus(ack.error.code)).json(ack);
   });
 
   app.post(resolvePath, async (req, res): Promise<void> => {
@@ -288,6 +300,12 @@ export function requireNativeContext(
       return undefined;
     }
   } else {
+    // A stale-pruned MPV returning with its still-valid token must always act
+    // as a visible member: restore membership here so it can never become a
+    // ghost controller that mutates room state while absent from the member list.
+    if (!room.isOnline(record.clientId)) {
+      room.join(record.clientId, record.nickname);
+    }
     registry.touchMpvClient(roomId, record.clientId);
   }
   return {

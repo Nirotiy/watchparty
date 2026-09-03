@@ -412,6 +412,7 @@ WatchParty 后端**直接连接 OpenList 的 HTTP API**（不再存在独立 Gat
 - ticket：128-bit 随机值，TTL 120 秒，**一次性**；签发时记录 roomId 与发起方浏览器 clientId（仅审计）。
 - `POST /api/mpv/handoff` `{ ticket }` → 一次性兑换：服务端为 MPV 生成**独立** clientId 与 accessToken（token 记录 `clientType=mpv`），响应含 `protocolVersion`、房间摘要与首个 `RoomSnapshot`。
 - 票据不可续期；MPV 重连使用本地保存的 accessToken，不再经票据。ownerToken 不经票据传递——MPV 永远是普通成员，房主身份留在浏览器。
+- 交接码传递边界：ticket 只能经剪贴板或 mpv IPC socket（`script-message`，自动化/E2E 用）传入；**不进入 URL、进程命令行、日志或任何持久化配置**（插件不提供 ticket script-opts 项）。
 
 ### 9.3 MPV 专用接口（`clientType=mpv` 的 token 鉴权，浏览器 token 调用返回 403）
 - `GET /api/rooms/:roomId/mpv/snapshot?since=<revision>`：revision 落后时返回完整 `RoomSnapshot`；相同则 `204 No Content`。轮询间隔建议 2s，与浏览器快照节奏一致。

@@ -190,3 +190,34 @@ test("stale MPV members are removed from the room when polling stops", () => {
   registry.pruneIdle();
   assert.equal(created.room.onlineCount, 0);
 });
+
+test("prune keeps the MPV token valid so a returning client can rejoin", () => {
+  let now = 1_000_000;
+  const registry = createRegistry(() => now, 8 * 60 * 60 * 1000);
+  const created = registry.create({ clientId: owner, nickname: "Owner" });
+  const issued = registry.issueHandoffTicket(
+    created.room.id,
+    created.accessToken,
+  );
+  assert.ok(issued);
+  const redeemed = registry.redeemHandoffTicket(issued.ticket);
+  assert.ok(redeemed);
+  created.room.join(redeemed.clientId, "MPV");
+  registry.touchMpvClient(created.room.id, redeemed.clientId);
+
+  now += 121_000;
+  registry.pruneIdle();
+  assert.equal(created.room.onlineCount, 0);
+
+  // The token is intentionally not revoked on prune: the MPV HTTP guard
+  // re-joins a returning client so it always acts as a visible member,
+  // never a ghost controller outside the member list.
+  const record = registry.authenticateMpvToken(
+    created.room.id,
+    redeemed.accessToken,
+  );
+  assert.ok(record);
+  assert.equal(record.clientId, redeemed.clientId);
+  created.room.join(record.clientId, record.nickname);
+  assert.equal(created.room.onlineCount, 1);
+});

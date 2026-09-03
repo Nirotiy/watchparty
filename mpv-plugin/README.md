@@ -28,8 +28,9 @@ MPV 侧支客户端：浏览器是唯一控制台，MPV 是被"发射"出来的�
 1. 在房间网页点击顶栏"发射到 MPV"，生成一次性交接码（120 秒内有效，
    会自动复制到剪贴板）。
 2. 打开 mpv，按 **Ctrl+J**（默认键位 `watchparty-join`）读取剪贴板加入房间。
-   也可以用命令行方式传入：`mpv --script=watchparty.lua` 后执行
-   `script-message watchparty-join <交接码>`。
+   自动化/E2E 场景可通过 mpv IPC socket（`--input-ipc-server`）发送
+   `script-message watchparty-join <交接码>`；交接码只允许经剪贴板或
+   IPC socket 传递，禁止写入配置文件或进程命令行（如 `--script-msg`）。
 3. 加入成功后 OSD 提示房间号并自动起播；之后每 2 秒轮询房间快照。
 4. 在 MPV 中暂停 / 播放、拖动进度或调整倍速，会回传为房间命令；发生 revision 冲突时，
    脚本先拉取最新快照并最多重试一次。
@@ -41,7 +42,7 @@ directUrl、响应头、`media_basic_auth` 不会写入磁盘。
 ## 行为边界（spec 第 9 节）
 
 - MPV 永远是普通成员（`clientType=mpv`），不能获得房主权限。
-- 交接码一次性、120 秒 TTL，不进入 URL、日志或 shell 命令。
+- 交接码一次性、120 秒 TTL，不进入 URL、日志、shell 命令、配置文件或进程命令行。
 - 直连百度直链（`directUrl`）失败时自动回退 OpenList `/p/` 中转并 OSD 提示；
   每个媒体至多重试一次，不会无限循环。
 - 双链均强制 `User-Agent: pan.baidu.com`（缺失会挂起，gate 实测）。
@@ -72,4 +73,6 @@ URL 模板在 `mpv-plugin/url-scheme/`（Windows .reg / Linux .desktop）。
 
 调试：`--script-opts=watchparty-debug=yes`，日志输出到 mpv 终端（含
 RTT / 时钟偏移采样，敏感凭据不会打印）。HTTP 请求中的 token、交接码和 JSON 请求体
-通过临时 curl 配置文件传递，不使用 subprocess stdin，因此兼容 Windows mpv。
+通过临时 curl 配置文件传递，不使用 subprocess stdin，因此兼容 Windows mpv；
+Unix 下该文件在启动请求前同步收紧为仅当前用户可读（chmod 600），
+Windows 依赖 %TEMP% 目录默认的用户级 ACL。
