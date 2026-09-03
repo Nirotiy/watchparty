@@ -632,16 +632,21 @@ function apply_snapshot(snap)
     end
 
     -- 倍速（非法倍速由服务端拒绝，这里应用快照中的有效值）
-    local rate = mp.get_property_number("playback-rate")
+    local rate = mp.get_property_number("speed")
     if rate and math.abs(rate - snap.playbackRate) > 0.001 then
         mark_remote_apply()
-        mp.set_property_number("playback-rate", snap.playbackRate)
+        mp.set_property_number("speed", snap.playbackRate)
     end
 
     -- 进度：暂停时不外推，但位置偏差仍需纠偏（浏览器暂停时拖动进度的场景）
     local pos = mp.get_property_number("time-pos")
     if not pos then return end
     if snap.paused then
+        local rate = mp.get_property_number("speed")
+        if rate and math.abs(rate - snap.playbackRate) > 0.001 then
+            mark_remote_apply()
+            mp.set_property_number("speed", snap.playbackRate)
+        end
         if math.abs(pos - snap.positionSeconds) > o.sync_seek_threshold then
             state.lastRemoteSeekTarget = snap.positionSeconds
             mark_remote_apply()
@@ -660,7 +665,7 @@ function apply_snapshot(snap)
         if state.nudge then
             state.nudge = nil
             mark_remote_apply()
-            mp.set_property_number("playback-rate", snap.playbackRate)
+            mp.set_property_number("speed", snap.playbackRate)
         end
     elseif diff <= o.sync_seek_threshold then
         -- 250ms ～ 1s：短暂 ±5% 微调追帧，收敛后恢复
@@ -668,7 +673,7 @@ function apply_snapshot(snap)
         if not state.nudge or math.abs(state.nudge.rate - desired) > 0.001 then
             state.nudge = { rate = desired }
             mark_remote_apply()
-            mp.set_property_number("playback-rate", desired)
+            mp.set_property_number("speed", desired)
         end
     else
         -- 超 1s：直接纠偏 seek（产生的 seek 事件靠 lastRemoteSeekTarget 识别并抑制）
@@ -965,8 +970,11 @@ local function send_command(payload, on_ok)
             if not state.joined then return end
             local ack = status and body and json.parse(body)
             if ack and ack.ok then
-                state.lastRevision = ack.revision -- 快路径推进本地 revision
+                state.lastRevision = ack.revision
                 if on_ok then on_ok() end
+                -- ack 对应的新快照无法通过后续 since=rev 轮询获得（会 204），
+                -- 必须立即拉取，否则 lastSnapshot 停留在旧状态（如旧倍速）
+                fetch_snapshot()
                 return
             end
             local code = ack and ack.error and ack.error.code
@@ -1080,13 +1088,17 @@ mp.register_event("seek", function()
     end)
 end)
 
-mp.observe_property("playback-rate", "number", function(_, value)
+mp.observe_property("speed", "number", function(_, value)
     if value == nil then return end
     if not state.joined or not state.mediaLoaded then return end
-    if is_suppressed() then return end
     local snap = state.lastSnapshot
-    if snap and math.abs(snap.playbackRate - value) < 0.001 then return end
+    local roomRate = snap and snap.playbackRate or 1
+    -- 值判别代替时间窗：远端应用只会把 speed 设成房间倍速（含重置）或微调值，
+    -- 其他任何值都来自用户操作，即使在抑制窗口内也必须回传。
+    if math.abs(value - roomRate) < 0.001 then return end
+    if state.nudge and math.abs(value - state.nudge.rate) < 0.001 then return end
     if value < 0.25 or value > 2 then return end -- 服务端会拒绝；等快照回写有效值
+    msg.debug("user rate change: " .. tostring(value))
     send_command({ type = "rate", rate = value })
 end)
 
