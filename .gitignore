@@ -5,8 +5,9 @@
 /.pnp
 .pnp.js
 
-# testing
-/coverage
+# Rust build artifacts
+/src-tauri/target/
+
 
 # production
 /build

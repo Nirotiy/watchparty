@@ -33,10 +33,13 @@ export type RoomSnapshot = {
   playlist: PlaylistItem[];
 };
 
+export type ClientType = "browser" | "mpv" | "desktop";
+
 export type RoomMember = {
   clientId: string;
   name: string;
   isOwner: boolean;
+  clientType: ClientType;
 };
 
 export type ErrorCode =
@@ -54,7 +57,8 @@ export type ErrorCode =
   | "REVISION_CONFLICT"
   | "OWNER_TARGET_OFFLINE"
   | "HANDOFF_TICKET_INVALID"
-  | "PROTOCOL_VERSION_MISMATCH";
+  | "PROTOCOL_VERSION_MISMATCH"
+  | "SESSION_GENERATION_STALE";
 
 export type ApiError = { code: ErrorCode | string; message: string };
 
@@ -169,6 +173,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   OWNER_TARGET_OFFLINE: "目标成员当前不在线",
   HANDOFF_TICKET_INVALID: "交接票据无效、已使用或已过期，请重新发射",
   PROTOCOL_VERSION_MISMATCH: "客户端协议版本不兼容，请升级客户端",
+  SESSION_GENERATION_STALE: "桌面会话已被新的连接取代，请重新声明会话",
 };
 
 export function errorResult(code: ErrorCode): { ok: false; error: ApiError } {

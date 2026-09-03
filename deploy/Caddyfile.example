@@ -1,6 +1,9 @@
 # WatchParty reverse-proxy example. Only /p/* (media stream), /api/* and
 # /socket.io/* are exposed; the OpenList admin UI stays off the public network.
 watch.example.test {
+  # Gate 1 / Basic Auth option A: keep the site-wide auth boundary.
+  # DesktopSession supplies this credential in native memory for API and /p/*
+  # fallback requests; it is never passed to the WebView or placed in a URL.
   basic_auth {
     alice $2a$14$REPLACE_WITH_CADDY_HASH
   }
@@ -12,6 +15,9 @@ watch.example.test {
     reverse_proxy 127.0.0.1:5244
   }
 
+  # This includes browser, MPV, and desktop handoff/session endpoints.
+  # Do not exempt /api/desktop/* from this site-wide auth without revising the
+  # native credential contract and its security review.
   handle /api/* {
     reverse_proxy 127.0.0.1:8080
   }

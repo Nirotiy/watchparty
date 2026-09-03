@@ -7,7 +7,11 @@ import express, { type Express } from "express";
 import { Server } from "socket.io";
 import { loadConfig, type AppConfig } from "./config.ts";
 import { registerCoreHttp } from "./core/http/routes.ts";
-import { registerMpvHttp } from "./core/http/mpv-routes.ts";
+import {
+  registerHandoffHttp,
+  registerNativeClientHttp,
+  registerNativeHandoffHttp,
+} from "./core/http/native-routes.ts";
 import { createWatchpartyMedia } from "./media/watchparty-media.ts";
 import { createOpenlistClient } from "./media/openlist.ts";
 import { RoomRegistry } from "./core/room/registry.ts";
@@ -92,7 +96,11 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
   bindRooms(io, registry);
 
   registerCoreHttp(app, registry, cfg, media);
-  registerMpvHttp(app, registry, media);
+  registerHandoffHttp(app, registry);
+  registerNativeHandoffHttp(app, registry, "mpv");
+  registerNativeHandoffHttp(app, registry, "desktop");
+  registerNativeClientHttp(app, registry, media, "mpv");
+  registerNativeClientHttp(app, registry, media, "desktop");
 
   if (options.serveStatic !== false) {
     mountLegacyUi(app, cfg.buildDirectory);

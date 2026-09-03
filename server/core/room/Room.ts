@@ -6,6 +6,7 @@ import type {
   PlaylistItem,
   RoomMember,
   RoomSnapshot,
+  ClientType,
 } from "../protocol.ts";
 import { errorResult, ERROR_MESSAGES, okResult } from "../protocol.ts";
 import { validateMediaSource, validateNickname } from "../media.ts";
@@ -85,15 +86,24 @@ export class Room {
     return this.members.has(clientId);
   }
 
+  memberClientType(clientId: string): ClientType | undefined {
+    return this.members.get(clientId)?.clientType;
+  }
+
   onEvent(handler: RoomEventHandler): void {
     this.handlers.push(handler);
   }
 
-  join(clientId: string, name: string): void {
+  join(
+    clientId: string,
+    name: string,
+    clientType: ClientType = "browser",
+  ): void {
     const member: RoomMember = {
       clientId,
       name: validateNickname(name) ? name.trim() : "观众",
       isOwner: clientId === this.ownerClientId,
+      clientType,
     };
     this.members.set(clientId, member);
     this.emitMembers();

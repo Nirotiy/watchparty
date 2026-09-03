@@ -52,10 +52,13 @@ export interface RoomSnapshot {
 }
 
 // 4. 在线成员与身份
+export type ClientType = "browser" | "mpv" | "desktop";
+
 export interface RoomMember {
   clientId: string;
   name: string;
   isOwner: boolean;
+  clientType: ClientType;
   isSelf?: boolean;
 }
 
@@ -73,7 +76,8 @@ export type ErrorCode =
   | "MEDIA_UNSUPPORTED"
   | "PLAYLIST_FULL"
   | "REVISION_CONFLICT"
-  | "OWNER_TARGET_OFFLINE";
+  | "OWNER_TARGET_OFFLINE"
+  | "SESSION_GENERATION_STALE";
 
 export interface ApiError {
   code: ErrorCode | string;
@@ -163,4 +167,5 @@ export type CommandAck<T = undefined> =
 export interface HandoffTicketResponse {
   ticket: string;
   ticketExpiresAt: number;
+  target?: "mpv" | "desktop";
 }

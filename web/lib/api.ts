@@ -29,7 +29,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     try {
       errBody = await res.json();
     } catch {
-      errBody = { code: "HTTP_ERROR", message: `HTTP ${res.status}: ${res.statusText}` };
+      errBody = {
+        code: "HTTP_ERROR",
+        message: `HTTP ${res.status}: ${res.statusText}`,
+      };
     }
     const error = new Error(errBody.message || "请求失败");
     (error as Error & { code?: string; status?: number }).code = errBody.code;
@@ -53,25 +56,39 @@ export const api = {
     request<RoomInfoResponse>(`/api/rooms/${encodeURIComponent(roomId)}`),
 
   // 3. 房间准入并获取 accessToken (免密或输入 PIN)
-  accessRoom: (roomId: string, req: RoomAccessRequest): Promise<RoomAccessResponse> =>
-    request<RoomAccessResponse>(`/api/rooms/${encodeURIComponent(roomId)}/access`, {
-      method: "POST",
-      body: JSON.stringify(req),
-    }),
+  accessRoom: (
+    roomId: string,
+    req: RoomAccessRequest,
+  ): Promise<RoomAccessResponse> =>
+    request<RoomAccessResponse>(
+      `/api/rooms/${encodeURIComponent(roomId)}/access`,
+      {
+        method: "POST",
+        body: JSON.stringify(req),
+      },
+    ),
 
   // 4. 获取 OpenList 根目录列表 (仅依赖 Caddy Basic Auth，无需房间 Token)
   getMediaRoots: (): Promise<AllowedOpenListRoot[]> =>
     request<AllowedOpenListRoot[]>("/api/media/roots"),
 
   // 5. 获取 OpenList 目录列表 (分页模式，单页上限 100 项)
-  getMediaList: (root: AllowedOpenListRoot, path = "/", cursor?: string): Promise<OpenListDirectory> => {
+  getMediaList: (
+    root: AllowedOpenListRoot,
+    path = "/",
+    cursor?: string,
+  ): Promise<OpenListDirectory> => {
     const params = new URLSearchParams({ root, path });
     if (cursor) params.set("cursor", cursor);
     return request<OpenListDirectory>(`/api/media/list?${params.toString()}`);
   },
 
   // 6. 全局搜索媒体 (分页模式)
-  searchMedia: (query: string, root?: AllowedOpenListRoot, cursor?: string): Promise<OpenListDirectory> => {
+  searchMedia: (
+    query: string,
+    root?: AllowedOpenListRoot,
+    cursor?: string,
+  ): Promise<OpenListDirectory> => {
     const params = new URLSearchParams({ q: query });
     if (root) params.set("root", root);
     if (cursor) params.set("cursor", cursor);
@@ -82,24 +99,29 @@ export const api = {
   resolveMedia: (
     roomId: string,
     mediaId: string,
-    accessToken: string
-  ): Promise<{ url: string; expiresAt?: number; requiresCustomHeaders?: boolean }> =>
-    request<{ url: string; expiresAt?: number; requiresCustomHeaders?: boolean }>(
-      `/api/rooms/${encodeURIComponent(roomId)}/media/resolve`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ mediaId }),
-      }
-    ),
+    accessToken: string,
+  ): Promise<{
+    url: string;
+    expiresAt?: number;
+    requiresCustomHeaders?: boolean;
+  }> =>
+    request<{
+      url: string;
+      expiresAt?: number;
+      requiresCustomHeaders?: boolean;
+    }>(`/api/rooms/${encodeURIComponent(roomId)}/media/resolve`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ mediaId }),
+    }),
 
   // 8. 获取字幕文本内容 (需 accessToken)
   getSubtitleContent: async (
     roomId: string,
     mediaId: string,
-    accessToken: string
+    accessToken: string,
   ): Promise<string> => {
     const res = await fetch(
       `/api/rooms/${encodeURIComponent(roomId)}/media/subtitle?mediaId=${encodeURIComponent(mediaId)}`,
@@ -107,7 +129,7 @@ export const api = {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
-      }
+      },
     );
     if (!res.ok) {
       throw new Error(`无法获取字幕: HTTP ${res.status}`);
@@ -127,10 +149,17 @@ export const api = {
     ),
 
   // 10. 签发一次性 MPV 交接票据（120s TTL，spec 9.2；页面只展示交接码，不进 URL）
-  issueHandoffTicket: (roomId: string, accessToken: string): Promise<HandoffTicketResponse> =>
-    request<HandoffTicketResponse>(`/api/rooms/${encodeURIComponent(roomId)}/handoff`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({}),
-    }),
+  issueHandoffTicket: (
+    roomId: string,
+    accessToken: string,
+    target: "mpv" | "desktop" = "mpv",
+  ): Promise<HandoffTicketResponse> =>
+    request<HandoffTicketResponse>(
+      `/api/rooms/${encodeURIComponent(roomId)}/handoff`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ target }),
+      },
+    ),
 };
