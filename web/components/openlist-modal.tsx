@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { AllowedOpenListRoot, MediaSource, OpenListItem } from "@/lib/contracts";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -245,24 +246,22 @@ export function OpenListModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
-      onClick={handleClose}
-    >
-      <div
-        className="flex h-[620px] max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950 shadow-2xl shadow-black"
-        onClick={(e) => e.stopPropagation()}
+    <Dialog open onOpenChange={(open) => !open && handleClose()}>
+      <DialogContent
+        showCloseButton={false}
+        aria-describedby={undefined}
+        className="flex h-[620px] max-h-[92dvh] w-full max-w-4xl flex-col gap-0 overflow-hidden border-border bg-card p-0 sm:max-w-4xl"
       >
         {/* ================= 头部工具条 ================= */}
-        <div className="flex shrink-0 items-center justify-between border-b border-neutral-800 px-5 py-3.5">
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3.5">
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 text-sm font-semibold text-white">
+            <DialogTitle className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
               <Film className="size-4 text-sky-400" />
               <span>点播媒体库</span>
-            </div>
+            </DialogTitle>
 
             {/* 根目录 Tab */}
-            <div className="flex rounded border border-neutral-800 bg-black p-0.5 text-xs">
+            <div className="flex rounded border border-border bg-black p-0.5 text-xs">
               {(["Anime", "Film", "TV Shows"] as AllowedOpenListRoot[]).map((root) => (
                 <Button
                   key={root}
@@ -277,7 +276,7 @@ export function OpenListModal({
                     "px-2.5",
                     selectedRoot === root
                       ? "bg-sky-500 font-semibold text-black hover:bg-sky-500 hover:text-black"
-                      : "font-normal text-neutral-400 hover:text-white",
+                      : "font-normal text-muted-foreground hover:text-white",
                   )}
                 >
                   {root === "Anime" ? "番剧 (Anime)" : root === "Film" ? "电影 (Film)" : "剧集 (TV)"}
@@ -292,7 +291,7 @@ export function OpenListModal({
               className={cn(
                 isManualUrlMode
                   ? "border-sky-500 bg-sky-950/40 text-sky-400"
-                  : "bg-black text-neutral-400 hover:text-white",
+                  : "bg-black text-muted-foreground hover:text-white",
               )}
             >
               <LinkIcon className="size-3" />
@@ -305,7 +304,7 @@ export function OpenListModal({
             size="icon-sm"
             onClick={handleClose}
             aria-label="关闭媒体库"
-            className="text-neutral-400 hover:bg-neutral-800 hover:text-white"
+            className="text-muted-foreground hover:bg-accent hover:text-white"
           >
             <X className="size-4" />
           </Button>
@@ -313,8 +312,8 @@ export function OpenListModal({
 
         {/* 直链输入栏 */}
         {isManualUrlMode && (
-          <div className="border-b border-neutral-800 bg-neutral-900/60 p-4 space-y-2.5">
-            <div className="text-xs font-semibold text-neutral-300">手动添加外部 HTTPS 直链 / HLS 流</div>
+          <div className="border-b border-border bg-secondary/60 p-4 space-y-2.5">
+            <div className="text-xs font-semibold text-foreground/85">手动添加外部 HTTPS 直链 / HLS 流</div>
             <div className="flex flex-1 gap-2">
               <Input
                 type="text"
@@ -341,10 +340,10 @@ export function OpenListModal({
         )}
 
         {/* 当前分类全局搜索 */}
-        <div className="flex shrink-0 border-b border-neutral-800/80 bg-neutral-900/30 px-5 py-2">
+        <div className="flex shrink-0 border-b border-border bg-secondary/30 px-5 py-2">
           <form onSubmit={handleSearch} className="flex w-full min-w-0 items-center gap-2">
             <div className="relative min-w-0 flex-1">
-              <Search className="absolute left-2.5 top-2 size-3.5 text-neutral-500" />
+              <Search className="absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
               <Input
                 type="text"
                 value={searchQuery}
@@ -359,7 +358,7 @@ export function OpenListModal({
               variant="outline"
               size="sm"
               disabled={isLoading}
-              className="shrink-0 whitespace-nowrap text-neutral-300"
+              className="shrink-0 whitespace-nowrap text-foreground/85"
             >
               搜索
             </Button>
@@ -371,7 +370,7 @@ export function OpenListModal({
                 onClick={() => {
                   clearSearch();
                 }}
-                className="shrink-0 whitespace-nowrap text-neutral-400 hover:text-white"
+                className="shrink-0 whitespace-nowrap text-muted-foreground hover:text-white"
               >
                 清除搜索
               </Button>
@@ -380,15 +379,15 @@ export function OpenListModal({
         </div>
 
         {/* 面包屑与批量操作 */}
-        <div className="flex shrink-0 items-center justify-between border-b border-neutral-800/80 bg-black/40 px-5 py-2 text-xs">
-          <div className="flex items-center gap-1.5 font-mono text-neutral-400">
+        <div className="flex shrink-0 items-center justify-between border-b border-border bg-black/40 px-5 py-2 text-xs">
+          <div className="flex items-center gap-1.5 font-mono text-muted-foreground">
             <Button variant="ghost" size="sm" onClick={() => setCurrentPath("/")} className="h-6 px-1 font-normal hover:text-white">
               <Folder className="size-3 text-sky-400" />
               <span>{selectedRoot}</span>
             </Button>
             {breadcrumbs.map((crumb, idx) => (
               <React.Fragment key={idx}>
-                <ChevronRight className="size-3 text-neutral-600" />
+                <ChevronRight className="size-3 text-muted-foreground" />
                 <span className="text-white">{crumb}</span>
               </React.Fragment>
             ))}
@@ -434,14 +433,14 @@ export function OpenListModal({
           )}
 
           {isLoading && displayItems.length === 0 ? (
-            <div className="flex h-48 items-center justify-center font-mono text-xs text-neutral-500">
+            <div className="flex h-48 items-center justify-center font-mono text-xs text-muted-foreground">
               加载媒体中...
             </div>
           ) : displayItems.length === 0 ? (
-            <div className="flex h-48 flex-col items-center justify-center text-xs text-neutral-600 space-y-1">
+            <div className="flex h-48 flex-col items-center justify-center text-xs text-muted-foreground space-y-1">
               <span>{isSearching ? `未找到与“${activeSearchQuery}”匹配的媒体文件` : "当前目录为空"}</span>
               {isSearching && (
-                <span className="text-[11px] text-neutral-500">
+                <span className="text-[11px] text-muted-foreground">
                   如果确认文件存在，请检查 OpenList 是否已启用并构建搜索索引
                 </span>
               )}
@@ -457,10 +456,10 @@ export function OpenListModal({
                     key={item.id}
                     className={`flex items-center justify-between rounded border p-2.5 text-xs transition ${
                       isDir
-                        ? "border-neutral-800/80 bg-neutral-950 hover:border-neutral-700 hover:bg-neutral-900"
+                        ? "border-border bg-card hover:border-ring hover:bg-secondary"
                         : isSupported
-                        ? "border-neutral-800/60 bg-black text-neutral-200 hover:border-sky-500/50"
-                        : "border-neutral-900 bg-neutral-950/40 text-neutral-600 opacity-60"
+                        ? "border-border bg-black text-foreground/90 hover:border-sky-500/50"
+                        : "border-border bg-card/40 text-muted-foreground opacity-60"
                     }`}
                   >
                     <div
@@ -476,7 +475,7 @@ export function OpenListModal({
                       {isDir ? (
                         <Folder className="size-4 text-sky-400 shrink-0" />
                       ) : (
-                        <Film className="size-4 text-neutral-400 shrink-0" />
+                        <Film className="size-4 text-muted-foreground shrink-0" />
                       )}
                       <span className={`truncate ${isDir ? "font-medium text-white" : ""}`}>
                         {item.name}
@@ -487,12 +486,12 @@ export function OpenListModal({
                         </span>
                       )}
                       {item.displayPath && (
-                        <span className="font-mono text-[10px] text-neutral-600 truncate">
+                        <span className="font-mono text-[10px] text-muted-foreground truncate">
                           ({item.displayPath})
                         </span>
                       )}
                       {!isSupported && (
-                        <span className="rounded border border-neutral-800 bg-neutral-900 px-1 py-0.5 text-[9px] text-neutral-500">
+                        <span className="rounded border border-border bg-secondary px-1 py-0.5 text-[9px] text-muted-foreground">
                           {item.compatibility.browserReason || "浏览器不承担此媒体格式"}
                         </span>
                       )}
@@ -502,7 +501,7 @@ export function OpenListModal({
                       <div className="flex items-center gap-2 shrink-0">
                         <Button
                           size="sm"
-                          className="h-7 bg-white px-2 text-[11px] font-semibold text-black hover:bg-neutral-200"
+                          className="h-7 bg-white px-2 text-[11px] font-semibold text-black hover:bg-primary/90"
                           onClick={() => {
                             onPlayNow({
                               kind: "openlist",
@@ -520,7 +519,7 @@ export function OpenListModal({
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-7 px-2 text-[11px] text-neutral-300"
+                          className="h-7 px-2 text-[11px] text-foreground/85"
                           onClick={() => {
                             onAddToQueue({
                               kind: "openlist",
@@ -553,7 +552,7 @@ export function OpenListModal({
                       }
                     }}
                     disabled={isLoading}
-                    className="text-neutral-300"
+                    className="text-foreground/85"
                   >
                     {isLoading ? "正在加载更多..." : "加载更多项目"}
                   </Button>
@@ -562,7 +561,7 @@ export function OpenListModal({
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

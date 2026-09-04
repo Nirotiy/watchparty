@@ -26,6 +26,8 @@ import { createVttBlobUrl } from "@/lib/subtitle-parser";
 interface RoomPlayerProps {
   roomId: string;
   accessToken?: string;
+  /** Token 失效（服务端重启/房间重建）时回调：页面层清除本地凭据并重新走门禁。 */
+  onAuthInvalid?: () => void;
 }
 
 const CONTROLS_HIDE_DELAY_MS = 2400;
@@ -83,7 +85,7 @@ function IconControl({
           )}
         </Button>
       </TooltipTrigger>
-      <TooltipContent className="bg-neutral-900 text-neutral-100 border border-neutral-700">{label}</TooltipContent>
+      <TooltipContent className="bg-secondary text-foreground border border-ring">{label}</TooltipContent>
     </Tooltip>
   );
 }
@@ -94,7 +96,7 @@ function mediaSourceKey(source: MediaSource): string {
   return `${source.kind}:${source.url}`;
 }
 
-export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
+export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerProps) {
   // 1. 本地客户端标识与 Token 准备
   const [clientId] = useState<string>(() => {
     if (typeof window === "undefined") return "";
@@ -398,6 +400,11 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
         localStorage.setItem(`owner_${roomId}`, newOwnerToken);
       },
       onError: (err) => {
+        // 握手鉴权失败：旧 token 已失效，交回页面层降级到门禁/重入流程。
+        if (err.code === "ACCESS_TOKEN_INVALID" || err.code === "ROOM_NOT_FOUND") {
+          onAuthInvalid?.();
+          return;
+        }
         setGlobalError(err.message);
       },
     });
@@ -409,7 +416,7 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [roomId, clientId, accessToken, ownerToken, resolveAndLoadMedia, clearSubtitles]);
+  }, [roomId, clientId, accessToken, ownerToken, resolveAndLoadMedia, clearSubtitles, onAuthInvalid]);
 
   // 权威时钟 NTP 追帧同步逻辑
   useEffect(() => {
@@ -651,7 +658,7 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
         {...overlayPointerHandlers}
       >
         <div className="flex items-center gap-3">
-          <span className="font-mono text-[11px] text-neutral-400">/{roomId}</span>
+          <span className="font-mono text-[11px] text-muted-foreground">/{roomId}</span>
           <span
             className={cn(
               "flex items-center gap-1.5 font-mono text-[11px]",
@@ -736,10 +743,10 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
         ) : (
           <div
             onClick={() => setIsOpenListModalOpen(true)}
-            className="flex size-full cursor-pointer flex-col items-center justify-center bg-radial from-neutral-900 to-black text-neutral-600 hover:text-neutral-400"
+            className="flex size-full cursor-pointer flex-col items-center justify-center bg-radial from-secondary to-background text-muted-foreground hover:text-muted-foreground"
           >
-            <div className="mb-3 flex size-16 items-center justify-center rounded-full border border-neutral-800 bg-neutral-950/80">
-              <MsIcon name="play_arrow" filled className="text-[32px] text-neutral-500" />
+            <div className="mb-3 flex size-16 items-center justify-center rounded-full border border-border bg-card/80">
+              <MsIcon name="play_arrow" filled className="text-[32px] text-muted-foreground" />
             </div>
             <span className="text-xs">房间当前无播放媒体，点击此处打开媒体库点播</span>
           </div>
@@ -756,7 +763,7 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
       >
         {/* 进度行：当前时间 / 进度 / 总时长 */}
         <div className="flex items-center gap-3">
-          <span className="w-12 text-right font-mono text-xs text-neutral-300 tabular-nums">
+          <span className="w-12 text-right font-mono text-xs text-foreground/85 tabular-nums">
             {formatTime(seekPreview ?? currentTime)}
           </span>
           <div className="relative flex-1">
@@ -776,7 +783,7 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
               className="cursor-pointer"
             />
           </div>
-          <span className="w-12 font-mono text-xs text-neutral-300 tabular-nums">{formatTime(totalDuration)}</span>
+          <span className="w-12 font-mono text-xs text-foreground/85 tabular-nums">{formatTime(totalDuration)}</span>
         </div>
 
         {/* 控制行：左（音量/字幕）· 中（传输）· 右（倍速/清单/循环/全屏） */}
@@ -814,10 +821,10 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
               </PopoverTrigger>
               <PopoverContent side="top" align="start" className="w-64 p-3">
                 <div className="space-y-3">
-                  <div className="text-[11px] font-semibold text-neutral-300">本地字幕控制</div>
+                  <div className="text-[11px] font-semibold text-foreground/85">本地字幕控制</div>
                   {subtitleTracks.length > 0 && (
                     <div className="space-y-1">
-                      <div className="text-[10px] text-neutral-500">选择字幕轨</div>
+                      <div className="text-[10px] text-muted-foreground">选择字幕轨</div>
                       {subtitleTracks.map((tr) => (
                         <Button
                           key={tr.id}
@@ -827,7 +834,7 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
                             "h-8 w-full justify-between px-2 text-xs",
                             activeSubtitleId === tr.id
                               ? "bg-sky-500/20 text-sky-400 hover:bg-sky-500/20 hover:text-sky-400"
-                              : "font-normal text-neutral-400 hover:bg-neutral-900 hover:text-white",
+                              : "font-normal text-muted-foreground hover:bg-secondary hover:text-white",
                           )}
                         >
                           <span className="truncate">{tr.label}</span>
@@ -837,7 +844,7 @@ export default function RoomPlayer({ roomId, accessToken }: RoomPlayerProps) {
                     </div>
                   )}
                   <div className="space-y-1">
-                    <div className="text-[10px] text-neutral-500">时间轴对齐 (仅本机生效)</div>
+                    <div className="text-[10px] text-muted-foreground">时间轴对齐 (仅本机生效)</div>
                     <div className="flex items-center justify-between font-mono text-xs">
                       <Button
                         variant="outline"

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, use } from "react";
+import React, { useState, useEffect, useCallback, use } from "react";
 import { useRouter } from "next/navigation";
 import { Lock, ArrowLeft, RefreshCw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
 
   // 状态流转: checking -> need_auth | ready | not_found | error
   const [pageState, setPageState] = useState<"checking" | "need_auth" | "ready" | "not_found" | "error">("checking");
+  const [recheckNonce, setRecheckNonce] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [nickname, setNickname] = useState("");
   const [pinDigits, setPinDigits] = useState(["", "", "", ""]);
@@ -27,11 +28,13 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
   const [authError, setAuthError] = useState<string | null>(null);
   const [cachedToken, setCachedToken] = useState<string | null>(null);
 
-  // 1. 初始化检查房间状态与本地 Token 缓存
+  // 1. 初始化检查房间状态与本地 Token 缓存；recheckNonce 变化时重新检查（token 失效降级）。
   useEffect(() => {
     let isMounted = true;
 
     async function checkRoom() {
+      setPageState("checking");
+      setErrorMessage(null);
       try {
         // 先检查本地是否有现成的 Token
         const localToken = localStorage.getItem(`token_${roomId}`);
@@ -83,10 +86,19 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
       }
     }
 
-    checkRoom();
+    void checkRoom();
     return () => {
       isMounted = false;
     };
+  }, [roomId, recheckNonce]);
+
+  // Token 失效（服务端重启 / 房间解散重建）：清除本地凭据并重新走门禁流程，
+  // 避免用户被旧 token 永久卡在错误屏。
+  const handleAuthInvalid = useCallback(() => {
+    localStorage.removeItem(`token_${roomId}`);
+    setCachedToken(null);
+    setPinDigits(["", "", "", ""]);
+    setRecheckNonce((n) => n + 1);
   }, [roomId]);
 
   // 处理 PIN 码输入跳格
@@ -103,6 +115,25 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
     }
   };
 
+  // 粘贴完整 4 位 PIN：分发到各格并自动提交
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const digits = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 4).split("");
+    if (digits.length === 0) return;
+    const next = ["", "", "", ""];
+    digits.forEach((d, i) => {
+      next[i] = d;
+    });
+    setPinDigits(next);
+    setAuthError(null);
+    if (digits.length === 4) {
+      document.getElementById(`pin-3`)?.blur();
+      void submitPin(next.join(""));
+    } else {
+      document.getElementById(`pin-${digits.length}`)?.focus();
+    }
+  };
+
   const handleKeyDown = (idx: number, e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Backspace" && !pinDigits[idx] && idx > 0) {
       const prevInput = document.getElementById(`pin-${idx - 1}`);
@@ -111,9 +142,7 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
   };
 
   // 提交 PIN 码验证获取 Token
-  const handleVerifyPin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const pinStr = pinDigits.join("");
+  const submitPin = async (pinStr: string) => {
     if (pinStr.length !== 4) {
       setAuthError("请输入完整的 4 位数字密码");
       return;
@@ -153,10 +182,19 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
     }
   };
 
+  const handleVerifyPin = (e: React.FormEvent) => {
+    e.preventDefault();
+    void submitPin(pinDigits.join(""));
+  };
+
   // 1. 房间检查中
   if (pageState === "checking") {
     return (
-      <div className="flex h-screen w-screen flex-col items-center justify-center bg-black font-mono text-xs text-neutral-400">
+      <div
+        className="flex h-dvh w-screen flex-col items-center justify-center bg-black font-mono text-xs text-muted-foreground"
+        aria-busy="true"
+        aria-live="polite"
+      >
         <div className="flex items-center gap-2">
           <div className="size-2 rounded-full bg-sky-400"></div>
           <span>正在连接并验证房间 /{roomId}...</span>
@@ -168,23 +206,20 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
   // 2. 房间不存在 (404)
   if (pageState === "not_found") {
     return (
-      <div className="flex h-screen w-screen flex-col items-center justify-center bg-black p-4 font-sans text-white">
-        <div className="w-full max-w-sm rounded-lg border border-neutral-800 bg-neutral-950 p-6 text-center shadow-2xl space-y-4">
-          <div className="mx-auto flex size-12 items-center justify-center rounded-full border border-neutral-800 bg-black text-neutral-500">
+      <div className="flex h-dvh w-screen flex-col items-center justify-center bg-black p-4 font-sans text-white">
+        <div className="w-full max-w-sm rounded-lg border border-border bg-card p-6 text-center shadow-2xl space-y-4">
+          <div className="mx-auto flex size-12 items-center justify-center rounded-full border border-border bg-black text-muted-foreground">
             <AlertTriangle className="size-6 text-amber-500" />
           </div>
           <div className="space-y-1">
             <h2 className="text-base font-semibold text-white">房间不存在或已解散</h2>
-            <p className="font-mono text-xs text-neutral-500">/{roomId}</p>
+            <p className="font-mono text-xs text-muted-foreground">/{roomId}</p>
           </div>
-          <p className="text-xs text-neutral-400">
+          <p className="text-xs text-muted-foreground">
             请确认您输入的房间标识符是否正确，或返回大厅创建属于您的新房间。
           </p>
           <div className="pt-2">
-            <Button
-              onClick={() => router.push("/")}
-              className="w-full bg-white py-2 text-xs font-semibold text-black hover:bg-neutral-200"
-            >
+            <Button onClick={() => router.push("/")} className="w-full py-2 text-xs font-semibold">
               <ArrowLeft className="size-3.5" />
               <span>返回大厅首页</span>
             </Button>
@@ -197,27 +232,24 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
   // 3. 错误状态
   if (pageState === "error") {
     return (
-      <div className="flex h-screen w-screen flex-col items-center justify-center bg-black p-4 font-sans text-white">
-        <div className="w-full max-w-sm rounded-lg border border-rose-900/40 bg-neutral-950 p-6 text-center shadow-2xl space-y-4">
-          <div className="mx-auto flex size-12 items-center justify-center rounded-full border border-rose-900/50 bg-rose-950/40 text-rose-400">
+      <div className="flex h-dvh w-screen flex-col items-center justify-center bg-black p-4 font-sans text-white">
+        <div className="w-full max-w-sm rounded-lg border border-destructive/40 bg-card p-6 text-center shadow-2xl space-y-4">
+          <div className="mx-auto flex size-12 items-center justify-center rounded-full border border-destructive/50 bg-destructive/10 text-destructive">
             <AlertTriangle className="size-6" />
           </div>
           <div className="space-y-1">
             <h2 className="text-base font-semibold text-white">连接房间异常</h2>
-            <p className="text-xs text-rose-300">{errorMessage}</p>
+            <p className="text-xs text-destructive">{errorMessage}</p>
           </div>
           <div className="flex gap-2 pt-2">
             <Button
               variant="ghost"
               onClick={() => router.push("/")}
-              className="flex-1 text-xs text-neutral-400 hover:text-white"
+              className="flex-1 text-xs text-muted-foreground hover:text-white"
             >
               返回首页
             </Button>
-            <Button
-              onClick={() => window.location.reload()}
-              className="flex-1 bg-white text-xs font-semibold text-black hover:bg-neutral-200"
-            >
+            <Button onClick={() => window.location.reload()} className="flex-1 text-xs font-semibold">
               <RefreshCw className="size-3.5" />
               <span>重试连接</span>
             </Button>
@@ -230,26 +262,33 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
   // 4. 需要 PIN 码鉴权门禁
   if (pageState === "need_auth") {
     return (
-      <div className="flex h-screen w-screen flex-col items-center justify-center bg-black p-4 font-sans text-white">
-        <div className="w-full max-w-sm rounded-lg border border-neutral-800 bg-neutral-950 p-6 shadow-2xl shadow-black space-y-5">
-          <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+      <div className="flex h-dvh w-screen flex-col items-center justify-center bg-black p-4 font-sans text-white">
+        <div className="w-full max-w-sm rounded-lg border border-border bg-card p-6 shadow-2xl shadow-black space-y-5">
+          <div className="flex items-center justify-between border-b border-border pb-3">
             <div className="flex items-center gap-2">
               <Lock className="size-4 text-sky-400" />
               <span className="text-sm font-semibold text-white">房间受 PIN 码保护</span>
             </div>
-            <span className="font-mono text-xs text-neutral-500">/{roomId}</span>
+            <span className="font-mono text-xs text-muted-foreground">/{roomId}</span>
           </div>
 
           <form onSubmit={handleVerifyPin} className="space-y-4">
             {authError && (
-              <div className="rounded border border-rose-900/50 bg-rose-950/40 p-2.5 text-xs text-rose-300">
+              <div
+                className="rounded border border-destructive/50 bg-destructive/10 p-2.5 text-xs text-destructive"
+                role="alert"
+                aria-live="polite"
+              >
                 {authError}
               </div>
             )}
 
             <div className="space-y-1.5">
-              <Label className="text-xs text-neutral-400">进入昵称</Label>
+              <Label htmlFor="gate-nickname" className="text-xs text-muted-foreground">
+                进入昵称
+              </Label>
               <Input
+                id="gate-nickname"
                 type="text"
                 value={nickname}
                 onChange={(e) => setNickname(e.target.value)}
@@ -261,19 +300,28 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-neutral-400">4 位数字房间 PIN 码</label>
-              <div className="mt-1.5 flex justify-center gap-2.5">
+              <span id="pin-group-label" className="block text-xs font-medium text-muted-foreground">
+                4 位数字房间 PIN 码
+              </span>
+              <div
+                className="mt-1.5 flex justify-center gap-2.5"
+                role="group"
+                aria-labelledby="pin-group-label"
+              >
                 {pinDigits.map((digit, idx) => (
                   <input
                     key={idx}
                     id={`pin-${idx}`}
                     type="text"
                     inputMode="numeric"
+                    autoComplete="one-time-code"
                     maxLength={1}
                     value={digit}
+                    aria-label={`PIN 码第 ${idx + 1} 位`}
                     onChange={(e) => handleDigitChange(idx, e.target.value)}
                     onKeyDown={(e) => handleKeyDown(idx, e)}
-                    className="size-11 rounded border border-neutral-800 bg-black text-center font-mono text-base font-bold text-white outline-none focus:border-sky-500"
+                    onPaste={handlePaste}
+                    className="size-11 rounded border border-border bg-black text-center font-mono text-base font-bold text-white outline-none focus:border-sky-500"
                   />
                 ))}
               </div>
@@ -284,15 +332,11 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
                 type="button"
                 variant="outline"
                 onClick={() => router.push("/")}
-                className="flex-1 text-xs text-neutral-400 hover:text-white"
+                className="flex-1 text-xs text-muted-foreground hover:text-white"
               >
                 返回
               </Button>
-              <Button
-                type="submit"
-                disabled={isVerifying}
-                className="flex-1 bg-sky-500 text-xs font-semibold text-black hover:bg-sky-400"
-              >
+              <Button type="submit" disabled={isVerifying} className="flex-1 text-xs font-semibold">
                 {isVerifying ? "验证中..." : "验证进入"}
               </Button>
             </div>
@@ -303,5 +347,11 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
   }
 
   // 5. 准入通过：渲染真实播放器核心
-  return <RoomPlayer roomId={roomId} accessToken={cachedToken || undefined} />;
+  return (
+    <RoomPlayer
+      roomId={roomId}
+      accessToken={cachedToken || undefined}
+      onAuthInvalid={handleAuthInvalid}
+    />
+  );
 }

@@ -75,7 +75,8 @@ export class WatchPartySocket {
       "connect_error",
       (err: Error & { data?: { code: string; message: string } }) => {
         this.options.onError?.({
-          code: err.data?.code || "CONNECT_ERROR",
+          // 服务端中间件拒绝时把 code 放在 message 里（socket.io 不跨端传 data）
+          code: err.data?.code || err.message || "CONNECT_ERROR",
           message: err.data?.message || err.message,
         });
       },

@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { Lock, X, ArrowRight, AlertCircle, Folder } from "lucide-react";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -41,6 +42,19 @@ export function CreateRoomModal({
       const nextInput = document.getElementById(`create-pin-${idx + 1}`);
       nextInput?.focus();
     }
+  };
+
+  // 粘贴完整 4 位 PIN：分发到各格
+  const handlePinPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const digits = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 4).split("");
+    if (digits.length === 0) return;
+    const next = ["", "", "", ""];
+    digits.forEach((d, i) => {
+      next[i] = d;
+    });
+    setPin(next);
+    document.getElementById(`create-pin-${Math.min(digits.length, 3)}`)?.focus();
   };
 
   const handlePinKeyDown = (idx: number, e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -101,25 +115,23 @@ export function CreateRoomModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md rounded-lg border border-neutral-800 bg-neutral-950 p-6 shadow-2xl shadow-black"
-        onClick={(e) => e.stopPropagation()}
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        showCloseButton={false}
+        className="max-w-md gap-0 border-border bg-card p-6"
+        aria-describedby={undefined}
       >
-        <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-white">
+        <div className="flex items-center justify-between border-b border-border pb-3">
+          <DialogTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <Lock className="size-4 text-sky-400" />
             <span>创建专属观影房间</span>
-          </div>
+          </DialogTitle>
           <Button
             variant="ghost"
             size="icon-sm"
             onClick={onClose}
             aria-label="关闭"
-            className="text-neutral-400 hover:bg-neutral-800 hover:text-white"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             <X className="size-4" />
           </Button>
@@ -127,15 +139,22 @@ export function CreateRoomModal({
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           {errorMsg && (
-            <div className="flex items-center gap-2 rounded border border-rose-900/50 bg-rose-950/40 p-2.5 text-xs text-rose-300">
+            <div
+              className="flex items-center gap-2 rounded border border-destructive/50 bg-destructive/10 p-2.5 text-xs text-destructive"
+              role="alert"
+              aria-live="polite"
+            >
               <AlertCircle className="size-4 shrink-0" />
               <span>{errorMsg}</span>
             </div>
           )}
 
           <div className="space-y-1.5">
-            <Label className="text-xs text-neutral-400">房主昵称</Label>
+            <Label htmlFor="owner-nickname" className="text-xs text-muted-foreground">
+              房主昵称
+            </Label>
             <Input
+              id="owner-nickname"
               type="text"
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
@@ -147,8 +166,13 @@ export function CreateRoomModal({
 
           {/* 初始片源 */}
           <div>
-            <label className="block text-xs font-medium text-neutral-400">初始片源 (可选)</label>
-            <div className="mt-1.5 flex items-center justify-between rounded border border-neutral-800 bg-black p-2.5 text-xs">
+            <span id="initial-media-label" className="block text-xs font-medium text-muted-foreground">
+              初始片源 (可选)
+            </span>
+            <div
+              className="mt-1.5 flex items-center justify-between rounded border border-border bg-black p-2.5 text-xs"
+              aria-labelledby="initial-media-label"
+            >
               {selectedMedia ? (
                 <div className="flex items-center gap-2 truncate pr-2">
                   <span className="font-medium text-white truncate">
@@ -159,7 +183,7 @@ export function CreateRoomModal({
                   </span>
                 </div>
               ) : (
-                <span className="text-neutral-500">未选择初始媒体，可在进入房间后点播</span>
+                <span className="text-muted-foreground">未选择初始媒体，可在进入房间后点播</span>
               )}
               {onSelectInitialMedia && (
                 <Button
@@ -177,34 +201,38 @@ export function CreateRoomModal({
           </div>
 
           {/* PIN 码保护选项 */}
-          <div className="rounded border border-neutral-800/80 bg-black/60 p-3.5 space-y-3">
+          <div className="rounded border border-border bg-secondary/60 p-3.5 space-y-3">
             <div className="flex items-center justify-between">
-              <Label htmlFor="use-pin-toggle" className="text-xs text-neutral-300">启用 4 位数字房间 PIN 码</Label>
+              <Label htmlFor="use-pin-toggle" className="text-xs text-foreground/90">
+                启用 4 位数字房间 PIN 码
+              </Label>
               <Checkbox
                 id="use-pin-toggle"
                 checked={usePin}
                 onCheckedChange={(checked) => setUsePin(checked === true)}
-                className="accent-sky-500"
               />
             </div>
 
             {usePin && (
               <div className="space-y-1.5 pt-1">
-                <div className="text-[11px] text-neutral-500">
+                <div className="text-[11px] text-muted-foreground">
                   开启后，任何访客均需输入此 4 位数字密码方可进入：
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2" role="group" aria-label="房间 PIN 码">
                   {pin.map((digit, idx) => (
                     <input
                       key={idx}
                       id={`create-pin-${idx}`}
                       type="text"
                       inputMode="numeric"
+                      autoComplete="one-time-code"
                       maxLength={1}
                       value={digit}
+                      aria-label={`PIN 码第 ${idx + 1} 位`}
                       onChange={(e) => handlePinChange(idx, e.target.value)}
                       onKeyDown={(e) => handlePinKeyDown(idx, e)}
-                      className="size-10 rounded border border-neutral-800 bg-neutral-900 text-center font-mono text-base font-bold text-white outline-none focus:border-sky-500"
+                      onPaste={handlePinPaste}
+                      className="size-10 rounded border border-border bg-secondary text-center font-mono text-base font-bold text-white outline-none focus:border-sky-500"
                     />
                   ))}
                 </div>
@@ -216,18 +244,13 @@ export function CreateRoomModal({
             <Button type="button" variant="outline" size="sm" onClick={onClose}>
               取消
             </Button>
-            <Button
-              type="submit"
-              size="sm"
-              disabled={isSubmitting}
-              className="bg-sky-500 font-semibold text-black hover:bg-sky-400"
-            >
+            <Button type="submit" size="sm" disabled={isSubmitting} className="font-semibold">
               <span>{isSubmitting ? "创建中..." : "立即创建"}</span>
               <ArrowRight className="size-3.5" />
             </Button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

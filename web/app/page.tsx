@@ -88,7 +88,7 @@ export default function HomePage() {
             <Sparkles className="size-3" />
           </div>
           <span className="font-bold tracking-tight text-sm text-white">WatchParty</span>
-          <span className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 font-mono text-[10px] text-neutral-400">
+          <span className="rounded border border-border bg-secondary px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
             v1.0
           </span>
         </div>
@@ -102,18 +102,18 @@ export default function HomePage() {
             <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
               极简 • 毫秒级协同观影
             </h1>
-            <p className="text-xs text-neutral-400">
+            <p className="text-xs text-muted-foreground">
               原生支持 OpenList 海量媒体索引、HTTPS 直链、YouTube 与 ASS 特效字幕
             </p>
           </div>
 
           {/* 操作卡片：创建 / 加入 */}
-          <div className="rounded-lg border border-neutral-800 bg-neutral-950 p-6 space-y-6 shadow-2xl shadow-black">
+          <div className="rounded-lg border border-border bg-card p-6 space-y-6 shadow-2xl shadow-black">
             {/* 1. 创建房间入口 */}
             <div className="space-y-2">
               <Button
                 onClick={() => setIsCreateModalOpen(true)}
-                className="w-full bg-white py-2.5 text-xs font-semibold text-black hover:bg-neutral-200"
+                className="w-full bg-white py-2.5 text-xs font-semibold text-black hover:bg-primary/90"
               >
                 <Plus className="size-4" />
                 <span>创建新的观影房间</span>
@@ -121,15 +121,15 @@ export default function HomePage() {
             </div>
 
             <div className="relative flex items-center justify-center">
-              <div className="w-full border-t border-neutral-800"></div>
-              <span className="absolute bg-neutral-950 px-2 font-mono text-[10px] text-neutral-600 uppercase">
+              <div className="w-full border-t border-border"></div>
+              <span className="absolute bg-card px-2 font-mono text-[10px] text-muted-foreground uppercase">
                 OR
               </span>
             </div>
 
             {/* 2. 加入已有房间 */}
             <form onSubmit={handleJoin} className="space-y-3">
-              <label className="block text-xs font-medium text-neutral-400">加入已有房间</label>
+              <label className="block text-xs font-medium text-muted-foreground">加入已有房间</label>
               <div className="flex gap-2">
                 <Input
                   type="text"
@@ -153,9 +153,9 @@ export default function HomePage() {
 
           {/* 3. 本机访问历史 (仅在有真实历史时展示) */}
           {mounted && history.length > 0 && (
-            <div className="rounded-lg border border-neutral-900 bg-black/80 p-4 space-y-3">
+            <div className="rounded-lg border border-border bg-black/80 p-4 space-y-3">
               <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-1.5 text-neutral-400">
+                <div className="flex items-center gap-1.5 text-muted-foreground">
                   <Clock className="size-3.5" />
                   <span>本机最近访问</span>
                 </div>
@@ -163,7 +163,7 @@ export default function HomePage() {
                   variant="ghost"
                   size="sm"
                   onClick={handleClearHistory}
-                  className="text-[11px] text-neutral-600 hover:text-rose-400"
+                  className="text-[11px] text-muted-foreground hover:text-rose-400"
                 >
                   <Trash2 className="size-3" />
                   <span>清除历史</span>
@@ -176,13 +176,13 @@ export default function HomePage() {
                     key={room.id}
                     variant="outline"
                     onClick={() => router.push(`/room/${encodeURIComponent(room.id)}`)}
-                    className="w-full justify-between border-neutral-900 bg-neutral-950/80 p-2 text-xs font-normal text-neutral-300 hover:border-neutral-800 hover:text-white"
+                    className="w-full justify-between border-border bg-card/80 p-2 text-xs font-normal text-foreground/85 hover:border-border hover:text-white"
                   >
                     <span className="flex items-center gap-2 font-mono">
                       <span className="text-white">{room.name || room.id}</span>
                       {room.hasPin && <KeyRound className="size-3 text-amber-500/80" />}
                     </span>
-                    <span className="text-[10px] font-normal text-neutral-600">
+                    <span className="text-[10px] font-normal text-muted-foreground">
                       {new Date(room.lastVisited).toLocaleDateString()}
                     </span>
                   </Button>
