@@ -304,7 +304,7 @@ export function requireNativeContext(
     // as a visible member: restore membership here so it can never become a
     // ghost controller that mutates room state while absent from the member list.
     if (!room.isOnline(record.clientId)) {
-      room.join(record.clientId, record.nickname);
+      room.join(record.clientId, record.nickname, "mpv");
     }
     registry.touchMpvClient(roomId, record.clientId);
   }
@@ -355,6 +355,11 @@ export function runNativeCommand(
     case "rate":
       if (typeof body.rate !== "number") return errorResult("INVALID_REQUEST");
       command = { type: "rate", rate: body.rate };
+      break;
+    case "playlistPlay":
+      if (typeof body.itemId !== "string" || body.itemId.length === 0)
+        return errorResult("INVALID_REQUEST");
+      command = { type: "playlistPlay", itemId: body.itemId };
       break;
     case "playlistNext":
       command = {

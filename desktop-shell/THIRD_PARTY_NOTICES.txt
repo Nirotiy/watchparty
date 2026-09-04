@@ -1,0 +1,7 @@
+Material Symbols
+Source: https://fonts.google.com/icons
+License: Apache License 2.0
+
+The React desktop shell bundles a small SVG sprite derived from the Material
+Symbols Outlined glyphs. Material Symbols are distributed under the Apache
+License 2.0.

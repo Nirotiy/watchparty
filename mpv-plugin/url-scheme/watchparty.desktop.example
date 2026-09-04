@@ -1,4 +1,6 @@
 # WatchParty watchparty:// 协议注册模板（阶段 4，仅模板文档，不做自动化安装）
+# 仅用于未安装 Tauri 桌面端的旧版/调试环境。Tauri 对同名协议拥有优先权；
+# 已安装 Tauri 时启用本文件会覆盖正确的系统关联，请勿启用。
 #
 # 用法（以 ~/.local/share/applications/watchparty.desktop 保存为例）：
 #   1. 把 Exec 里的路径与 backend_origin 改成你的实际值

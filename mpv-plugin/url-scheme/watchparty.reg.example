@@ -1,6 +1,8 @@
 Windows Registry Editor Version 5.00
 
 ; WatchParty watchparty:// 协议注册模板（阶段 4，仅模板文档，不做自动化安装）
+; 仅用于未安装 Tauri 桌面端的旧版/调试环境。Tauri 对同名协议拥有优先权；
+; 已安装 Tauri 时导入本文件会覆盖正确的系统关联，请勿导入。
 ;
 ; 用法：
 ;   1. 把下面两处路径改成你机器上的 mpv.com 与 watchparty.lua 实际路径

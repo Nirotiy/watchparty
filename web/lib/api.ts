@@ -148,7 +148,7 @@ export const api = {
       { headers: { "X-WatchParty-Token": accessToken } },
     ),
 
-  // 10. 签发一次性 MPV 交接票据（120s TTL，spec 9.2；页面只展示交接码，不进 URL）
+  // 10. 签发一次性 native 交接票据（5 分钟 TTL；交接码不进 URL）
   issueHandoffTicket: (
     roomId: string,
     accessToken: string,

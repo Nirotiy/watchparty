@@ -109,7 +109,7 @@ test("handoff tickets are browser-only, one-time and expire", () => {
     created.accessToken,
   );
   assert.ok(issued);
-  assert.equal(issued.expiresAt, now + 120_000);
+  assert.equal(issued.expiresAt, now + 300_000);
 
   const redeemed = registry.redeemHandoffTicket(issued.ticket);
   assert.ok(redeemed);
@@ -141,7 +141,7 @@ test("handoff tickets are browser-only, one-time and expire", () => {
     created.accessToken,
   );
   assert.ok(second);
-  now += 121_000;
+  now += 301_000;
   assert.equal(registry.redeemHandoffTicket(second.ticket), undefined);
 
   // Unknown / garbage tickets are rejected.
@@ -176,7 +176,7 @@ test("stale MPV members are removed from the room when polling stops", () => {
   assert.ok(issued);
   const redeemed = registry.redeemHandoffTicket(issued.ticket);
   assert.ok(redeemed);
-  created.room.join(redeemed.clientId, "MPV");
+  created.room.join(redeemed.clientId, "MPV", "mpv");
   registry.touchMpvClient(created.room.id, redeemed.clientId);
   assert.equal(created.room.onlineCount, 1);
 
@@ -202,7 +202,7 @@ test("prune keeps the MPV token valid so a returning client can rejoin", () => {
   assert.ok(issued);
   const redeemed = registry.redeemHandoffTicket(issued.ticket);
   assert.ok(redeemed);
-  created.room.join(redeemed.clientId, "MPV");
+  created.room.join(redeemed.clientId, "MPV", "mpv");
   registry.touchMpvClient(created.room.id, redeemed.clientId);
 
   now += 121_000;
@@ -218,6 +218,35 @@ test("prune keeps the MPV token valid so a returning client can rejoin", () => {
   );
   assert.ok(record);
   assert.equal(record.clientId, redeemed.clientId);
-  created.room.join(record.clientId, record.nickname);
+  created.room.join(record.clientId, record.nickname, "mpv");
   assert.equal(created.room.onlineCount, 1);
+});
+
+test("desktop generations remain monotonic after heartbeat pruning", () => {
+  let now = 1_000_000;
+  const registry = createRegistry(() => now, 8 * 60 * 60 * 1000);
+  const created = registry.create({ clientId: owner, nickname: "Owner" });
+  const issued = registry.issueHandoffTicket(
+    created.room.id,
+    created.accessToken,
+    "desktop",
+  );
+  assert.ok(issued);
+  const redeemed = registry.redeemHandoffTicket(issued.ticket, "desktop");
+  assert.ok(redeemed);
+  assert.equal(redeemed.sessionGeneration, 1);
+
+  const second = registry.claimDesktopSession(
+    created.room.id,
+    redeemed.accessToken,
+  );
+  assert.equal(second?.generation, 2);
+
+  now += 301_000;
+  registry.pruneIdle();
+  const third = registry.claimDesktopSession(
+    created.room.id,
+    redeemed.accessToken,
+  );
+  assert.equal(third?.generation, 3);
 });

@@ -26,7 +26,7 @@ MPV 侧支客户端：浏览器是唯一控制台，MPV 是被"发射"出来的�
 
 ## 使用
 
-1. 在房间网页点击顶栏"发射到 MPV"，生成一次性交接码（120 秒内有效，
+1. 在房间网页点击顶栏"发射到 MPV"，生成一次性交接码（5 分钟内有效，
    会自动复制到剪贴板）。
 2. 打开 mpv，按 **Ctrl+J**（默认键位 `watchparty-join`）读取剪贴板加入房间。
    自动化/E2E 场景可通过 mpv IPC socket（`--input-ipc-server`）发送
@@ -43,7 +43,7 @@ directUrl、响应头、`site_basic_auth`/`media_basic_auth` 不会写入磁盘�
 ## 行为边界（spec 第 9 节）
 
 - MPV 永远是普通成员（`clientType=mpv`），不能获得房主权限。
-- 交接码一次性、120 秒 TTL，不进入 URL、日志、shell 命令、配置文件或进程命令行。
+- 交接码一次性、5 分钟 TTL，不进入 URL、日志、shell 命令、配置文件或进程命令行。
 - 直连百度直链（`directUrl`）失败时自动回退 OpenList `/p/` 中转并 OSD 提示；
   每个媒体至多重试一次，不会无限循环。
 - 双链均强制 `User-Agent: pan.baidu.com`（缺失会挂起，gate 实测）。
@@ -60,6 +60,10 @@ directUrl、响应头、`site_basic_auth`/`media_basic_auth` 不会写入磁盘�
 （插件用本地已保存的凭据静默重连）。
 
 URL 模板在 `mpv-plugin/url-scheme/`（Windows .reg / Linux .desktop）。
+
+> 兼容性说明：安装 Tauri 桌面端后，`watchparty://` 必须由 Tauri 独占注册。
+> 下方 MPV 模板只保留给未安装 Tauri 的旧版/调试环境；不要在同一台机器上安装两种处理器，
+> 否则后安装者会覆盖系统关联。外部 MPV 仍可通过交接码或 IPC 加入房间。
 安全边界：URL 只携带 roomId，**交接票据永远不进入 URL 或命令行**；
 首次加入仍走网页发射 + Ctrl+J 剪贴板流程；未加入过的房间会 OSD 引导。
 

@@ -409,7 +409,7 @@ WatchParty 后端**直接连接 OpenList 的 HTTP API**（不再存在独立 Gat
 
 ### 9.2 Handoff 票据（浏览器 → MPV 交接）
 - `POST /api/rooms/:roomId/handoff`（浏览器 accessToken 鉴权）→ `{ ticket, ticketExpiresAt }`。
-- ticket：128-bit 随机值，TTL 120 秒，**一次性**；签发时记录 roomId 与发起方浏览器 clientId（仅审计）。
+- ticket：128-bit 随机值，TTL 5 分钟，**一次性**；签发时记录 roomId 与发起方浏览器 clientId（仅审计）。
 - `POST /api/mpv/handoff` `{ ticket }` → 一次性兑换：服务端为 MPV 生成**独立** clientId 与 accessToken（token 记录 `clientType=mpv`），响应含 `protocolVersion`、房间摘要与首个 `RoomSnapshot`。
 - 票据不可续期；MPV 重连使用本地保存的 accessToken，不再经票据。ownerToken 不经票据传递——MPV 永远是普通成员，房主身份留在浏览器。
 - 交接码传递边界：ticket 只能经剪贴板或 mpv IPC socket（`script-message`，自动化/E2E 用）传入；**不进入 URL、进程命令行、日志或任何持久化配置**（插件不提供 ticket script-opts 项）。
@@ -447,5 +447,44 @@ WatchParty 后端**直接连接 OpenList 的 HTTP API**（不再存在独立 Gat
 
 ### 9.7 watchparty:// 快捷方式（阶段 4）
 - URL 形如 `watchparty://<roomId>`，仅携带 roomId；**交接票据永远不进入 URL scheme 或进程命令行**。
-- 已加入过的房间：插件用本地持久化的 accessToken/clientId 直接恢复轮询；未加入过的房间 OSD 引导首次加入流程。
-- 注册仅提供 Windows .reg / Linux .desktop 模板文档，不做自动化安装；可选对接社区 mpv-handler（同 roomId-only 约束）。
+- Windows 安装 Tauri 桌面端后，Tauri 是该 scheme 的唯一处理器，并通过 single-instance 把二次唤起转发给已有进程；MPV Lua 不再安装同名注册表项，避免两个程序争夺系统关联。
+- 首次加入：网页签发 `target=desktop` 的一次性票据并复制到剪贴板，然后打开 roomId-only scheme；用户在 Tauri 应用壳中粘贴票据完成兑换。票据不持久化，兑换后立即从 WebView 输入框清除。
+- 外部 MPV 仍保留手动交接码/IPC 加入方式。若未来需要从同一 scheme 分流到外部 MPV，只能由 Tauri 受控转交 roomId，不转交票据、accessToken、请求头或媒体 URL。
+
+## 10. 独立桌面端 V1 边界（2026-09-05 定稿，边界访谈锁定）
+
+> **定义**：桌面端所有产品流程不依赖外部浏览器；保留 Tauri WebView + React 作为 UI，继续依赖现有 WatchParty/Caddy/OpenList 服务端。网页 ticket handoff 降级为**可选捷径**，不再是必经入口。
+> **执行计划**：`dev/desktop-standalone-v1.html`（Gate 0–8）；旧的 `dev/tauri-current-execution-plan.html` 中"直接进入打包"的顺序据此作废。
+
+### 10.1 身份与房主模型
+- 桌面端成为正式 `clientType=desktop` 身份：可建房、房号/PIN 入房、持有 ownerToken、锁房；与 browser **双向转让房主**。服务端必须新增 desktop create/access 契约，**不得伪装成 browser token 再 handoff**。
+- ownerToken 只进入 Rust 内存（凭证语义与 9.2 相同：不进 URL、命令行、日志、WebView）；跨端转让需一次性 owner grant/claim 语义。
+- 不做：踢人、封禁、聊天、角色权限系统。
+
+### 10.2 媒体与队列
+- 首版媒体来源：OpenList（浏览/搜索/分页/批量）+ 用户粘贴的 HTTPS 文件与 HLS。**不做** YouTube、Magnet、本地文件。
+- 队列能力对齐当前新版网页：立即播放、单项/批量加入、选择播放、删除、排序、自然 EOF 推进；native command 白名单相应扩展，全部携带 `expectedRevision`。
+- 字幕：内嵌轨道 + 服务端为 OpenList 媒体发现的外挂 ASS/SSA/SRT/VTT（下载进 Rust 受控临时目录并清理）；不做本地字幕文件与字幕偏移。
+
+### 10.3 会话与凭据
+- 单站点：HTTPS backend（loopback 可 HTTP）；站点 Basic Auth、房间 access/owner token 存 Windows Credential Manager，WebView 只见"已配置"状态，永不接触密码。
+- 重启恢复：持久化 roomId/clientId/token/generation，启动时探测最后房间并 claim generation；失效则原子清除并回首页。服务端房间保持**临时内存态**，不做持久化房间数据库。
+- 首页只显示"最后房间恢复"，不记录最近播放历史。
+- 现有 `watchparty://` + ticket 交接保留为可选捷径；深链 roomId 必须与会话实际房间一致性校验。
+
+### 10.4 传输与实时性
+- 首版沿用 Rust 原生 HTTP + 条件轮询；不把 Socket.IO 放进 WebView（会破坏 ownerToken/直链/Basic Auth 的原生隔离）。轮询负载优化（长轮询/SSE）作为后续独立增量。
+
+### 10.5 媒体 URL 信任边界（Gate 0 起生效）
+- resolve 返回的 `directUrl`/`fallbackUrl` 必须通过 Rust 侧校验才可加载：仅允许 `https`（任意主机）或指向 loopback 的 `http`；拒绝携带用户名/密码的 URL 与其他 scheme（`file:`/`ftp:`/`data:` 等）。
+- 站点 Basic Auth 只允许附加到与 backend origin（scheme+host+port）一致的 URL（即 `/p/` 回退）；解析结果指向其他 origin 时**绝不**附加凭据。
+
+### 10.6 播放器设置（白名单）
+- 视频：硬解 `auto-safe/auto/off`、去隔行 `auto/on/off`、HDR `auto/转SDR/原样`。
+- 音频：输出设备（消失回退系统默认）、声道 自动/立体声、默认音量、首选音轨语言；不做 bitstream 直通。
+- 字幕：语言顺序、字体、相对字号、ASS 样式覆盖开关、当前媒体字幕延迟。
+- 网络：缓存预设（自动/低延迟/稳定）与类型化超时；**不做**代理、自定义 CA、DNS、原始 mpv.conf、脚本或任意命令入口。
+- 全部为类型化白名单配置；每项须定义即时生效/下次载入生效/需重建播放器，失败回滚到最后已知可用值。
+
+### 10.7 发行边界
+- 首版仅 Windows x64：签名安装包、内置经审计的 libmpv 与完整依赖、WebView2 bootstrap、`watchparty://` 协议关联、LGPL 材料；V1 不做自动更新、不做跨平台承诺。

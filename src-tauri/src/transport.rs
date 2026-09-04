@@ -9,7 +9,7 @@ pub enum TransportError {
     Http(u16, String),
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+#[derive(PartialEq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Handoff {
     pub room_id: String,
@@ -23,12 +23,24 @@ pub struct Handoff {
     pub members: Vec<RoomMember>,
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+#[derive(PartialEq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolvedMedia {
     pub direct_url: Option<String>,
     pub fallback_url: Option<String>,
     pub user_agent: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RequestTiming {
+    pub sent_ms: i64,
+    pub received_ms: i64,
+}
+
+#[derive(Debug)]
+pub struct SnapshotResponse {
+    pub snapshot: Option<RoomSnapshot>,
+    pub timing: Option<RequestTiming>,
 }
 
 pub trait RoomTransport {
@@ -40,7 +52,7 @@ pub trait RoomTransport {
         token: &str,
         generation: u64,
         since: Option<u64>,
-    ) -> Result<Option<RoomSnapshot>, TransportError>;
+    ) -> Result<SnapshotResponse, TransportError>;
     fn members(
         &mut self,
         room_id: &str,
@@ -63,5 +75,16 @@ pub trait RoomTransport {
         source: &MediaSource,
     ) -> Result<ResolvedMedia, TransportError>;
     fn leave(&mut self, room_id: &str, token: &str, generation: u64) -> Result<(), TransportError>;
+    fn site_basic_auth(&self) -> Option<(&str, &str)> {
+        None
+    }
+    /// Site credentials for a media URL. Only URLs sharing the backend's origin
+    /// (scheme + host + port, i.e. the `/p/` fallback) may carry them.
+    fn site_basic_auth_for(&self, _media_url: &str) -> Option<(&str, &str)> {
+        None
+    }
+    fn supports_clock_sync(&self) -> bool {
+        false
+    }
     fn clear_site_basic_auth(&mut self) {}
 }

@@ -96,6 +96,10 @@ function mediaSourceKey(source: MediaSource): string {
   return `${source.kind}:${source.url}`;
 }
 
+function requiresDesktopPlayback(source: MediaSource): boolean {
+  return source.kind === "openlist" && source.container.toLowerCase() === "mkv";
+}
+
 export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerProps) {
   // 1. 本地客户端标识与 Token 准备
   const [clientId] = useState<string>(() => {
@@ -306,6 +310,12 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
 
       if (source.kind === "http" || source.kind === "hls" || source.kind === "youtube") {
         setStreamUrl(source.kind === "youtube" ? null : source.url);
+        return;
+      }
+
+      if (requiresDesktopPlayback(source)) {
+        setIsResolving(false);
+        setGlobalError(null);
         return;
       }
 
@@ -682,7 +692,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
             badge={members.length}
           />
           <IconControl icon="video_library" label="点播媒体库" onClick={() => setIsOpenListModalOpen(true)} />
-          <IconControl icon="tv" label="发射到 MPV" onClick={() => setIsMpvModalOpen(true)} />
+          <IconControl icon="tv" label="桌面端 / 交接码" onClick={() => setIsMpvModalOpen(true)} />
         </div>
         <div className="mt-1.5 flex min-w-0 items-center gap-2">
           <span className="truncate text-xs font-medium text-white text-shadow-md [text-shadow:_0_1px_3px_rgb(0_0_0_/_80%)]">
@@ -718,7 +728,23 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
         )}
 
         {/* 真实多内核 PlayerAdapter 渲染 */}
-        {snapshot?.source ? (
+        {snapshot?.source && requiresDesktopPlayback(snapshot.source) ? (
+          <div className="flex size-full flex-col items-center justify-center gap-3 px-6 text-center">
+            <div className="flex size-14 items-center justify-center rounded-full border border-sky-900 bg-sky-950/40">
+              <MsIcon name="tv" className="text-[28px] text-sky-400" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-white">此媒体需要 WatchParty 桌面端</p>
+              <p className="text-xs text-muted-foreground">
+                房间已经同步选片；桌面端加入后会使用 libmpv 播放 MKV 并继续接收房间控制。
+              </p>
+            </div>
+            <Button size="sm" onClick={() => setIsMpvModalOpen(true)}>
+              <MsIcon name="key" className="text-[16px]" />
+              获取一次性交接码
+            </Button>
+          </div>
+        ) : snapshot?.source ? (
           <PlayerAdapter
             ref={playerRef}
             source={snapshot.source}
@@ -930,6 +956,19 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
             return;
           }
           await runCommand((socket, revision) => socket.mediaSet(media, revision));
+        }}
+        onPlayOnDesktop={async (media) => {
+          if (!snapshot || !socketRef.current) return false;
+          if (!canControl) {
+            triggerLockWarning("切换播放媒体");
+            return false;
+          }
+          const acknowledgement = await runCommand((socket, revision) =>
+            socket.mediaSet(media, revision),
+          );
+          if (!acknowledgement.ok) return false;
+          setIsMpvModalOpen(true);
+          return true;
         }}
         onAddToQueue={async (media) => {
           if (!snapshot || !socketRef.current) return;

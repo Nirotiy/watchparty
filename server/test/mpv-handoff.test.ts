@@ -258,6 +258,42 @@ test("browser owner unlock lets MPV run commands and both sides see the same sta
   );
   assert.equal(((await snapshot.json()) as RoomSnapshot).positionSeconds, 42);
 
+  // The native client can select a concrete playlist item without exposing media URLs.
+  const room = backend.registry.get(created.roomId);
+  assert.ok(room);
+  for (const [index, title] of ["Episode 1", "Episode 2"].entries()) {
+    const added = room.execute(
+      created.clientId,
+      {
+        type: "playlistAdd",
+        media: {
+          kind: "openlist",
+          mediaId: `media-${index + 1}`,
+          title,
+          container: "mkv",
+        },
+      },
+      room.snapshot().revision,
+      true,
+    );
+    assert.equal(added.ok, true);
+  }
+  const firstItem = room.snapshot().playlist[0];
+  assert.ok(firstItem);
+  const playlistPlay = await post(
+    backend,
+    `/api/rooms/${created.roomId}/mpv/command`,
+    {
+      type: "playlistPlay",
+      itemId: firstItem.id,
+      expectedRevision: room.snapshot().revision,
+    },
+    headers,
+  );
+  assert.equal(playlistPlay.status, 200);
+  assert.equal(((await playlistPlay.json()) as CommandAck).ok, true);
+  assert.equal(room.snapshot().currentPlaylistItemId, firstItem.id);
+
   // Stale expectedRevision conflicts exactly like the socket path.
   const conflict = await post(
     backend,
@@ -498,6 +534,16 @@ test("stale-pruned MPV with a valid token rejoins as a visible member on its nex
   );
   assert.equal(snapshot.status, 200);
   assert.equal(room.isOnline(mpv.clientId), true);
+  assert.equal(room.memberClientType(mpv.clientId), "mpv");
+  assert.deepEqual(
+    backend.registry.transferOwner(
+      created.roomId,
+      created.clientId,
+      created.ownerToken,
+      mpv.clientId,
+    ),
+    { ok: false, code: "OWNER_TARGET_OFFLINE" },
+  );
 
   // Stale expectedRevision → REVISION_CONFLICT with the spec status code 409.
   const conflict = await post(

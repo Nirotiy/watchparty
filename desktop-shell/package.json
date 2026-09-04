@@ -1,0 +1,36 @@
+{
+  "name": "watchparty-desktop-shell",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1420",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 1420",
+    "tauri:dev": "cd .. && npx --prefix desktop-shell tauri dev --config src-tauri/tauri.conf.json",
+    "tauri:build": "cd .. && npx --prefix desktop-shell tauri build --config src-tauri/tauri.conf.json"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "radix-ui": "^1.4.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tailwind-merge": "^3.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "@tauri-apps/cli": "^2.8.4",
+    "@types/node": "^24.6.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "tailwindcss": "^4.1.14",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.7"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

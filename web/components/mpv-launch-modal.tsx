@@ -20,10 +20,9 @@ type TicketState =
   | { phase: "error"; message: string };
 
 /**
- * “发射到 MPV”：签发一次性交接码（120s TTL，spec 9.2）并展示倒计时。
+ * “桌面播放”：签发 Tauri 一次性交接码（5 分钟 TTL）并展示倒计时。
  * 交接码只展示与复制，不进入 URL、localStorage 或 shell 命令；
- * MPV 侧读取剪贴板或经 IPC socket 传入。
- * 另提供 watchparty://<roomId> 快捷方式复制（阶段 4：已加入过的房间静默恢复）。
+ * Tauri 只通过 watchparty://<roomId> 接收公开 roomId，再由用户粘贴交接码。
  *
  * 状态承载在仅打开时挂载的内部组件上：重新打开即全新签发，无需重置 effect。
  */
@@ -61,14 +60,14 @@ function MpvLaunchContent({
     if (!accessToken) return;
     let cancelled = false;
     api
-      .issueHandoffTicket(roomId, accessToken)
+      .issueHandoffTicket(roomId, accessToken, "desktop")
       .then((result) => {
         if (cancelled) return;
         // 以本地收到响应的时刻为倒计时基准（服务端 epoch 与本地钟的微小偏差可接受）
         const remaining = Math.max(0, result.ticketExpiresAt - Date.now());
         setState({ phase: "ready", ticket: result.ticket, expiresAt: Date.now() + remaining });
         setRemainingMs(remaining);
-        // 交接码自动进剪贴板：用户只需在 mpv 里按 Ctrl+J
+        // 交接码自动进剪贴板，URL scheme 始终只携带公开 roomId。
         void navigator.clipboard
           ?.writeText(result.ticket)
           .then(() => !cancelled && setCopied(true))
@@ -117,7 +116,7 @@ function MpvLaunchContent({
       <div className="flex items-center justify-between border-b border-border pb-3">
         <DialogTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <Tv className="size-4 text-sky-400" />
-          <span>发射到 MPV</span>
+          <span>在 WatchParty 桌面端播放</span>
         </DialogTitle>
         <Button
           variant="ghost"
@@ -186,7 +185,7 @@ function MpvLaunchContent({
           <>
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground" aria-live="polite">
-                {copied ? "交接码已复制到剪贴板" : "交接码（一次性，120 秒内有效）"}
+                {copied ? "交接码已复制到剪贴板" : "交接码（一次性，5 分钟内有效）"}
               </span>
               <span className="font-mono tabular-nums text-sky-400">{secondsLeft}s</span>
             </div>
@@ -194,7 +193,16 @@ function MpvLaunchContent({
               {state.ticket}
             </div>
             <Button
-              variant="default"
+              className="w-full"
+              onClick={() => {
+                window.location.href = watchpartyUrl;
+              }}
+            >
+              <Tv className="size-4" />
+              打开桌面端
+            </Button>
+            <Button
+              variant="outline"
               className="w-full"
               onClick={() => {
                 void navigator.clipboard
@@ -215,16 +223,16 @@ function MpvLaunchContent({
               </p>
             )}
             <ol className="list-decimal space-y-1 pl-4 text-[11px] leading-relaxed text-muted-foreground">
-              <li>在目标电脑上用 mpv 加载 watchparty.lua（首次使用需配置 backend_origin）</li>
-              <li>保持本页复制的交接码在其剪贴板中，按 Ctrl+J 加入房间</li>
-              <li>MPV 会自动播放房间当前媒体并与所有人同步</li>
+              <li>点击“打开桌面端”，系统只会把房间号交给 WatchParty</li>
+              <li>在桌面端粘贴本页自动复制的一次性交接码</li>
+              <li>连接成功后，原生播放器会载入媒体并与房间同步</li>
             </ol>
 
-            {/* watchparty:// 快捷方式：已加入过的房间可静默恢复（阶段 4） */}
+            {/* Tauri 是 watchparty:// 的唯一协议处理器。 */}
             <div className="rounded border border-border bg-secondary/60 p-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-[11px] font-medium text-foreground">重新打开此房间</p>
+                  <p className="text-[11px] font-medium text-foreground">房间启动链接</p>
                   <p className="truncate font-mono text-[10px] text-muted-foreground">{watchpartyUrl}</p>
                 </div>
                 <Button
@@ -243,12 +251,12 @@ function MpvLaunchContent({
                 </Button>
               </div>
               <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
-                在装好插件的电脑上打开此链接即可恢复连接（URL 只携带房间号，不含交接码）。
+                此链接只携带房间号，不含交接码。未安装桌面端时可以先复制备用。
               </p>
             </div>
 
             <p className="text-[10px] text-muted-foreground">
-              交接码只能使用一次；过期或已使用后需重新生成。MPV 永远是普通成员，不会获得房主权限。
+              交接码只能使用一次；过期或已使用后需重新生成。桌面端永远是普通成员，不会获得房主权限。
             </p>
           </>
         )}

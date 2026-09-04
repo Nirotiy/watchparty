@@ -33,6 +33,8 @@ type RoomAccess = {
   mpvLastSeen: Map<string, number>;
   /** Current generation and heartbeat for each desktop clientId. */
   desktopSessions: Map<string, DesktopSession>;
+  /** Monotonic generation counters survive heartbeat pruning for each desktop token. */
+  desktopGenerationCounters: Map<string, number>;
 };
 type DesktopSession = { generation: number; lastSeen: number };
 type HandoffTicket = {
@@ -44,7 +46,7 @@ type HandoffTicket = {
 type PinFailures = { count: number; expiresAt: number };
 
 const DEFAULT_IDLE_TTL_MS = 8 * 60 * 60 * 1000;
-const HANDOFF_TICKET_TTL_MS = 120 * 1000;
+const HANDOFF_TICKET_TTL_MS = 5 * 60 * 1000;
 /**
  * MPV polls snapshots every 2s (backoff up to 16s); anything that has not
  * polled for this long is considered gone and removed from the member list.
@@ -124,6 +126,7 @@ export class RoomRegistry {
       ownerClientId: options.clientId,
       mpvLastSeen: new Map(),
       desktopSessions: new Map(),
+      desktopGenerationCounters: new Map(),
     };
     if (options.pin) {
       const salt = randomBytes(16);
@@ -231,6 +234,7 @@ export class RoomRegistry {
       clientType: target,
     });
     if (sessionGeneration !== undefined) {
+      access.desktopGenerationCounters.set(clientId, sessionGeneration);
       access.desktopSessions.set(clientId, {
         generation: sessionGeneration,
         lastSeen: this.now(),
@@ -297,8 +301,9 @@ export class RoomRegistry {
     const access = this.accessByRoom.get(roomId);
     const record = access?.accessTokens.get(hashToken(accessToken));
     if (!access || !record || record.clientType !== "desktop") return undefined;
-    const current = access.desktopSessions.get(record.clientId);
-    const generation = (current?.generation ?? 0) + 1;
+    const generation =
+      (access.desktopGenerationCounters.get(record.clientId) ?? 0) + 1;
+    access.desktopGenerationCounters.set(record.clientId, generation);
     access.desktopSessions.set(record.clientId, {
       generation,
       lastSeen: this.now(),

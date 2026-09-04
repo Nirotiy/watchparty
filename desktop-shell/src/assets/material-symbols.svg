@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <symbol id="ms-skip-previous" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm11.5 0L9 12l8.5 6z"/></symbol>
+  <symbol id="ms-play-arrow" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></symbol>
+  <symbol id="ms-pause" viewBox="0 0 24 24"><path d="M6 19h4V5H6zm8-14v14h4V5z"/></symbol>
+  <symbol id="ms-skip-next" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6zM16 6h2v12h-2z"/></symbol>
+  <symbol id="ms-volume-up" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.5 4.5 0 0 0 16.5 12z"/></symbol>
+  <symbol id="ms-subtitles" viewBox="0 0 24 24"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2M4 12h4v2H4zm16 6H4v-2h10zm6 0h-4v-2h4zm0-4H10v-2h10z"/></symbol>
+  <symbol id="ms-speed" viewBox="0 0 24 24"><path d="M20.4 5.6 19 7A8 8 0 1 0 12 4v2a6 6 0 1 1 5.6 3.8z"/><circle cx="12" cy="14" r="2"/></symbol>
+  <symbol id="ms-fullscreen" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7zm0-4h2V7h3V5H7zm10 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z"/></symbol>
+  <symbol id="ms-fullscreen-exit" viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5zm5-10H5v5h2V8h3zm5 11h3v-3h2v5h-5zm3-11V5h-5v2h3z"/></symbol>
+  <symbol id="ms-add" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z"/></symbol>
+  <symbol id="ms-monitor" viewBox="0 0 24 24"><path d="M21 3H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7v2H7v2h10v-2h-3v-2h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></symbol>
+  <symbol id="ms-visibility-off" viewBox="0 0 24 24"><path d="M12 6a9.77 9.77 0 0 1 8.94 5.5 9.77 9.77 0 0 1-2.44 3.13l1.42 1.42A11.8 11.8 0 0 0 23 11.5 11.8 11.8 0 0 0 12 4a11.9 11.9 0 0 0-3.23.44l1.66 1.66A9 9 0 0 1 12 6M3.7 6.3l1.42 1.42A11.8 11.8 0 0 0 1 11.5 11.8 11.8 0 0 0 12 19a11.8 11.8 0 0 0 4.23-.82l2.27 2.27 1.42-1.42L5.1 4.9zm3.32 3.32 1.62 1.62a3 3 0 0 0 3.94 3.94l1.62 1.62a5 5 0 0 1-7.18-7.18z"/></symbol>
+  <symbol id="ms-queue" viewBox="0 0 24 24"><path d="M21 15V6M18.5 18.5 21 21l2.5-2.5M3 6h12M3 12h12M3 18h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="ms-group" viewBox="0 0 24 24"><path d="M16 11a3 3 0 1 0-3-3 3 3 0 0 0 3 3m-8 0a3 3 0 1 0-3-3 3 3 0 0 0 3 3m0 2c-2.3 0-7 1.2-7 3.5V19h14v-2.5C15 14.2 10.3 13 8 13m8 0c-.3 0-.6 0-1 .1a5 5 0 0 1 0 4.9V19h6v-2.5c0-2.3-4.7-3.5-7-3.5"/></symbol>
+  <symbol id="ms-library" viewBox="0 0 24 24"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="ms-logout" viewBox="0 0 24 24"><path d="m17 8-1.4 1.4 2.6 2.6H8v2h10.2l-2.6 2.6L17 18l5-5zM4 3h8v2H6v14h6v2H4z"/></symbol>
+  <symbol id="ms-settings" viewBox="0 0 24 24"><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.03-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.6-.22l-2.49 1a7.3 7.3 0 0 0-1.69-.98l-.38-2.65A.49.49 0 0 0 14 2h-4a.49.49 0 0 0-.49.42l-.38 2.65c-.61.25-1.18.58-1.69.98l-2.49-1a.5.5 0 0 0-.6.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65c-.05.32-.08.66-.08.98s.03.66.08.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .6.22l2.49-1c.51.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .47-.18.5-.42l.38-2.65a7.3 7.3 0 0 0 1.69-.98l2.49 1c.23.09.48 0 .6-.22l2-3.46a.5.5 0 0 0-.12-.64zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7"/></symbol>
+  <symbol id="ms-light-mode" viewBox="0 0 24 24"><path d="m6.76 4.84-1.8-1.79-1.41 1.41 1.79 1.79zM4 10.5H1v2h3zM13 1.5h-2v3h2zm7.45 2.96-1.41-1.41-1.79 1.79 1.41 1.41zm-3.21 14.7 1.79 1.8 1.41-1.42-1.8-1.79zM20 10.5v2h3v-2zM12 5.5a6 6 0 1 0 0 12 6 6 0 0 0 0-12m-1 17h2v-3h-2zM3.55 19.54l1.41 1.41 1.79-1.8-1.41-1.41z"/></symbol>
+  <symbol id="ms-dark-mode" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.11-1.36a7 7 0 0 1-7.53-7.53A8.5 8.5 0 0 0 12 3"/></symbol>
+  <symbol id="ms-home" viewBox="0 0 24 24"><path d="m12 3-9 8h2v9h5v-6h4v6h5v-9h2z"/></symbol>
+  <symbol id="ms-sync" viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6a6 6 0 0 1 5.65 4H20a8 8 0 0 0-8-6m0 14a6 6 0 0 1-5.65-4H4a8 8 0 0 0 8 6v3l4-4-4-4z"/></symbol>
+  <symbol id="ms-music-note" viewBox="0 0 24 24"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h5V3z"/></symbol>
+  <symbol id="ms-search" viewBox="0 0 24 24"><path d="M9.5 3a6.5 6.5 0 1 0 3.95 11.66L19.79 21 21 19.79l-6.34-6.34A6.5 6.5 0 0 0 9.5 3m0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9"/></symbol>
+  <symbol id="ms-shield" viewBox="0 0 24 24"><path d="m12 1 9 4v6c0 5.55-3.84 10.74-9 12-5.16-1.26-9-6.45-9-12V5zm0 2.19L5 6.3V11c0 4.52 2.98 8.69 7 9.93 4.02-1.24 7-5.41 7-9.93V6.3z"/></symbol>
+  <symbol id="ms-lock" viewBox="0 0 24 24"><path d="M18 8h-1V6a5 5 0 0 0-10 0v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2M9 6a3 3 0 0 1 6 0v2H9zm9 14H6V10h12z"/></symbol>
+  <symbol id="ms-check" viewBox="0 0 24 24"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></symbol>
+  <symbol id="ms-expand-more" viewBox="0 0 24 24"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></symbol>
+  <symbol id="ms-expand-less" viewBox="0 0 24 24"><path d="m7.41 15.41 4.59-4.58 4.59 4.58L18 14l-6-6-6 6z"/></symbol>
+</svg>

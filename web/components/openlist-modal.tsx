@@ -7,6 +7,7 @@ import {
   Search,
   X,
   Play,
+  Tv,
   ListPlus,
   ChevronRight,
   Link as LinkIcon,
@@ -25,6 +26,7 @@ interface OpenListModalProps {
   isOpen: boolean;
   onClose: () => void;
   onPlayNow: (media: MediaSource) => void;
+  onPlayOnDesktop?: (media: MediaSource) => boolean | void | Promise<boolean | void>;
   onAddToQueue: (media: MediaSource) => void;
   onBatchAdd: (medias: MediaSource[]) => void | Promise<void>;
 }
@@ -51,6 +53,7 @@ export function OpenListModal({
   isOpen,
   onClose,
   onPlayNow,
+  onPlayOnDesktop,
   onAddToQueue,
   onBatchAdd,
 }: OpenListModalProps) {
@@ -183,7 +186,7 @@ export function OpenListModal({
   const isSearching = activeSearchQuery !== null;
   const displayItems = isSearching ? searchResults : items;
 
-  // 一键入队当前目录全部支持文件
+  // 一键入队当前目录全部可由任一正式客户端播放的文件。
   const handleBatchAddCurrentDir = async () => {
     setIsLoading(true);
     setErrorMsg(null);
@@ -197,7 +200,12 @@ export function OpenListModal({
       }
 
       const supported = allItems
-      .filter((item) => item.type === "file" && item.compatibility.browser !== "unsupported")
+        .filter(
+          (item) =>
+            item.type === "file" &&
+            (item.compatibility.browser !== "unsupported" ||
+              item.compatibility.desktop !== "unsupported"),
+        )
       .sort((left, right) =>
         left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" }),
       )
@@ -449,7 +457,16 @@ export function OpenListModal({
             <div className="space-y-1">
               {displayItems.map((item) => {
                 const isDir = item.type === "dir";
-                const isSupported = item.compatibility.browser !== "unsupported";
+                const isBrowserPlayable = item.compatibility.browser !== "unsupported";
+                const isDesktopPlayable = item.compatibility.desktop !== "unsupported";
+                const isDesktopOnly = !isBrowserPlayable && isDesktopPlayable;
+                const media: MediaSource = {
+                  kind: "openlist",
+                  mediaId: item.id,
+                  title: item.name,
+                  container: item.extension || "mp4",
+                  displayPath: item.displayPath || `${selectedRoot}${currentPath}`,
+                };
 
                 return (
                   <div
@@ -457,8 +474,10 @@ export function OpenListModal({
                     className={`flex items-center justify-between rounded border p-2.5 text-xs transition ${
                       isDir
                         ? "border-border bg-card hover:border-ring hover:bg-secondary"
-                        : isSupported
+                        : isBrowserPlayable
                         ? "border-border bg-black text-foreground/90 hover:border-sky-500/50"
+                        : isDesktopPlayable
+                        ? "border-sky-900/70 bg-sky-950/20 text-foreground/90 hover:border-sky-700"
                         : "border-border bg-card/40 text-muted-foreground opacity-60"
                     }`}
                   >
@@ -490,26 +509,20 @@ export function OpenListModal({
                           ({item.displayPath})
                         </span>
                       )}
-                      {!isSupported && (
+                      {!isBrowserPlayable && (
                         <span className="rounded border border-border bg-secondary px-1 py-0.5 text-[9px] text-muted-foreground">
                           {item.compatibility.browserReason || "浏览器不承担此媒体格式"}
                         </span>
                       )}
                     </div>
 
-                    {!isDir && isSupported && (
+                    {!isDir && isBrowserPlayable && (
                       <div className="flex items-center gap-2 shrink-0">
                         <Button
                           size="sm"
                           className="h-7 bg-white px-2 text-[11px] font-semibold text-black hover:bg-primary/90"
                           onClick={() => {
-                            onPlayNow({
-                              kind: "openlist",
-                              mediaId: item.id,
-                              title: item.name,
-                              container: item.extension || "mp4",
-                              displayPath: item.displayPath || `${selectedRoot}${currentPath}`,
-                            });
+                            onPlayNow(media);
                             handleClose();
                           }}
                         >
@@ -520,15 +533,37 @@ export function OpenListModal({
                           variant="outline"
                           size="sm"
                           className="h-7 px-2 text-[11px] text-foreground/85"
-                          onClick={() => {
-                            onAddToQueue({
-                              kind: "openlist",
-                              mediaId: item.id,
-                              title: item.name,
-                              container: item.extension || "mp4",
-                              displayPath: item.displayPath || `${selectedRoot}${currentPath}`,
-                            });
+                          onClick={() => onAddToQueue(media)}
+                        >
+                          <ListPlus className="size-3" />
+                          <span>加入清单</span>
+                        </Button>
+                      </div>
+                    )}
+
+                    {!isDir && isDesktopOnly && (
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                          size="sm"
+                          className="h-7 bg-sky-500 px-2 text-[11px] font-semibold text-black hover:bg-sky-400"
+                          onClick={async () => {
+                            if (onPlayOnDesktop) {
+                              const accepted = await onPlayOnDesktop(media);
+                              if (accepted === false) return;
+                            } else {
+                              onPlayNow(media);
+                            }
+                            handleClose();
                           }}
+                        >
+                          <Tv className="size-3" />
+                          <span>{onPlayOnDesktop ? "桌面端播放" : "选择此媒体"}</span>
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-[11px] text-foreground/85"
+                          onClick={() => onAddToQueue(media)}
                         >
                           <ListPlus className="size-3" />
                           <span>加入清单</span>

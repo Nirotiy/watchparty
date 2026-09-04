@@ -3,22 +3,32 @@ pub struct ClockSync {
     samples: Vec<i64>,
     pub offset_ms: i64,
     jump_guard_ms: i64,
+    max_rtt_ms: i64,
 }
 
 impl Default for ClockSync {
     fn default() -> Self {
-        Self::new(5_000)
+        Self::with_limits(5_000, 1_500)
     }
 }
 impl ClockSync {
     pub fn new(jump_guard_ms: i64) -> Self {
+        Self::with_limits(jump_guard_ms, 1_500)
+    }
+
+    pub fn with_limits(jump_guard_ms: i64, max_rtt_ms: i64) -> Self {
         Self {
             samples: Vec::new(),
             offset_ms: 0,
             jump_guard_ms,
+            max_rtt_ms,
         }
     }
     pub fn update(&mut self, server_time_ms: i64, sent_ms: i64, received_ms: i64) -> bool {
+        let rtt_ms = received_ms.saturating_sub(sent_ms);
+        if received_ms < sent_ms || rtt_ms > self.max_rtt_ms {
+            return false;
+        }
         let sample = server_time_ms - (sent_ms + (received_ms - sent_ms) / 2);
         if !self.samples.is_empty() && (sample - self.offset_ms).abs() > self.jump_guard_ms {
             self.samples.clear();
@@ -52,6 +62,8 @@ mod tests {
         assert!(clock.update(3045, 3000, 3100));
         assert_eq!(clock.offset_ms, 0);
         assert!(!clock.update(20_000, 4000, 4100));
+        assert_eq!(clock.sample_count(), 0);
+        assert!(!clock.update(5_000, 4_000, 6_000));
         assert_eq!(clock.sample_count(), 0);
     }
 }

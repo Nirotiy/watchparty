@@ -2,13 +2,54 @@
 name = "watchparty-desktop"
 version = "0.1.0"
 edition = "2021"
-description = "WatchParty desktop native session core (Gate 2: no video surface, no libmpv yet)"
+description = "WatchParty desktop client with an isolated libmpv playback surface"
+default-run = "watchparty-desktop-app"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+tauri = { version = "2", features = ["unstable"] }
+zeroize = "1"
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
 
 [lib]
 name = "watchparty_desktop"
 path = "src/lib.rs"
+
+[[bin]]
+name = "watchparty-desktop-app"
+path = "src/main.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "libmpv-surface-smoke"
+path = "src/bin/libmpv_surface_smoke.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "desktop-vertical-smoke"
+path = "src/bin/desktop_vertical_smoke.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "desktop-window-smoke"
+path = "src/bin/desktop_window_smoke.rs"
+test = false
+bench = false
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

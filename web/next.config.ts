@@ -9,6 +9,10 @@ const webRoot = path.dirname(fileURLToPath(import.meta.url));
 const backendOrigin = process.env.BACKEND_ORIGIN ?? "http://localhost:8080";
 
 const nextConfig: NextConfig = {
+  // Local previews use 127.0.0.1 so they remain reachable from the desktop
+  // shell and browser automation. Next 16 otherwise blocks its dev client
+  // resources for that host, leaving the server-rendered page unhydrated.
+  allowedDevOrigins: ["127.0.0.1"],
   outputFileTracingRoot: webRoot,
   async rewrites() {
     return [

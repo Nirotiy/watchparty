@@ -15,7 +15,7 @@ fn required(name: &str) -> String {
 }
 
 #[test]
-fn site_basic_auth_is_sent_by_native_transport_and_can_be_cleared() {
+fn site_basic_auth_and_room_token_use_separate_headers() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind auth test server");
     let address = listener.local_addr().expect("read auth test address");
     let server = thread::spawn(move || {
@@ -23,9 +23,19 @@ fn site_basic_auth_is_sent_by_native_transport_and_can_be_cleared() {
         let mut request = [0_u8; 4096];
         let size = stream.read(&mut request).expect("read auth test request");
         let request = String::from_utf8_lossy(&request[..size]);
-        assert!(request
-            .to_ascii_lowercase()
-            .contains("authorization: basic "));
+        let request_lowercase = request.to_ascii_lowercase();
+        let authorization_headers = request_lowercase
+            .lines()
+            .filter(|line| line.starts_with("authorization:"))
+            .collect::<Vec<_>>();
+        let room_token_headers = request_lowercase
+            .lines()
+            .filter(|line| line.starts_with("x-watchparty-token:"))
+            .collect::<Vec<_>>();
+        assert_eq!(authorization_headers.len(), 1);
+        assert!(authorization_headers[0].starts_with("authorization: basic "));
+        assert_eq!(room_token_headers, vec!["x-watchparty-token: token"]);
+        assert!(!request_lowercase.contains("authorization: bearer "));
         assert!(request.contains("YWxpY2U6c2VjcmV0"));
         let response = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
         stream
@@ -39,6 +49,7 @@ fn site_basic_auth_is_sent_by_native_transport_and_can_be_cleared() {
     assert!(transport
         .snapshot("room", "token", 1, None)
         .expect("204 should decode")
+        .snapshot
         .is_none());
     server.join().expect("auth test server should finish");
     transport.clear_site_basic_auth();
@@ -103,14 +114,15 @@ fn desktop_http_transport_matches_live_node_protocol() {
             Some(handoff.snapshot.revision),
         )
         .expect("204 snapshot should be accepted");
-    assert!(unchanged.is_none());
+    assert!(unchanged.snapshot.is_none());
 
     let snapshot = transport
         .snapshot(&handoff.room_id, &handoff.access_token, generation, None)
         .expect("snapshot should decode")
+        .snapshot
         .expect("uncached snapshot should have a body");
     assert_eq!(snapshot.revision, handoff.snapshot.revision);
-    assert_eq!(snapshot.loop_enabled, false);
+    assert!(!snapshot.loop_enabled);
 
     let ack = transport
         .command(

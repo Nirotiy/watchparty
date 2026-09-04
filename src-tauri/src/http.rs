@@ -1,9 +1,25 @@
 use crate::{
-    contracts::{CommandAck, DesktopCommand, MediaSource, RoomMember, RoomSnapshot},
-    transport::{Handoff, ResolvedMedia, RoomTransport, TransportError},
+    contracts::{CommandAck, DesktopCommand, MediaSource, RoomMember},
+    transport::{
+        Handoff, RequestTiming, ResolvedMedia, RoomTransport, SnapshotResponse, TransportError,
+    },
 };
-use reqwest::blocking::{Client, RequestBuilder};
+use reqwest::{
+    blocking::{Client, RequestBuilder},
+    header::HeaderValue,
+};
 use serde::de::DeserializeOwned;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use zeroize::Zeroize;
+
+const WATCHPARTY_TOKEN_HEADER: &str = "X-WatchParty-Token";
+
+fn room_token_header(token: &str) -> Result<HeaderValue, TransportError> {
+    let mut value = HeaderValue::from_bytes(token.as_bytes())
+        .map_err(|_| TransportError::Protocol("invalid room token".into()))?;
+    value.set_sensitive(true);
+    Ok(value)
+}
 
 fn command_body(command: &DesktopCommand, expected_revision: u64) -> serde_json::Value {
     let mut value = serde_json::to_value(command).expect("desktop commands are serializable");
@@ -34,8 +50,8 @@ impl SiteBasicAuth {
 
 impl Drop for SiteBasicAuth {
     fn drop(&mut self) {
-        self.username.clear();
-        self.password.clear();
+        self.username.zeroize();
+        self.password.zeroize();
     }
 }
 
@@ -66,6 +82,8 @@ impl DesktopHttpTransport {
         Ok(Self {
             base_url: base_url.into().trim_end_matches('/').into(),
             client: Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
                 .build()
                 .map_err(|error| TransportError::Network(error.to_string()))?,
             site_basic_auth,
@@ -147,12 +165,26 @@ impl DesktopHttpTransport {
         }
     }
 
-    fn get_with_auth(&self, path: &str, token: &str, generation: u64) -> RequestBuilder {
-        self.headers(
-            self.client
-                .get(format!("{}{path}", self.base_url))
-                .bearer_auth(token),
-            Some(generation),
+    fn with_room_token(
+        &self,
+        builder: RequestBuilder,
+        token: &str,
+    ) -> Result<RequestBuilder, TransportError> {
+        Ok(builder.header(WATCHPARTY_TOKEN_HEADER, room_token_header(token)?))
+    }
+
+    fn get_with_auth(
+        &self,
+        path: &str,
+        token: &str,
+        generation: u64,
+    ) -> Result<RequestBuilder, TransportError> {
+        self.with_room_token(
+            self.headers(
+                self.client.get(format!("{}{path}", self.base_url)),
+                Some(generation),
+            ),
+            token,
         )
     }
 }
@@ -171,18 +203,15 @@ impl RoomTransport for DesktopHttpTransport {
     }
 
     fn claim_session(&mut self, room: &str, token: &str) -> Result<u64, TransportError> {
+        let request = self.headers(
+            self.client.post(format!(
+                "{}/api/rooms/{room}/desktop/session",
+                self.base_url
+            )),
+            None,
+        );
         let value: serde_json::Value = self
-            .request(
-                self.headers(
-                    self.client
-                        .post(format!(
-                            "{}/api/rooms/{room}/desktop/session",
-                            self.base_url
-                        ))
-                        .bearer_auth(token),
-                    None,
-                ),
-            )?
+            .request(self.with_room_token(request, token)?)?
             .ok_or_else(|| TransportError::Protocol("empty session response".into()))?;
         value
             .get("sessionGeneration")
@@ -196,16 +225,24 @@ impl RoomTransport for DesktopHttpTransport {
         token: &str,
         generation: u64,
         since: Option<u64>,
-    ) -> Result<Option<RoomSnapshot>, TransportError> {
+    ) -> Result<SnapshotResponse, TransportError> {
+        let sent_ms = unix_time_ms();
         let mut request = self.get_with_auth(
             &format!("/api/rooms/{room}/desktop/snapshot"),
             token,
             generation,
-        );
+        )?;
         if let Some(value) = since {
             request = request.query(&[("since", value)]);
         }
-        self.request(request)
+        let snapshot = self.request(request)?;
+        Ok(SnapshotResponse {
+            snapshot,
+            timing: Some(RequestTiming {
+                sent_ms,
+                received_ms: unix_time_ms(),
+            }),
+        })
     }
 
     fn members(
@@ -214,12 +251,13 @@ impl RoomTransport for DesktopHttpTransport {
         token: &str,
         generation: u64,
     ) -> Result<Vec<RoomMember>, TransportError> {
-        self.request(self.get_with_auth(
+        let request = self.get_with_auth(
             &format!("/api/rooms/{room}/desktop/members"),
             token,
             generation,
-        ))?
-        .ok_or_else(|| TransportError::Protocol("empty members response".into()))
+        )?;
+        self.request(request)?
+            .ok_or_else(|| TransportError::Protocol("empty members response".into()))
     }
 
     fn command(
@@ -230,18 +268,16 @@ impl RoomTransport for DesktopHttpTransport {
         command: &DesktopCommand,
         expected_revision: u64,
     ) -> Result<CommandAck, TransportError> {
-        self.command_request(
-            self.headers(
-                self.client
-                    .post(format!(
-                        "{}/api/rooms/{room}/desktop/command",
-                        self.base_url
-                    ))
-                    .bearer_auth(token)
-                    .json(&command_body(command, expected_revision)),
-                Some(generation),
-            ),
-        )
+        let request = self.headers(
+            self.client
+                .post(format!(
+                    "{}/api/rooms/{room}/desktop/command",
+                    self.base_url
+                ))
+                .json(&command_body(command, expected_revision)),
+            Some(generation),
+        );
+        self.command_request(self.with_room_token(request, token)?)
     }
 
     fn resolve(
@@ -259,19 +295,17 @@ impl RoomTransport for DesktopHttpTransport {
                 ))
             }
         };
+        let request = self.headers(
+            self.client
+                .post(format!(
+                    "{}/api/rooms/{room}/desktop/media/resolve",
+                    self.base_url
+                ))
+                .json(&serde_json::json!({ "mediaId": media_id })),
+            Some(generation),
+        );
         let value: serde_json::Value = self
-            .request(
-                self.headers(
-                    self.client
-                        .post(format!(
-                            "{}/api/rooms/{room}/desktop/media/resolve",
-                            self.base_url
-                        ))
-                        .bearer_auth(token)
-                        .json(&serde_json::json!({ "mediaId": media_id })),
-                    Some(generation),
-                ),
-            )?
+            .request(self.with_room_token(request, token)?)?
             .ok_or_else(|| TransportError::Protocol("empty resolve response".into()))?;
         Ok(ResolvedMedia {
             direct_url: value
@@ -296,21 +330,83 @@ impl RoomTransport for DesktopHttpTransport {
     }
 
     fn leave(&mut self, room: &str, token: &str, generation: u64) -> Result<(), TransportError> {
-        self.request::<serde_json::Value>(
-            self.headers(
-                self.client
-                    .delete(format!(
-                        "{}/api/rooms/{room}/desktop/session",
-                        self.base_url
-                    ))
-                    .bearer_auth(token),
-                Some(generation),
-            ),
-        )?;
+        let request = self.headers(
+            self.client.delete(format!(
+                "{}/api/rooms/{room}/desktop/session",
+                self.base_url
+            )),
+            Some(generation),
+        );
+        self.request::<serde_json::Value>(self.with_room_token(request, token)?)?;
         Ok(())
+    }
+
+    fn site_basic_auth(&self) -> Option<(&str, &str)> {
+        self.site_basic_auth
+            .as_ref()
+            .map(|auth| (auth.username.as_str(), auth.password.as_str()))
+    }
+
+    /// Credentials ride only on same-origin fallback URLs. A resolve response
+    /// pointing at another origin must never receive site Basic Auth.
+    fn site_basic_auth_for(&self, media_url: &str) -> Option<(&str, &str)> {
+        let target = reqwest::Url::parse(media_url).ok()?;
+        let backend = reqwest::Url::parse(&self.base_url).ok()?;
+        if target.origin() == backend.origin() {
+            self.site_basic_auth()
+        } else {
+            None
+        }
+    }
+
+    fn supports_clock_sync(&self) -> bool {
+        true
     }
 
     fn clear_site_basic_auth(&mut self) {
         self.clear_site_basic_auth();
+    }
+}
+
+fn unix_time_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(i64::MAX as u128) as i64)
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::room_token_header;
+    use crate::transport::RoomTransport;
+
+    #[test]
+    fn room_token_header_is_marked_sensitive() {
+        let value = room_token_header("room-secret").expect("valid header value");
+        assert!(value.is_sensitive());
+    }
+
+    #[test]
+    fn site_basic_auth_only_attaches_to_same_origin_media_urls() {
+        let transport =
+            crate::http::DesktopHttpTransport::with_site_basic_auth(
+                "https://watch.example",
+                "site-user",
+                "site-pass",
+            )
+            .expect("transport");
+        assert!(transport.site_basic_auth_for("https://watch.example/p/video").is_some());
+        assert!(transport.site_basic_auth_for("https://watch.example:8443/p/video").is_none());
+        assert!(transport.site_basic_auth_for("http://watch.example/p/video").is_none());
+        assert!(transport.site_basic_auth_for("https://cdn.example/video").is_none());
+        assert!(transport.site_basic_auth_for("file:///C:/video.mkv").is_none());
+        assert!(transport.site_basic_auth_for("not a url").is_none());
+    }
+
+    #[test]
+    fn site_basic_auth_for_without_credentials_is_none() {
+        let transport =
+            crate::http::DesktopHttpTransport::new("https://watch.example").expect("transport");
+        assert!(transport.site_basic_auth_for("https://watch.example/p/video").is_none());
     }
 }
