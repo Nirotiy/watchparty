@@ -11,22 +11,33 @@ watch.example.test {
   # OpenList streaming proxy published same-origin: <video> stays behind the
   # same Basic Auth, no mixed content, no CORS. Requires the OpenList storage
   # to keep web_proxy enabled (Baidu needs the proxy for its UA requirement).
+  # header_up -Authorization: the site password is read by Caddy only; it must
+  # not leak into Node, OpenList or Next. reverse_proxy has no reliable
+  # "strip after auth" contract, so it is removed explicitly.
   handle /p/* {
-    reverse_proxy 127.0.0.1:5244
+    reverse_proxy 127.0.0.1:5244 {
+      header_up -Authorization
+    }
   }
 
   # This includes browser, MPV, and desktop handoff/session endpoints.
   # Do not exempt /api/desktop/* from this site-wide auth without revising the
   # native credential contract and its security review.
   handle /api/* {
-    reverse_proxy 127.0.0.1:8080
+    reverse_proxy 127.0.0.1:8080 {
+      header_up -Authorization
+    }
   }
 
   handle /socket.io/* {
-    reverse_proxy 127.0.0.1:8080
+    reverse_proxy 127.0.0.1:8080 {
+      header_up -Authorization
+    }
   }
 
   handle {
-    reverse_proxy 127.0.0.1:3000
+    reverse_proxy 127.0.0.1:3000 {
+      header_up -Authorization
+    }
   }
 }

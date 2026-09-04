@@ -8,7 +8,9 @@
 -- script-opts（~~/script-opts/watchparty.conf 或 --script-opts=watchparty-xxx=...）：
 --   backend_origin      后端地址，例如 http://127.0.0.1:8080（必填）
 --   room_id             预设房间号（可选；与持久化 token 一致时静默重连）
---   media_basic_auth    生产 /p/ 回退的凭据 "user:password"（可选，仅存内存）
+--   site_basic_auth     生产 Caddy 全站 Basic Auth 凭据 "user:password"（可选，仅存内存；
+--                       用于所有 WatchParty API 请求与 /p/ 回退播放）
+--   media_basic_auth    site_basic_auth 的旧名兼容别名
 --   poll_interval       快照轮询间隔秒（默认 2）
 --   sync_seek_threshold 追帧 seek 阈值秒（默认 1.0）
 --   debug               打印调试日志
@@ -25,12 +27,19 @@ local unpack = unpack or table.unpack -- LuaJIT / Lua 5.4 兼容
 local o = {
     backend_origin = "",
     room_id = "",
-    media_basic_auth = "",
+    site_basic_auth = "",
+    media_basic_auth = "", -- 旧名兼容别名：等价于 site_basic_auth
     poll_interval = 2,
     sync_seek_threshold = 1.0,
     debug = false,
 }
 opt.read_options(o, "watchparty")
+
+-- 站点凭据（生产 Caddy 全站 Basic Auth）：新名 site_basic_auth；
+-- media_basic_auth 为旧名兼容别名。仅存内存，不落盘、不进日志。
+if o.site_basic_auth == "" and o.media_basic_auth ~= "" then
+    o.site_basic_auth = o.media_basic_auth
+end
 
 -- ============================================================
 -- 常量
@@ -421,10 +430,27 @@ local function api_url(path)
     return o.backend_origin:gsub("/+$", "") .. path
 end
 
+-- 站点 Basic 凭据头：接受 "user:password"（自动 base64）或已编码值。
+local function site_basic_header()
+    if o.site_basic_auth == "" then return nil end
+    local value = o.site_basic_auth
+    if value:find(":", 1, true) then
+        value = base64_encode(value)
+    end
+    return "Authorization: Basic " .. value
+end
+
 local function mpv_secret_headers()
     local headers = {}
+    -- 房间 token 走专用头：Authorization 保留给生产 Caddy 全站 Basic Auth，
+    -- 一个请求不能同时用两种方案表达在同一头里；本地/无 Caddy 部署由服务端
+    -- 兼容解析旧 Authorization Bearer。
     if state.accessToken then
-        headers[#headers + 1] = "Authorization: Bearer " .. state.accessToken
+        headers[#headers + 1] = "X-WatchParty-Token: " .. state.accessToken
+    end
+    local basic = site_basic_header()
+    if basic then
+        headers[#headers + 1] = basic
     end
     return headers
 end
@@ -758,13 +784,10 @@ local function start_playback(resolved, gen)
     end
     mp.set_property("user-agent", ua)
 
-    -- media_basic_auth 仅存内存并注入请求头；不得写入 URL/日志/OSD。
-    if state.fallbackUsed and o.media_basic_auth ~= "" then
-        local auth = o.media_basic_auth
-        if auth:find(":", 1, true) then
-            auth = base64_encode(auth)
-        end
-        mp.set_property("file-local-options/http-header-fields", "Authorization: Basic " .. auth)
+    -- 站点凭据仅存内存并注入请求头；不得写入 URL/日志/OSD。
+    local basicHeader = site_basic_header()
+    if state.fallbackUsed and basicHeader then
+        mp.set_property("file-local-options/http-header-fields", basicHeader)
     else
         mp.set_property("file-local-options/http-header-fields", "")
     end

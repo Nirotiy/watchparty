@@ -197,7 +197,7 @@ export interface RoomMember {
 - **响应体 (200 OK)**：返回结构与 `GET /api/media/list` 保持完全一致，每项标明 `displayPath` 用于 UI 呈现。
 
 #### `POST /api/rooms/:roomId/media/resolve` (解析临时播放直链)
-- **鉴权**：`Authorization: Bearer <accessToken>`
+- **鉴权**：`X-WatchParty-Token: <accessToken>`（生产同源部署经 Caddy 全站 Basic Auth；本地/无 Caddy 部署兼容 `Authorization: Bearer <accessToken>`，见 9.5）
 - **请求体**：`{ mediaId: string }`
 - **响应体 (200 OK)**：
   ```ts
@@ -215,12 +215,12 @@ export interface RoomMember {
   *本接口保持单链（仅 `url`）；MPV 专用双链接口（directUrl）为未实现的冻结契约，见第 9 节。*
 
 #### `GET /api/rooms/:roomId/media/subtitle?mediaId=<opaque-id>` (字幕文件拉取)
-- **鉴权**：`Authorization: Bearer <accessToken>`
+- **鉴权**：`X-WatchParty-Token: <accessToken>`（兼容规则同上）
 - **说明**：仅允许 ASS/SSA/SRT/VTT 格式，最大 5 MiB。禁止接收前端传入的原始绝对路径。
 - **响应**：直接输出字幕文本内容 (`Content-Type: text/plain; charset=utf-8`)。
 
 #### `GET /api/rooms/:roomId/media/subtitles?mediaId=<video-media-id>` (关联字幕发现)
-- **鉴权**：`Authorization: Bearer <accessToken>`
+- **鉴权**：`X-WatchParty-Token: <accessToken>`（兼容规则同上）
 - **说明**：查找与视频关联的字幕文件；只返回不透明 ID，不返回存储路径。
 - **响应体 (200 OK)**：
   ```ts
@@ -415,6 +415,7 @@ WatchParty 后端**直接连接 OpenList 的 HTTP API**（不再存在独立 Gat
 - 交接码传递边界：ticket 只能经剪贴板或 mpv IPC socket（`script-message`，自动化/E2E 用）传入；**不进入 URL、进程命令行、日志或任何持久化配置**（插件不提供 ticket script-opts 项）。
 
 ### 9.3 MPV 专用接口（`clientType=mpv` 的 token 鉴权，浏览器 token 调用返回 403）
+- **token 通道**：房间 token 经 `X-WatchParty-Token: <accessToken>` 传递；生产同源部署中 `Authorization` 头保留给 Caddy 站点 Basic Auth（服务端 fail-closed：X 头存在时即使无效也不回退旧头；X 头完全缺省时兼容旧 `Authorization: Bearer`，服务无 Caddy 的本地部署零改动）。Socket 握手 token 仍走 auth payload，不经 HTTP 头。
 - `GET /api/rooms/:roomId/mpv/snapshot?since=<revision>`：revision 落后时返回完整 `RoomSnapshot`；相同则 `204 No Content`。轮询间隔建议 2s，与浏览器快照节奏一致。
 - `POST /api/rooms/:roomId/mpv/command` `{ type, expectedRevision, ...payload }`：`CommandAck` 语义与 Socket `CMD:*` 完全一致（type 即事件名去掉 `CMD:` 前缀）；`clockSync` 不需要——权威时钟由 `snapshot.serverTimeMs` 提供。
 - `POST /api/rooms/:roomId/media/resolve-mpv` `{ mediaId }` → `{ directUrl?, headers, fallbackUrl }`：
@@ -429,10 +430,11 @@ WatchParty 后端**直接连接 OpenList 的 HTTP API**（不再存在独立 Gat
 - 播放失败（连接错误/401/403/410）→ 重新 `resolve-mpv` 一次；仍失败 → 切换 `fallbackUrl` 并 OSD 提示"直连失败，已切换服务器中转"；单个观众独立回退，不影响房间。
 - `directUrl`、headers 仅存在于 MPV 进程内存，不写入任何广播或持久化。
 
-### 9.5 生产回退认证（未验证，列为部署阶段 E2E 项）
-- 生产中 `/p/*` 位于 Caddy Basic Auth 之后；MPV 回退播放需要凭据。
-- 方案：MPV 插件本地配置项 `media_basic_auth`（一次性人工配置，存放于 MPV 配置目录），仅用于 `fallbackUrl` 播放；票据与 `resolve-mpv` 响应**不携带** Basic Auth 凭据（站点级凭据不得扩散到房间成员）。
-- 生产 E2E（Caddy + Basic Auth + MPV 回退播放 + seek）为部署阶段必过项。
+### 9.5 生产站点认证（Caddy 全站 Basic Auth；列为部署阶段 E2E 项）
+- 生产中全站（含 `/api/*`、`/socket.io/*`、`/p/*`、前端页面）位于 Caddy Basic Auth 之后；站点凭据由各客户端本地配置，**票据与 `resolve-mpv` 响应不携带**站点凭据（不得扩散到房间成员）。
+- 房间 token 与站点凭据分头携带：房间 token 走 `X-WatchParty-Token`，站点凭据走 `Authorization: Basic`；Caddy 各 `reverse_proxy` 显式 `header_up -Authorization`，站点密码只在 Caddy 读取，不流入 Node/OpenList/Next。
+- 方案：MPV 插件本地配置项 `site_basic_auth`（一次性人工配置，存放于 MPV 配置目录；旧名 `media_basic_auth` 兼容读取），用于**所有 WatchParty API 请求**与 `fallbackUrl` 回退播放；Tauri 侧由 native 层在内存中持有（`SiteBasicAuth`）。
+- 生产 E2E（Caddy + Basic Auth + MPV 全 API 鉴权 + 回退播放 + seek；无凭据调 API 必须明确 401）为部署阶段必过项。
 
 
 ### 9.6 管理员凭据边界（默认：接受）

@@ -15,7 +15,8 @@ MPV 侧支客户端：浏览器是唯一控制台，MPV 是被"发射"出来的�
    backend_origin=http://your-server:8080
    # 可选：
    # room_id=room-xxxxxxxx
-   # media_basic_auth=user:password   （生产 /p/ 回退认证，仅存内存）
+   # site_basic_auth=user:password （生产 Caddy 全站 Basic Auth，用于所有 API 与 /p/ 回退；仅存内存）
+   # media_basic_auth=...         （旧名兼容别名，等价 site_basic_auth）
    # debug=yes
    ```
 
@@ -37,7 +38,7 @@ MPV 侧支客户端：浏览器是唯一控制台，MPV 是被"发射"出来的�
 
 重启 mpv 时，脚本会用本地保存的 token（`~~/watchparty.json`）静默重连
 当前房间；token 失效（401/404）或服务端重启后自动清除并要求重新发射。
-directUrl、响应头、`media_basic_auth` 不会写入磁盘。
+directUrl、响应头、`site_basic_auth`/`media_basic_auth` 不会写入磁盘。
 
 ## 行为边界（spec 第 9 节）
 

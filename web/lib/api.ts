@@ -112,7 +112,7 @@ export const api = {
     }>(`/api/rooms/${encodeURIComponent(roomId)}/media/resolve`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        "X-WatchParty-Token": accessToken,
       },
       body: JSON.stringify({ mediaId }),
     }),
@@ -127,7 +127,7 @@ export const api = {
       `/api/rooms/${encodeURIComponent(roomId)}/media/subtitle?mediaId=${encodeURIComponent(mediaId)}`,
       {
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          "X-WatchParty-Token": accessToken,
         },
       },
     );
@@ -145,7 +145,7 @@ export const api = {
   ): Promise<SubtitleTrack[]> =>
     request<SubtitleTrack[]>(
       `/api/rooms/${encodeURIComponent(roomId)}/media/subtitles?mediaId=${encodeURIComponent(mediaId)}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } },
+      { headers: { "X-WatchParty-Token": accessToken } },
     ),
 
   // 10. 签发一次性 MPV 交接票据（120s TTL，spec 9.2；页面只展示交接码，不进 URL）
@@ -158,7 +158,7 @@ export const api = {
       `/api/rooms/${encodeURIComponent(roomId)}/handoff`,
       {
         method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: { "X-WatchParty-Token": accessToken },
         body: JSON.stringify({ target }),
       },
     ),
