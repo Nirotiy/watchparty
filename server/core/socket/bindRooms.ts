@@ -284,9 +284,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function socketError(
   code: "ACCESS_TOKEN_INVALID" | "PROTOCOL_VERSION_MISMATCH",
 ): Error & { data: { code: string; message: string } } {
-  const error = new Error(ERROR_MESSAGES[code]) as Error & {
+  // socket.io 中间件拒绝只会把 message 传给客户端 connect_error（data 不跨端），
+  // 因此 message 直接用 code，客户端可稳定识别并触发降级（如清 token 回门禁）。
+  const error = new Error(code) as Error & {
     data: { code: string; message: string };
   };
-  error.data = { code, message: ERROR_MESSAGES[code] };
+  error.data = { code, message: code };
   return error;
 }
