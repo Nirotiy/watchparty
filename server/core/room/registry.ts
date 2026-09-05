@@ -36,6 +36,8 @@ type RoomAccess = {
   desktopSessions: Map<string, DesktopSession>;
   /** Monotonic generation counters survive heartbeat pruning for each desktop token. */
   desktopGenerationCounters: Map<string, number>;
+  /** One-time owner grants awaiting an HTTP claim by a desktop client. */
+  pendingOwnerGrants: Map<string, string>;
 };
 type DesktopSession = { generation: number; lastSeen: number };
 type HandoffTicket = {
@@ -130,6 +132,7 @@ export class RoomRegistry {
       mpvLastSeen: new Map(),
       desktopSessions: new Map(),
       desktopGenerationCounters: new Map(),
+      pendingOwnerGrants: new Map(),
     };
     if (generation !== undefined) {
       access.desktopGenerationCounters.set(options.clientId, generation);
@@ -403,7 +406,9 @@ export class RoomRegistry {
     }
     if (
       !room.isOnline(targetClientId) ||
-      room.memberClientType(targetClientId) !== "browser"
+      !['browser', 'desktop'].includes(
+        room.memberClientType(targetClientId) ?? "",
+      )
     )
       return { ok: false, code: "OWNER_TARGET_OFFLINE" };
     const newOwnerToken = randomToken();
@@ -411,6 +416,22 @@ export class RoomRegistry {
     access.ownerClientId = targetClientId;
     room.setOwner(targetClientId);
     return { ok: true, ownerToken: newOwnerToken };
+  }
+
+  /** Queue a one-time owner token for a desktop client to claim over HTTP. */
+  queueOwnerGrant(roomId: string, clientId: string, ownerToken: string): void {
+    this.accessByRoom.get(roomId)?.pendingOwnerGrants.set(clientId, ownerToken);
+  }
+
+  /**
+   * Take the pending owner grant for this client, if any. The grant is deleted
+   * on read so a captured response can never be replayed.
+   */
+  claimOwnerGrant(roomId: string, clientId: string): string | undefined {
+    const grants = this.accessByRoom.get(roomId)?.pendingOwnerGrants;
+    const token = grants?.get(clientId);
+    grants?.delete(clientId);
+    return token;
   }
 
   pruneIdle(): string[] {

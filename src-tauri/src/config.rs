@@ -312,6 +312,12 @@ impl StoredRoomSession {
             self.generation,
         )
     }
+
+    /// Replaces the persisted owner token after a cross-client transfer.
+    /// Ownership is server-authoritative; this only keeps restore in sync.
+    pub(crate) fn set_owner_token(&mut self, owner_token: Option<String>) {
+        self.owner_token = owner_token;
+    }
 }
 
 impl Drop for StoredRoomSession {

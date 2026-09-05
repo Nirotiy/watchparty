@@ -94,7 +94,11 @@ impl TauriDesktopState {
             .flatten()
             .map(NativeSiteCredentials::from_stored)
             .transpose()?;
-        let config = NativeRuntimeConfig::with_player(origin, credentials, self.player.clone())?;
+        let config = NativeRuntimeConfig::with_player(origin, credentials, self.player.clone())?
+            .with_owner_token_persistence(owner_token_persist_hook(
+                self.room_store,
+                settings.backend_origin.clone(),
+            ));
         let app_handle = self.app_handle.clone();
         let room_store = self.room_store;
         let room_origin = settings.backend_origin.clone();
@@ -243,6 +247,24 @@ fn settings_for_state(
         .config_store
         .load()
         .map_err(|_| RuntimeError::configuration_error())
+}
+
+/// Native-only owner-token persistence. The session reports claim/clear
+/// transitions; the hook rewrites the Credential Manager blob so a restart
+/// restores (or drops) ownership exactly as the server sees it.
+pub(crate) fn owner_token_persist_hook(
+    room_store: RoomSessionStore,
+    origin: Option<String>,
+) -> std::sync::Arc<dyn Fn(Option<String>) + Send + Sync> {
+    std::sync::Arc::new(move |owner_token| {
+        let Some(origin) = origin.as_deref() else {
+            return;
+        };
+        if let Ok(Some(mut session)) = room_store.read(origin) {
+            session.set_owner_token(owner_token);
+            let _ = room_store.write(origin, &session);
+        }
+    })
 }
 
 fn persist_and_start(
@@ -681,6 +703,7 @@ mod tests {
                 members: Vec::new(),
                 can_control_shared_playback: false,
                 is_owner: false,
+                client_id: None,
                 player: PlayerState::default(),
                 player_window_visible: false,
                 capability: NativeCapabilityReport::default(),

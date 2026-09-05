@@ -21,6 +21,13 @@ fn room_token_header(token: &str) -> Result<HeaderValue, TransportError> {
     Ok(value)
 }
 
+fn owner_token_header(token: &str) -> Result<HeaderValue, TransportError> {
+    let mut value = HeaderValue::from_bytes(token.as_bytes())
+        .map_err(|_| TransportError::Protocol("invalid owner token".into()))?;
+    value.set_sensitive(true);
+    Ok(value)
+}
+
 fn command_body(command: &DesktopCommand, expected_revision: u64) -> serde_json::Value {
     let mut value = serde_json::to_value(command).expect("desktop commands are serializable");
     value
@@ -336,6 +343,7 @@ impl RoomTransport for DesktopHttpTransport {
         generation: u64,
         command: &DesktopCommand,
         expected_revision: u64,
+        owner_token: Option<&str>,
     ) -> Result<CommandAck, TransportError> {
         let request = self.headers(
             self.client
@@ -346,7 +354,34 @@ impl RoomTransport for DesktopHttpTransport {
                 .json(&command_body(command, expected_revision)),
             Some(generation),
         );
+        let request = match owner_token {
+            Some(token) => request.header("X-WatchParty-Owner-Token", owner_token_header(token)?),
+            None => request,
+        };
         self.command_request(self.with_room_token(request, token)?)
+    }
+
+    fn claim_owner_grant(
+        &mut self,
+        room: &str,
+        token: &str,
+        generation: u64,
+    ) -> Result<Option<String>, TransportError> {
+        let request = self.headers(
+            self.client.post(format!(
+                "{}/api/rooms/{room}/desktop/owner-grant/claim",
+                self.base_url
+            )),
+            Some(generation),
+        );
+        let value: Option<serde_json::Value> =
+            self.request(self.with_room_token(request, token)?)?;
+        Ok(value.and_then(|value| {
+            value
+                .get("ownerToken")
+                .and_then(serde_json::Value::as_str)
+                .map(String::from)
+        }))
     }
 
     fn resolve(

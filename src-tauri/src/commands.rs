@@ -44,6 +44,21 @@ pub fn validate_command(command: &DesktopCommand) -> Result<(), String> {
                 Ok(())
             }
         }
+        DesktopCommand::Lock { .. } => Ok(()),
+        DesktopCommand::Rename { nickname } => {
+            let nickname = nickname.trim();
+            if nickname.is_empty()
+                || nickname.chars().count() > 48
+                || nickname.contains(['\r', '\n', '\0'])
+            {
+                Err("nickname must be 1-48 printable characters".into())
+            } else {
+                Ok(())
+            }
+        }
+        DesktopCommand::TransferOwner { target_client_id } if !target_client_id.is_empty() => {
+            Ok(())
+        }
         _ => Err("invalid desktop command".into()),
     }
 }
@@ -86,6 +101,23 @@ mod tests {
         .is_ok());
         assert!(validate_command(&DesktopCommand::PlaylistPlay {
             item_id: String::new()
+        })
+        .is_err());
+        assert!(validate_command(&DesktopCommand::Lock { locked: true }).is_ok());
+        assert!(validate_command(&DesktopCommand::Rename {
+            nickname: " 新昵称 ".into()
+        })
+        .is_ok());
+        assert!(validate_command(&DesktopCommand::Rename {
+            nickname: "   ".into()
+        })
+        .is_err());
+        assert!(validate_command(&DesktopCommand::TransferOwner {
+            target_client_id: "2f0d7f4e-6f2c-4a2f-9f2e-4b1c2d3e4f5a".into()
+        })
+        .is_ok());
+        assert!(validate_command(&DesktopCommand::TransferOwner {
+            target_client_id: String::new()
         })
         .is_err());
     }

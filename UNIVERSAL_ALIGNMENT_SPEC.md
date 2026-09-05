@@ -460,6 +460,7 @@ WatchParty 后端**直接连接 OpenList 的 HTTP API**（不再存在独立 Gat
 - 桌面端成为正式 `clientType=desktop` 身份：可建房、房号/PIN 入房、持有 ownerToken、锁房；与 browser **双向转让房主**。服务端必须新增 desktop create/access 契约，**不得伪装成 browser token 再 handoff**。
 - Gate 2 desktop lifecycle：`POST /api/desktop/rooms`（`X-WatchParty-Protocol: 2`、`X-WatchParty-Client-Type: desktop`）创建桌面房间并返回 desktop `accessToken`、一次性 `ownerToken` 与初始 `sessionGeneration`；`POST /api/desktop/rooms/:roomId/access` 以房号/PIN 签发 desktop `accessToken`，**不返回 ownerToken**。后续 `/api/rooms/:roomId/desktop/session` 负责 claim 新 generation。
 - ownerToken 运行期间仅由 Rust 持有；用于 §10.3 重启恢复时仅允许持久化到 Windows Credential Manager（不进 URL、命令行、日志、WebView）；跨端转让需一次性 owner grant/claim 语义。
+- Gate 3 房主命令契约：desktop 命令路由经敏感头 `X-WatchParty-Owner-Token` 判定房主，白名单扩展 `lock`/`name`/`transferOwner`；`registry.transferOwner` 支持 browser ↔ desktop 双向（拒绝 MPV 目标）；受让方为 desktop 时 grant 进入一次性队列，经 `POST /api/rooms/:roomId/desktop/owner-grant/claim` 领取（204 = 无待领取，领取即删除）；受让方为 browser 时 socket 定向投递并同步更新该连接的服务端 ownerToken，旧 ownerToken 原子作废。
 - 不做：踢人、封禁、聊天、角色权限系统。
 
 ### 10.2 媒体与队列

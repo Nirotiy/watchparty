@@ -143,6 +143,10 @@ pub struct DesktopUiState {
     /// Whether this client owns the room (`client_id == snapshot.ownerClientId`).
     #[serde(default)]
     pub is_owner: bool,
+    /// This client's own room member id. Non-sensitive; lets the UI identify
+    /// itself for rename and ownership transfer targets.
+    #[serde(default)]
+    pub client_id: Option<String>,
     pub player: PlayerState,
     #[serde(default)]
     pub player_window_visible: bool,
@@ -200,6 +204,21 @@ pub enum DesktopCommand {
         #[serde(rename = "expectedCurrentPlaylistItemId")]
         expected_current_playlist_item_id: Option<String>,
     },
+    /// Owner-only room lock. The server rejects it without a valid owner token.
+    Lock {
+        locked: bool,
+    },
+    /// Renames the caller. The wire name stays `name` to match the browser protocol.
+    #[serde(rename = "name")]
+    Rename {
+        #[serde(rename = "name")]
+        nickname: String,
+    },
+    /// Owner-only ownership transfer across browser and desktop clients.
+    TransferOwner {
+        #[serde(rename = "targetClientId")]
+        target_client_id: String,
+    },
 }
 
 impl<'de> Deserialize<'de> for DesktopCommand {
@@ -245,6 +264,16 @@ impl<'de> Deserialize<'de> for DesktopCommand {
                 #[serde(rename = "expectedCurrentPlaylistItemId")]
                 expected_current_playlist_item_id: Option<String>,
             },
+            Lock {
+                locked: bool,
+            },
+            Rename {
+                nickname: String,
+            },
+            TransferOwner {
+                #[serde(rename = "targetClientId")]
+                target_client_id: String,
+            },
         }
 
         let value = serde_json::Value::deserialize(deserializer)?;
@@ -265,6 +294,9 @@ impl<'de> Deserialize<'de> for DesktopCommand {
             "fullscreen" => &["type", "enabled"],
             "playlistPlay" => &["type", "itemId"],
             "playlistNext" => &["type", "expectedCurrentPlaylistItemId"],
+            "lock" => &["type", "locked"],
+            "name" => &["type", "name"],
+            "transferOwner" => &["type", "targetClientId"],
             _ => return Err(D::Error::custom("unknown desktop command")),
         };
         if fields
@@ -292,6 +324,11 @@ impl<'de> Deserialize<'de> for DesktopCommand {
             } => Self::PlaylistNext {
                 expected_current_playlist_item_id,
             },
+            WireCommand::Lock { locked } => Self::Lock { locked },
+            WireCommand::Rename { nickname } => Self::Rename { nickname },
+            WireCommand::TransferOwner { target_client_id } => {
+                Self::TransferOwner { target_client_id }
+            }
         })
     }
 }
@@ -378,6 +415,7 @@ mod tests {
             members: Vec::new(),
             can_control_shared_playback: false,
             is_owner: false,
+            client_id: None,
             player: PlayerState::default(),
             player_window_visible: true,
             capability: NativeCapabilityReport::default(),

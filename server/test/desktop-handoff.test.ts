@@ -144,15 +144,26 @@ test("desktop handoff issues a separate identity and exposes one typed member", 
       .map((member) => member.clientType),
     ["desktop"],
   );
-  assert.deepEqual(
-    backend.registry.transferOwner(
-      created.roomId,
-      created.clientId,
-      created.ownerToken,
-      desktop.clientId,
-    ),
-    { ok: false, code: "OWNER_TARGET_OFFLINE" },
+  // Gate 3: a desktop member is a first-class ownership target. The rotation
+  // mints a fresh owner token for the target and retires the browser's one.
+  const transferred = backend.registry.transferOwner(
+    created.roomId,
+    created.clientId,
+    created.ownerToken,
+    desktop.clientId,
   );
+  assert.equal(transferred.ok, true);
+  assert.ok(transferred.ok && transferred.ownerToken);
+  assert.equal(
+    backend.registry.get(created.roomId)?.ownerId,
+    desktop.clientId,
+  );
+  const afterTransfer = backend.registry.isOwner(
+    created.roomId,
+    created.clientId,
+    created.ownerToken,
+  );
+  assert.equal(afterTransfer, false);
 });
 
 test("desktop lifecycle creates a native identity without browser handoff", async () => {

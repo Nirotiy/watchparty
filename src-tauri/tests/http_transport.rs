@@ -131,6 +131,7 @@ fn desktop_http_transport_matches_live_node_protocol() {
             generation,
             &DesktopCommand::Play,
             snapshot.revision,
+            None,
         )
         .expect("command ACK should decode");
     assert!(ack.ok);

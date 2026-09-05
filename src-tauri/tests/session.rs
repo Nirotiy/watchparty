@@ -15,6 +15,10 @@ fn source() -> MediaSource {
     }
 }
 fn snapshot(revision: u64, item: &str) -> RoomSnapshot {
+    owned_snapshot(revision, item, "browser-1")
+}
+
+fn owned_snapshot(revision: u64, item: &str, owner: &str) -> RoomSnapshot {
     RoomSnapshot {
         revision,
         source: Some(source()),
@@ -25,7 +29,7 @@ fn snapshot(revision: u64, item: &str) -> RoomSnapshot {
         playback_rate: 1.0,
         loop_enabled: true,
         locked: false,
-        owner_client_id: "browser-1".into(),
+        owner_client_id: owner.into(),
         playlist: vec![],
     }
 }
@@ -44,6 +48,8 @@ struct FakeTransport {
     resolves: VecDeque<Result<ResolvedMedia, TransportError>>,
     commands: VecDeque<Result<CommandAck, TransportError>>,
     command_revisions: Vec<u64>,
+    command_owner_tokens: Vec<Option<String>>,
+    claim_grants: VecDeque<Result<Option<String>, TransportError>>,
     resolve_count: usize,
     member_requests: usize,
     left: bool,
@@ -90,9 +96,20 @@ impl RoomTransport for FakeTransport {
         _: u64,
         _: &DesktopCommand,
         revision: u64,
+        owner_token: Option<&str>,
     ) -> Result<CommandAck, TransportError> {
         self.command_revisions.push(revision);
+        self.command_owner_tokens
+            .push(owner_token.map(str::to_owned));
         self.commands.pop_front().unwrap_or(Ok(ack(revision + 1)))
+    }
+    fn claim_owner_grant(
+        &mut self,
+        _: &str,
+        _: &str,
+        _: u64,
+    ) -> Result<Option<String>, TransportError> {
+        self.claim_grants.pop_front().unwrap_or(Ok(None))
     }
     fn resolve(
         &mut self,
@@ -557,4 +574,94 @@ fn renderer_receives_the_effective_shared_control_permission() {
     session.poll(250);
     let locked = serde_json::to_value(session.event()).unwrap();
     assert_eq!(locked["state"]["canControlSharedPlayback"], false);
+}
+
+#[test]
+fn owner_commands_gate_on_ownership_and_persist_transitions() {
+    let ownership_events: std::sync::Arc<std::sync::Mutex<Vec<Option<String>>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+
+    let mut transport = FakeTransport::default();
+    transport
+        .snapshots
+        .push_back(Ok(Some(owned_snapshot(1, "i1", "d1"))));
+
+    let sink = std::sync::Arc::clone(&ownership_events);
+    let mut session = DesktopSession::new(transport, FakePlayer::default())
+        .with_owner_token_persist(Box::new(move |token| {
+            sink.lock().unwrap().push(token);
+        }));
+
+    // Restoring a session that owns the room starts with the persisted token.
+    session
+        .start_persisted(
+            "r1".into(),
+            "d1".into(),
+            "tok".into(),
+            Some("ot-1".into()),
+            0,
+        )
+        .unwrap();
+    session.poll(250);
+    assert!(ownership_events.lock().unwrap().is_empty());
+
+    // Owner command rides with the owner token.
+    session
+        .execute(DesktopCommand::Lock { locked: true }, 300)
+        .unwrap();
+    assert_eq!(
+        session.transport.command_owner_tokens.pop(),
+        Some(Some("ot-1".into()))
+    );
+
+    // Ownership moving away clears the token and persists the drop.
+    session
+        .transport
+        .snapshots
+        .push_back(Ok(Some(owned_snapshot(2, "i1", "browser-1"))));
+    session.poll(500);
+    assert_eq!(
+        ownership_events.lock().unwrap().last().map(Option::is_none),
+        Some(true)
+    );
+    let rejected = session
+        .execute(DesktopCommand::Lock { locked: false }, 600)
+        .unwrap();
+    assert_eq!(
+        rejected.error.as_ref().map(|error| error.code.as_str()),
+        Some("FORBIDDEN")
+    );
+    assert!(session.transport.command_owner_tokens.last().is_none());
+
+    // A queued grant from an incoming transfer is claimed exactly once and the
+    // new token rides on the next owner command.
+    session
+        .transport
+        .snapshots
+        .push_back(Ok(Some(owned_snapshot(3, "i1", "d1"))));
+    session
+        .transport
+        .claim_grants
+        .push_back(Ok(Some("ot-2".into())));
+    session.poll(750);
+    assert_eq!(
+        ownership_events.lock().unwrap().last().cloned(),
+        Some(Some("ot-2".into()))
+    );
+    session
+        .execute(
+            DesktopCommand::TransferOwner {
+                target_client_id: "browser-1".into(),
+            },
+            800,
+        )
+        .unwrap();
+    assert_eq!(
+        session.transport.command_owner_tokens.pop(),
+        Some(Some("ot-2".into()))
+    );
+
+    // Non-owner commands never carry the owner token.
+    session.execute(DesktopCommand::Pause, 900).unwrap();
+    assert_eq!(session.transport.command_owner_tokens.pop(), Some(None));
 }

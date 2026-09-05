@@ -226,9 +226,18 @@ function bindCommands(
       payload.targetClientId,
     );
     if (!result.ok) return ack(errorResult(result.code));
-    const targetSocketId = findSocketId(io, room.id, payload.targetClientId);
-    if (targetSocketId)
-      io.to(targetSocketId).emit("REC:ownerToken", result.ownerToken);
+    // Desktop targets have no socket: the token is claimed over HTTP once.
+    if (room.memberClientType(payload.targetClientId) === "desktop") {
+      registry.queueOwnerGrant(room.id, payload.targetClientId, result.ownerToken);
+    } else {
+      const targetSocketId = findSocketId(io, room.id, payload.targetClientId);
+      if (targetSocketId) {
+        const targetSocket = io.sockets.sockets.get(targetSocketId);
+        if (targetSocket)
+          targetSocket.data.ownerToken = result.ownerToken;
+        io.to(targetSocketId).emit("REC:ownerToken", result.ownerToken);
+      }
+    }
     socket.data.ownerToken = undefined;
     ack({ ok: true, revision: room.snapshot().revision });
   });

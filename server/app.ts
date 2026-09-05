@@ -102,7 +102,7 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
   registerNativeHandoffHttp(app, registry, "mpv");
   registerNativeHandoffHttp(app, registry, "desktop");
   registerNativeClientHttp(app, registry, media, "mpv");
-  registerNativeClientHttp(app, registry, media, "desktop");
+  registerNativeClientHttp(app, registry, media, "desktop", io);
 
   if (options.serveStatic !== false) {
     mountLegacyUi(app, cfg.buildDirectory);

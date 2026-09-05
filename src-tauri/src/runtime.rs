@@ -77,6 +77,7 @@ pub struct NativeRuntimeConfig {
     backend_origin: String,
     site_credentials: Option<NativeSiteCredentials>,
     player: Option<LibMpvConfig>,
+    owner_token_persist: Option<std::sync::Arc<dyn Fn(Option<String>) + Send + Sync>>,
 }
 
 impl NativeRuntimeConfig {
@@ -90,7 +91,18 @@ impl NativeRuntimeConfig {
             backend_origin,
             site_credentials,
             player: None,
+            owner_token_persist: None,
         })
+    }
+
+    /// Wires native owner-token persistence (Credential Manager) into every
+    /// session created from this config. The token value stays in Rust.
+    pub fn with_owner_token_persistence(
+        mut self,
+        persist: std::sync::Arc<dyn Fn(Option<String>) + Send + Sync>,
+    ) -> Self {
+        self.owner_token_persist = Some(persist);
+        self
     }
 
     pub fn with_player(
@@ -122,7 +134,12 @@ impl NativeRuntimeConfig {
                 LibMpvPlayer::open(config).map_err(|_| RuntimeError::player_unavailable())
             })?;
 
-        Ok(Box::new(DesktopSession::new(transport, player)))
+        let mut session = DesktopSession::new(transport, player);
+        if let Some(persist) = &self.owner_token_persist {
+            let persist = std::sync::Arc::clone(persist);
+            session = session.with_owner_token_persist(Box::new(move |token| persist(token)));
+        }
+        Ok(Box::new(session))
     }
 }
 
@@ -664,6 +681,7 @@ fn cleared_connecting_event() -> DesktopEvent {
             members: Vec::new(),
             can_control_shared_playback: false,
             is_owner: false,
+            client_id: None,
             player: PlayerState::default(),
             player_window_visible: false,
             capability: NativeCapabilityReport::default(),
@@ -682,6 +700,7 @@ fn room_mismatch_event() -> DesktopEvent {
             members: Vec::new(),
             can_control_shared_playback: false,
             is_owner: false,
+            client_id: None,
             player: PlayerState::default(),
             player_window_visible: false,
             capability: NativeCapabilityReport::default(),
@@ -788,6 +807,7 @@ mod tests {
                     members: Vec::new(),
                     can_control_shared_playback: false,
                     is_owner: false,
+                    client_id: None,
                     player: PlayerState::default(),
                     player_window_visible: false,
                     capability: NativeCapabilityReport::default(),
@@ -805,6 +825,7 @@ mod tests {
                     members: Vec::new(),
                     can_control_shared_playback: false,
                     is_owner: false,
+                    client_id: None,
                     player: PlayerState::default(),
                     player_window_visible: false,
                     capability: NativeCapabilityReport::default(),
@@ -1087,6 +1108,7 @@ mod tests {
                 members: Vec::new(),
                 can_control_shared_playback: false,
                 is_owner: false,
+                client_id: None,
                 player: PlayerState::default(),
                 player_window_visible: false,
                 capability: NativeCapabilityReport::default(),

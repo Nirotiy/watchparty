@@ -46,6 +46,9 @@ pub struct DesktopSession<T: RoomTransport, P: PlayerEngine> {
     locally_suspended: bool,
     capability: NativeCapabilityReport,
     last_error: Option<UiError>,
+    /// Native-only persistence for owner token changes (claim/clear). The
+    /// token itself never crosses this boundary, only the fact it changed.
+    owner_token_persist: Option<Box<dyn Fn(Option<String>) + Send>>,
 }
 
 impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
@@ -74,6 +77,7 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
             locally_suspended: false,
             capability,
             last_error: None,
+            owner_token_persist: None,
         }
     }
 
@@ -230,6 +234,7 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
                 return vec![self.event()];
             }
         }
+        self.sync_ownership(&room, &token);
         if now.saturating_sub(self.last_members_refresh_at) >= MEMBERS_REFRESH_INTERVAL_MS {
             if let Err(error) = self.refresh_members() {
                 self.handle_transport_error(&error, now);
@@ -292,6 +297,21 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
             }
             _ => {}
         }
+        // Owner-gated commands stay local when this client is not the room
+        // owner; the owner token only rides on commands that require it.
+        let owner_token: Option<String> = match &command {
+            DesktopCommand::Lock { .. } | DesktopCommand::TransferOwner { .. } => {
+                let is_owner = self.owner_token.is_some()
+                    && self.snapshot.as_ref().is_some_and(|snapshot| {
+                        self.client_id.as_deref() == Some(snapshot.owner_client_id.as_str())
+                    });
+                if !is_owner {
+                    return Ok(rejected_owner_ack());
+                }
+                self.owner_token.clone()
+            }
+            _ => None,
+        };
         let (room, token) = self.credentials()?;
         let revision = self.revision.unwrap_or(0);
         self.command_retry_used = false;
@@ -302,6 +322,7 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
                 self.generation,
                 &command,
                 self.revision.unwrap_or(revision),
+                owner_token.as_deref(),
             ) {
                 Ok(ack) if ack.ok => {
                     self.last_error = None;
@@ -338,6 +359,42 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
                     self.handle_transport_error(&error, now);
                     return Err(error);
                 }
+            }
+        }
+    }
+
+    /// Installs a native-only persistence hook invoked when the owner token is
+    /// claimed or dropped. The token value crosses only inside the Rust process.
+    pub fn with_owner_token_persist(mut self, persist: Box<dyn Fn(Option<String>) + Send>) -> Self {
+        self.owner_token_persist = Some(persist);
+        self
+    }
+
+    /// Keeps the owner token aligned with the authoritative snapshot: claims a
+    /// queued grant after an incoming transfer and drops the token as soon as
+    /// ownership moves away. Best effort; the server remains authoritative.
+    fn sync_ownership(&mut self, room: &str, token: &str) {
+        let owned = match (self.client_id.as_deref(), self.snapshot.as_ref()) {
+            (Some(client_id), Some(snapshot)) => client_id == snapshot.owner_client_id,
+            _ => return,
+        };
+        if owned && self.owner_token.is_none() {
+            match self
+                .transport
+                .claim_owner_grant(room, token, self.generation)
+            {
+                Ok(Some(granted)) => {
+                    self.owner_token = Some(granted.clone());
+                    if let Some(persist) = &self.owner_token_persist {
+                        persist(Some(granted));
+                    }
+                }
+                Ok(None) | Err(_) => {}
+            }
+        } else if !owned && self.owner_token.is_some() {
+            self.owner_token = None;
+            if let Some(persist) = &self.owner_token_persist {
+                persist(None);
             }
         }
     }
@@ -521,6 +578,7 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
                     .as_ref()
                     .is_some_and(|snapshot| !snapshot.locked || is_owner),
                 is_owner,
+                client_id: self.client_id.clone(),
                 player_window_visible: player.loaded && !self.locally_suspended,
                 player,
                 capability: self.capability.clone(),
@@ -696,6 +754,19 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
 struct ErrorBody {
     code: Option<String>,
     message: Option<String>,
+}
+
+/// Local rejection for owner commands issued without ownership. The server
+/// would reject them anyway; refusing locally avoids exposing the owner token.
+fn rejected_owner_ack() -> CommandAck {
+    CommandAck {
+        ok: false,
+        revision: 0,
+        error: Some(UiError {
+            code: "FORBIDDEN".into(),
+            message: "只有房主可以执行此操作".into(),
+        }),
+    }
 }
 
 fn ui_error(error: &TransportError) -> UiError {

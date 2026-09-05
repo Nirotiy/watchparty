@@ -83,6 +83,8 @@ export interface DesktopUiState {
   canControlSharedPlayback: boolean
   /** Whether this client owns the room. */
   isOwner?: boolean
+  /** This client's own room member id, for rename and transfer targeting. */
+  clientId?: string | null
   player: PlayerState
   playerWindowVisible: boolean
   capability: NativeCapabilityReport
@@ -100,6 +102,9 @@ export type DesktopCommand =
   | { type: "fullscreen"; enabled: boolean }
   | { type: "playlistPlay"; itemId: string }
   | { type: "playlistNext"; expectedCurrentPlaylistItemId: string | null }
+  | { type: "lock"; locked: boolean }
+  | { type: "name"; name: string }
+  | { type: "transferOwner"; targetClientId: string }
 
 export interface CommandAck {
   ok: boolean

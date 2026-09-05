@@ -92,7 +92,21 @@ pub trait RoomTransport {
         generation: u64,
         command: &DesktopCommand,
         expected_revision: u64,
+        owner_token: Option<&str>,
     ) -> Result<CommandAck, TransportError>;
+    /// Claims a pending one-time owner grant queued for this desktop client by
+    /// a transferring owner. `Ok(None)` means no grant is waiting.
+    fn claim_owner_grant(
+        &mut self,
+        room_id: &str,
+        token: &str,
+        generation: u64,
+    ) -> Result<Option<String>, TransportError> {
+        let _ = (room_id, token, generation);
+        Err(TransportError::Protocol(
+            "owner grant claim is unavailable".into(),
+        ))
+    }
     fn resolve(
         &mut self,
         room_id: &str,

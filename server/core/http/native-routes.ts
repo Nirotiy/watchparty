@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from "express";
+import type { Server as CoreServer } from "socket.io";
 import {
   PROTOCOL_VERSION,
   errorResult,
@@ -204,6 +205,7 @@ export function registerNativeClientHttp(
   registry: RoomRegistry,
   media: WatchpartyMedia,
   clientType: NativeClientType,
+  io?: CoreServer | null,
 ): void {
   const prefix = clientType === "desktop" ? "desktop" : "mpv";
   const resolvePath =
@@ -232,11 +234,34 @@ export function registerNativeClientHttp(
       if (!context) return;
       res.json(context.room.snapshotMembers());
     });
+
+    // One-time delivery of an owner token granted by a transferring owner.
+    app.post(
+      "/api/rooms/:roomId/desktop/owner-grant/claim",
+      (req, res): void => {
+        const context = requireNativeContext(req, res, registry, "desktop");
+        if (!context) return;
+        const ownerToken = registry.claimOwnerGrant(
+          context.room.id,
+          context.clientId,
+        );
+        if (!ownerToken) {
+          res.status(204).end();
+          return;
+        }
+        res.json({ ownerToken });
+      },
+    );
   }
 
   app.post(`/api/rooms/:roomId/${prefix}/command`, (req, res): void => {
     const context = requireNativeContext(req, res, registry, clientType);
     if (!context) return;
+    if (clientType === "desktop") {
+      const ack = runDesktopOwnerAwareCommand(context, req, registry, io);
+      res.status(ack.ok ? 200 : errorHttpStatus(ack.error.code)).json(ack);
+      return;
+    }
     const ack = runNativeCommand(context.room, context.clientId, req.body);
     res.status(ack.ok ? 200 : errorHttpStatus(ack.error.code)).json(ack);
   });
@@ -408,11 +433,16 @@ export function requireMpvContext(
   return requireNativeContext(req, res, registry, "mpv");
 }
 
-/** Dispatch the restricted native command set using the same Room semantics as Socket.IO. */
+/**
+ * Dispatch the restricted native command set using the same Room semantics as
+ * Socket.IO. Owner-gated commands only execute when the caller proved ownership
+ * (desktop: `X-WatchParty-Owner-Token` header; MPV is never an owner).
+ */
 export function runNativeCommand(
   room: Room,
   clientId: string,
   payload: unknown,
+  isOwner = false,
 ): CommandAck {
   if (!payload || typeof payload !== "object" || Array.isArray(payload))
     return errorResult("INVALID_REQUEST");
@@ -438,6 +468,11 @@ export function runNativeCommand(
       if (typeof body.rate !== "number") return errorResult("INVALID_REQUEST");
       command = { type: "rate", rate: body.rate };
       break;
+    case "lock":
+      if (typeof body.locked !== "boolean")
+        return errorResult("INVALID_REQUEST");
+      command = { type: "lock", locked: body.locked };
+      break;
     case "playlistPlay":
       if (typeof body.itemId !== "string" || body.itemId.length === 0)
         return errorResult("INVALID_REQUEST");
@@ -456,11 +491,77 @@ export function runNativeCommand(
     default:
       return errorResult("INVALID_REQUEST");
   }
-  return room.execute(clientId, command, expectedRevision, false);
+  return room.execute(clientId, command, expectedRevision, isOwner);
 }
 
 /** Backward-compatible name retained for the MPV side branch. */
 export const runMpvCommand = runNativeCommand;
+
+/**
+ * Desktop command dispatch. `lock` reuses the shared Room semantics gated by
+ * the owner token header; `name` renames the caller; `transferOwner` rotates
+ * ownership across client types. Everything else is the restricted native set.
+ */
+function runDesktopOwnerAwareCommand(
+  context: NativeRequestContext,
+  req: Request,
+  registry: RoomRegistry,
+  io: CoreServer | null | undefined,
+): CommandAck {
+  const body = req.body as Record<string, unknown> | undefined;
+  const ownerToken = req.header("x-watchparty-owner-token");
+  const isOwner = ownerToken
+    ? registry.isOwner(context.room.id, context.clientId, ownerToken)
+    : false;
+
+  if (body?.type === "name") {
+    const name = body.name;
+    if (typeof name !== "string") return errorResult("INVALID_REQUEST");
+    const ack = context.room.rename(context.clientId, name);
+    if (ack.ok && typeof body.expectedRevision === "number") {
+      registry.updateNickname(
+        context.room.id,
+        bearerToken(req) ?? "",
+        name,
+      );
+    }
+    return ack;
+  }
+
+  if (body?.type === "transferOwner") {
+    const targetClientId = body.targetClientId;
+    if (typeof targetClientId !== "string" || !isValidUUID(targetClientId))
+      return errorResult("INVALID_REQUEST");
+    if (!validateRevision(body.expectedRevision))
+      return errorResult("INVALID_REQUEST");
+    if (body.expectedRevision !== context.room.snapshot().revision)
+      return errorResult("REVISION_CONFLICT");
+    if (!isOwner) return errorResult("OWNER_TOKEN_INVALID");
+    const result = registry.transferOwner(
+      context.room.id,
+      context.clientId,
+      ownerToken,
+      targetClientId,
+    );
+    if (!result.ok) return errorResult(result.code);
+    if (context.room.memberClientType(targetClientId) === "desktop") {
+      registry.queueOwnerGrant(context.room.id, targetClientId, result.ownerToken);
+    } else if (io) {
+      for (const socket of io.sockets.sockets.values()) {
+        if (
+          socket.data.roomId === context.room.id &&
+          socket.data.clientId === targetClientId
+        ) {
+          socket.data.ownerToken = result.ownerToken;
+          io.to(socket.id).emit("REC:ownerToken", result.ownerToken);
+        }
+      }
+    }
+    return { ok: true, revision: context.room.snapshot().revision };
+  }
+
+  return runNativeCommand(context.room, context.clientId, req.body, isOwner);
+}
 
 function parseTarget(value: unknown): HandoffTarget | undefined {
   return value === undefined || value === "mpv" || value === "desktop"

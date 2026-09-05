@@ -383,6 +383,11 @@ function RoomDrawer({ kind, state, command, onAdd, onClose }: { kind: Drawer; st
       <div className="mb-2 flex items-center gap-2 border-b border-border pb-3">
         <h2 className="text-sm font-semibold">{kind === "members" ? `在线成员 ${state.members.length}` : `播放队列 ${state.room?.playlist.length ?? 0} 项`}</h2>
         <span className="flex-1" />
+        {kind === "members" && state.isOwner ? (
+          <Button variant="outline" size="sm" className="h-7 px-2.5 text-[11px]" title={state.room?.locked ? "解锁房间" : "锁定房间（仅房主可控制）"} onClick={() => void command({ type: "lock", locked: !state.room?.locked })}>
+            <MaterialSymbol name="lock" />{state.room?.locked ? "解锁" : "锁定"}
+          </Button>
+        ) : null}
         {kind === "queue" ? <Button variant="outline" size="sm" className="h-7 px-2.5 text-[11px]" onClick={onAdd}><MaterialSymbol name="add" />添加媒体</Button> : null}
         <Button variant="ghost" size="icon-sm" title="收起" aria-label="收起" onClick={onClose}>×</Button>
       </div>
@@ -402,7 +407,10 @@ function RoomDrawer({ kind, state, command, onAdd, onClose }: { kind: Drawer; st
       ) : kind === "members" && state.members.length ? state.members.map((member) => (
         <div key={member.clientId} className="flex items-center gap-3 border-b border-border py-3 text-xs">
           <span className="grid size-8 place-items-center rounded-full border border-border font-semibold text-muted-foreground">{member.name.slice(0, 2).toUpperCase()}</span>
-          <span className="min-w-0 flex-1 truncate">{member.name}</span>
+          <span className="min-w-0 flex-1 truncate">{member.name}{member.clientId === state.clientId ? <span className="ml-1 text-[10px] text-muted-foreground">（我）</span> : null}</span>
+          {state.isOwner && !member.isOwner && member.clientType !== "mpv" ? (
+            <Button variant="outline" size="sm" className="h-7 px-2.5 text-[11px]" title={`将房主转让给 ${member.name}`} onClick={() => void command({ type: "transferOwner", targetClientId: member.clientId })}>转让房主</Button>
+          ) : null}
           <span className="text-muted-foreground">{member.isOwner ? "房主" : member.clientType === "desktop" ? "桌面端" : "在线"}</span>
         </div>
       )) : kind === "members" ? <p className="py-5 text-xs text-muted-foreground">暂无在线成员。</p> : null}

@@ -303,14 +303,15 @@ test("browser owner unlock lets MPV run commands and both sides see the same sta
   );
   assert.equal(errorCode(await conflict.json()), "REVISION_CONFLICT");
 
-  // Owner-only commands are not in the MPV whitelist.
+  // Owner-only commands stay out of the MPV surface: even a well-formed lock
+  // request is rejected because a native MPV client is never the owner.
   const lock = await post(
     backend,
     `/api/rooms/${created.roomId}/mpv/command`,
-    { type: "lock", locked: false, expectedRevision: 2 },
+    { type: "lock", locked: false, expectedRevision: room.snapshot().revision },
     headers,
   );
-  assert.equal(errorCode(await lock.json()), "INVALID_REQUEST");
+  assert.equal(errorCode(await lock.json()), "FORBIDDEN");
 
   // MPV redemption joined the room: browser members see "MPV".
   const members = await membersPromise;
