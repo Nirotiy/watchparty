@@ -8,6 +8,7 @@ import {
 } from "../protocol.ts";
 import type { Room, SharedCommand } from "../room/Room.ts";
 import type { RoomRegistry } from "../room/registry.ts";
+import type { MediaSource } from "../protocol.ts";
 import type {
   ResolvedMpvMedia,
   WatchpartyMedia,
@@ -488,6 +489,37 @@ export function runNativeCommand(
           : {}),
       };
       break;
+    case "mediaSet":
+    case "playlistAdd": {
+      const media = validateMediaSource(body.media);
+      if (!media) return errorResult("INVALID_REQUEST");
+      command =
+        body.type === "mediaSet"
+          ? { type: "mediaSet", media }
+          : { type: "playlistAdd", media };
+      break;
+    }
+    case "playlistRemove":
+      if (typeof body.itemId !== "string" || body.itemId.length === 0)
+        return errorResult("INVALID_REQUEST");
+      command = { type: "playlistRemove", itemId: body.itemId };
+      break;
+    case "playlistMove": {
+      if (typeof body.itemId !== "string" || body.itemId.length === 0)
+        return errorResult("INVALID_REQUEST");
+      if (
+        typeof body.targetIndex !== "number" ||
+        !Number.isInteger(body.targetIndex) ||
+        body.targetIndex < 0
+      )
+        return errorResult("INVALID_REQUEST");
+      command = {
+        type: "playlistMove",
+        itemId: body.itemId,
+        targetIndex: body.targetIndex,
+      };
+      break;
+    }
     default:
       return errorResult("INVALID_REQUEST");
   }

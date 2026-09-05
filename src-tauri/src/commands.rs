@@ -1,4 +1,52 @@
-use crate::contracts::{CommandAck, DesktopCommand};
+use crate::contracts::{CommandAck, DesktopCommand, MediaSource};
+
+/// Mirrors the server's media URL rules for user-pasted links: HTTPS only, no
+/// embedded credentials, and HLS must point at a .m3u8 playlist.
+fn validate_pasted_media(media: &MediaSource) -> Result<(), String> {
+    match media {
+        MediaSource::Openlist {
+            media_id,
+            title,
+            container,
+            ..
+        } => {
+            if media_id.is_empty()
+                || media_id.contains('/')
+                || media_id.contains('\\')
+                || title.trim().is_empty()
+                || !matches!(
+                    container.to_lowercase().as_str(),
+                    "mp4" | "webm" | "mkv" | "mov" | "m4v" | "ogv" | "m3u8"
+                )
+            {
+                Err("unsupported OpenList media entry".into())
+            } else {
+                Ok(())
+            }
+        }
+        MediaSource::Http { url, .. } => validate_http_media_url(url, false),
+        MediaSource::Hls { url, .. } => validate_http_media_url(url, true),
+        // YouTube is out of the desktop V1 scope.
+        MediaSource::Youtube { .. } => Err("YouTube is not supported in the desktop client".into()),
+    }
+}
+
+fn validate_http_media_url(value: &str, hls: bool) -> Result<(), String> {
+    if value.len() > 4000 {
+        return Err("media URL must not exceed 4000 characters".into());
+    }
+    let parsed = reqwest::Url::parse(value).map_err(|_| "invalid media URL".to_owned())?;
+    if parsed.scheme() != "https" {
+        return Err("media URL must use HTTPS".into());
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("media URL must not contain credentials".into());
+    }
+    if hls && !parsed.path().to_lowercase().ends_with(".m3u8") {
+        return Err("HLS media URL must point at a .m3u8 playlist".into());
+    }
+    Ok(())
+}
 
 /// Stable Tauri-facing command names. No generic invoke or player command is exposed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -59,6 +107,14 @@ pub fn validate_command(command: &DesktopCommand) -> Result<(), String> {
         DesktopCommand::TransferOwner { target_client_id } if !target_client_id.is_empty() => {
             Ok(())
         }
+        DesktopCommand::MediaSet { media } | DesktopCommand::PlaylistAdd { media } => {
+            validate_pasted_media(media)
+        }
+        DesktopCommand::PlaylistRemove { item_id } if !item_id.is_empty() => Ok(()),
+        DesktopCommand::PlaylistMove {
+            item_id,
+            target_index,
+        } if !item_id.is_empty() && *target_index < 200 => Ok(()),
         _ => Err("invalid desktop command".into()),
     }
 }
@@ -118,6 +174,55 @@ mod tests {
         .is_ok());
         assert!(validate_command(&DesktopCommand::TransferOwner {
             target_client_id: String::new()
+        })
+        .is_err());
+        let openlist = MediaSource::Openlist {
+            media_id: "signed-id".into(),
+            title: "Episode 1.mkv".into(),
+            container: "mkv".into(),
+            display_path: None,
+        };
+        assert!(validate_command(&DesktopCommand::PlaylistAdd {
+            media: openlist.clone()
+        })
+        .is_ok());
+        let https_media = MediaSource::Http {
+            url: "https://example.com/video.mp4".into(),
+            title: None,
+        };
+        assert!(validate_command(&DesktopCommand::MediaSet { media: https_media }).is_ok());
+        for bad in [
+            MediaSource::Http {
+                url: "http://example.com/video.mp4".into(),
+                title: None,
+            },
+            MediaSource::Http {
+                url: "https://user:pass@example.com/v.mp4".into(),
+                title: None,
+            },
+            MediaSource::Youtube {
+                video_id: "dQw4w9WgXcQ".into(),
+                title: None,
+            },
+        ] {
+            assert!(validate_command(&DesktopCommand::PlaylistAdd { media: bad }).is_err());
+        }
+        assert!(validate_command(&DesktopCommand::PlaylistRemove {
+            item_id: "item-1".into()
+        })
+        .is_ok());
+        assert!(validate_command(&DesktopCommand::PlaylistRemove {
+            item_id: String::new()
+        })
+        .is_err());
+        assert!(validate_command(&DesktopCommand::PlaylistMove {
+            item_id: "item-1".into(),
+            target_index: 3
+        })
+        .is_ok());
+        assert!(validate_command(&DesktopCommand::PlaylistMove {
+            item_id: "item-1".into(),
+            target_index: 500
         })
         .is_err());
     }

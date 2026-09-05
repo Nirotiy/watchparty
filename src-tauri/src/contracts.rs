@@ -49,6 +49,40 @@ impl MediaSource {
     }
 }
 
+/// One entry of a media directory listing. `id` is the opaque signed mediaId;
+/// resolved URLs never appear in browse results or over IPC.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaDirectoryItem {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub item_type: String,
+    pub size: Option<f64>,
+    pub extension: Option<String>,
+    pub compatibility: MediaCompatibility,
+    pub display_path: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaCompatibility {
+    pub browser: Option<String>,
+    pub desktop: Option<String>,
+    pub browser_reason: Option<String>,
+    pub desktop_reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaDirectoryPage {
+    pub current_path: String,
+    pub breadcrumbs: Vec<String>,
+    pub has_more: bool,
+    pub next_cursor: Option<String>,
+    pub items: Vec<MediaDirectoryItem>,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistItem {
@@ -219,6 +253,26 @@ pub enum DesktopCommand {
         #[serde(rename = "targetClientId")]
         target_client_id: String,
     },
+    /// Owner-only: replaces the current media.
+    MediaSet {
+        media: MediaSource,
+    },
+    /// Owner-only: appends to the playlist.
+    PlaylistAdd {
+        media: MediaSource,
+    },
+    /// Owner-only: removes a playlist item.
+    PlaylistRemove {
+        #[serde(rename = "itemId")]
+        item_id: String,
+    },
+    /// Owner-only: moves a playlist item to a new index.
+    PlaylistMove {
+        #[serde(rename = "itemId")]
+        item_id: String,
+        #[serde(rename = "targetIndex")]
+        target_index: usize,
+    },
 }
 
 impl<'de> Deserialize<'de> for DesktopCommand {
@@ -274,6 +328,22 @@ impl<'de> Deserialize<'de> for DesktopCommand {
                 #[serde(rename = "targetClientId")]
                 target_client_id: String,
             },
+            MediaSet {
+                media: MediaSource,
+            },
+            PlaylistAdd {
+                media: MediaSource,
+            },
+            PlaylistRemove {
+                #[serde(rename = "itemId")]
+                item_id: String,
+            },
+            PlaylistMove {
+                #[serde(rename = "itemId")]
+                item_id: String,
+                #[serde(rename = "targetIndex")]
+                target_index: usize,
+            },
         }
 
         let value = serde_json::Value::deserialize(deserializer)?;
@@ -297,6 +367,9 @@ impl<'de> Deserialize<'de> for DesktopCommand {
             "lock" => &["type", "locked"],
             "name" => &["type", "name"],
             "transferOwner" => &["type", "targetClientId"],
+            "mediaSet" | "playlistAdd" => &["type", "media"],
+            "playlistRemove" => &["type", "itemId"],
+            "playlistMove" => &["type", "itemId", "targetIndex"],
             _ => return Err(D::Error::custom("unknown desktop command")),
         };
         if fields
@@ -329,6 +402,16 @@ impl<'de> Deserialize<'de> for DesktopCommand {
             WireCommand::TransferOwner { target_client_id } => {
                 Self::TransferOwner { target_client_id }
             }
+            WireCommand::MediaSet { media } => Self::MediaSet { media },
+            WireCommand::PlaylistAdd { media } => Self::PlaylistAdd { media },
+            WireCommand::PlaylistRemove { item_id } => Self::PlaylistRemove { item_id },
+            WireCommand::PlaylistMove {
+                item_id,
+                target_index,
+            } => Self::PlaylistMove {
+                item_id,
+                target_index,
+            },
         })
     }
 }

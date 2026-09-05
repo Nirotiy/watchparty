@@ -31,7 +31,7 @@
 <div class="doc">
 
 <h1>独立桌面端 V1 · 分 Gate 执行计划</h1>
-<p class="note">状态：<b>Gate 0–3 已完成，下一步 Gate 4</b> · 边界定稿：<code>UNIVERSAL_ALIGNMENT_SPEC.md</code> 第 10 节 · 粒度基线：<code>dev/tauri-current-execution-plan.html</code>（历史记录，其“直接打包”顺序已作废）。规模估算：单人 7–10 工程周。</p>
+<p class="note">状态：<b>Gate 0–4 已完成，下一步 Gate 5</b> · 边界定稿：<code>UNIVERSAL_ALIGNMENT_SPEC.md</code> 第 10 节 · 粒度基线：<code>dev/tauri-current-execution-plan.html</code>（历史记录，其“直接打包”顺序已作废）。规模估算：单人 7–10 工程周。</p>
 
 <h2>目标定义</h2>
 <p class="note">用户安装应用后，无需打开浏览器即可：配置服务器与站点凭据 → 建房或房号/PIN 入房 → 成为房主并管理房间与队列 → 浏览 OpenList / 添加 HTTPS·HLS 媒体 → 播放、同步、恢复最后房间、调整播放器设置 → Windows 安装包交付。网页 handoff 降级为可选捷径。</p>
@@ -108,12 +108,20 @@
   <li>Windows 手动验收（锁房、双向转让、重启恢复房主身份）随 Gate 7 真机走查执行。</li>
 </ul>
 
-<h2>Gate 4 <span class="tag t-todo">媒体库与完整队列</span></h2>
+<h2>Gate 4 <span class="tag t-done">已完成：媒体库与完整队列</span></h2>
 <ul>
   <li>Rust 媒体 IPC（窄类型）：roots / list / search / 分页；WebView 只见 opaque mediaId 与脱敏元数据。</li>
   <li>OpenList 浏览/搜索/批量 + HTTPS 文件 + HLS 粘贴（沿用服务端 URL 规则：HTTPS-only、HLS 必须 .m3u8、禁 URL 内凭据）。</li>
   <li>owner 命令扩展：mediaSet、playlistAdd/remove/move/play，全部带 <code>expectedRevision</code>，冲突重取快照并提示。</li>
   <li>退出：desktop 房主独立完成选媒、立即播放、批量入队、排序、删除、EOF 推进。</li>
+</ul>
+<h3>Gate 4 验收证据</h3>
+<ul>
+  <li>服务端：<code>runNativeCommand</code> 白名单扩展 <code>mediaSet</code>/<code>playlistAdd</code>/<code>playlistRemove</code>/<code>playlistMove</code>，全部经 isOwner 闸门与 <code>validateMediaSource</code> 校验；媒体浏览路由复用现有 <code>/api/media/*</code>（生产由 Caddy Basic Auth 保护，desktop Rust 传输自动附加同源凭据）。</li>
+  <li>Rust：新 Tauri IPC <code>mediaRoots</code>/<code>mediaList</code>/<code>mediaSearch</code>，WebView 只见不透明 mediaId 与脱敏元数据（无直链）；路径参数拒绝穿越后仍由服务端权威校验；粘贴 URL 规则在 <code>validate_command</code> 内镜像服务端（HTTPS-only、无 userinfo、HLS 必须 .m3u8、拒绝 YouTube）。</li>
+  <li>UI：媒体库视图接真实 IPC（roots 切换、面包屑导航、搜索、分页加载更多、播放/入队），支持 HTTPS/HLS 粘贴；队列抽屉提供上移/下移/移出（仅房主）；REVISION_CONFLICT 沿用既有一次重取快照 + 状态栏提示路径。</li>
+  <li>测试：服务端 57/57（新增 media/playlist owner 命令全链路测试）；Rust lib 36（含粘贴 URL 校验矩阵）；cargo check --all-targets 与 desktop TypeScript/Vite 构建通过。</li>
+  <li>EOF 推进为既有 PlayerEvent::Ended → playlistNext 路径；真实 OpenList 播放闭环（直链/fallback/字幕）属 Gate 5。</li>
 </ul>
 
 <h2>Gate 5 <span class="tag t-todo">播放与字幕闭环</span></h2>

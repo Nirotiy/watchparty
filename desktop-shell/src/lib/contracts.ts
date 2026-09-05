@@ -105,9 +105,38 @@ export type DesktopCommand =
   | { type: "lock"; locked: boolean }
   | { type: "name"; name: string }
   | { type: "transferOwner"; targetClientId: string }
+  | { type: "mediaSet"; media: MediaSource }
+  | { type: "playlistAdd"; media: MediaSource }
+  | { type: "playlistRemove"; itemId: string }
+  | { type: "playlistMove"; itemId: string; targetIndex: number }
 
 export interface CommandAck {
   ok: boolean
   revision: number
   error?: UiError | null
+}
+
+export interface MediaCompatibility {
+  browser?: string | null
+  desktop?: string | null
+  browserReason?: string | null
+  desktopReason?: string | null
+}
+
+export interface MediaDirectoryItem {
+  id: string
+  name: string
+  type: "file" | "dir"
+  size?: number | null
+  extension?: string | null
+  compatibility: MediaCompatibility
+  displayPath?: string | null
+}
+
+export interface MediaDirectoryPage {
+  currentPath: string
+  breadcrumbs: string[]
+  hasMore: boolean
+  nextCursor?: string | null
+  items: MediaDirectoryItem[]
 }

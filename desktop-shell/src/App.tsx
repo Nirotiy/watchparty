@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, useCallback, type ReactNode } from "react"
 
 import { MaterialSymbol, type MaterialSymbolName } from "@/components/material-symbol"
 import { RoomView } from "@/components/room-view"
@@ -7,9 +7,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useDesktopSession } from "@/hooks/use-desktop-session"
-import type { ConnectionState, DesktopUiState, MediaSource, NativeCapabilityReport } from "@/lib/contracts"
+import type { CommandAck, ConnectionState, DesktopCommand, DesktopUiState, MediaDirectoryItem, MediaDirectoryPage, MediaSource, NativeCapabilityReport } from "@/lib/contracts"
 import { cn } from "@/lib/utils"
-import { clearSiteCredentials, errorMessage, getDesktopSettings, listenForSettings, promptSiteCredentials, updateDesktopSettings, verifyBackend, type DesktopSettingsStatus } from "@/lib/ipc"
+import { clearSiteCredentials, errorMessage, getDesktopSettings, listenForSettings, mediaList, mediaRoots, mediaSearch, promptSiteCredentials, updateDesktopSettings, verifyBackend, type DesktopSettingsStatus } from "@/lib/ipc"
 
 type View = "home" | "room" | "media" | "settings"
 type Drawer = "queue" | "members" | null
@@ -179,7 +179,7 @@ export default function App() {
                 onReturn={() => void navigate("room")}
               />
             ) : view === "media" ? (
-              <MediaLibraryView />
+              <MediaLibraryView state={state} command={session.command} navigate={(nextView) => void navigate(nextView)} />
             ) : (
               <SettingsView
                 state={state}
@@ -299,15 +299,207 @@ function EmptyPosterGrid({ label }: { label: string }) {
   )
 }
 
-function MediaLibraryView() {
+function MediaLibraryView({ state, command, navigate }: {
+  state: ReturnType<typeof useDesktopSession>["state"]
+  command: (command: DesktopCommand) => Promise<boolean>
+  navigate: (view: View) => void
+}) {
+  const [roots, setRoots] = useState<string[]>([])
+  const [activeRoot, setActiveRoot] = useState<string | null>(null)
+  const [path, setPath] = useState("/")
+  const [page, setPage] = useState<MediaDirectoryPage | null>(null)
+  const [items, setItems] = useState<MediaDirectoryItem[]>([])
+  const [query, setQuery] = useState("")
+  const [searching, setSearching] = useState(false)
+  const [message, setMessage] = useState("")
+  const canControl = Boolean(state?.canControlSharedPlayback)
+
+  const load = useCallback(async (root: string, targetPath: string, cursor?: string) => {
+    try {
+      const result = await mediaList(root, targetPath, cursor)
+      setPage(result)
+      setItems((current) => cursor ? [...current, ...result.items] : result.items)
+      setPath(result.currentPath)
+      setMessage("")
+    } catch (error) {
+      setMessage(errorMessage(error, "无法载入媒体目录"))
+    }
+  }, [])
+
+  const runSearch = useCallback(async (text: string, cursor?: string) => {
+    try {
+      const result = await mediaSearch(text, cursor)
+      setPage(result)
+      setItems((current) => cursor ? [...current, ...result.items] : result.items)
+      setMessage("")
+    } catch (error) {
+      setMessage(errorMessage(error, "搜索失败"))
+    }
+  }, [])
+
+  useEffect(() => {
+    void mediaRoots().then((names) => {
+      setRoots(names)
+      if (names.length > 0) {
+        setActiveRoot(names[0])
+        void load(names[0], "/")
+      }
+    }).catch(() => setMessage("媒体浏览需要先配置站点"))
+  }, [load])
+
+  async function openItem(item: MediaDirectoryItem) {
+    if (item.type === "dir" && activeRoot) {
+      setSearching(false)
+      setQuery("")
+      await load(activeRoot, item.id)
+      return
+    }
+    if (!canControl) {
+      setMessage("当前无控制权限（房间已锁定或非房主）")
+      return
+    }
+    const media: MediaSource = {
+      kind: "openlist",
+      mediaId: item.id,
+      title: item.name,
+      container: item.extension || "mp4",
+      displayPath: item.displayPath ?? undefined,
+    }
+    if (await command({ type: "mediaSet", media })) {
+      setMessage(`正在播放 ${item.name}`)
+      navigate("room")
+    }
+  }
+
+  async function enqueue(item: MediaDirectoryItem) {
+    if (!canControl) {
+      setMessage("当前无控制权限（房间已锁定或非房主）")
+      return
+    }
+    const media: MediaSource = {
+      kind: "openlist",
+      mediaId: item.id,
+      title: item.name,
+      container: item.extension || "mp4",
+      displayPath: item.displayPath ?? undefined,
+    }
+    if (await command({ type: "playlistAdd", media })) setMessage(`已加入队列：${item.name}`)
+  }
+
+  function breadcrumbTarget(index: number): string {
+    if (!page) return "/"
+    if (index === 0) return "/"
+    return `/${page.breadcrumbs.slice(1, index + 1).join("/")}`
+  }
+
+  const [pasteUrl, setPasteUrl] = useState("")
+  const [pasteTitle, setPasteTitle] = useState("")
+
+  function pastedMedia(): MediaSource {
+    const url = pasteUrl.trim()
+    const title = pasteTitle.trim() || url.split("/").pop() || url
+    return url.toLowerCase().split("?")[0]!.endsWith(".m3u8")
+      ? { kind: "hls", url, title }
+      : { kind: "http", url, title }
+  }
+
+  async function submitPaste(play: boolean) {
+    if (!pasteUrl.trim()) return
+    if (!canControl) {
+      setMessage("当前无控制权限（房间已锁定或非房主）")
+      return
+    }
+    const media = pastedMedia()
+    const type = play ? "mediaSet" : "playlistAdd"
+    if (await command({ type, media } as DesktopCommand)) {
+      setMessage(play ? "开始播放粘贴的媒体" : "已加入队列")
+      setPasteUrl("")
+      setPasteTitle("")
+    }
+  }
+
   return (
     <div className="mx-auto min-h-full w-full max-w-[1120px] px-8 py-8">
-      <header className="flex items-center gap-3"><SectionTitle detail="OpenList · 原生浏览 IPC 尚未接入">媒体库</SectionTitle><div className="flex-1" />
-        {["全部", "Anime", "Film", "TV Shows"].map((root, index) => <Button key={root} size="sm" variant={index === 0 ? "default" : "ghost"} disabled className="h-7 rounded-full px-3 text-[11px] disabled:opacity-70">{root}</Button>)}
-        <div className="relative w-56"><MaterialSymbol name="search" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" /><Input disabled placeholder="搜索标题…" aria-label="搜索媒体，尚未开放" className="h-8 pl-9 text-xs disabled:opacity-75" /></div>
+      <header className="flex flex-wrap items-center gap-3">
+        <SectionTitle detail="OpenList · 浏览与搜索经 Rust 原生 IPC">媒体库</SectionTitle>
+        <div className="flex-1" />
+        {roots.map((root) => (
+          <Button key={root} size="sm" variant={root === activeRoot && !searching ? "default" : "ghost"}
+            className="h-7 rounded-full px-3 text-[11px]"
+            onClick={() => { setActiveRoot(root); setSearching(false); setQuery(""); void load(root, "/") }}>
+            {root}
+          </Button>
+        ))}
+        <form className="relative w-56" onSubmit={(event) => {
+          event.preventDefault()
+          if (!query.trim()) return
+          setSearching(true)
+          void runSearch(query.trim())
+        }}>
+          <MaterialSymbol name="search" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题…" aria-label="搜索媒体" className="h-8 pl-9 text-xs" />
+        </form>
       </header>
-      <EmptyPosterGrid label="媒体目录尚未载入" />
-      <p className="mt-4 font-mono text-[10px] text-muted-foreground">0 项 · 排序：最近添加 · 等待受限 Rust 媒体浏览接口</p>
+
+      <form className="mt-4 flex flex-wrap items-center gap-2 border-y border-border py-3" onSubmit={(event) => event.preventDefault()}>
+        <span className="text-[11px] font-semibold text-muted-foreground">粘贴 HTTPS / HLS</span>
+        <Input value={pasteUrl} onChange={(event) => setPasteUrl(event.target.value)} placeholder="https://example.com/video.mp4 或 .m3u8" aria-label="粘贴媒体地址" className="h-8 min-w-64 flex-1 font-mono text-xs" />
+        <Input value={pasteTitle} onChange={(event) => setPasteTitle(event.target.value)} placeholder="标题（可选）" aria-label="粘贴媒体标题" className="h-8 w-40 text-xs" />
+        <Button size="sm" className="h-7 px-2.5 text-[11px]" disabled={!canControl || !pasteUrl.trim()} onClick={() => void submitPaste(true)}>
+          <MaterialSymbol name="play-arrow" />播放
+        </Button>
+        <Button variant="outline" size="sm" className="h-7 px-2.5 text-[11px]" disabled={!canControl || !pasteUrl.trim()} onClick={() => void submitPaste(false)}>
+          <MaterialSymbol name="add" />入队
+        </Button>
+      </form>
+
+      {page && !searching ? (
+        <nav aria-label="目录路径" className="mt-4 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+          {page.breadcrumbs.map((crumb, index) => (
+            <span key={`${crumb}-${index}`} className="flex items-center gap-1">
+              {index > 0 ? <span>/</span> : null}
+              <button type="button" className="hover:text-foreground" onClick={() => activeRoot && void load(activeRoot, breadcrumbTarget(index))}>
+                {index === 0 ? activeRoot ?? crumb : crumb}
+              </button>
+            </span>
+          ))}
+        </nav>
+      ) : null}
+
+      {items.length ? (
+        <ul className="mt-4 divide-y divide-border border-y border-border">
+          {items.map((item) => (
+            <li key={item.id} className="flex items-center gap-3 py-2.5 text-xs">
+              <MaterialSymbol name={item.type === "dir" ? "folder" : "movie"} className="size-5 text-muted-foreground" />
+              <button type="button" className="min-w-0 flex-1 truncate text-left hover:text-primary" onClick={() => void openItem(item)} title={item.displayPath ?? item.name}>
+                {item.name}
+                {item.extension && item.type === "file" ? <span className="ml-2 font-mono text-[10px] text-muted-foreground">{item.extension}</span> : null}
+              </button>
+              {item.type === "file" ? (
+                <>
+                  <Button variant="ghost" size="sm" className="h-7 px-2.5 text-[11px]" disabled={!canControl} title="立即播放" onClick={() => void openItem(item)}>
+                    <MaterialSymbol name="play-arrow" />播放
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7 px-2.5 text-[11px]" disabled={!canControl} title="加入播放队列" onClick={() => void enqueue(item)}>
+                    <MaterialSymbol name="add" />入队
+                  </Button>
+                </>
+              ) : null}
+            </li>
+          ))
+          }
+        </ul>
+      ) : <EmptyPosterGrid label={searching ? "没有匹配的媒体" : "此目录为空"} />}
+
+      {page?.hasMore && page.nextCursor ? (
+        <Button variant="outline" size="sm" className="mt-3 h-7 px-3 text-[11px]"
+          onClick={() => searching
+            ? void runSearch(query, page.nextCursor ?? undefined)
+            : activeRoot && void load(activeRoot, path, page.nextCursor ?? undefined)}>
+          载入更多
+        </Button>
+      ) : null}
+      {message ? <p className="mt-3 text-xs text-muted-foreground">{message}</p> : null}
     </div>
   )
 }

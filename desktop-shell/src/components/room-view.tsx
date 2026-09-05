@@ -393,16 +393,24 @@ function RoomDrawer({ kind, state, command, onAdd, onClose }: { kind: Drawer; st
       </div>
       {kind === "queue" ? (
         state.room?.playlist.length ? state.room.playlist.map((item, index) => (
-          <button
-            type="button"
-            key={item.id}
-            className={cn("grid w-full grid-cols-[30px_minmax(0,1fr)] gap-2 border-b border-border px-1 py-3 text-left text-xs hover:bg-accent disabled:cursor-default disabled:hover:bg-transparent", item.id === state.room?.currentPlaylistItemId && "bg-primary/8 text-primary")}
-            disabled={!state.canControlSharedPlayback || item.id === state.room?.currentPlaylistItemId}
-            onClick={() => void command({ type: "playlistPlay", itemId: item.id })}
-          >
-            <span className="font-mono text-muted-foreground">{String(index + 1).padStart(2, "0")}</span>
-            <span className="min-w-0"><span className="block truncate">{mediaTitle(item.media)}</span><span className="mt-1 block truncate text-[10px] text-muted-foreground">{item.id === state.room?.currentPlaylistItemId ? `正在播放 · ${formatTime(state.player.time)}` : `${state.members.find((member) => member.clientId === item.addedByClientId)?.name ?? "成员"} 添加`}</span></span>
-          </button>
+          <div key={item.id} className={cn("grid w-full grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-2 border-b border-border px-1 py-3 text-xs", item.id === state.room?.currentPlaylistItemId && "bg-primary/8 text-primary")}>
+            <button
+              type="button"
+              className="grid w-full grid-cols-[30px_minmax(0,1fr)] gap-2 text-left disabled:cursor-default"
+              disabled={!state.canControlSharedPlayback || item.id === state.room?.currentPlaylistItemId}
+              onClick={() => void command({ type: "playlistPlay", itemId: item.id })}
+            >
+              <span className="font-mono text-muted-foreground">{String(index + 1).padStart(2, "0")}</span>
+              <span className="min-w-0"><span className="block truncate">{mediaTitle(item.media)}</span><span className="mt-1 block truncate text-[10px] text-muted-foreground">{item.id === state.room?.currentPlaylistItemId ? `正在播放 · ${formatTime(state.player.time)}` : `${state.members.find((member) => member.clientId === item.addedByClientId)?.name ?? "成员"} 添加`}</span></span>
+            </button>
+            {state.canControlSharedPlayback ? (
+              <span className="flex items-center gap-0.5">
+                <Button variant="ghost" size="icon-sm" title="上移" aria-label={`上移 ${mediaTitle(item.media)}`} disabled={index === 0} onClick={() => void command({ type: "playlistMove", itemId: item.id, targetIndex: index - 1 })}><MaterialSymbol name="expand-less" /></Button>
+                <Button variant="ghost" size="icon-sm" title="下移" aria-label={`下移 ${mediaTitle(item.media)}`} disabled={index >= (state.room?.playlist.length ?? 0) - 1} onClick={() => void command({ type: "playlistMove", itemId: item.id, targetIndex: index + 1 })}><MaterialSymbol name="expand-more" /></Button>
+                <Button variant="ghost" size="icon-sm" title="移出队列" aria-label={`移出 ${mediaTitle(item.media)}`} onClick={() => void command({ type: "playlistRemove", itemId: item.id })}><MaterialSymbol name="close" /></Button>
+              </span>
+            ) : null}
+          </div>
         )) : <p className="py-5 text-xs text-muted-foreground">播放队列为空。</p>
       ) : kind === "members" && state.members.length ? state.members.map((member) => (
         <div key={member.clientId} className="flex items-center gap-3 border-b border-border py-3 text-xs">

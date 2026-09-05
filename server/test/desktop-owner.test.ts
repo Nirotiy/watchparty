@@ -296,3 +296,59 @@ test("desktop members rename themselves through the native command route", async
   const invalid = await desktopCommand(backend, desktop, { type: "name", name: "", expectedRevision: snapshot.revision + 1 });
   assert.equal(invalid.status, 400);
 });
+
+test("desktop owner manages media and playlist over the native command route", async () => {
+  const backend = await boot();
+  const created = await createBrowserRoom(backend);
+  const browserSocket = connect(backend, created.roomId, created.clientId, created.accessToken, created.ownerToken);
+  await connected(browserSocket);
+
+  const desktop = await joinDesktop(backend, created.roomId, "MediaOwner");
+  const transferred = await socketCommand(browserSocket, "CMD:transferOwner", {
+    expectedRevision: 0,
+    targetClientId: desktop.clientId,
+  });
+  assert.ok(transferred.ok);
+  const grant = await claimGrant(backend, desktop);
+  assert.equal(grant.status, 200);
+  const ownerToken = grant.ownerToken!;
+
+  const media = {
+    kind: "openlist",
+    mediaId: "media-1",
+    title: "Episode 1.mkv",
+    container: "mkv",
+  };
+
+  // mediaSet requires the owner header.
+  const noHeader = await desktopCommand(backend, desktop, { type: "mediaSet", media, expectedRevision: 1 });
+  assert.equal(noHeader.status, 403);
+  const mediaSet = await desktopCommand(backend, desktop, { type: "mediaSet", media, expectedRevision: 1 }, ownerToken);
+  assert.equal(mediaSet.status, 200);
+  assert.ok(mediaSet.ack.ok);
+
+  // playlistAdd appends; playlistMove reorders; playlistRemove drops.
+  const add = await desktopCommand(backend, desktop, { type: "playlistAdd", media, expectedRevision: 2 }, ownerToken);
+  assert.equal(add.status, 200);
+  const move = await desktopCommand(
+    backend,
+    desktop,
+    { type: "playlistMove", itemId: (await desktopSnapshot(backend, desktop)).playlist[0]!.id, targetIndex: 0, expectedRevision: 3 },
+    ownerToken,
+  );
+  assert.equal(move.status, 200);
+  const itemId = (await desktopSnapshot(backend, desktop)).playlist[0]!.id;
+  const remove = await desktopCommand(backend, desktop, { type: "playlistRemove", itemId, expectedRevision: 4 }, ownerToken);
+  assert.equal(remove.status, 200);
+  assert.ok(remove.ack.ok);
+
+  // Invalid media shapes never reach Room.execute.
+  const invalid = await desktopCommand(
+    backend,
+    desktop,
+    { type: "playlistAdd", media: { kind: "openlist", mediaId: "a/b", title: "x", container: "mp4" }, expectedRevision: 5 },
+    ownerToken,
+  );
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.ack.error?.code, "INVALID_REQUEST");
+});

@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 
-import type { CommandAck, DesktopCommand, DesktopUiState } from "@/lib/contracts"
+import type { CommandAck, DesktopCommand, DesktopUiState, MediaDirectoryPage } from "@/lib/contracts"
 
 export interface DesktopSettingsStatus {
   backendOrigin: string | null
@@ -96,6 +96,18 @@ export function clearSiteCredentials(): Promise<DesktopSettingsStatus> {
 
 export function verifyBackend(): Promise<void> {
   return invoke("verifyBackend")
+}
+
+export function mediaRoots(): Promise<string[]> {
+  return invoke("mediaRoots")
+}
+
+export function mediaList(root: string, path?: string, cursor?: string): Promise<MediaDirectoryPage> {
+  return invoke("mediaList", { root, path: path ?? "/", cursor: cursor ?? null })
+}
+
+export function mediaSearch(query: string, cursor?: string): Promise<MediaDirectoryPage> {
+  return invoke("mediaSearch", { query, cursor: cursor ?? null })
 }
 
 export function errorMessage(error: unknown, fallback: string): string {

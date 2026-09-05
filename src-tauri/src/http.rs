@@ -1,5 +1,5 @@
 use crate::{
-    contracts::{CommandAck, DesktopCommand, MediaSource, RoomMember},
+    contracts::{CommandAck, DesktopCommand, MediaDirectoryPage, MediaSource, RoomMember},
     transport::{
         Handoff, RequestTiming, ResolvedMedia, RoomTransport, SnapshotResponse, TransportError,
     },
@@ -103,6 +103,58 @@ impl DesktopHttpTransport {
 
     pub fn has_site_basic_auth(&self) -> bool {
         self.site_basic_auth.is_some()
+    }
+
+    /// Browse helpers for the media library. They reuse the site Basic Auth
+    /// attachment so production Caddy requests authenticate transparently.
+    pub fn media_roots(&self) -> Result<Vec<String>, TransportError> {
+        self.request::<Vec<String>>(
+            self.headers(
+                self.client
+                    .get(format!("{}/api/media/roots", self.base_url)),
+                None,
+            ),
+        )?
+        .ok_or_else(|| TransportError::Protocol("empty media roots".into()))
+    }
+
+    pub fn media_list(
+        &self,
+        root: &str,
+        path: &str,
+        cursor: Option<&str>,
+    ) -> Result<MediaDirectoryPage, TransportError> {
+        self.media_directory(
+            format!("{}/api/media/list", self.base_url),
+            &[("root", root), ("path", path)],
+            cursor,
+        )
+    }
+
+    pub fn media_search(
+        &self,
+        query: &str,
+        cursor: Option<&str>,
+    ) -> Result<MediaDirectoryPage, TransportError> {
+        self.media_directory(
+            format!("{}/api/media/search", self.base_url),
+            &[("q", query)],
+            cursor,
+        )
+    }
+
+    fn media_directory(
+        &self,
+        url: String,
+        params: &[(&str, &str)],
+        cursor: Option<&str>,
+    ) -> Result<MediaDirectoryPage, TransportError> {
+        let mut builder = self.client.get(url).query(params);
+        if let Some(cursor) = cursor {
+            builder = builder.query(&[("cursor", cursor)]);
+        }
+        self.request(self.headers(builder, None))?
+            .ok_or_else(|| TransportError::Protocol("empty media page".into()))
     }
 
     pub fn verify_backend(&self) -> Result<(), TransportError> {

@@ -54,7 +54,10 @@ pub fn run() {
             tauri_api::update_desktop_settings,
             tauri_api::clear_site_credentials,
             tauri_api::prompt_site_credentials,
-            tauri_api::verify_backend
+            tauri_api::verify_backend,
+            tauri_api::media_roots,
+            tauri_api::media_list,
+            tauri_api::media_search
         ])
         .setup(|app| {
             let main_window = app

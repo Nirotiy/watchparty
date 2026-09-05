@@ -4,7 +4,7 @@ use crate::{
         DesktopConfigStore, DesktopSettingsInput, DesktopSettingsStatus, RoomSessionStore,
         SiteCredentialStore, StoredRoomSession,
     },
-    contracts::{CommandAck, DesktopCommand, MediaSource},
+    contracts::{CommandAck, DesktopCommand, MediaDirectoryPage, MediaSource},
     http::DesktopHttpTransport,
     launch::DesktopLaunch,
     libmpv::LibMpvConfig,
@@ -633,10 +633,11 @@ pub async fn prompt_site_credentials(
     .await
 }
 
-#[tauri::command(rename = "verifyBackend")]
-pub async fn verify_backend(app: AppHandle) -> Result<(), RuntimeError> {
-    configuration_task(app, |state| {
-        let settings = state
+impl TauriDesktopState {
+    /// Builds a same-origin transport for media browsing with site Basic Auth
+    /// attached. Resolved media URLs never flow through this path over IPC.
+    fn media_transport(&self) -> Result<DesktopHttpTransport, RuntimeError> {
+        let settings = self
             .config_store
             .load()
             .map_err(|_| RuntimeError::configuration_error())?;
@@ -644,16 +645,86 @@ pub async fn verify_backend(app: AppHandle) -> Result<(), RuntimeError> {
             .backend_origin
             .as_deref()
             .ok_or_else(RuntimeError::not_configured)?;
-        let transport = match state.credential_store.read(origin) {
+        let transport = match self.credential_store.read(origin) {
             Ok(Some(credentials)) => {
                 let (username, password) = credentials.into_parts();
                 DesktopHttpTransport::with_site_basic_auth(origin, username, password)
+                    .map_err(|_| RuntimeError::configuration_error())
             }
-            Ok(None) => DesktopHttpTransport::new(origin),
+            Ok(None) => {
+                DesktopHttpTransport::new(origin).map_err(|_| RuntimeError::configuration_error())
+            }
             Err(_) => return Err(RuntimeError::credential_error()),
-        }
-        .map_err(|_| RuntimeError::configuration_error())?;
+        };
         transport
+    }
+}
+
+#[tauri::command(rename = "mediaRoots")]
+pub async fn media_roots(app: AppHandle) -> Result<Vec<String>, RuntimeError> {
+    configuration_task(app, |state| {
+        let _ = state.runtime()?;
+        state
+            .media_transport()?
+            .media_roots()
+            .map_err(|_| RuntimeError::runtime_unavailable())
+    })
+    .await
+}
+
+#[tauri::command(rename = "mediaList")]
+pub async fn media_list(
+    app: AppHandle,
+    root: String,
+    path: Option<String>,
+    cursor: Option<String>,
+) -> Result<MediaDirectoryPage, RuntimeError> {
+    configuration_task(app, move |state| {
+        let _ = state.runtime()?;
+        let path = path.unwrap_or_else(|| "/".into());
+        if !is_safe_media_path(&path) {
+            return Err(RuntimeError::invalid_command());
+        }
+        state
+            .media_transport()?
+            .media_list(&root, &path, cursor.as_deref())
+            .map_err(|_| RuntimeError::runtime_unavailable())
+    })
+    .await
+}
+
+#[tauri::command(rename = "mediaSearch")]
+pub async fn media_search(
+    app: AppHandle,
+    query: String,
+    cursor: Option<String>,
+) -> Result<MediaDirectoryPage, RuntimeError> {
+    configuration_task(app, move |state| {
+        let _ = state.runtime()?;
+        let query = query.trim().to_owned();
+        if query.is_empty() || query.chars().count() > 200 {
+            return Err(RuntimeError::invalid_command());
+        }
+        state
+            .media_transport()?
+            .media_search(&query, cursor.as_deref())
+            .map_err(|_| RuntimeError::runtime_unavailable())
+    })
+    .await
+}
+
+/// Rejects traversal attempts before they reach the backend; the server still
+/// validates the path authoritatively.
+fn is_safe_media_path(path: &str) -> bool {
+    path.len() <= 1000 && !path.contains('\\') && !path.split('/').any(|segment| segment == "..")
+}
+
+#[tauri::command(rename = "verifyBackend")]
+pub async fn verify_backend(app: AppHandle) -> Result<(), RuntimeError> {
+    configuration_task(app, |state| {
+        let _ = state.runtime()?;
+        state
+            .media_transport()?
             .verify_backend()
             .map_err(|_| RuntimeError::runtime_unavailable())
     })
