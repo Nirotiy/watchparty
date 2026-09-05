@@ -94,11 +94,17 @@ impl TauriDesktopState {
             .flatten()
             .map(NativeSiteCredentials::from_stored)
             .transpose()?;
-        let config = NativeRuntimeConfig::with_player(origin, credentials, self.player.clone())?
-            .with_owner_token_persistence(owner_token_persist_hook(
-                self.room_store,
-                settings.backend_origin.clone(),
-            ));
+        let config = NativeRuntimeConfig::with_player(
+            origin,
+            credentials,
+            self.player
+                .clone()
+                .with_preferences(settings.player_preferences.clone()),
+        )?
+        .with_owner_token_persistence(owner_token_persist_hook(
+            self.room_store,
+            settings.backend_origin.clone(),
+        ));
         let app_handle = self.app_handle.clone();
         let room_store = self.room_store;
         let room_origin = settings.backend_origin.clone();
@@ -547,6 +553,7 @@ pub async fn update_desktop_settings(
         let settings =
             DesktopConfigStore::validate(input).map_err(|_| RuntimeError::configuration_error())?;
         let changed = previous.backend_origin != settings.backend_origin;
+        let preferences_changed = previous.player_preferences != settings.player_preferences;
         let replacement = if changed {
             settings
                 .backend_origin
@@ -570,7 +577,23 @@ pub async fn update_desktop_settings(
             }
             state.replace_runtime(replacement, settings.backend_origin.is_some());
         }
-        let result = state.settings_status()?;
+        // Live preference application never rebuilds the runtime. Failures are
+        // surfaced through the status so the UI can show the effective values.
+        let preference_failures = if preferences_changed {
+            state
+                .runtime()
+                .ok()
+                .map(|runtime| {
+                    runtime
+                        .apply_player_preferences(settings.player_preferences.clone())
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let mut result = state.settings_status()?;
+        result.player_preference_failures = preference_failures;
         let _ = state.app_handle.emit("desktop://settings", &result);
         Ok(result)
     })

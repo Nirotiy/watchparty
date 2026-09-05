@@ -5,11 +5,13 @@ import { RoomView } from "@/components/room-view"
 import { SessionGate } from "@/components/session-gate"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Slider } from "@/components/ui/slider"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useDesktopSession } from "@/hooks/use-desktop-session"
 import type { CommandAck, ConnectionState, DesktopCommand, DesktopUiState, MediaDirectoryItem, MediaDirectoryPage, MediaSource, NativeCapabilityReport } from "@/lib/contracts"
 import { cn } from "@/lib/utils"
-import { clearSiteCredentials, errorMessage, getDesktopSettings, listenForSettings, mediaList, mediaRoots, mediaSearch, promptSiteCredentials, updateDesktopSettings, verifyBackend, type DesktopSettingsStatus } from "@/lib/ipc"
+import { clearSiteCredentials, errorMessage, getDesktopSettings, listenForSettings, mediaList, mediaRoots, mediaSearch, promptSiteCredentials, updateDesktopSettings, verifyBackend, type DesktopSettingsStatus, type PlayerPreferences } from "@/lib/ipc"
 
 type View = "home" | "room" | "media" | "settings"
 type Drawer = "queue" | "members" | null
@@ -570,7 +572,147 @@ function GeneralPanel({ theme, onThemeChange }: { theme: Theme; onThemeChange: (
 }
 
 function PlaybackPanel({ state }: { state: DesktopUiState | null }) {
-  return <><SettingsHeading title="播放" detail="当前原生解码器状态，只读。" /><div className="divide-y divide-border border-y border-border"><SettingRow icon="monitor" title="视频输出" detail="libmpv Render API"><span className="font-mono text-xs text-muted-foreground">{state?.capability.vo ?? "等待初始化"}</span></SettingRow><SettingRow icon="speed" title="硬件解码" detail="安全自动选择"><span className="font-mono text-xs text-muted-foreground">{state?.capability.hwdec ?? state?.capability.hwdecConfigured ?? "auto-safe"}</span></SettingRow></div></>
+  const [preferences, setPreferences] = useState<PlayerPreferences | null>(null)
+  const [failures, setFailures] = useState<string[]>([])
+  const [message, setMessage] = useState("")
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    void getDesktopSettings()
+      .then((settings) => {
+        setPreferences(settings.playerPreferences)
+        setFailures(settings.playerPreferenceFailures ?? [])
+      })
+      .catch((error: unknown) => setMessage(errorMessage(error, "无法读取播放设置")))
+  }, [])
+
+  function patch(patch: Partial<PlayerPreferences>) {
+    setPreferences((current) => (current ? { ...current, ...patch } : current))
+  }
+
+  async function save() {
+    if (!preferences) return
+    setBusy(true)
+    try {
+      const current = await getDesktopSettings()
+      const updated = await updateDesktopSettings({
+        backendOrigin: current.backendOrigin,
+        nickname: current.nickname,
+        theme: current.theme,
+        playerPreferences: preferences,
+      })
+      setPreferences(updated.playerPreferences)
+      setFailures(updated.playerPreferenceFailures ?? [])
+      setMessage((updated.playerPreferenceFailures ?? []).length > 0
+        ? "已保存；部分即时项未能应用到当前播放器"
+        : "已保存")
+    } catch (error) {
+      setMessage(errorMessage(error, "播放设置保存失败"))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!preferences) {
+    return <><SettingsHeading title="播放" detail="白名单播放器设置。" /><p className="text-xs text-muted-foreground">{message || "正在读取…"}</p></>
+  }
+
+  return (
+    <>
+      <SettingsHeading title="播放" detail="每项标注生效时机；非法值会在保存时拒绝并保留原值。" />
+      <div className="divide-y divide-border border-y border-border">
+        <SettingRow icon="speed" title="硬件解码" detail="重建播放器后生效">
+          <Select value={preferences.hardwareDecoding} onValueChange={(value) => patch({ hardwareDecoding: value as PlayerPreferences["hardwareDecoding"] })}>
+            <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto-safe">安全自动</SelectItem>
+              <SelectItem value="auto">自动</SelectItem>
+              <SelectItem value="no">关闭</SelectItem>
+            </SelectContent>
+          </Select>
+        </SettingRow>
+        <SettingRow icon="monitor" title="去隔行" detail="立即生效">
+          <Select value={preferences.deinterlace} onValueChange={(value) => patch({ deinterlace: value as PlayerPreferences["deinterlace"] })}>
+            <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">自动</SelectItem>
+              <SelectItem value="on">开</SelectItem>
+              <SelectItem value="off">关</SelectItem>
+            </SelectContent>
+          </Select>
+        </SettingRow>
+        <SettingRow icon="monitor" title="HDR 输出" detail="立即生效：跟随默认 / 转 SDR / 原样">
+          <Select value={preferences.hdr} onValueChange={(value) => patch({ hdr: value as PlayerPreferences["hdr"] })}>
+            <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">跟随默认</SelectItem>
+              <SelectItem value="sdr">转 SDR</SelectItem>
+              <SelectItem value="passthrough">原样</SelectItem>
+            </SelectContent>
+          </Select>
+        </SettingRow>
+        <SettingRow icon="volume-up" title="音频输出设备" detail="立即生效；设备消失回退系统默认">
+          <Input value={preferences.audioDevice ?? ""} onChange={(event) => patch({ audioDevice: event.target.value.trim() || null })} placeholder="系统默认" aria-label="音频输出设备" className="h-8 w-56 font-mono text-xs" />
+        </SettingRow>
+        <SettingRow icon="music-note" title="声道" detail="立即生效；不做 bitstream 直通">
+          <Select value={preferences.channelLayout} onValueChange={(value) => patch({ channelLayout: value as PlayerPreferences["channelLayout"] })}>
+            <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">自动</SelectItem>
+              <SelectItem value="stereo">立体声</SelectItem>
+            </SelectContent>
+          </Select>
+        </SettingRow>
+        <SettingRow icon="volume-up" title="默认音量" detail={`${preferences.defaultVolume}% · 新建播放器时生效`}>
+          <Slider value={[preferences.defaultVolume]} min={0} max={100} step={1} className="w-44" onValueChange={(values) => patch({ defaultVolume: values[0] ?? 100 })} />
+        </SettingRow>
+        <SettingRow icon="music-note" title="首选音轨语言" detail="下次载入生效（如 chi,eng）">
+          <Input value={preferences.audioLanguage} onChange={(event) => patch({ audioLanguage: event.target.value })} placeholder="默认" aria-label="首选音轨语言" className="h-8 w-36 text-xs" />
+        </SettingRow>
+        <SettingRow icon="subtitles" title="字幕语言顺序" detail="下次载入生效（如 chi,eng）">
+          <Input value={preferences.subtitleLanguage} onChange={(event) => patch({ subtitleLanguage: event.target.value })} placeholder="默认" aria-label="字幕语言顺序" className="h-8 w-36 text-xs" />
+        </SettingRow>
+        <SettingRow icon="subtitles" title="字幕字体" detail="立即生效（非 ASS 文本字幕）">
+          <Input value={preferences.subtitleFont} onChange={(event) => patch({ subtitleFont: event.target.value })} placeholder="系统默认" aria-label="字幕字体" className="h-8 w-44 text-xs" />
+        </SettingRow>
+        <SettingRow icon="subtitles" title="字幕相对字号" detail={`×${preferences.subtitleScale.toFixed(1)} · 立即生效`}>
+          <Slider value={[preferences.subtitleScale]} min={0.5} max={3} step={0.1} className="w-44" onValueChange={(values) => patch({ subtitleScale: values[0] ?? 1 })} />
+        </SettingRow>
+        <SettingRow icon="subtitles" title="ASS 样式覆盖" detail="立即生效：开 = 用上面的字体/字号覆盖内嵌样式">
+          <Button variant="outline" size="sm" onClick={() => patch({ subtitleAssOverride: !preferences.subtitleAssOverride })}>
+            {preferences.subtitleAssOverride ? "覆盖开" : "尊重原样式"}
+          </Button>
+        </SettingRow>
+        <SettingRow icon="subtitles" title="字幕延迟" detail={`${preferences.subtitleDelay.toFixed(1)}s · 立即生效，换片重置`}>
+          <Slider value={[preferences.subtitleDelay]} min={-30} max={30} step={0.5} className="w-44" onValueChange={(values) => patch({ subtitleDelay: values[0] ?? 0 })} />
+        </SettingRow>
+        <SettingRow icon="sync" title="缓存预设" detail="重建播放器后生效">
+          <Select value={preferences.cacheProfile} onValueChange={(value) => patch({ cacheProfile: value as PlayerPreferences["cacheProfile"] })}>
+            <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">自动</SelectItem>
+              <SelectItem value="low-latency">低延迟</SelectItem>
+              <SelectItem value="stable">稳定</SelectItem>
+            </SelectContent>
+          </Select>
+        </SettingRow>
+        <SettingRow icon="sync" title="网络超时" detail={`${preferences.networkTimeout}s · 下次载入生效（5-120）`}>
+          <Input type="number" min={5} max={120} value={preferences.networkTimeout} onChange={(event) => patch({ networkTimeout: Math.min(120, Math.max(5, Number(event.target.value) || 30)) })} aria-label="网络超时秒数" className="h-8 w-24 text-xs" />
+        </SettingRow>
+      </div>
+      <div className="mt-5 flex items-center gap-3">
+        <Button onClick={() => void save()} disabled={busy}>保存播放设置</Button>
+        <span className="text-xs text-muted-foreground">{message}</span>
+      </div>
+      {failures.length > 0 ? (
+        <p className="mt-2 text-xs text-warning">未生效项：{failures.join("、")}（保留的值将在下次重建播放器时重试）</p>
+      ) : null}
+      {state?.capability ? (
+        <p className="mt-3 font-mono text-[10px] text-muted-foreground">
+          当前生效：hwdec={state.capability.hwdec ?? state.capability.hwdecConfigured ?? "-"} · vo={state.capability.vo ?? "-"}
+        </p>
+      ) : null}
+    </>
+  )
 }
 
 function NetworkPanel({ state }: { state: DesktopUiState | null }) {

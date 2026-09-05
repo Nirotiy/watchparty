@@ -11,23 +11,73 @@ const SETTINGS_FILE: &str = "settings.json";
 const CREDENTIAL_TARGET_PREFIX: &str = "WatchParty/site-basic/";
 const ROOM_CREDENTIAL_TARGET_PREFIX: &str = "WatchParty/room-session/";
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
+/// Whitelisted player preferences. Every field is bounded and falls back to a
+/// documented default; secrets never live here. Fields absent from an older
+/// settings.json deserialize to their defaults via the struct-level serde
+/// default.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct PlayerPreferences {
+    /// Hardware decoding: `auto-safe` | `auto` | `no`. Applies when the player
+    /// is (re)created.
     pub hardware_decoding: String,
+    /// Deinterlacing: `auto` | `on` | `off`. Applies immediately.
+    pub deinterlace: String,
+    /// HDR output handling: `auto` (mpv default) | `sdr` (deterministic
+    /// tone-mapping) | `passthrough` (hint the target colorspace). Applies
+    /// immediately.
+    pub hdr: String,
+    /// WASAPI output device. `None` means the system default; a device that
+    /// disappeared falls back to the default on the next apply.
+    pub audio_device: Option<String>,
+    /// Channel layout: `auto` | `stereo`. No bitstream passthrough. Applies
+    /// immediately.
+    pub channel_layout: String,
+    /// Volume applied when a player is created. 0-100.
+    pub default_volume: u8,
+    /// Preferred audio languages (mpv `alang`, comma separated). Applies on
+    /// the next media load.
+    pub audio_language: String,
+    /// Preferred subtitle languages (mpv `slang`). Applies on the next load.
+    pub subtitle_language: String,
+    /// Subtitle font family (non-ASS text subs). Empty = mpv default.
+    pub subtitle_font: String,
+    /// Relative subtitle scale. 0.5-3.0, default 1.0. Applies immediately.
+    pub subtitle_scale: f64,
+    /// Allow our font/scale choices to override embedded ASS styles.
+    pub subtitle_ass_override: bool,
+    /// Subtitle delay for the current media, seconds. -30.0-30.0.
+    pub subtitle_delay: f64,
+    /// Cache preset: `auto` | `low-latency` | `stable`. Applies when the
+    /// player is (re)created.
     pub cache_profile: String,
+    /// Network timeout for media loads, seconds. 5-120, default 30. Applies
+    /// on the next media load.
+    pub network_timeout: u16,
 }
 
 impl Default for PlayerPreferences {
     fn default() -> Self {
         Self {
             hardware_decoding: "auto-safe".into(),
+            deinterlace: "auto".into(),
+            hdr: "auto".into(),
+            audio_device: None,
+            channel_layout: "auto".into(),
+            default_volume: 100,
+            audio_language: String::new(),
+            subtitle_language: String::new(),
+            subtitle_font: String::new(),
+            subtitle_scale: 1.0,
+            subtitle_ass_override: false,
+            subtitle_delay: 0.0,
             cache_profile: "auto".into(),
+            network_timeout: 30,
         }
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopSettings {
     pub backend_origin: Option<String>,
@@ -57,7 +107,7 @@ pub struct DesktopSettingsInput {
     pub player_preferences: PlayerPreferences,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopSettingsStatus {
     pub backend_origin: Option<String>,
@@ -65,6 +115,10 @@ pub struct DesktopSettingsStatus {
     pub theme: String,
     pub player_preferences: PlayerPreferences,
     pub credentials_configured: bool,
+    /// Whitelisted properties that failed to apply to the live player; their
+    /// persisted values remain in effect for the next player rebuild.
+    #[serde(default)]
+    pub player_preference_failures: Vec<String>,
 }
 
 impl DesktopSettingsStatus {
@@ -75,6 +129,7 @@ impl DesktopSettingsStatus {
             theme: settings.theme,
             player_preferences: settings.player_preferences,
             credentials_configured,
+            player_preference_failures: Vec::new(),
         }
     }
 }
@@ -214,12 +269,31 @@ fn validate_theme(value: String) -> Result<String, ConfigError> {
 }
 
 fn validate_player_preferences(value: PlayerPreferences) -> Result<PlayerPreferences, ConfigError> {
-    if !matches!(value.hardware_decoding.as_str(), "auto-safe" | "no")
-        || !matches!(
+    let valid = matches!(
+        value.hardware_decoding.as_str(),
+        "auto-safe" | "auto" | "no"
+    ) && matches!(value.deinterlace.as_str(), "auto" | "on" | "off")
+        && matches!(value.hdr.as_str(), "auto" | "sdr" | "passthrough")
+        && matches!(value.channel_layout.as_str(), "auto" | "stereo")
+        && value.default_volume <= 100
+        && (0.5..=3.0).contains(&value.subtitle_scale)
+        && (-30.0..=30.0).contains(&value.subtitle_delay)
+        && matches!(
             value.cache_profile.as_str(),
             "auto" | "low-latency" | "stable"
         )
-    {
+        && (5..=120).contains(&value.network_timeout)
+        && value.audio_device.as_ref().is_none_or(|device| {
+            !device.is_empty() && device.chars().count() <= 256 && !device.contains('\0')
+        })
+        && [
+            value.audio_language.as_str(),
+            value.subtitle_language.as_str(),
+            value.subtitle_font.as_str(),
+        ]
+        .iter()
+        .all(|field| field.chars().count() <= 128 && !field.contains(['\r', '\n', '\0']));
+    if !valid {
         return Err(ConfigError::Invalid);
     }
     Ok(value)
@@ -689,6 +763,56 @@ mod tests {
         assert_eq!(saved.backend_origin, None);
         assert_eq!(saved.theme, "light");
         let _ = fs::remove_dir_all(store.path().parent().expect("parent"));
+    }
+
+    #[test]
+    fn player_preferences_enforce_whitelists_ranges_and_defaults() {
+        let base = PlayerPreferences::default();
+        // Defaults always validate.
+        assert!(validate_player_preferences(base.clone()).is_ok());
+        // Hardware decoding gained `auto` in Gate 6.
+        let mut value = base.clone();
+        value.hardware_decoding = "auto".into();
+        assert!(validate_player_preferences(value.clone()).is_ok());
+        value.hardware_decoding = "force".into();
+        assert!(validate_player_preferences(value).is_err());
+        for field in ["deinterlace", "hdr", "channel_layout", "cache_profile"] {
+            let mut value = base.clone();
+            match field {
+                "deinterlace" => value.deinterlace = "sometimes".into(),
+                "hdr" => value.hdr = "none".into(),
+                "channel_layout" => value.channel_layout = "7.1".into(),
+                _ => value.cache_profile = "aggressive".into(),
+            }
+            assert!(validate_player_preferences(value).is_err(), "{field}");
+        }
+        let mut value = base.clone();
+        value.default_volume = 101;
+        assert!(validate_player_preferences(value).is_err());
+        let mut value = base.clone();
+        value.subtitle_scale = 5.0;
+        assert!(validate_player_preferences(value).is_err());
+        let mut value = base.clone();
+        value.subtitle_delay = 31.0;
+        assert!(validate_player_preferences(value).is_err());
+        let mut value = base.clone();
+        value.network_timeout = 4;
+        assert!(validate_player_preferences(value).is_err());
+        let mut value = base.clone();
+        value.audio_device = Some("wasapi\0inject".into());
+        assert!(validate_player_preferences(value).is_err());
+        let mut value = base.clone();
+        value.subtitle_font = "line
+break"
+            .into();
+        assert!(validate_player_preferences(value).is_err());
+        // Older settings.json files without the new fields deserialize to defaults.
+        let legacy: DesktopSettings = serde_json::from_str(
+            r#"{"backendOrigin":null,"nickname":"","theme":"dark","playerPreferences":{"hardwareDecoding":"no","cacheProfile":"stable"}}"#,
+        )
+        .expect("legacy settings parse");
+        assert_eq!(legacy.player_preferences.deinterlace, "auto");
+        assert_eq!(legacy.player_preferences.network_timeout, 30);
     }
 
     #[test]

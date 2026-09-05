@@ -88,11 +88,19 @@ pub fn run() {
                     .flatten()
                     .map(NativeSiteCredentials::from_stored)
                     .transpose()?;
-                let config = NativeRuntimeConfig::with_player(origin, credentials, player.clone())?
-                    .with_owner_token_persistence(tauri_api::owner_token_persist_hook(
+                let config = NativeRuntimeConfig::with_player(
+                    origin,
+                    credentials,
+                    player
+                        .clone()
+                        .with_preferences(settings.player_preferences.clone()),
+                )?
+                .with_owner_token_persistence(
+                    tauri_api::owner_token_persist_hook(
                         room_store,
                         settings.backend_origin.clone(),
-                    ));
+                    ),
+                );
                 let event_app_handle = app_handle.clone();
                 let event_room_store = room_store;
                 let event_origin = settings.backend_origin.clone();

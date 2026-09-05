@@ -213,6 +213,12 @@ pub trait PlayerEngine {
     }
     fn drain_events(&mut self) -> Vec<PlayerEvent>;
     fn dispose(&mut self);
+    /// Applies whitelisted player preferences to the live player. Returns the
+    /// names of properties that failed to apply so the UI can surface them;
+    /// persisted values remain in effect for the next application.
+    fn apply_preferences(&mut self, _prefs: &crate::config::PlayerPreferences) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

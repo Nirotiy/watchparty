@@ -3,12 +3,30 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 
 import type { CommandAck, DesktopCommand, DesktopUiState, MediaDirectoryPage } from "@/lib/contracts"
 
+export interface PlayerPreferences {
+  hardwareDecoding: "auto-safe" | "auto" | "no"
+  deinterlace: "auto" | "on" | "off"
+  hdr: "auto" | "sdr" | "passthrough"
+  audioDevice: string | null
+  channelLayout: "auto" | "stereo"
+  defaultVolume: number
+  audioLanguage: string
+  subtitleLanguage: string
+  subtitleFont: string
+  subtitleScale: number
+  subtitleAssOverride: boolean
+  subtitleDelay: number
+  cacheProfile: "auto" | "low-latency" | "stable"
+  networkTimeout: number
+}
+
 export interface DesktopSettingsStatus {
   backendOrigin: string | null
   nickname: string
   theme: "dark" | "light"
-  playerPreferences: { hardwareDecoding: string; cacheProfile: string }
+  playerPreferences: PlayerPreferences
   credentialsConfigured: boolean
+  playerPreferenceFailures: string[]
 }
 
 export interface DesktopRoomResult { roomId: string }
@@ -73,7 +91,7 @@ export function updateDesktopSettings(input: {
   backendOrigin: string | null
   nickname: string
   theme: "dark" | "light"
-  playerPreferences: { hardwareDecoding: string; cacheProfile: string }
+  playerPreferences: PlayerPreferences
 }): Promise<DesktopSettingsStatus> {
   return invoke("updateDesktopSettings", { input })
 }

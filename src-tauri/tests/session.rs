@@ -203,6 +203,7 @@ struct FakePlayer {
     loads: Vec<(String, String, bool, u64, Option<String>, bool, usize)>,
     events: VecDeque<PlayerEvent>,
     applied: usize,
+    applied_preferences: Vec<watchparty_desktop::config::PlayerPreferences>,
     estimated_server_times: Vec<i64>,
     volumes: Vec<f64>,
     local_pauses: Vec<bool>,
@@ -227,6 +228,14 @@ impl PlayerEngine for FakePlayer {
     fn apply_shared_state(&mut self, _: &RoomSnapshot, estimated_server_time_ms: i64) {
         self.applied += 1;
         self.estimated_server_times.push(estimated_server_time_ms);
+    }
+
+    fn apply_preferences(
+        &mut self,
+        prefs: &watchparty_desktop::config::PlayerPreferences,
+    ) -> Vec<String> {
+        self.applied_preferences.push(prefs.clone());
+        Vec::new()
     }
     fn set_volume(&mut self, volume: f64) {
         self.volumes.push(volume);
@@ -878,4 +887,19 @@ fn direct_retry_fallback_chain_still_runs_for_openlist_media() {
     session.handle_player_events(2);
     assert_eq!(session.player.loads.last().unwrap().0, "https://fallback");
     assert!(session.player.loads.last().unwrap().2);
+}
+
+#[test]
+fn player_preferences_forward_to_the_player() {
+    use watchparty_desktop::config::PlayerPreferences;
+
+    let mut session = DesktopSession::new(FakeTransport::default(), FakePlayer::default());
+    let mut preferences = PlayerPreferences::default();
+    preferences.deinterlace = "on".into();
+    preferences.subtitle_scale = 1.5;
+    let applied = session.apply_player_preferences(&preferences);
+    assert!(applied.is_empty());
+    assert_eq!(session.player.applied_preferences.len(), 1);
+    assert_eq!(session.player.applied_preferences[0].deinterlace, "on");
+    assert_eq!(session.player.applied_preferences[0].subtitle_scale, 1.5);
 }

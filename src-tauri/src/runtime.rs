@@ -1,5 +1,5 @@
 use crate::{
-    config::{validate_backend_origin, StoredSiteCredentials},
+    config::{validate_backend_origin, PlayerPreferences, StoredSiteCredentials},
     contracts::{
         CommandAck, ConnectionState, DesktopCommand, DesktopEvent, DesktopUiState,
         NativeCapabilityReport, PlayerState, UiError,
@@ -289,6 +289,10 @@ trait ManagedSession: Send {
     ) -> Result<Vec<DesktopEvent>, TransportError>;
     fn stop(&mut self) -> Result<(), TransportError>;
     fn event(&self) -> DesktopEvent;
+    /// Applies whitelisted player preferences; returns failed property names.
+    fn apply_player_preferences(&mut self, _preferences: &PlayerPreferences) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 impl<T, P> ManagedSession for DesktopSession<T, P>
@@ -346,6 +350,10 @@ where
     fn event(&self) -> DesktopEvent {
         DesktopSession::event(self)
     }
+
+    fn apply_player_preferences(&mut self, preferences: &PlayerPreferences) -> Vec<String> {
+        DesktopSession::apply_player_preferences(self, preferences)
+    }
 }
 
 type SessionFactory = Box<dyn FnMut() -> Result<Box<dyn ManagedSession>, RuntimeError> + Send>;
@@ -374,6 +382,10 @@ enum RuntimeRequest {
     },
     Stop {
         reply: SyncSender<Result<(), RuntimeError>>,
+    },
+    ApplyPlayerPreferences {
+        preferences: PlayerPreferences,
+        reply: SyncSender<Vec<String>>,
     },
     Shutdown,
 }
@@ -488,6 +500,20 @@ impl DesktopRuntime {
             .send(RuntimeRequest::Stop { reply })
             .map_err(|_| RuntimeError::stopped())?;
         response.recv().map_err(|_| RuntimeError::worker_failed())?
+    }
+
+    /// Applies whitelisted player preferences to the live player. Returns the
+    /// property names that failed so the caller can surface them. Call from a
+    /// blocking executor.
+    pub fn apply_player_preferences(
+        &self,
+        preferences: PlayerPreferences,
+    ) -> Result<Vec<String>, RuntimeError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.sender()?
+            .send(RuntimeRequest::ApplyPlayerPreferences { preferences, reply })
+            .map_err(|_| RuntimeError::stopped())?;
+        response.recv().map_err(|_| RuntimeError::worker_failed())
     }
 
     /// Stops polling, leaves the room, disposes the player, and joins the worker.
@@ -646,6 +672,13 @@ fn run_worker(
                     })
                     .unwrap_or(Ok(()));
                 let _ = reply.send(result);
+            }
+            Ok(RuntimeRequest::ApplyPlayerPreferences { preferences, reply }) => {
+                let failed = active
+                    .as_mut()
+                    .map(|session| session.apply_player_preferences(&preferences))
+                    .unwrap_or_default();
+                let _ = reply.send(failed);
             }
             Ok(RuntimeRequest::Shutdown) | Err(RecvTimeoutError::Disconnected) => {
                 stop_active(&mut active);

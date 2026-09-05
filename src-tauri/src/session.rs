@@ -514,6 +514,15 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
         Ok(true)
     }
 
+    /// Applies whitelisted player preferences to the live player. Returns the
+    /// property names that failed so the caller can surface them.
+    pub fn apply_player_preferences(
+        &mut self,
+        preferences: &crate::config::PlayerPreferences,
+    ) -> Vec<String> {
+        self.player.apply_preferences(preferences)
+    }
+
     pub fn stop(&mut self) -> Result<(), TransportError> {
         let leave_result = if let (Some(room), Some(token)) = (&self.room_id, &self.token) {
             self.transport.leave(room, token, self.generation)

@@ -31,7 +31,7 @@
 <div class="doc">
 
 <h1>独立桌面端 V1 · 分 Gate 执行计划</h1>
-<p class="note">状态：<b>Gate 0–4 已完成；Gate 5 自动化链路已完成（真实媒体手动验收待做）</b> · 边界定稿：<code>UNIVERSAL_ALIGNMENT_SPEC.md</code> 第 10 节 · 粒度基线：<code>dev/tauri-current-execution-plan.html</code>（历史记录，其“直接打包”顺序已作废）。规模估算：单人 7–10 工程周。</p>
+<p class="note">状态：<b>Gate 0–4 已完成；Gate 5、6 自动化链路已完成（真实媒体手动验收待做）</b> · 边界定稿：<code>UNIVERSAL_ALIGNMENT_SPEC.md</code> 第 10 节 · 粒度基线：<code>dev/tauri-current-execution-plan.html</code>（历史记录，其“直接打包”顺序已作废）。规模估算：单人 7–10 工程周。</p>
 
 <h2>目标定义</h2>
 <p class="note">用户安装应用后，无需打开浏览器即可：配置服务器与站点凭据 → 建房或房号/PIN 入房 → 成为房主并管理房间与队列 → 浏览 OpenList / 添加 HTTPS·HLS 媒体 → 播放、同步、恢复最后房间、调整播放器设置 → Windows 安装包交付。网页 handoff 降级为可选捷径。</p>
@@ -142,7 +142,7 @@
   <li>待办（需真实媒体源，随 Gate 7 真机走查执行）：真实 OpenList 直链/fallback 播放、HLS 直播流、ASS/SRT 外挂轨道实际渲染、desktop/browser 混合房间同步断言。</li>
 </ul>
 
-<h2>Gate 6 <span class="tag t-todo">白名单播放器设置</span></h2>
+<h2>Gate 6 <span class="tag t-active">自动化链路已完成；真实媒体用例待做</span></h2>
 <ul>
   <li>视频：硬解 auto-safe/auto/off、去隔行 auto/on/off、HDR auto/转SDR/原样。</li>
   <li>音频：输出设备（消失回退系统默认）、声道 自动/立体声、默认音量、首选语言；不做 bitstream 直通。</li>
@@ -150,6 +150,16 @@
   <li>网络：缓存预设（自动/低延迟/稳定）+ 类型化超时；不做代理/自定义 CA/DNS。</li>
   <li>每项定义生效时机（即时/下次载入/重建播放器）与失败回滚。</li>
   <li>退出：每个公开设置有类型、范围、fallback 与至少一个真实媒体用例。</li>
+</ul>
+<h3>Gate 6 自动化验收证据（2026-09-05）</h3>
+<ul>
+  <li>配置层（config.rs）：<code>PlayerPreferences</code> 13 项白名单字段，serde 结构级 default 兼容旧 settings.json；<code>validate_player_preferences</code> 强制枚举值域（硬解/去隔行/HDR/声道/缓存）、数值范围（音量 0-100、字号 0.5-3.0、延迟 ±30s、超时 5-120s）与字符串卫生（设备 ≤256 无 \0，语言/字体 ≤128 无换行）。非法输入拒绝保存并保留原值。</li>
+  <li>生效时机三层：创建时 <code>open_options</code>（hwdec、缓存预设）+ 默认音量，仅重建播放器生效；即时 <code>immediate_property_writes</code>（去隔行、HDR tone-mapping/target-colorspace-hint、声道、音频设备、字体、sub-scale、sub-ass-override、sub-delay）；下次载入 <code>next_load_property_writes</code>（slang/alang、network-timeout，且每次 loadfile 重写存储的 sub-delay，杜绝单片延迟泄漏到下一片）。映射为纯函数并有完整单测。</li>
+  <li>应用链路：设置页保存 → <code>updateDesktopSettings</code> 仅在偏好变化时经 runtime worker 调 <code>player.apply_preferences</code>（不重建 runtime、不断房间）；失败的属性名经 <code>playerPreferenceFailures</code> 回传 UI 展示，持久化值保留待下次重建重试。站点/凭据变化仍走既有重建路径并携带新偏好（<code>LibMpvConfig::with_preferences</code>）。</li>
+  <li>UI（App.tsx 播放面板）：13 项全部接真实设置 IPC，每项标注生效时机；保存后展示「未生效项」与当前生效 hwdec/vo。无新命令面，全部在既有白名单 IPC 内。</li>
+  <li>音频设备消失回退：mpv 对打不开的配置设备自动回退系统默认；写入失败同时经 failures 通道暴露。</li>
+  <li>测试：Rust lib 46/46（偏好白名单/范围/legacy 兼容、即时与下次载入写入映射、缓存预设选项）、session 集成 23/23（偏好透传 FakePlayer 记录断言）、cargo check --all-targets、desktop TypeScript + Vite build 通过；服务端 57/57 未受影响（零服务端改动）。</li>
+  <li>待办（真实媒体用例，随 Gate 7 真机走查）：硬解切换、HDR 转 SDR 色调映射、音频设备切换、ASS 覆盖与字号渲染、缓存预设行为。</li>
 </ul>
 
 <h2>Gate 7 <span class="tag t-todo">独立产品 UI</span></h2>

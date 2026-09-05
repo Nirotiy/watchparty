@@ -5,6 +5,7 @@
 //! session worker thread that owns `LibMpvPlayer`.
 
 use crate::{
+    config::PlayerPreferences,
     contracts::{NativeCapabilityReport, PlayerState, RoomSnapshot, Track},
     playback::{PlaybackLoad, PlayerControlError, PlayerEndReason, PlayerEngine, PlayerEvent},
 };
@@ -37,10 +38,86 @@ const MPV_END_FILE_REASON_ERROR: c_int = 4;
 
 const DEFAULT_LIBMPV_NAME: &str = "libmpv-2.dll";
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// Preference writes that take effect immediately on a live player. Ordered and
+/// pure so the mapping stays unit-testable without a loaded libmpv.
+pub fn immediate_property_writes(prefs: &PlayerPreferences) -> Vec<(&'static str, String)> {
+    let mut writes: Vec<(&'static str, String)> = vec![("deinterlace", prefs.deinterlace.clone())];
+    match prefs.hdr.as_str() {
+        "sdr" => writes.push(("tone-mapping", "bt.2390".into())),
+        "passthrough" => writes.push(("target-colorspace-hint", "yes".into())),
+        _ => {}
+    }
+    writes.push((
+        "audio-channels",
+        if prefs.channel_layout == "stereo" {
+            "stereo"
+        } else {
+            "auto-safe"
+        }
+        .into(),
+    ));
+    if let Some(device) = prefs.audio_device.as_deref() {
+        writes.push(("audio-device", device.to_owned()));
+    }
+    let font = prefs.subtitle_font.trim();
+    if !font.is_empty() {
+        writes.push(("sub-font", font.to_owned()));
+    }
+    writes.push(("sub-scale", prefs.subtitle_scale.to_string()));
+    writes.push((
+        "sub-ass-override",
+        if prefs.subtitle_ass_override {
+            "yes"
+        } else {
+            "no"
+        }
+        .into(),
+    ));
+    writes.push(("sub-delay", prefs.subtitle_delay.to_string()));
+    writes
+}
+
+/// Preference writes consumed by mpv when the next media loads (track language
+/// selection and per-connection network options).
+pub fn next_load_property_writes(prefs: &PlayerPreferences) -> Vec<(&'static str, String)> {
+    let mut writes: Vec<(&'static str, String)> = Vec::new();
+    let slang = prefs.subtitle_language.trim();
+    if !slang.is_empty() {
+        writes.push(("slang", slang.to_owned()));
+    }
+    let alang = prefs.audio_language.trim();
+    if !alang.is_empty() {
+        writes.push(("alang", alang.to_owned()));
+    }
+    writes.push(("network-timeout", prefs.network_timeout.to_string()));
+    // The subtitle delay is a current-media adjustment: every media load
+    // re-applies the stored value (default 0) so a per-media delta never
+    // leaks into the next item.
+    writes.push(("sub-delay", prefs.subtitle_delay.to_string()));
+    writes
+}
+
+/// Options fixed when the player is created; changing them requires a player
+/// rebuild (cache profile, hardware decoding).
+fn open_options(prefs: &PlayerPreferences) -> Vec<(&'static str, String)> {
+    let mut options: Vec<(&'static str, String)> = vec![("hwdec", prefs.hardware_decoding.clone())];
+    match prefs.cache_profile.as_str() {
+        "low-latency" => options.push(("cache", "no".into())),
+        "stable" => {
+            options.push(("cache", "yes".into()));
+            options.push(("cache-secs", "120".into()));
+        }
+        _ => {}
+    }
+    options
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct LibMpvConfig {
     pub dll_path: PathBuf,
     pub window_handle: usize,
+    /// Whitelisted preferences applied when the player is created.
+    pub preferences: PlayerPreferences,
 }
 
 impl LibMpvConfig {
@@ -76,7 +153,14 @@ impl LibMpvConfig {
         Ok(Self {
             dll_path,
             window_handle,
+            preferences: PlayerPreferences::default(),
         })
+    }
+
+    /// Replaces the preference set applied when the player is created.
+    pub fn with_preferences(mut self, preferences: PlayerPreferences) -> Self {
+        self.preferences = preferences;
+        self
     }
 }
 
@@ -274,6 +358,7 @@ pub struct LibMpvPlayer {
     handle: *mut MpvHandle,
     state: PlayerState,
     capability: NativeCapabilityReport,
+    preferences: PlayerPreferences,
     pending_loads: VecDeque<LoadIdentity>,
     entry_loads: HashMap<i64, LoadIdentity>,
     active_entry_id: Option<i64>,
@@ -306,9 +391,10 @@ impl LibMpvPlayer {
             capability: NativeCapabilityReport {
                 libmpv_ready: true,
                 vo: Some("gpu-next".into()),
-                hwdec_configured: Some("auto-safe".into()),
+                hwdec_configured: Some(config.preferences.hardware_decoding.clone()),
                 ..NativeCapabilityReport::default()
             },
+            preferences: config.preferences.clone(),
             pending_loads: VecDeque::new(),
             entry_loads: HashMap::new(),
             active_entry_id: None,
@@ -327,9 +413,12 @@ impl LibMpvPlayer {
             ("keep-open", "no"),
             ("pause", "yes"),
             ("vo", "gpu-next"),
-            ("hwdec", "auto-safe"),
         ] {
             player.set_option(name, value)?;
+        }
+        // Preference-driven creation options: hardware decoding and cache profile.
+        for (name, value) in open_options(&config.preferences) {
+            player.set_option(name, &value)?;
         }
         player.set_option("wid", &config.window_handle.to_string())?;
 
@@ -339,6 +428,13 @@ impl LibMpvPlayer {
             return Err(LibMpvError::initialization());
         }
         player.initialized = true;
+        // Creation-time preference application: default volume and every
+        // immediate write. Failures stay non-fatal; capability reads surface
+        // the effective values.
+        let _ = player.set_i64("volume", i64::from(config.preferences.default_volume));
+        for (name, value) in immediate_property_writes(&config.preferences) {
+            let _ = player.set_property_string(name, &value);
+        }
         player.refresh_state();
         Ok(player)
     }
@@ -721,6 +817,11 @@ impl LibMpvPlayer {
 
 impl PlayerEngine for LibMpvPlayer {
     fn load(&mut self, request: PlaybackLoad<'_>) {
+        // Next-load preferences (track languages, network timeout) must be in
+        // place before loadfile so mpv honors them for this media.
+        for (name, value) in next_load_property_writes(&self.preferences) {
+            let _ = self.set_property_string(name, &value);
+        }
         let identity = LoadIdentity {
             generation: request.generation,
             playlist_item_id: request.playlist_item_id.map(String::from),
@@ -822,6 +923,15 @@ impl PlayerEngine for LibMpvPlayer {
         std::mem::take(&mut self.queued_events)
     }
 
+    fn apply_preferences(&mut self, prefs: &PlayerPreferences) -> Vec<String> {
+        self.preferences = prefs.clone();
+        immediate_property_writes(prefs)
+            .into_iter()
+            .filter(|(name, value)| self.set_property_string(name, value).is_err())
+            .map(|(name, _)| name.to_owned())
+            .collect()
+    }
+
     fn dispose(&mut self) {
         if !self.disposed && !self.handle.is_null() {
             if self.initialized {
@@ -875,6 +985,70 @@ mod tests {
         assert!(LibMpvConfig::new(PathBuf::from("libmpv-2.dll"), 1).is_err());
         assert!(LibMpvConfig::new(PathBuf::from(r"C:\libmpv-2.dll"), 0).is_err());
         assert!(LibMpvConfig::new(PathBuf::from(r"C:\libmpv-2.dll"), 1).is_ok());
+    }
+
+    #[test]
+    fn preference_mappings_cover_whitelist_and_defaults() {
+        let defaults = PlayerPreferences::default();
+        let immediate = immediate_property_writes(&defaults);
+        assert!(immediate.contains(&("deinterlace", "auto".into())));
+        assert!(immediate.contains(&("audio-channels", "auto-safe".into())));
+        assert!(immediate.contains(&("sub-scale", "1".into())));
+        assert!(immediate.contains(&("sub-ass-override", "no".into())));
+        // Defaults write no HDR, audio-device or font entries.
+        assert!(immediate.iter().all(|(name, _)| {
+            !matches!(
+                *name,
+                "tone-mapping" | "target-colorspace-hint" | "audio-device" | "sub-font"
+            )
+        }));
+
+        let mut custom = defaults.clone();
+        custom.hdr = "sdr".into();
+        custom.audio_device = Some("wasapi/{guid}".into());
+        custom.subtitle_font = "Microsoft YaHei".into();
+        custom.subtitle_ass_override = true;
+        custom.channel_layout = "stereo".into();
+        let immediate = immediate_property_writes(&custom);
+        assert!(immediate.contains(&("tone-mapping", "bt.2390".into())));
+        assert!(immediate.contains(&("audio-device", "wasapi/{guid}".into())));
+        assert!(immediate.contains(&("sub-font", "Microsoft YaHei".into())));
+        assert!(immediate.contains(&("sub-ass-override", "yes".into())));
+        assert!(immediate.contains(&("audio-channels", "stereo".into())));
+
+        custom.hdr = "passthrough".into();
+        assert!(
+            immediate_property_writes(&custom).contains(&("target-colorspace-hint", "yes".into()))
+        );
+
+        let next_load = next_load_property_writes(&defaults);
+        assert!(next_load.contains(&("network-timeout", "30".into())));
+        assert!(next_load.contains(&("sub-delay", "0".into())));
+        assert!(next_load
+            .iter()
+            .all(|(name, _)| !matches!(*name, "slang" | "alang")));
+        let mut languages = defaults.clone();
+        languages.subtitle_language = "chi,eng".into();
+        languages.audio_language = "jpn".into();
+        languages.network_timeout = 90;
+        let next_load = next_load_property_writes(&languages);
+        assert!(next_load.contains(&("slang", "chi,eng".into())));
+        assert!(next_load.contains(&("alang", "jpn".into())));
+        assert!(next_load.contains(&("network-timeout", "90".into())));
+    }
+
+    #[test]
+    fn open_options_cover_hardware_decoding_and_cache_presets() {
+        let mut prefs = PlayerPreferences::default();
+        assert_eq!(open_options(&prefs), vec![("hwdec", "auto-safe".into())]);
+        prefs.cache_profile = "low-latency".into();
+        assert!(open_options(&prefs).contains(&("cache", "no".into())));
+        prefs.cache_profile = "stable".into();
+        let options = open_options(&prefs);
+        assert!(options.contains(&("cache", "yes".into())));
+        assert!(options.contains(&("cache-secs", "120".into())));
+        prefs.hardware_decoding = "auto".into();
+        assert!(open_options(&prefs).contains(&("hwdec", "auto".into())));
     }
 
     #[test]
