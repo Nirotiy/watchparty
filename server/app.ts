@@ -9,6 +9,7 @@ import { loadConfig, type AppConfig } from "./config.ts";
 import { registerCoreHttp } from "./core/http/routes.ts";
 import {
   registerHandoffHttp,
+  registerDesktopLifecycleHttp,
   registerNativeClientHttp,
   registerNativeHandoffHttp,
 } from "./core/http/native-routes.ts";
@@ -97,6 +98,7 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
 
   registerCoreHttp(app, registry, cfg, media);
   registerHandoffHttp(app, registry);
+  registerDesktopLifecycleHttp(app, registry);
   registerNativeHandoffHttp(app, registry, "mpv");
   registerNativeHandoffHttp(app, registry, "desktop");
   registerNativeClientHttp(app, registry, media, "mpv");

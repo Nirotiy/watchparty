@@ -11,6 +11,8 @@ export interface DesktopSettingsStatus {
   credentialsConfigured: boolean
 }
 
+export interface DesktopRoomResult { roomId: string }
+
 interface DesktopStateEvent {
   type: "state"
   state: DesktopUiState
@@ -49,6 +51,18 @@ export function executeRoomCommand(command: DesktopCommand): Promise<CommandAck>
 
 export function stopDesktopSession(): Promise<void> {
   return invoke("stopDesktopSession")
+}
+
+export function createDesktopRoom(input: { nickname: string; pin?: string }): Promise<DesktopRoomResult> {
+  return invoke("createDesktopRoom", { input })
+}
+
+export function accessDesktopRoom(input: { roomId: string; nickname: string; pin?: string }): Promise<DesktopRoomResult> {
+  return invoke("accessDesktopRoom", { input })
+}
+
+export function restoreDesktopSession(): Promise<boolean> {
+  return invoke("restoreDesktopSession")
 }
 
 export function getDesktopSettings(): Promise<DesktopSettingsStatus> {

@@ -1,14 +1,17 @@
 use crate::{
     commands::validate_command,
     config::{
-        DesktopConfigStore, DesktopSettingsInput, DesktopSettingsStatus, SiteCredentialStore,
+        DesktopConfigStore, DesktopSettingsInput, DesktopSettingsStatus, RoomSessionStore,
+        SiteCredentialStore, StoredRoomSession,
     },
-    contracts::{CommandAck, DesktopCommand},
+    contracts::{CommandAck, DesktopCommand, MediaSource},
     http::DesktopHttpTransport,
     launch::DesktopLaunch,
     libmpv::LibMpvConfig,
     runtime::{DesktopRuntime, NativeRuntimeConfig, NativeSiteCredentials, RuntimeError},
+    transport::RoomTransport,
 };
+use serde::Deserialize;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -24,6 +27,7 @@ pub struct TauriDesktopState {
     player: LibMpvConfig,
     config_store: DesktopConfigStore,
     credential_store: SiteCredentialStore,
+    room_store: RoomSessionStore,
     shutdown_started: AtomicBool,
     /// Latest accepted deep-link launch. Persisted here so the renderer can
     /// replay it after its event listeners register (cold-start deep links are
@@ -37,6 +41,7 @@ impl TauriDesktopState {
         configured: bool,
         config_store: DesktopConfigStore,
         credential_store: SiteCredentialStore,
+        room_store: RoomSessionStore,
         app_handle: AppHandle,
         player: LibMpvConfig,
     ) -> Self {
@@ -48,6 +53,7 @@ impl TauriDesktopState {
             player,
             config_store,
             credential_store,
+            room_store,
             shutdown_started: AtomicBool::new(false),
             launch: Mutex::new(None),
         }
@@ -90,7 +96,10 @@ impl TauriDesktopState {
             .transpose()?;
         let config = NativeRuntimeConfig::with_player(origin, credentials, self.player.clone())?;
         let app_handle = self.app_handle.clone();
+        let room_store = self.room_store;
+        let room_origin = settings.backend_origin.clone();
         DesktopRuntime::spawn(config, move |event| {
+            clear_expired_room(&room_store, room_origin.as_deref(), &event);
             let _ = app_handle.emit(crate::commands::DESKTOP_STATE_EVENT, event);
         })
     }
@@ -167,6 +176,33 @@ impl TauriDesktopState {
     }
 }
 
+pub(crate) fn clear_expired_room(
+    store: &RoomSessionStore,
+    origin: Option<&str>,
+    event: &crate::contracts::DesktopEvent,
+) {
+    let expired = matches!(event, crate::contracts::DesktopEvent::State { state } if state.error.as_ref().is_some_and(|error| error.code == "SESSION_EXPIRED" || error.code == "ROOM_NOT_FOUND"));
+    if expired {
+        if let Some(origin) = origin {
+            let _ = store.clear(origin);
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopRoomInput {
+    pub nickname: String,
+    pub pin: Option<String>,
+    pub initial_media: Option<MediaSource>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopRoomResult {
+    pub room_id: String,
+}
+
 #[tauri::command(rename = "startDesktopSession")]
 pub async fn start_desktop_session(
     ticket: String,
@@ -177,6 +213,172 @@ pub async fn start_desktop_session(
     tauri::async_runtime::spawn_blocking(move || runtime.start(ticket, expected_room_id))
         .await
         .map_err(|_| RuntimeError::runtime_unavailable())?
+}
+
+fn transport_for_settings(
+    state: &TauriDesktopState,
+    settings: &crate::config::DesktopSettings,
+) -> Result<DesktopHttpTransport, RuntimeError> {
+    let origin = settings
+        .backend_origin
+        .clone()
+        .ok_or_else(RuntimeError::not_configured)?;
+    match state.credential_store.read(&origin) {
+        Ok(Some(credentials)) => {
+            let (username, password) = credentials.into_parts();
+            DesktopHttpTransport::with_site_basic_auth(origin, username, password)
+                .map_err(|_| RuntimeError::configuration_error())
+        }
+        Ok(None) => {
+            DesktopHttpTransport::new(origin).map_err(|_| RuntimeError::configuration_error())
+        }
+        Err(_) => Err(RuntimeError::credential_error()),
+    }
+}
+
+fn settings_for_state(
+    state: &TauriDesktopState,
+) -> Result<crate::config::DesktopSettings, RuntimeError> {
+    state
+        .config_store
+        .load()
+        .map_err(|_| RuntimeError::configuration_error())
+}
+
+fn persist_and_start(
+    state: &TauriDesktopState,
+    settings: &crate::config::DesktopSettings,
+    session: StoredRoomSession,
+) -> Result<DesktopRoomResult, RuntimeError> {
+    let origin = settings
+        .backend_origin
+        .as_deref()
+        .ok_or_else(RuntimeError::not_configured)?;
+    let (room_id, client_id, token, owner_token, _generation) = session.parts();
+    state
+        .room_store
+        .write(origin, &session)
+        .map_err(|_| RuntimeError::credential_error())?;
+    let runtime = state.runtime()?;
+    let start_result = runtime.start_persisted(
+        room_id.to_owned(),
+        client_id.to_owned(),
+        token.to_owned(),
+        owner_token.map(str::to_owned),
+    );
+    if start_result.is_err() {
+        let _ = state.room_store.clear(origin);
+    }
+    start_result.map(|()| DesktopRoomResult {
+        room_id: room_id.to_owned(),
+    })
+}
+
+#[tauri::command(rename = "createDesktopRoom")]
+pub async fn create_desktop_room(
+    input: DesktopRoomInput,
+    app: AppHandle,
+) -> Result<DesktopRoomResult, RuntimeError> {
+    configuration_task(app, move |state| {
+        let settings = settings_for_state(state)?;
+        let origin = settings
+            .backend_origin
+            .as_deref()
+            .ok_or_else(RuntimeError::not_configured)?;
+        let client_id = uuid::Uuid::new_v4().to_string();
+        let mut transport = transport_for_settings(state, &settings)?;
+        let handoff = transport
+            .create_desktop(
+                &client_id,
+                &input.nickname,
+                input.pin.as_deref(),
+                input.initial_media.as_ref(),
+            )
+            .map_err(|error| RuntimeError::from_transport(&error))?;
+        let session = StoredRoomSession::new(
+            handoff.room_id,
+            handoff.client_id,
+            handoff.access_token,
+            handoff.owner_token,
+            handoff.generation,
+        )
+        .map_err(|_| RuntimeError::configuration_error())?;
+        let _ = origin;
+        persist_and_start(state, &settings, session)
+    })
+    .await
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopAccessInput {
+    pub room_id: String,
+    pub nickname: String,
+    pub pin: Option<String>,
+}
+
+#[tauri::command(rename = "accessDesktopRoom")]
+pub async fn access_desktop_room(
+    input: DesktopAccessInput,
+    app: AppHandle,
+) -> Result<DesktopRoomResult, RuntimeError> {
+    configuration_task(app, move |state| {
+        let settings = settings_for_state(state)?;
+        let origin = settings
+            .backend_origin
+            .as_deref()
+            .ok_or_else(RuntimeError::not_configured)?;
+        let existing = state
+            .room_store
+            .read(origin)
+            .map_err(|_| RuntimeError::credential_error())?;
+        let client_id = existing
+            .as_ref()
+            .map(|session| session.parts().1.to_owned())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let mut transport = transport_for_settings(state, &settings)?;
+        let token = transport
+            .access_desktop(
+                &input.room_id,
+                &client_id,
+                &input.nickname,
+                input.pin.as_deref(),
+            )
+            .map_err(|error| RuntimeError::from_transport(&error))?;
+        let session = StoredRoomSession::new(input.room_id, client_id, token, None, 1)
+            .map_err(|_| RuntimeError::configuration_error())?;
+        persist_and_start(state, &settings, session)
+    })
+    .await
+}
+
+#[tauri::command(rename = "restoreDesktopSession")]
+pub async fn restore_desktop_session(app: AppHandle) -> Result<bool, RuntimeError> {
+    configuration_task(app, move |state| {
+        let settings = settings_for_state(state)?;
+        let Some(origin) = settings.backend_origin.as_deref() else {
+            return Ok(false);
+        };
+        let session = match state.room_store.read(origin) {
+            Ok(session) => session,
+            Err(_) => {
+                let _ = state.room_store.clear(origin);
+                return Ok(false);
+            }
+        };
+        let Some(session) = session else {
+            return Ok(false);
+        };
+        let (room_id, client_id, token, owner_token, _generation) = session.parts();
+        state.runtime()?.start_persisted(
+            room_id.to_owned(),
+            client_id.to_owned(),
+            token.to_owned(),
+            owner_token.map(str::to_owned),
+        )?;
+        Ok(true)
+    })
+    .await
 }
 
 /// Replays the latest deep-link launch. The renderer calls this right after
@@ -278,6 +480,13 @@ pub async fn stop_desktop_session(state: State<'_, TauriDesktopState>) -> Result
     let result = tauri::async_runtime::spawn_blocking(move || runtime.stop_session())
         .await
         .map_err(|_| RuntimeError::runtime_unavailable())?;
+    if result.is_ok() {
+        if let Ok(settings) = state.config_store.load() {
+            if let Some(origin) = settings.backend_origin.as_deref() {
+                let _ = state.room_store.clear(origin);
+            }
+        }
+    }
     result
 }
 
@@ -331,6 +540,12 @@ pub async fn update_desktop_settings(
             .write_atomically(&settings)
             .map_err(|_| RuntimeError::configuration_error())?;
         if changed {
+            if let Some(origin) = previous.backend_origin.as_deref() {
+                let _ = state.room_store.clear(origin);
+            }
+            if let Some(origin) = settings.backend_origin.as_deref() {
+                let _ = state.room_store.clear(origin);
+            }
             state.replace_runtime(replacement, settings.backend_origin.is_some());
         }
         let result = state.settings_status()?;
@@ -352,6 +567,7 @@ pub async fn clear_site_credentials(app: AppHandle) -> Result<DesktopSettingsSta
                 .credential_store
                 .clear(origin)
                 .map_err(|_| RuntimeError::credential_error())?;
+            let _ = state.room_store.clear(origin);
         }
         state.rebuild_runtime(&settings)?;
         state.settings_status()
@@ -388,6 +604,7 @@ pub async fn prompt_site_credentials(
         if !stored {
             return Ok(None);
         }
+        let _ = state.room_store.clear(origin);
         state.rebuild_runtime(&settings)?;
         state.settings_status().map(Some)
     })

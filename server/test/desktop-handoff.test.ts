@@ -155,6 +155,49 @@ test("desktop handoff issues a separate identity and exposes one typed member", 
   );
 });
 
+test("desktop lifecycle creates a native identity without browser handoff", async () => {
+  const backend = await boot();
+  const clientId = randomUUID();
+  const headers = {
+    "x-watchparty-client-type": "desktop",
+    "x-watchparty-protocol": "2",
+    "content-type": "application/json",
+  };
+  const createdResponse = await fetch(url(backend, "/api/desktop/rooms"), {
+    method: "POST", headers,
+    body: JSON.stringify({ clientId, nickname: "Native", pin: "1234" }),
+  });
+  assert.equal(createdResponse.status, 200);
+  const created = await createdResponse.json() as {
+    roomId: string; clientId: string; accessToken: string; ownerToken: string;
+    clientType: string; sessionGeneration: number;
+  };
+  assert.equal(created.clientId, clientId);
+  assert.equal(created.clientType, "desktop");
+  assert.equal(created.sessionGeneration, 1);
+  assert.ok(created.ownerToken);
+  assert.equal(backend.registry.get(created.roomId)?.memberClientType(clientId), "desktop");
+
+  const guestId = randomUUID();
+  const accessResponse = await fetch(url(backend, `/api/desktop/rooms/${created.roomId}/access`), {
+    method: "POST", headers,
+    body: JSON.stringify({ clientId: guestId, nickname: "Guest", pin: "1234" }),
+  });
+  assert.equal(accessResponse.status, 200);
+  const access = await accessResponse.json() as { accessToken: string; clientType: string };
+  assert.equal(access.clientType, "desktop");
+  assert.ok(access.accessToken);
+
+  const claimResponse = await fetch(url(backend, `/api/rooms/${created.roomId}/desktop/session`), {
+    method: "POST",
+    headers: { ...headers, "x-watchparty-token": access.accessToken },
+  });
+  assert.equal(claimResponse.status, 200);
+  const claim = await claimResponse.json() as { sessionGeneration: number };
+  assert.equal(claim.sessionGeneration, 1);
+  assert.equal(backend.registry.get(created.roomId)?.memberClientType(guestId), "desktop");
+});
+
 test("desktop and MPV identities cannot cross native routes or handoff targets", async () => {
   const backend = await boot();
   const created = await createRoom(backend);

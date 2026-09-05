@@ -4583,6 +4583,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-deep-link",
  "tauri-plugin-single-instance",
+ "uuid",
  "windows-sys 0.61.2",
  "zeroize",
 ]

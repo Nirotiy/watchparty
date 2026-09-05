@@ -4,12 +4,15 @@ import { isTauri } from "@tauri-apps/api/core"
 import type { DesktopCommand, DesktopUiState } from "@/lib/contracts"
 import {
   currentDesktopLaunch,
+  accessDesktopRoom,
+  createDesktopRoom,
   errorMessage,
   executeRoomCommand,
   listenForLaunch,
   listenForState,
   listenForSessionReset,
   startDesktopSession,
+  restoreDesktopSession,
   stopDesktopSession,
 } from "@/lib/ipc"
 
@@ -67,6 +70,7 @@ export function useDesktopSession() {
         unlisteners.push(...subscriptions)
         // Replay any deep link that fired before these listeners registered.
         try {
+          await restoreDesktopSession()
           const launch = await currentDesktopLaunch()
           if (launch && !disposed) applyLaunch(launch.roomId)
         } catch (error: unknown) {
@@ -117,6 +121,30 @@ export function useDesktopSession() {
     }
   }, [])
 
+  const createRoom = useCallback(async (nickname: string, pin?: string) => {
+    setStarting(true)
+    try {
+      await createDesktopRoom({ nickname, ...(pin ? { pin } : {}) })
+      setStatus({ text: "房间已创建，正在载入", tone: "ready" })
+      return true
+    } catch (error) {
+      setStatus({ text: errorMessage(error, "无法创建房间"), tone: "error" })
+      return false
+    } finally { setStarting(false) }
+  }, [])
+
+  const accessRoom = useCallback(async (roomId: string, nickname: string, pin?: string) => {
+    setStarting(true)
+    try {
+      await accessDesktopRoom({ roomId, nickname, ...(pin ? { pin } : {}) })
+      setStatus({ text: "已加入房间，正在载入", tone: "ready" })
+      return true
+    } catch (error) {
+      setStatus({ text: errorMessage(error, "无法加入房间"), tone: "error" })
+      return false
+    } finally { setStarting(false) }
+  }, [])
+
   const stop = useCallback(async () => {
     try {
       await stopDesktopSession()
@@ -129,5 +157,5 @@ export function useDesktopSession() {
     }
   }, [])
 
-  return { command, launchRoomId, setStatus, start, starting, state, status, stop }
+  return { accessRoom, command, createRoom, launchRoomId, setStatus, start, starting, state, status, stop }
 }

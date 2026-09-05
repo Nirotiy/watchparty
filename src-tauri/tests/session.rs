@@ -60,6 +60,7 @@ impl RoomTransport for FakeTransport {
             generation: 1,
             snapshot: snapshot(1, "i1"),
             members: vec![],
+            owner_token: None,
         })
     }
     fn claim_session(&mut self, _: &str, _: &str) -> Result<u64, TransportError> {

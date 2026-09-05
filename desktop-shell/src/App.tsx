@@ -174,6 +174,8 @@ export default function App() {
                 roomId={activeRoomId}
                 starting={session.starting}
                 onStart={session.start}
+                onCreate={session.createRoom}
+                onAccess={session.accessRoom}
                 onReturn={() => void navigate("room")}
               />
             ) : view === "media" ? (
@@ -249,8 +251,11 @@ function SectionTitle({ children, detail }: { children: string; detail: string }
   return <h1 className="text-sm font-semibold text-foreground">{children}<span className="ml-2 text-xs font-normal text-muted-foreground">{detail}</span></h1>
 }
 
-function HomeView({ state, roomId, starting, onStart, onReturn }: { state: ReturnType<typeof useDesktopSession>["state"]; roomId: string | null; starting: boolean; onStart: (ticket: string) => Promise<boolean>; onReturn: () => void }) {
+function HomeView({ state, roomId, starting, onStart, onCreate, onAccess, onReturn }: { state: ReturnType<typeof useDesktopSession>["state"]; roomId: string | null; starting: boolean; onStart: (ticket: string) => Promise<boolean>; onCreate: (nickname: string, pin?: string) => Promise<boolean>; onAccess: (roomId: string, nickname: string, pin?: string) => Promise<boolean>; onReturn: () => void }) {
   const room = state?.room
+  const [nickname, setNickname] = useState("")
+  const [pin, setPin] = useState("")
+  const [joinRoomId, setJoinRoomId] = useState("")
   return (
     <div className="mx-auto min-h-full w-full max-w-[1040px] px-8 py-8">
       <SectionTitle detail={state ? "房间仍存活" : "等待网页交接"}>继续观看</SectionTitle>
@@ -261,7 +266,22 @@ function HomeView({ state, roomId, starting, onStart, onReturn }: { state: Retur
           <Button size="sm" onClick={onReturn}>返回房间</Button>
         </section>
       ) : <p className="mt-3 text-xs text-muted-foreground">尚未连接房间。请从网页端生成一次性交接码。</p>}
-      {!state ? <SessionGate roomId={roomId} starting={starting} onStart={onStart} /> : (
+      {!state ? <>
+        <SessionGate roomId={roomId} starting={starting} onStart={onStart} />
+        <section className="mt-5 max-w-[680px] border-y border-border/80 py-4">
+          <p className="text-xs font-semibold">独立桌面会话</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">桌面端直接建房或输入房号加入，令牌只保存在本机凭据库。</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <Input value={nickname} onChange={(event) => setNickname(event.target.value)} placeholder="昵称" aria-label="桌面昵称" className="h-9 text-xs" />
+            <Input value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="PIN（可选，4 位）" inputMode="numeric" aria-label="房间 PIN" className="h-9 text-xs" />
+            <Input value={joinRoomId} onChange={(event) => setJoinRoomId(event.target.value.trim())} placeholder="房号，例如 room-abc123" aria-label="要加入的房号" className="h-9 text-xs sm:col-span-2" />
+          </div>
+          <div className="mt-3 flex gap-2">
+            <Button size="sm" disabled={starting || !nickname.trim() || Boolean(pin && pin.length !== 4)} onClick={() => void onCreate(nickname.trim(), pin || undefined)}>创建房间</Button>
+            <Button size="sm" variant="outline" disabled={starting || !joinRoomId || !nickname.trim() || Boolean(pin && pin.length !== 4)} onClick={() => void onAccess(joinRoomId, nickname.trim(), pin || undefined)}>加入房间</Button>
+          </div>
+        </section>
+      </> : (
         <div className="mt-5 flex max-w-[680px] gap-2"><Input disabled value={`watchparty://${roomId ?? "room"}`} aria-label="当前房间地址" className="h-9 font-mono text-xs disabled:opacity-75" /><Button variant="outline" disabled>加入或开播</Button></div>
       )}
       <div className="mt-8"><SectionTitle detail="本地历史尚未接入">最近播放</SectionTitle><EmptyPosterGrid label="暂无播放记录" /></div>

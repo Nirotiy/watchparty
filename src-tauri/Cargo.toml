@@ -14,6 +14,7 @@ serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 tauri = { version = "2", features = ["unstable"] }
 zeroize = "1"
+uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-deep-link = "2"

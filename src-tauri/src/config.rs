@@ -9,6 +9,7 @@ use zeroize::Zeroize;
 
 const SETTINGS_FILE: &str = "settings.json";
 const CREDENTIAL_TARGET_PREFIX: &str = "WatchParty/site-basic/";
+const ROOM_CREDENTIAL_TARGET_PREFIX: &str = "WatchParty/room-session/";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -272,9 +273,124 @@ impl SiteCredentialStore {
     }
 }
 
+/// Native room identity kept in Windows Credential Manager. It is never sent
+/// over IPC; the renderer only observes the resulting session state.
+pub struct StoredRoomSession {
+    pub(crate) room_id: String,
+    pub(crate) client_id: String,
+    pub(crate) access_token: String,
+    pub(crate) owner_token: Option<String>,
+    pub(crate) generation: u64,
+}
+
+impl StoredRoomSession {
+    pub(crate) fn new(
+        room_id: String,
+        client_id: String,
+        access_token: String,
+        owner_token: Option<String>,
+        generation: u64,
+    ) -> Result<Self, ConfigError> {
+        if room_id.is_empty() || client_id.is_empty() || access_token.is_empty() || generation == 0
+        {
+            return Err(ConfigError::Invalid);
+        }
+        Ok(Self {
+            room_id,
+            client_id,
+            access_token,
+            owner_token,
+            generation,
+        })
+    }
+    pub(crate) fn parts(&self) -> (&str, &str, &str, Option<&str>, u64) {
+        (
+            self.room_id.as_str(),
+            self.client_id.as_str(),
+            self.access_token.as_str(),
+            self.owner_token.as_deref(),
+            self.generation,
+        )
+    }
+}
+
+impl Drop for StoredRoomSession {
+    fn drop(&mut self) {
+        self.room_id.zeroize();
+        self.client_id.zeroize();
+        self.access_token.zeroize();
+        if let Some(owner) = self.owner_token.as_mut() {
+            owner.zeroize();
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RoomSessionBlob {
+    room_id: String,
+    client_id: String,
+    access_token: String,
+    owner_token: Option<String>,
+    generation: u64,
+}
+
+#[derive(Clone, Copy)]
+pub struct RoomSessionStore;
+
+impl RoomSessionStore {
+    pub fn read(&self, backend_origin: &str) -> Result<Option<StoredRoomSession>, ConfigError> {
+        let blob = platform::read_blob(room_credential_target(backend_origin)?.as_str())?;
+        let Some((_username, bytes)) = blob else {
+            return Ok(None);
+        };
+        let decoded: RoomSessionBlob =
+            serde_json::from_slice(&bytes).map_err(|_| ConfigError::CredentialOperation)?;
+        StoredRoomSession::new(
+            decoded.room_id,
+            decoded.client_id,
+            decoded.access_token,
+            decoded.owner_token,
+            decoded.generation,
+        )
+        .map(Some)
+    }
+
+    pub fn write(
+        &self,
+        backend_origin: &str,
+        session: &StoredRoomSession,
+    ) -> Result<(), ConfigError> {
+        let (room_id, client_id, access_token, owner_token, generation) = session.parts();
+        let blob = serde_json::to_vec(&RoomSessionBlob {
+            room_id: room_id.into(),
+            client_id: client_id.into(),
+            access_token: access_token.into(),
+            owner_token: owner_token.map(str::to_owned),
+            generation,
+        })?;
+        platform::write_blob(
+            room_credential_target(backend_origin)?.as_str(),
+            "WatchParty Desktop",
+            &blob,
+        )
+    }
+
+    pub fn clear(&self, backend_origin: &str) -> Result<(), ConfigError> {
+        platform::clear(room_credential_target(backend_origin)?.as_str())
+    }
+}
+
 fn credential_target(backend_origin: &str) -> Result<String, ConfigError> {
     Ok(format!(
         "{CREDENTIAL_TARGET_PREFIX}{}",
+        validate_backend_origin(backend_origin)?
+    ))
+}
+
+fn room_credential_target(backend_origin: &str) -> Result<String, ConfigError> {
+    Ok(format!(
+        "{ROOM_CREDENTIAL_TARGET_PREFIX}{}",
         validate_backend_origin(backend_origin)?
     ))
 }
@@ -317,6 +433,14 @@ mod platform {
     }
 
     pub fn read(target: &str) -> Result<Option<StoredSiteCredentials>, ConfigError> {
+        let Some((username, bytes)) = read_blob(target)? else {
+            return Ok(None);
+        };
+        let password = String::from_utf8(bytes).map_err(|_| ConfigError::CredentialOperation)?;
+        Ok(Some(StoredSiteCredentials { username, password }))
+    }
+
+    pub fn read_blob(target: &str) -> Result<Option<(String, Vec<u8>)>, ConfigError> {
         let target = wide(target);
         let mut credential = ptr::null_mut();
         if unsafe { CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut credential) } == 0 {
@@ -331,13 +455,12 @@ mod platform {
                 return Err(ConfigError::CredentialOperation);
             }
             let username = string_from_wide(credential.UserName)?;
-            let password = std::str::from_utf8(std::slice::from_raw_parts(
+            let bytes = std::slice::from_raw_parts(
                 credential.CredentialBlob,
                 credential.CredentialBlobSize as usize,
-            ))
-            .map_err(|_| ConfigError::CredentialOperation)?
-            .to_owned();
-            Ok(Some(StoredSiteCredentials { username, password }))
+            )
+            .to_vec();
+            Ok(Some((username, bytes)))
         })();
         unsafe { CredFree(credential.cast()) };
         result
@@ -389,7 +512,7 @@ mod platform {
                 secret.zeroize();
                 return Err(ConfigError::Invalid);
             }
-            let result = write(target, &user, &secret);
+            let result = write_blob(target, &user, secret.as_bytes());
             user.zeroize();
             secret.zeroize();
             result
@@ -410,11 +533,11 @@ mod platform {
         }
     }
 
-    fn write(target: &str, username: &str, password: &str) -> Result<(), ConfigError> {
+    pub fn write_blob(target: &str, username: &str, blob: &[u8]) -> Result<(), ConfigError> {
         let mut target = wide(target);
         let mut username = wide(username);
-        let mut password = password.as_bytes().to_vec();
-        if password.len() > 512 {
+        let mut password = blob.to_vec();
+        if password.len() > 16 * 1024 {
             password.zeroize();
             return Err(ConfigError::Invalid);
         }
@@ -474,6 +597,12 @@ mod platform {
     }
 
     pub fn read(_target: &str) -> Result<Option<StoredSiteCredentials>, ConfigError> {
+        Err(ConfigError::CredentialUnavailable)
+    }
+    pub fn read_blob(_target: &str) -> Result<Option<(String, Vec<u8>)>, ConfigError> {
+        Err(ConfigError::CredentialUnavailable)
+    }
+    pub fn write_blob(_target: &str, _username: &str, _blob: &[u8]) -> Result<(), ConfigError> {
         Err(ConfigError::CredentialUnavailable)
     }
 

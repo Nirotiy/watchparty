@@ -29,6 +29,7 @@ pub struct DesktopSession<T: RoomTransport, P: PlayerEngine> {
     pub status: SessionStatus,
     room_id: Option<String>,
     token: Option<String>,
+    owner_token: Option<String>,
     client_id: Option<String>,
     generation: u64,
     load_generation: u64,
@@ -56,6 +57,7 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
             status: SessionStatus::New,
             room_id: None,
             token: None,
+            owner_token: None,
             client_id: None,
             generation: 0,
             load_generation: 0,
@@ -92,6 +94,7 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
         }
         self.room_id = Some(handoff.room_id);
         self.token = Some(handoff.access_token);
+        self.owner_token = handoff.owner_token;
         self.client_id = Some(handoff.client_id);
         self.generation = handoff.generation;
         self.revision = None;
@@ -132,6 +135,59 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
             self.handle_transport_error(&error, now);
             return Err(error);
         }
+        Ok(vec![self.event()])
+    }
+
+    /// Restores a persisted desktop identity. The server claims a fresh
+    /// generation so delayed requests from the previous process are stale.
+    pub fn start_persisted(
+        &mut self,
+        room_id: String,
+        client_id: String,
+        token: String,
+        owner_token: Option<String>,
+        now: i64,
+    ) -> Result<Vec<DesktopEvent>, TransportError> {
+        self.status = SessionStatus::Connecting;
+        self.last_error = None;
+        let generation = match self.transport.claim_session(&room_id, &token) {
+            Ok(value) => value,
+            Err(error) => {
+                self.handle_transport_error(&error, now);
+                return Err(error);
+            }
+        };
+        let response = match self.transport.snapshot(&room_id, &token, generation, None) {
+            Ok(value) => value,
+            Err(error) => {
+                self.handle_transport_error(&error, now);
+                return Err(error);
+            }
+        };
+        let snapshot = response
+            .snapshot
+            .ok_or_else(|| TransportError::Protocol("room snapshot is unavailable".into()))?;
+        self.room_id = Some(room_id);
+        self.client_id = Some(client_id);
+        self.token = Some(token);
+        self.owner_token = owner_token;
+        self.generation = generation;
+        self.revision = None;
+        self.snapshot = None;
+        self.members.clear();
+        self.status = SessionStatus::Ready;
+        self.attempt = 0;
+        self.retry_at = now;
+        self.update_clock(&snapshot, response.timing, now);
+        self.refresh_members().map_err(|error| {
+            self.handle_transport_error(&error, now);
+            error
+        })?;
+        self.last_members_refresh_at = now;
+        self.apply_snapshot(snapshot, now).map_err(|error| {
+            self.handle_transport_error(&error, now);
+            error
+        })?;
         Ok(vec![self.event()])
     }
 
@@ -398,6 +454,7 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
         self.transport.clear_site_basic_auth();
         self.status = SessionStatus::Stopped;
         self.token = None;
+        self.owner_token = None;
         self.room_id = None;
         self.client_id = None;
         self.snapshot = None;
@@ -459,9 +516,10 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
                 room_id: self.room_id.clone(),
                 room: self.snapshot.clone(),
                 members: self.members.clone(),
-                can_control_shared_playback: self.snapshot.as_ref().is_some_and(|snapshot| {
-                    !snapshot.locked || is_owner
-                }),
+                can_control_shared_playback: self
+                    .snapshot
+                    .as_ref()
+                    .is_some_and(|snapshot| !snapshot.locked || is_owner),
                 is_owner,
                 player_window_visible: player.loaded && !self.locally_suspended,
                 player,

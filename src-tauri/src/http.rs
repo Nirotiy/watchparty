@@ -214,6 +214,63 @@ impl RoomTransport for DesktopHttpTransport {
         .ok_or_else(|| TransportError::Protocol("empty handoff response".into()))
     }
 
+    fn create_desktop(
+        &mut self,
+        client_id: &str,
+        nickname: &str,
+        pin: Option<&str>,
+        initial_media: Option<&MediaSource>,
+    ) -> Result<Handoff, TransportError> {
+        let mut body = serde_json::json!({ "clientId": client_id, "nickname": nickname });
+        if let Some(pin) = pin {
+            body["pin"] = serde_json::Value::String(pin.into());
+        }
+        if let Some(media) = initial_media {
+            body["initialMedia"] = serde_json::to_value(media)
+                .map_err(|_| TransportError::Protocol("invalid initial media".into()))?;
+        }
+        self.request(
+            self.headers(
+                self.client
+                    .post(format!("{}/api/desktop/rooms", self.base_url))
+                    .json(&body),
+                None,
+            ),
+        )?
+        .ok_or_else(|| TransportError::Protocol("empty desktop create response".into()))
+    }
+
+    fn access_desktop(
+        &mut self,
+        room_id: &str,
+        client_id: &str,
+        nickname: &str,
+        pin: Option<&str>,
+    ) -> Result<String, TransportError> {
+        let mut body = serde_json::json!({ "clientId": client_id, "nickname": nickname });
+        if let Some(pin) = pin {
+            body["pin"] = serde_json::Value::String(pin.into());
+        }
+        let value: serde_json::Value = self
+            .request(
+                self.headers(
+                    self.client
+                        .post(format!(
+                            "{}/api/desktop/rooms/{room_id}/access",
+                            self.base_url
+                        ))
+                        .json(&body),
+                    None,
+                ),
+            )?
+            .ok_or_else(|| TransportError::Protocol("empty desktop access response".into()))?;
+        value
+            .get("accessToken")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| TransportError::Protocol("missing desktop access token".into()))
+    }
+
     fn claim_session(&mut self, room: &str, token: &str) -> Result<u64, TransportError> {
         let request = self.headers(
             self.client.post(format!(

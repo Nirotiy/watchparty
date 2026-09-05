@@ -21,6 +21,8 @@ pub struct Handoff {
     pub snapshot: RoomSnapshot,
     #[serde(default)]
     pub members: Vec<RoomMember>,
+    #[serde(default)]
+    pub owner_token: Option<String>,
 }
 
 #[derive(PartialEq, serde::Deserialize)]
@@ -45,6 +47,30 @@ pub struct SnapshotResponse {
 
 pub trait RoomTransport {
     fn redeem_desktop(&mut self, ticket: &str) -> Result<Handoff, TransportError>;
+    fn create_desktop(
+        &mut self,
+        client_id: &str,
+        nickname: &str,
+        pin: Option<&str>,
+        initial_media: Option<&MediaSource>,
+    ) -> Result<Handoff, TransportError> {
+        let _ = (client_id, nickname, pin, initial_media);
+        Err(TransportError::Protocol(
+            "desktop create is unavailable".into(),
+        ))
+    }
+    fn access_desktop(
+        &mut self,
+        room_id: &str,
+        client_id: &str,
+        nickname: &str,
+        pin: Option<&str>,
+    ) -> Result<String, TransportError> {
+        let _ = (room_id, client_id, nickname, pin);
+        Err(TransportError::Protocol(
+            "desktop access is unavailable".into(),
+        ))
+    }
     fn claim_session(&mut self, room_id: &str, token: &str) -> Result<u64, TransportError>;
     fn snapshot(
         &mut self,

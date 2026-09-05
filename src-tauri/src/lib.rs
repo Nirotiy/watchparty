@@ -13,11 +13,12 @@ pub mod transport;
 
 use crate::{
     commands::DESKTOP_STATE_EVENT,
-    config::{DesktopConfigStore, SiteCredentialStore},
+    config::{DesktopConfigStore, RoomSessionStore, SiteCredentialStore},
     libmpv::LibMpvConfig,
     runtime::{DesktopRuntime, NativeRuntimeConfig, NativeSiteCredentials},
     tauri_api::{
-        configure_main_window_for_native_surface, current_desktop_launch, execute_room_command,
+        access_desktop_room, clear_expired_room, configure_main_window_for_native_surface,
+        create_desktop_room, current_desktop_launch, execute_room_command, restore_desktop_session,
         start_desktop_session, stop_desktop_session, TauriDesktopState,
     },
 };
@@ -43,6 +44,9 @@ pub fn run() {
     builder
         .invoke_handler(tauri::generate_handler![
             start_desktop_session,
+            create_desktop_room,
+            access_desktop_room,
+            restore_desktop_session,
             execute_room_command,
             stop_desktop_session,
             current_desktop_launch,
@@ -67,6 +71,7 @@ pub fn run() {
                 .load()
                 .map_err(|_| "desktop settings could not be loaded")?;
             let credential_store = SiteCredentialStore;
+            let room_store = RoomSessionStore;
             let configured = settings.backend_origin.is_some();
             let app_handle = app.handle().clone();
             let runtime = if let Some(origin) = settings.backend_origin.clone() {
@@ -74,13 +79,17 @@ pub fn run() {
                     .backend_origin
                     .as_deref()
                     .map(|origin| credential_store.read(origin))
-                    .transpose().map_err(|_| "system credential store unavailable")?
+                    .transpose()
+                    .map_err(|_| "system credential store unavailable")?
                     .flatten()
                     .map(NativeSiteCredentials::from_stored)
                     .transpose()?;
                 let config = NativeRuntimeConfig::with_player(origin, credentials, player.clone())?;
                 let event_app_handle = app_handle.clone();
+                let event_room_store = room_store;
+                let event_origin = settings.backend_origin.clone();
                 Some(DesktopRuntime::spawn(config, move |event| {
+                    clear_expired_room(&event_room_store, event_origin.as_deref(), &event);
                     let _ = event_app_handle.emit(DESKTOP_STATE_EVENT, event);
                 })?)
             } else {
@@ -91,9 +100,39 @@ pub fn run() {
                 configured,
                 config_store,
                 credential_store,
+                room_store,
                 app_handle,
                 player,
             ));
+
+            // Restore the last desktop identity after the WebView and runtime
+            // are managed. Invalid/expired credentials are cleared atomically.
+            if let Some(origin) = settings.backend_origin.as_deref() {
+                match room_store.read(origin) {
+                    Ok(Some(session)) => {
+                        let (room_id, client_id, token, owner_token, _generation) = session.parts();
+                        let runtime = app.state::<TauriDesktopState>().runtime()?;
+                        let room_store_for_task = room_store;
+                        let origin_for_task = origin.to_owned();
+                        let room_id = room_id.to_owned();
+                        let client_id = client_id.to_owned();
+                        let token = token.to_owned();
+                        let owner_token = owner_token.map(str::to_owned);
+                        tauri::async_runtime::spawn_blocking(move || {
+                            if runtime
+                                .start_persisted(room_id, client_id, token, owner_token)
+                                .is_err()
+                            {
+                                let _ = room_store_for_task.clear(&origin_for_task);
+                            }
+                        });
+                    }
+                    Ok(None) => {}
+                    Err(_) => {
+                        let _ = room_store.clear(origin);
+                    }
+                }
+            }
 
             #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
             {

@@ -16,6 +16,7 @@ export type CreateRoomOptions = {
   nickname: string;
   pin?: string;
   initialMedia?: MediaSource;
+  clientType?: ClientType;
 };
 
 type TokenRecord = {
@@ -111,6 +112,8 @@ export class RoomRegistry {
     } satisfies RoomOptions);
     this.rooms.set(roomId, room);
 
+    const clientType = options.clientType ?? "browser";
+    const generation = clientType === "desktop" ? 1 : undefined;
     const access: RoomAccess = {
       accessTokens: new Map([
         [
@@ -118,7 +121,7 @@ export class RoomRegistry {
           {
             clientId: options.clientId,
             nickname: options.nickname.trim(),
-            clientType: "browser",
+            clientType,
           },
         ],
       ]),
@@ -128,6 +131,14 @@ export class RoomRegistry {
       desktopSessions: new Map(),
       desktopGenerationCounters: new Map(),
     };
+    if (generation !== undefined) {
+      access.desktopGenerationCounters.set(options.clientId, generation);
+      access.desktopSessions.set(options.clientId, {
+        generation,
+        lastSeen: this.now(),
+      });
+      room.join(options.clientId, options.nickname.trim(), "desktop");
+    }
     if (options.pin) {
       const salt = randomBytes(16);
       access.pinSalt = salt;
@@ -147,6 +158,7 @@ export class RoomRegistry {
     nickname: string,
     pin: string | undefined,
     ip: string,
+    clientType: ClientType = "browser",
   ): AccessResult {
     const room = this.rooms.get(roomId);
     const access = this.accessByRoom.get(roomId);
@@ -168,7 +180,7 @@ export class RoomRegistry {
     access.accessTokens.set(hashToken(token), {
       clientId,
       nickname: nickname.trim(),
-      clientType: "browser",
+      clientType,
     });
     return { ok: true, accessToken: token };
   }

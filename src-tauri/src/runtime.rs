@@ -214,7 +214,7 @@ impl RuntimeError {
         Self::from_transport(&TransportError::Http(500, body.into()))
     }
 
-    fn from_transport(error: &TransportError) -> Self {
+    pub(crate) fn from_transport(error: &TransportError) -> Self {
         match error {
             TransportError::Unauthorized => Self {
                 code: "SESSION_EXPIRED",
@@ -246,6 +246,14 @@ impl std::error::Error for RuntimeError {}
 
 trait ManagedSession: Send {
     fn start(&mut self, ticket: &str, now_ms: i64) -> Result<Vec<DesktopEvent>, TransportError>;
+    fn start_persisted(
+        &mut self,
+        room_id: String,
+        client_id: String,
+        token: String,
+        owner_token: Option<String>,
+        now_ms: i64,
+    ) -> Result<Vec<DesktopEvent>, TransportError>;
     /// The room this session actually joined once started; `None` before that.
     fn room_id(&self) -> Option<&str> {
         None
@@ -273,6 +281,17 @@ where
 {
     fn start(&mut self, ticket: &str, now_ms: i64) -> Result<Vec<DesktopEvent>, TransportError> {
         DesktopSession::start(self, ticket, now_ms)
+    }
+
+    fn start_persisted(
+        &mut self,
+        room_id: String,
+        client_id: String,
+        token: String,
+        owner_token: Option<String>,
+        now_ms: i64,
+    ) -> Result<Vec<DesktopEvent>, TransportError> {
+        DesktopSession::start_persisted(self, room_id, client_id, token, owner_token, now_ms)
     }
 
     fn room_id(&self) -> Option<&str> {
@@ -319,6 +338,13 @@ enum RuntimeRequest {
     Start {
         ticket: String,
         expected_room_id: Option<String>,
+        reply: SyncSender<Result<(), RuntimeError>>,
+    },
+    StartPersisted {
+        room_id: String,
+        client_id: String,
+        token: String,
+        owner_token: Option<String>,
         reply: SyncSender<Result<(), RuntimeError>>,
     },
     Execute {
@@ -407,6 +433,26 @@ impl DesktopRuntime {
         let (reply, response) = mpsc::sync_channel(1);
         self.sender()?
             .send(RuntimeRequest::Execute { command, reply })
+            .map_err(|_| RuntimeError::stopped())?;
+        response.recv().map_err(|_| RuntimeError::worker_failed())?
+    }
+
+    pub fn start_persisted(
+        &self,
+        room_id: String,
+        client_id: String,
+        token: String,
+        owner_token: Option<String>,
+    ) -> Result<(), RuntimeError> {
+        let (reply, response) = mpsc::sync_channel(1);
+        self.sender()?
+            .send(RuntimeRequest::StartPersisted {
+                room_id,
+                client_id,
+                token,
+                owner_token,
+                reply,
+            })
             .map_err(|_| RuntimeError::stopped())?;
         response.recv().map_err(|_| RuntimeError::worker_failed())?
     }
@@ -507,6 +553,39 @@ fn run_worker(
                         Err(error) => {
                             // Surface the failure instead of leaving the stale
                             // pre-start state on screen.
+                            emit_all(&event_sink, vec![session.event()]);
+                            let _ = session.stop();
+                            Err(RuntimeError::from_transport(&error))
+                        }
+                    },
+                    Err(error) => Err(error),
+                };
+                let _ = reply.send(result);
+            }
+            Ok(RuntimeRequest::StartPersisted {
+                room_id,
+                client_id,
+                token,
+                owner_token,
+                reply,
+            }) => {
+                stop_active(&mut active);
+                emit_all(&event_sink, vec![cleared_connecting_event()]);
+                let result = match factory() {
+                    Ok(mut session) => match session.start_persisted(
+                        room_id,
+                        client_id,
+                        token,
+                        owner_token,
+                        unix_time_ms(),
+                    ) {
+                        Ok(events) => {
+                            active = Some(session);
+                            emit_all(&event_sink, events);
+                            next_network_poll = Instant::now() + poll_interval;
+                            Ok(())
+                        }
+                        Err(error) => {
                             emit_all(&event_sink, vec![session.event()]);
                             let _ = session.stop();
                             Err(RuntimeError::from_transport(&error))
@@ -754,6 +833,17 @@ mod tests {
 
         fn room_id(&self) -> Option<&str> {
             self.room_id.as_deref()
+        }
+
+        fn start_persisted(
+            &mut self,
+            _room_id: String,
+            _client_id: String,
+            _token: String,
+            _owner_token: Option<String>,
+            _now_ms: i64,
+        ) -> Result<Vec<DesktopEvent>, TransportError> {
+            self.start("persisted", _now_ms)
         }
 
         fn poll(&mut self, _now_ms: i64) -> Vec<DesktopEvent> {

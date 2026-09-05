@@ -11,11 +11,93 @@ import type {
   ResolvedMpvMedia,
   WatchpartyMedia,
 } from "../../media/watchparty-media.ts";
-import { validateRevision, validateRoomId } from "../media.ts";
-import { bearerToken, sendError } from "./shared.ts";
+import { isValidUUID, validateMediaSource, validateNickname, validateRevision, validateRoomId } from "../media.ts";
+import { bearerToken, requestIp, sendError } from "./shared.ts";
 
 type NativeClientType = Extract<ClientType, "mpv" | "desktop">;
 type HandoffTarget = NativeClientType;
+
+function requireDesktopProtocol(req: Request, res: Response): boolean {
+  if (req.header("x-watchparty-protocol") !== String(PROTOCOL_VERSION)) {
+    sendError(res, 426, "PROTOCOL_VERSION_MISMATCH");
+    return false;
+  }
+  if (req.header("x-watchparty-client-type") !== "desktop") {
+    sendError(res, 403, "FORBIDDEN");
+    return false;
+  }
+  return true;
+}
+
+/** Native desktop lifecycle endpoints. These mint a real desktop identity;
+ * they do not reuse browser access tokens or the optional handoff ticket. */
+export function registerDesktopLifecycleHttp(app: Express, registry: RoomRegistry): void {
+  app.post("/api/desktop/rooms", (req, res): void => {
+    if (!requireDesktopProtocol(req, res)) return;
+    const { clientId, nickname, pin } = req.body ?? {};
+    const initialValue = req.body?.initialMedia ?? req.body?.initialSource;
+    const initialMedia = initialValue === undefined ? undefined : validateMediaSource(initialValue);
+    if (
+      typeof clientId !== "string" || !isValidUUID(clientId) ||
+      !validateNickname(nickname) ||
+      (pin !== undefined && (typeof pin !== "string" || !/^\d{4}$/.test(pin))) ||
+      (initialValue !== undefined && !initialMedia)
+    ) {
+      sendError(res, 400, "INVALID_REQUEST");
+      return;
+    }
+    try {
+      const created = registry.create({
+        clientId,
+        nickname,
+        pin,
+        initialMedia,
+        clientType: "desktop",
+      });
+      res.json({
+        protocolVersion: PROTOCOL_VERSION,
+        roomId: created.room.id,
+        clientId,
+        accessToken: created.accessToken,
+        ownerToken: created.ownerToken,
+        nickname: nickname.trim(),
+        clientType: "desktop",
+        sessionGeneration: 1,
+        onlineCount: created.room.onlineCount,
+        snapshot: created.room.snapshot(),
+      });
+    } catch {
+      sendError(res, 400, "INVALID_REQUEST");
+    }
+  });
+
+  app.post("/api/desktop/rooms/:roomId/access", (req, res): void => {
+    if (!requireDesktopProtocol(req, res)) return;
+    const roomId = String(req.params.roomId ?? "");
+    if (!validateRoomId(roomId) || !registry.get(roomId)) {
+      sendError(res, 404, "ROOM_NOT_FOUND");
+      return;
+    }
+    const { clientId, nickname, pin } = req.body ?? {};
+    if (typeof clientId !== "string" || !isValidUUID(clientId) || !validateNickname(nickname)) {
+      sendError(res, 400, "INVALID_REQUEST");
+      return;
+    }
+    const result = registry.issueAccess(
+      roomId,
+      clientId,
+      nickname,
+      typeof pin === "string" ? pin : undefined,
+      requestIp(req),
+      "desktop",
+    );
+    if (!result.ok) {
+      sendError(res, result.code === "RATE_LIMITED" ? 429 : 401, result.code);
+      return;
+    }
+    res.json({ protocolVersion: PROTOCOL_VERSION, roomId, clientId, accessToken: result.accessToken, clientType: "desktop" });
+  });
+}
 
 /**
  * HTTP status for a failed CommandAck, per the spec error table: code-driven
