@@ -458,7 +458,7 @@ WatchParty 后端**直接连接 OpenList 的 HTTP API**（不再存在独立 Gat
 
 ### 10.1 身份与房主模型
 - 桌面端成为正式 `clientType=desktop` 身份：可建房、房号/PIN 入房、持有 ownerToken、锁房；与 browser **双向转让房主**。服务端必须新增 desktop create/access 契约，**不得伪装成 browser token 再 handoff**。
-- ownerToken 只进入 Rust 内存（凭证语义与 9.2 相同：不进 URL、命令行、日志、WebView）；跨端转让需一次性 owner grant/claim 语义。
+- ownerToken 运行期间仅由 Rust 持有；用于 §10.3 重启恢复时仅允许持久化到 Windows Credential Manager（不进 URL、命令行、日志、WebView）；跨端转让需一次性 owner grant/claim 语义。
 - 不做：踢人、封禁、聊天、角色权限系统。
 
 ### 10.2 媒体与队列
@@ -473,6 +473,7 @@ WatchParty 后端**直接连接 OpenList 的 HTTP API**（不再存在独立 Gat
 - 现有 `watchparty://` + ticket 交接保留为可选捷径；深链 roomId 必须与会话实际房间一致性校验。
 
 ### 10.4 传输与实时性
+- Gate 1 完成站点配置与 Basic Auth 存储；房间 token/generation 的持久化、失效清理与恢复在 Gate 2 一起交付。普通偏好保存不结束会话；站点或凭据变更停止旧会话并清空 UI，需重新加入。
 - 首版沿用 Rust 原生 HTTP + 条件轮询；不把 Socket.IO 放进 WebView（会破坏 ownerToken/直链/Basic Auth 的原生隔离）。轮询负载优化（长轮询/SSE）作为后续独立增量。
 
 ### 10.5 媒体 URL 信任边界（Gate 0 起生效）

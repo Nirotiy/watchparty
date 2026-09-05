@@ -1,4 +1,5 @@
 use crate::{
+    config::{validate_backend_origin, StoredSiteCredentials},
     contracts::{
         CommandAck, ConnectionState, DesktopCommand, DesktopEvent, DesktopUiState,
         NativeCapabilityReport, PlayerState, UiError,
@@ -11,8 +12,7 @@ use crate::{
 };
 use serde::Serialize;
 use std::{
-    env, fmt,
-    net::IpAddr,
+    fmt,
     sync::{
         mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender},
         Mutex,
@@ -22,7 +22,25 @@ use std::{
 };
 use zeroize::Zeroize;
 
-const DEFAULT_BACKEND_ORIGIN: &str = "http://127.0.0.1:8080";
+/// Retire the old worker before clearing renderer state or publishing its replacement.
+pub(crate) fn replace_runtime_slot(
+    slot: &Mutex<Option<std::sync::Arc<DesktopRuntime>>>,
+    replacement: Option<DesktopRuntime>,
+    clear_renderer: impl FnOnce(),
+) {
+    let old = slot
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take();
+    if let Some(old) = old {
+        old.shutdown();
+    }
+    clear_renderer();
+    *slot
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = replacement.map(std::sync::Arc::new);
+}
+
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const PLAYER_EVENT_INTERVAL: Duration = Duration::from_millis(50);
 const MAX_HANDOFF_TICKET_BYTES: usize = 4096;
@@ -34,9 +52,14 @@ pub struct NativeSiteCredentials {
 }
 
 impl NativeSiteCredentials {
+    pub fn from_stored(credentials: StoredSiteCredentials) -> Result<Self, RuntimeError> {
+        let (username, password) = credentials.into_parts();
+        Self::new(username, password)
+    }
+
     pub fn new(username: String, password: String) -> Result<Self, RuntimeError> {
         if username.is_empty() || password.is_empty() {
-            return Err(RuntimeError::configuration());
+            return Err(RuntimeError::configuration_error());
         }
         Ok(Self { username, password })
     }
@@ -57,34 +80,12 @@ pub struct NativeRuntimeConfig {
 }
 
 impl NativeRuntimeConfig {
-    pub fn from_env(player: LibMpvConfig) -> Result<Self, RuntimeError> {
-        let origin =
-            env::var("WATCHPARTY_BACKEND_ORIGIN").unwrap_or_else(|_| DEFAULT_BACKEND_ORIGIN.into());
-        let username = env::var("WATCHPARTY_SITE_USERNAME").ok();
-        let password = env::var("WATCHPARTY_SITE_PASSWORD").ok();
-        let credentials = match (username, password) {
-            (None, None) => None,
-            (Some(username), Some(password)) => {
-                Some(NativeSiteCredentials::new(username, password)?)
-            }
-            (mut username, mut password) => {
-                if let Some(value) = username.as_mut() {
-                    value.zeroize();
-                }
-                if let Some(value) = password.as_mut() {
-                    value.zeroize();
-                }
-                return Err(RuntimeError::configuration());
-            }
-        };
-        Self::with_player(origin, credentials, player)
-    }
-
     pub fn new(
         backend_origin: String,
         site_credentials: Option<NativeSiteCredentials>,
     ) -> Result<Self, RuntimeError> {
-        let backend_origin = validate_backend_origin(&backend_origin)?;
+        let backend_origin = validate_backend_origin(&backend_origin)
+            .map_err(|_| RuntimeError::configuration_error())?;
         Ok(Self {
             backend_origin,
             site_credentials,
@@ -125,28 +126,6 @@ impl NativeRuntimeConfig {
     }
 }
 
-fn validate_backend_origin(value: &str) -> Result<String, RuntimeError> {
-    let parsed = reqwest::Url::parse(value).map_err(|_| RuntimeError::configuration())?;
-    if parsed.username() != ""
-        || parsed.password().is_some()
-        || parsed.query().is_some()
-        || parsed.fragment().is_some()
-        || parsed.path() != "/"
-    {
-        return Err(RuntimeError::configuration());
-    }
-
-    let is_loopback_http = parsed.scheme() == "http"
-        && parsed.host_str().is_some_and(|host| {
-            host == "localhost" || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
-        });
-    if parsed.scheme() != "https" && !is_loopback_http {
-        return Err(RuntimeError::configuration());
-    }
-
-    Ok(parsed.as_str().trim_end_matches('/').to_owned())
-}
-
 /// Safe error returned over Tauri IPC. Transport bodies and native secrets are never included.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -156,7 +135,21 @@ pub struct RuntimeError {
 }
 
 impl RuntimeError {
-    fn configuration() -> Self {
+    pub(crate) fn credential_error() -> Self {
+        Self {
+            code: "DESKTOP_CREDENTIAL_UNAVAILABLE",
+            message: "无法访问系统凭据库，请稍后重试",
+        }
+    }
+
+    pub(crate) fn not_configured() -> Self {
+        Self {
+            code: "DESKTOP_SITE_NOT_CONFIGURED",
+            message: "请先在设置中配置 WatchParty 站点",
+        }
+    }
+
+    pub(crate) fn configuration_error() -> Self {
         Self {
             code: "DESKTOP_CONFIGURATION_INVALID",
             message: "桌面端网络配置无效",
@@ -642,10 +635,7 @@ fn sanitize_ui_error(error: UiError) -> UiError {
         "ROOM_NOT_FOUND" => ("ROOM_NOT_FOUND", "房间不存在或已解散"),
         "NETWORK_BACKOFF" => ("NETWORK_BACKOFF", "网络暂时不可用，正在重试"),
         "PLAYBACK_FAILED" => ("PLAYBACK_FAILED", "原生播放器无法播放当前媒体"),
-        "DESKTOP_ROOM_MISMATCH" => (
-            "DESKTOP_ROOM_MISMATCH",
-            "深链房间与实际加入的房间不一致",
-        ),
+        "DESKTOP_ROOM_MISMATCH" => ("DESKTOP_ROOM_MISMATCH", "深链房间与实际加入的房间不一致"),
         _ => ("DESKTOP_SESSION_ERROR", "桌面会话发生错误"),
     };
     UiError {
@@ -865,7 +855,9 @@ mod tests {
             Arc::clone(&events),
         );
 
-        runtime.start("one-time-ticket".into(), None).expect("start");
+        runtime
+            .start("one-time-ticket".into(), None)
+            .expect("start");
         runtime.execute(DesktopCommand::Play).expect("execute");
         runtime
             .set_local_suspended(true)
@@ -903,7 +895,9 @@ mod tests {
             Arc::new(Mutex::new(None)),
             Arc::new(Mutex::new(Vec::new())),
         );
-        runtime.start("one-time-ticket".into(), None).expect("start");
+        runtime
+            .start("one-time-ticket".into(), None)
+            .expect("start");
         runtime.shutdown();
         runtime.shutdown();
         assert_eq!(stops.load(Ordering::SeqCst), 1);
@@ -911,6 +905,42 @@ mod tests {
             runtime.execute(DesktopCommand::Pause),
             Err(RuntimeError::stopped())
         );
+    }
+
+    #[test]
+    fn replacing_runtime_retires_active_session_before_renderer_reset() {
+        let stops = Arc::new(AtomicUsize::new(0));
+        let old = Arc::new(test_runtime(
+            Arc::new(AtomicUsize::new(0)),
+            Arc::clone(&stops),
+            Arc::new(Mutex::new(None)),
+            Arc::new(Mutex::new(Vec::new())),
+        ));
+        old.start("test-ticket".into(), None)
+            .expect("active session");
+        let slot = Mutex::new(Some(Arc::clone(&old)));
+        let replacement = test_runtime(
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(Mutex::new(None)),
+            Arc::new(Mutex::new(Vec::new())),
+        );
+        replace_runtime_slot(&slot, Some(replacement), || {
+            assert_eq!(stops.load(Ordering::SeqCst), 1);
+            assert!(slot.lock().unwrap().is_none());
+            assert_eq!(
+                old.execute(DesktopCommand::Pause),
+                Err(RuntimeError::stopped())
+            );
+        });
+        let next = slot.lock().unwrap().clone().expect("replacement");
+        assert_eq!(
+            next.execute(DesktopCommand::Pause),
+            Err(RuntimeError::not_started())
+        );
+        next.start("new-ticket".into(), None).expect("new session");
+        replace_runtime_slot(&slot, None, || {});
+        assert!(slot.lock().unwrap().is_none());
     }
 
     #[test]
@@ -922,7 +952,9 @@ mod tests {
             Arc::new(Mutex::new(None)),
             Arc::new(Mutex::new(Vec::new())),
         );
-        runtime.start("one-time-ticket".into(), None).expect("start");
+        runtime
+            .start("one-time-ticket".into(), None)
+            .expect("start");
         drop(runtime);
         assert_eq!(stops.load(Ordering::SeqCst), 1);
     }

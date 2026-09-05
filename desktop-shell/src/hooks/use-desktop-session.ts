@@ -8,6 +8,7 @@ import {
   executeRoomCommand,
   listenForLaunch,
   listenForState,
+  listenForSessionReset,
   startDesktopSession,
   stopDesktopSession,
 } from "@/lib/ipc"
@@ -41,6 +42,11 @@ export function useDesktopSession() {
     }
 
     void Promise.all([
+      listenForSessionReset(() => {
+        setState(null)
+        setLaunchRoomId(null)
+        setStatus({ text: "站点配置已更新，请重新加入房间", tone: "idle" })
+      }),
       listenForLaunch(({ roomId }) => applyLaunch(roomId)),
       listenForState((nextState) => {
         setState(nextState)

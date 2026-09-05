@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>独立桌面端 V1 · 分 Gate 执行计划</title>
+<style>
+  :root { --fg:#e8eaed; --fg2:#b6bcc4; --fg3:#7d838c; --accent:#4cc2ff; --line:rgba(255,255,255,.08); }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#000; color:var(--fg); font:14px/1.65 "Segoe UI",system-ui,sans-serif; }
+  .doc { max-width: 980px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  h2 { font-size: 17px; margin: 42px 0 10px; padding-top: 18px; border-top: 1px solid var(--line); }
+  h3 { font-size: 14.5px; margin: 26px 0 8px; color: var(--fg); }
+  p { margin: 8px 0; }
+  code { font: 12px ui-monospace, Consolas, monospace; background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 4px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--fg3); font-weight: 600; font-size: 12px; }
+  .note { font-size: 12.5px; color: var(--fg2); }
+  .warn { border-left: 3px solid #e5484d; padding: 6px 14px; margin: 12px 0; background: rgba(229,72,77,.07); font-size: 13px; }
+  ul, ol { margin: 6px 0; padding-left: 22px; }
+  li { margin: 3px 0; }
+  .tag { display:inline-block; font:600 11px/1 "Segoe UI",sans-serif; padding:3px 8px; border-radius:4px; margin-right:6px; }
+  .t-done { background:rgba(70,167,88,.15); color:#84d49a; }
+  .t-active { background:rgba(76,194,255,.15); color:var(--accent); }
+  .t-todo { background:rgba(255,255,255,.08); color:var(--fg3); }
+</style>
+</head>
+<body>
+<div class="doc">
+
+<h1>独立桌面端 V1 · 分 Gate 执行计划</h1>
+<p class="note">状态：<b>Gate 0–1 已完成，下一步 Gate 2</b> · 边界定稿：<code>UNIVERSAL_ALIGNMENT_SPEC.md</code> 第 10 节 · 粒度基线：<code>dev/tauri-current-execution-plan.html</code>（历史记录，其“直接打包”顺序已作废）。规模估算：单人 7–10 工程周。</p>
+
+<h2>目标定义</h2>
+<p class="note">用户安装应用后，无需打开浏览器即可：配置服务器与站点凭据 → 建房或房号/PIN 入房 → 成为房主并管理房间与队列 → 浏览 OpenList / 添加 HTTPS·HLS 媒体 → 播放、同步、恢复最后房间、调整播放器设置 → Windows 安装包交付。网页 handoff 降级为可选捷径。</p>
+
+<h2>架构不变量（所有 Gate 必须遵守）</h2>
+<ul>
+  <li>WebView 只做 UI，不持有 Basic Auth、access/owner token、媒体直链或任意 mpv 命令；所有秘密与网络逻辑在 Rust。</li>
+  <li>desktop 是正式身份类型；服务端不伪装 browser；不改房间临时内存生命周期。</li>
+  <li>沿用 Rust 原生 HTTP + 条件轮询；不把 Socket.IO 放进 WebView。</li>
+  <li>禁止原始 mpv.conf、脚本、任意命令 IPC；设置全部白名单化。</li>
+  <li>不触碰生产环境；每 Gate 以测试 + typecheck 全绿收口。</li>
+</ul>
+
+<h2>Gate 0 <span class="tag t-done">已完成</span></h2>
+<table>
+  <tr><th>项</th><th>内容</th><th>落点</th></tr>
+  <tr><td>边界冻结</td><td>独立端 V1 边界写入权威规范第 10 节；旧执行计划"直接打包"顺序标记作废</td><td><code>UNIVERSAL_ALIGNMENT_SPEC.md</code> §10、<code>dev/tauri-current-execution-plan.html</code> 顶部 callout</td></tr>
+  <tr><td>UI 状态真实化</td><td><code>DesktopUiState</code> 增加 <code>roomId</code>（会话实际房间，UI 唯一事实源）与 <code>isOwner</code>；前端以 <code>state.roomId</code> 优先、深链 hint 兜底</td><td><code>contracts.rs</code> / <code>session.rs</code> / <code>contracts.ts</code> / <code>App.tsx</code></td></tr>
+  <tr><td>深链 replay</td><td>launch 记录进 <code>TauriDesktopState</code>；新增 <code>currentDesktopLaunch</code> 命令，前端监听注册后重放，消除冷启动深链丢失窗口</td><td><code>tauri_api.rs</code> / <code>launch.rs</code> / <code>lib.rs</code> / <code>ipc.ts</code> / <code>use-desktop-session.ts</code></td></tr>
+  <tr><td>原子替换</td><td>worker 先退役旧会话（HWND 独占）→ 立即下发 cleared connecting 状态 → 校验新票据；失败显式下发终态，UI 不再显示已死亡的旧房间</td><td><code>runtime.rs</code> worker Start 分支 + 回归测试</td></tr>
+  <tr><td>房间一致性</td><td><code>startDesktopSession</code> 接收 <code>expectedRoomId</code>（深链 hint）；加入房间不符时拆除新会话并返回 <code>DESKTOP_ROOM_MISMATCH</code></td><td><code>tauri_api.rs</code> / <code>runtime.rs</code> / <code>use-desktop-session.ts</code> + 回归测试</td></tr>
+  <tr><td>URL 信任</td><td><code>is_trusted_media_url</code>：仅 https（或 loopback http）、拒绝 userinfo 与非 http(s) scheme；策略层与 session 层双重防线；Basic Auth 仅附加到与 backend origin 一致的回退 URL</td><td><code>playback.rs</code> / <code>transport.rs</code> / <code>http.rs</code> / <code>session.rs</code> + 单测（含 IPv6 loopback、file:/ftp:/data:、跨 origin 拒绝）</td></tr>
+</table>
+<p class="note">退出标准：上述缺口全部有测试覆盖；既有浏览器 handoff 与播放链测试（15 lib + 15 integration）全绿；<code>cargo check --all-targets</code> 与 <code>tsc --noEmit</code> 通过。</p>
+
+<h2>Gate 1 <span class="tag t-done">已完成：单站点配置与系统凭据</span></h2>
+<ul>
+  <li>非敏感配置（backend origin、昵称、主题、播放器偏好）持久化到 AppData；本 Gate 实现站点 Basic Auth 的 Windows Credential Manager 存储。房间 token、ownerToken、generation 的持久化与恢复在 Gate 2 一起实现，当前仅保留原生内存会话。</li>
+  <li>密码用 Windows 原生凭据对话框录入，不经过 WebView（HTML 密码框方案因 JS 字符串不可擦除被否决）。</li>
+  <li>backend origin 仅允许 HTTPS（loopback 可 HTTP），连接需验证；设置页提供验证/更新/清除。</li>
+  <li>主题与普通偏好保存不重建 runtime；只有站点变化或凭据更新/清除结束旧会话。耗时工作在后台串行执行；界面清空旧房间，重新加入必须使用新票据。</li>
+  <li>站点变更先验证、准备替换实例，再原子保存配置；准备或保存失败保留旧会话与旧配置。凭据已改变而重建失败时停止旧 transport，禁止继续使用旧密码。</li>
+  <li>退出：缺省无站点时不创建联网 runtime；无站点环境变量可配置并连本机测试服务；日志、DevTools、命令行无凭据。DLL 打包仍属 Gate 8。</li>
+</ul>
+<h3>Gate 1 验收证据</h3>
+<ul>
+  <li>自动测试：非敏感配置读写、非法输入不覆盖、IPC 脱敏、本地 Basic Auth 正确/错误/缺失/恢复、活动 worker 退役先于 UI reset 和替换发布。</li>
+  <li>Windows 手动：原生录入成功与取消、清除后认证失败、重新录入恢复、活动房间停止并可重新加入、切换主题不影响活动会话。</li>
+  <li>HTTP /ping 验证使用独立 transport，不能替代活动会话停止验收；本地认证 fixture 不等于生产 Caddy 验收，后者仍在 Gate 8。</li>
+  <li>2026-09-05 关闭：Rust lib 测试 36/36、真实后端 HTTP 集成测试、cargo check --all-targets、桌面 TypeScript / Vite 与 release 构建通过。</li>
+  <li>原生凭据操作由用户完成；实际窗口确认清除后旧房间消失、房间/队列/成员禁用，重新录入后后端验证成功，新交接码重新加入成功。活动会话切换主题后保留相同房间并保持连接，测试后恢复深色。</li>
+  <li>AppData 核对仅包含非敏感设置字段。本轮真实会话使用本机 Basic Auth fixture 的空房间，验证 runtime 生命周期与 libmpv 初始化，不宣称覆盖视频播放或生产部署。</li>
+</ul>
+
+<h2>Gate 2 <span class="tag t-todo">正式 desktop 身份与房间生命周期</span></h2>
+<ul>
+  <li>服务端新增 desktop create/access API：建房（可选 PIN、昵称）、房号+PIN 入房、签发 <code>clientType=desktop</code> token、创建者获得 ownerToken；不经 browser ticket。</li>
+  <li>重启恢复：用持久化 token 探测最后房间并 claim generation；失效原子清除回首页。</li>
+  <li>保留现有 ticket handoff 为可选捷径；深链 roomId 一致性校验（Gate 0 已铺）。</li>
+  <li>退出：桌面可独立建房、入房、退出、恢复最后存活房间。</li>
+</ul>
+
+<h2>Gate 3 <span class="tag t-todo">桌面房主与成员管理</span></h2>
+<ul>
+  <li>native command 白名单扩展：昵称、锁房、房主转让（browser ↔ desktop 双向）。</li>
+  <li>desktop 获取 ownerToken 走一次性 owner grant/claim，令牌仅进 Rust；dispatcher 去掉固定 <code>isOwner=false</code>。</li>
+  <li>不做踢人、封禁、聊天、角色权限。</li>
+  <li>退出：desktop 建锁定房间可控制；转让前后旧 ownerToken 立即失效。</li>
+</ul>
+
+<h2>Gate 4 <span class="tag t-todo">媒体库与完整队列</span></h2>
+<ul>
+  <li>Rust 媒体 IPC（窄类型）：roots / list / search / 分页；WebView 只见 opaque mediaId 与脱敏元数据。</li>
+  <li>OpenList 浏览/搜索/批量 + HTTPS 文件 + HLS 粘贴（沿用服务端 URL 规则：HTTPS-only、HLS 必须 .m3u8、禁 URL 内凭据）。</li>
+  <li>owner 命令扩展：mediaSet、playlistAdd/remove/move/play，全部带 <code>expectedRevision</code>，冲突重取快照并提示。</li>
+  <li>退出：desktop 房主独立完成选媒、立即播放、批量入队、排序、删除、EOF 推进。</li>
+</ul>
+
+<h2>Gate 5 <span class="tag t-todo">播放与字幕闭环</span></h2>
+<ul>
+  <li>libmpv 支持 OpenList / HTTPS 文件 / HLS；不做 YouTube、Magnet、本地文件。</li>
+  <li>保持 direct → 单次重解析 → fallback 链（URL 信任规则 Gate 0 已生效）。</li>
+  <li>OpenList 外挂字幕（ASS/SSA/SRT/VTT）由 Rust 下载进受控临时目录并清理；内嵌 + 外挂轨道选择。</li>
+  <li>保留自动追帧 + 本地 resync 兜底（不广播）。</li>
+  <li>退出：三类媒体 + 两类字幕在 desktop/browser 混合房间稳定同步。</li>
+</ul>
+
+<h2>Gate 6 <span class="tag t-todo">白名单播放器设置</span></h2>
+<ul>
+  <li>视频：硬解 auto-safe/auto/off、去隔行 auto/on/off、HDR auto/转SDR/原样。</li>
+  <li>音频：输出设备（消失回退系统默认）、声道 自动/立体声、默认音量、首选语言；不做 bitstream 直通。</li>
+  <li>字幕：语言顺序、字体、相对字号、ASS 覆盖开关、当前媒体字幕延迟。</li>
+  <li>网络：缓存预设（自动/低延迟/稳定）+ 类型化超时；不做代理/自定义 CA/DNS。</li>
+  <li>每项定义生效时机（即时/下次载入/重建播放器）与失败回滚。</li>
+  <li>退出：每个公开设置有类型、范围、fallback 与至少一个真实媒体用例。</li>
+</ul>
+
+<h2>Gate 7 <span class="tag t-todo">独立产品 UI</span></h2>
+<ul>
+  <li>AB 首页：创建房间、加入房间（房号/PIN）、可选 handoff、最后房间恢复；不做假历史（最近播放不落盘）。</li>
+  <li>媒体库/队列/成员/设置全部接真实 IPC，移除占位状态；播放页维持 AB overlay 契约。</li>
+  <li>错误态覆盖：错误 PIN、限流、服务不可达、房间失效、媒体解析失败、凭据失效。</li>
+</ul>
+
+<h2>Gate 8 <span class="tag t-todo">发行与验收</span></h2>
+<ul>
+  <li>固定可再分发 libmpv（来源/版本/SHA-256/依赖），bundle 内置 + LGPL 材料 + WebView2 bootstrap + 协议关联。</li>
+  <li>Windows x64 签名安装包；V1 不做自动更新。</li>
+  <li>干净环境：安装 / 升级覆盖 / 卸载 / 协议唤起 / 生产 Caddy（Basic + X-WatchParty-Token）+ 百度直链零 VPS 流量 + Range seek。</li>
+</ul>
+
+<h2>关键 E2E 矩阵</h2>
+<table>
+  <tr><th>场景</th><th>断言</th></tr>
+  <tr><td>desktop owner + browser guest</td><td>建房/锁房/选媒/队列全链，跨端同步</td></tr>
+  <tr><td>browser owner → desktop 转让 → 转回</td><td>旧 ownerToken 立即失效，权限即时切换</td></tr>
+  <tr><td>两个 desktop 同一锁定房间</td><td>成员表、快照轮询、命令冲突收敛</td></tr>
+  <tr><td>PIN 错误与限流</td><td>429 语义透传为可理解错误</td></tr>
+  <tr><td>应用重启恢复 / 服务端重启失效</td><td>恢复 claim 成功；失效后原子清除回首页</td></tr>
+  <tr><td>OpenList direct/fallback、HTTPS Range、HLS、外挂字幕</td><td>三链路播放与字幕选择</td></tr>
+  <tr><td>非房主 resync</td><td>本机追平、房间 revision 不变、无广播</td></tr>
+  <tr><td>泄密矩阵</td><td>无敏感值进入 WebView、日志、深链、进程参数</td></tr>
+</table>
+
+</div>
+</body>
+</html>

@@ -51,7 +51,8 @@ fn main() {
             let window_handle = 0;
 
             let player = LibMpvConfig::from_env(window_handle)?;
-            let config = NativeRuntimeConfig::from_env(player)?;
+            let config =
+                NativeRuntimeConfig::with_player(required("WATCHPARTY_BACKEND_ORIGIN")?, None, player)?;
             let ticket = required("DESKTOP_VERTICAL_TICKET")?;
             let expected_room_id = required("DESKTOP_VERTICAL_ROOM_ID")?;
             let handle = app.handle().clone();

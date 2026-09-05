@@ -3,6 +3,14 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 
 import type { CommandAck, DesktopCommand, DesktopUiState } from "@/lib/contracts"
 
+export interface DesktopSettingsStatus {
+  backendOrigin: string | null
+  nickname: string
+  theme: "dark" | "light"
+  playerPreferences: { hardwareDecoding: string; cacheProfile: string }
+  credentialsConfigured: boolean
+}
+
 interface DesktopStateEvent {
   type: "state"
   state: DesktopUiState
@@ -41,6 +49,39 @@ export function executeRoomCommand(command: DesktopCommand): Promise<CommandAck>
 
 export function stopDesktopSession(): Promise<void> {
   return invoke("stopDesktopSession")
+}
+
+export function getDesktopSettings(): Promise<DesktopSettingsStatus> {
+  return invoke("getDesktopSettings")
+}
+
+export function updateDesktopSettings(input: {
+  backendOrigin: string | null
+  nickname: string
+  theme: "dark" | "light"
+  playerPreferences: { hardwareDecoding: string; cacheProfile: string }
+}): Promise<DesktopSettingsStatus> {
+  return invoke("updateDesktopSettings", { input })
+}
+
+export function promptSiteCredentials(): Promise<DesktopSettingsStatus | null> {
+  return invoke("promptSiteCredentials")
+}
+
+export function listenForSessionReset(handler: () => void): Promise<UnlistenFn> {
+  return listen("desktop://session-reset", handler)
+}
+
+export function listenForSettings(handler: (settings: DesktopSettingsStatus) => void): Promise<UnlistenFn> {
+  return listen<DesktopSettingsStatus>("desktop://settings", ({ payload }) => handler(payload))
+}
+
+export function clearSiteCredentials(): Promise<DesktopSettingsStatus> {
+  return invoke("clearSiteCredentials")
+}
+
+export function verifyBackend(): Promise<void> {
+  return invoke("verifyBackend")
 }
 
 export function errorMessage(error: unknown, fallback: string): string {

@@ -1,18 +1,29 @@
 use crate::{
     commands::validate_command,
+    config::{
+        DesktopConfigStore, DesktopSettingsInput, DesktopSettingsStatus, SiteCredentialStore,
+    },
     contracts::{CommandAck, DesktopCommand},
+    http::DesktopHttpTransport,
     launch::DesktopLaunch,
-    runtime::{DesktopRuntime, RuntimeError},
+    libmpv::LibMpvConfig,
+    runtime::{DesktopRuntime, NativeRuntimeConfig, NativeSiteCredentials, RuntimeError},
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Managed Tauri state. The renderer receives neither the runtime config nor its credentials.
 pub struct TauriDesktopState {
-    runtime: Arc<DesktopRuntime>,
+    runtime: Mutex<Option<Arc<DesktopRuntime>>>,
+    configuration_change: Mutex<()>,
+    configured: AtomicBool,
+    app_handle: AppHandle,
+    player: LibMpvConfig,
+    config_store: DesktopConfigStore,
+    credential_store: SiteCredentialStore,
     shutdown_started: AtomicBool,
     /// Latest accepted deep-link launch. Persisted here so the renderer can
     /// replay it after its event listeners register (cold-start deep links are
@@ -21,16 +32,118 @@ pub struct TauriDesktopState {
 }
 
 impl TauriDesktopState {
-    pub fn new(runtime: DesktopRuntime) -> Self {
+    pub fn new(
+        runtime: Option<DesktopRuntime>,
+        configured: bool,
+        config_store: DesktopConfigStore,
+        credential_store: SiteCredentialStore,
+        app_handle: AppHandle,
+        player: LibMpvConfig,
+    ) -> Self {
         Self {
-            runtime: Arc::new(runtime),
+            runtime: Mutex::new(runtime.map(Arc::new)),
+            configuration_change: Mutex::new(()),
+            configured: AtomicBool::new(configured),
+            app_handle,
+            player,
+            config_store,
+            credential_store,
             shutdown_started: AtomicBool::new(false),
             launch: Mutex::new(None),
         }
     }
 
-    pub fn runtime(&self) -> Arc<DesktopRuntime> {
-        Arc::clone(&self.runtime)
+    pub fn runtime(&self) -> Result<Arc<DesktopRuntime>, RuntimeError> {
+        if !self.configured.load(Ordering::Acquire) {
+            return Err(RuntimeError::not_configured());
+        }
+        self.runtime
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+            .ok_or_else(RuntimeError::runtime_unavailable)
+    }
+
+    pub fn runtime_for_shutdown(&self) -> Option<Arc<DesktopRuntime>> {
+        self.runtime
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    fn runtime_from_settings(
+        &self,
+        settings: &crate::config::DesktopSettings,
+    ) -> Result<DesktopRuntime, RuntimeError> {
+        let origin = settings
+            .backend_origin
+            .clone()
+            .ok_or_else(RuntimeError::not_configured)?;
+        let credentials = settings
+            .backend_origin
+            .as_deref()
+            .map(|origin| self.credential_store.read(origin))
+            .transpose()
+            .map_err(|_| RuntimeError::credential_error())?
+            .flatten()
+            .map(NativeSiteCredentials::from_stored)
+            .transpose()?;
+        let config = NativeRuntimeConfig::with_player(origin, credentials, self.player.clone())?;
+        let app_handle = self.app_handle.clone();
+        DesktopRuntime::spawn(config, move |event| {
+            let _ = app_handle.emit(crate::commands::DESKTOP_STATE_EVENT, event);
+        })
+    }
+
+    fn rebuild_runtime(
+        &self,
+        settings: &crate::config::DesktopSettings,
+    ) -> Result<(), RuntimeError> {
+        let new_runtime = settings
+            .backend_origin
+            .as_ref()
+            .map(|_| self.runtime_from_settings(settings))
+            .transpose();
+        // Credential changes cannot keep a transport containing the old secret on failure.
+        match new_runtime {
+            Ok(runtime) => {
+                self.replace_runtime(runtime, settings.backend_origin.is_some());
+                Ok(())
+            }
+            Err(error) => {
+                self.replace_runtime(None, settings.backend_origin.is_some());
+                Err(error)
+            }
+        }
+    }
+
+    fn replace_runtime(&self, new_runtime: Option<DesktopRuntime>, configured: bool) {
+        crate::runtime::replace_runtime_slot(&self.runtime, new_runtime, || {
+            *self
+                .launch
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+            let _ = self.app_handle.emit("desktop://session-reset", ());
+        });
+        self.configured.store(configured, Ordering::Release);
+    }
+
+    pub fn settings_status(&self) -> Result<DesktopSettingsStatus, RuntimeError> {
+        let settings = self
+            .config_store
+            .load()
+            .map_err(|_| RuntimeError::configuration_error())?;
+        let credentials_configured = settings
+            .backend_origin
+            .as_deref()
+            .map(|origin| self.credential_store.has(origin))
+            .transpose()
+            .map_err(|_| RuntimeError::credential_error())?
+            .unwrap_or(false);
+        Ok(DesktopSettingsStatus::from_settings(
+            settings,
+            credentials_configured,
+        ))
     }
 
     pub fn record_launch(&self, launch: DesktopLaunch) {
@@ -60,7 +173,7 @@ pub async fn start_desktop_session(
     expected_room_id: Option<String>,
     state: State<'_, TauriDesktopState>,
 ) -> Result<(), RuntimeError> {
-    let runtime = state.runtime();
+    let runtime = state.runtime()?;
     tauri::async_runtime::spawn_blocking(move || runtime.start(ticket, expected_room_id))
         .await
         .map_err(|_| RuntimeError::runtime_unavailable())?
@@ -80,7 +193,7 @@ pub async fn execute_room_command(
     state: State<'_, TauriDesktopState>,
 ) -> Result<CommandAck, RuntimeError> {
     validate_command(&command).map_err(|_| RuntimeError::invalid_command())?;
-    let runtime = state.runtime();
+    let runtime = state.runtime()?;
     match command {
         DesktopCommand::PlayerVisibility { visible } => {
             set_player_visibility(runtime, visible).await?;
@@ -161,11 +274,151 @@ fn local_ack() -> CommandAck {
 
 #[tauri::command(rename = "stopDesktopSession")]
 pub async fn stop_desktop_session(state: State<'_, TauriDesktopState>) -> Result<(), RuntimeError> {
-    let runtime = state.runtime();
+    let runtime = state.runtime()?;
     let result = tauri::async_runtime::spawn_blocking(move || runtime.stop_session())
         .await
         .map_err(|_| RuntimeError::runtime_unavailable())?;
     result
+}
+
+#[tauri::command(rename = "getDesktopSettings")]
+pub async fn get_desktop_settings(app: AppHandle) -> Result<DesktopSettingsStatus, RuntimeError> {
+    configuration_task(app, |state| state.settings_status()).await
+}
+
+/// Serializes settings and credential changes off the Tauri UI thread.
+async fn configuration_task<T: Send + 'static>(
+    app: AppHandle,
+    action: impl FnOnce(&TauriDesktopState) -> Result<T, RuntimeError> + Send + 'static,
+) -> Result<T, RuntimeError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<TauriDesktopState>();
+        let _guard = state
+            .configuration_change
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        action(&state)
+    })
+    .await
+    .map_err(|_| RuntimeError::runtime_unavailable())?
+}
+
+#[tauri::command(rename = "updateDesktopSettings")]
+pub async fn update_desktop_settings(
+    input: DesktopSettingsInput,
+    app: AppHandle,
+) -> Result<DesktopSettingsStatus, RuntimeError> {
+    configuration_task(app, move |state| {
+        let previous = state
+            .config_store
+            .load()
+            .map_err(|_| RuntimeError::configuration_error())?;
+        let settings =
+            DesktopConfigStore::validate(input).map_err(|_| RuntimeError::configuration_error())?;
+        let changed = previous.backend_origin != settings.backend_origin;
+        let replacement = if changed {
+            settings
+                .backend_origin
+                .as_ref()
+                .map(|_| state.runtime_from_settings(&settings))
+                .transpose()?
+        } else {
+            None
+        };
+        // Validation and replacement preparation precede the atomic disk write.
+        state
+            .config_store
+            .write_atomically(&settings)
+            .map_err(|_| RuntimeError::configuration_error())?;
+        if changed {
+            state.replace_runtime(replacement, settings.backend_origin.is_some());
+        }
+        let result = state.settings_status()?;
+        let _ = state.app_handle.emit("desktop://settings", &result);
+        Ok(result)
+    })
+    .await
+}
+
+#[tauri::command(rename = "clearSiteCredentials")]
+pub async fn clear_site_credentials(app: AppHandle) -> Result<DesktopSettingsStatus, RuntimeError> {
+    configuration_task(app, |state| {
+        let settings = state
+            .config_store
+            .load()
+            .map_err(|_| RuntimeError::configuration_error())?;
+        if let Some(origin) = settings.backend_origin.as_deref() {
+            state
+                .credential_store
+                .clear(origin)
+                .map_err(|_| RuntimeError::credential_error())?;
+        }
+        state.rebuild_runtime(&settings)?;
+        state.settings_status()
+    })
+    .await
+}
+
+#[tauri::command(rename = "promptSiteCredentials")]
+pub async fn prompt_site_credentials(
+    app: AppHandle,
+) -> Result<Option<DesktopSettingsStatus>, RuntimeError> {
+    #[cfg(windows)]
+    let owner_hwnd = app
+        .get_webview_window("main")
+        .ok_or_else(RuntimeError::runtime_unavailable)?
+        .hwnd()
+        .map_err(|_| RuntimeError::runtime_unavailable())?
+        .0 as isize;
+    #[cfg(not(windows))]
+    let owner_hwnd = 0isize;
+    configuration_task(app, move |state| {
+        let settings = state
+            .config_store
+            .load()
+            .map_err(|_| RuntimeError::configuration_error())?;
+        let origin = settings
+            .backend_origin
+            .as_deref()
+            .ok_or_else(RuntimeError::not_configured)?;
+        let stored = state
+            .credential_store
+            .prompt_and_store(origin, owner_hwnd)
+            .map_err(|_| RuntimeError::credential_error())?;
+        if !stored {
+            return Ok(None);
+        }
+        state.rebuild_runtime(&settings)?;
+        state.settings_status().map(Some)
+    })
+    .await
+}
+
+#[tauri::command(rename = "verifyBackend")]
+pub async fn verify_backend(app: AppHandle) -> Result<(), RuntimeError> {
+    configuration_task(app, |state| {
+        let settings = state
+            .config_store
+            .load()
+            .map_err(|_| RuntimeError::configuration_error())?;
+        let origin = settings
+            .backend_origin
+            .as_deref()
+            .ok_or_else(RuntimeError::not_configured)?;
+        let transport = match state.credential_store.read(origin) {
+            Ok(Some(credentials)) => {
+                let (username, password) = credentials.into_parts();
+                DesktopHttpTransport::with_site_basic_auth(origin, username, password)
+            }
+            Ok(None) => DesktopHttpTransport::new(origin),
+            Err(_) => return Err(RuntimeError::credential_error()),
+        }
+        .map_err(|_| RuntimeError::configuration_error())?;
+        transport
+            .verify_backend()
+            .map_err(|_| RuntimeError::runtime_unavailable())
+    })
+    .await
 }
 
 #[cfg(test)]

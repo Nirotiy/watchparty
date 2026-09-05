@@ -9,18 +9,14 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { useDesktopSession } from "@/hooks/use-desktop-session"
 import type { ConnectionState, DesktopUiState, MediaSource, NativeCapabilityReport } from "@/lib/contracts"
 import { cn } from "@/lib/utils"
+import { clearSiteCredentials, errorMessage, getDesktopSettings, listenForSettings, promptSiteCredentials, updateDesktopSettings, verifyBackend, type DesktopSettingsStatus } from "@/lib/ipc"
 
 type View = "home" | "room" | "media" | "settings"
 type Drawer = "queue" | "members" | null
 type Theme = "dark" | "light"
 type SettingsSection = "general" | "playback" | "credentials" | "network"
 
-const THEME_KEY = "watchparty-theme"
 const BACKEND_LABEL = "127.0.0.1:8080"
-
-function initialTheme(): Theme {
-  return localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark"
-}
 
 function connectionLabel(connection?: ConnectionState): string {
   switch (connection) {
@@ -68,7 +64,21 @@ export default function App() {
   const session = useDesktopSession()
   const [view, setView] = useState<View>("home")
   const [drawer, setDrawer] = useState<Drawer>(null)
-  const [theme, setTheme] = useState<Theme>(initialTheme)
+  const [theme, setTheme] = useState<Theme>("dark")
+  const [backendOrigin, setBackendOrigin] = useState<string | null>(null)
+  useEffect(() => {
+    let disposed = false
+    let unlisten: (() => void) | undefined
+    const apply = (settings: DesktopSettingsStatus) => {
+      if (!disposed) { setTheme(settings.theme); setBackendOrigin(settings.backendOrigin) }
+    }
+    void listenForSettings(apply).then(async (stop) => {
+      if (disposed) { stop(); return }
+      unlisten = stop
+      apply(await getDesktopSettings())
+    }).catch(() => session.setStatus({ text: "无法读取桌面设置", tone: "error" }))
+    return () => { disposed = true; unlisten?.() }
+  }, [session.setStatus])
   const [fullscreen, setFullscreen] = useState(false)
   const suspendedForNavigation = useRef(false)
   const previouslyConnected = useRef(false)
@@ -82,12 +92,17 @@ export default function App() {
     document.documentElement.classList.toggle("dark", theme === "dark")
     document.documentElement.classList.toggle("playback-mode", isPlaybackView)
     document.documentElement.style.colorScheme = theme
-    localStorage.setItem(THEME_KEY, theme)
     return () => document.documentElement.classList.remove("playback-mode")
   }, [isPlaybackView, theme])
 
   useEffect(() => {
     if (state && !previouslyConnected.current) setView("room")
+    if (!state && previouslyConnected.current) {
+      setDrawer(null)
+      setFullscreen(false)
+      suspendedForNavigation.current = false
+      setView((current) => current === "room" ? "home" : current)
+    }
     previouslyConnected.current = Boolean(state)
   }, [state])
 
@@ -144,6 +159,7 @@ export default function App() {
       ) : (
         <div className="desktop-shell-surface grid h-screen min-w-[760px] grid-cols-[232px_minmax(0,1fr)] text-foreground">
           <Sidebar
+            backendOrigin={backendOrigin}
             view={view}
             state={state}
             roomId={activeRoomId}
@@ -166,7 +182,7 @@ export default function App() {
               <SettingsView
                 state={state}
                 theme={theme}
-                onThemeChange={() => setTheme((current) => current === "dark" ? "light" : "dark")}
+                onThemeChange={() => { void persistTheme(theme, setTheme).catch((error: unknown) => session.setStatus({ text: errorMessage(error, "主题保存失败"), tone: "error" })) }}
               />
             )}
           </main>
@@ -180,7 +196,8 @@ export default function App() {
   )
 }
 
-function Sidebar({ view, state, roomId, status, onView, onDrawer }: {
+function Sidebar({ view, state, roomId, status, onView, onDrawer, backendOrigin }: {
+  backendOrigin: string | null
   view: View
   state: ReturnType<typeof useDesktopSession>["state"]
   roomId: string | null
@@ -211,7 +228,7 @@ function Sidebar({ view, state, roomId, status, onView, onDrawer }: {
         <NavButton icon="library" label="媒体库" active={view === "media"} onClick={() => onView("media")} />
         <NavButton icon="settings" label="设置" active={view === "settings"} onClick={() => onView("settings")} />
         <div className="mt-3 border-t border-border/80 px-2 pt-3 text-[10px] leading-4 text-muted-foreground">
-          <p className="flex items-center gap-2"><i className={cn("size-1.5 rounded-full", connectionTone(state?.connection))} />后端 {BACKEND_LABEL} · {connectionLabel(state?.connection)}</p>
+          <p className="flex items-center gap-2"><i className={cn("size-1.5 rounded-full", connectionTone(state?.connection))} /><span className="truncate">{backendOrigin ?? "站点未配置"} · {connectionLabel(state?.connection)}</span></p>
           <p className={cn("mt-1 truncate", status.tone === "warning" && "text-warning", status.tone === "error" && "text-destructive")}>{status.text}</p>
           <p className="truncate font-mono">{capabilityLabel(state?.capability)}</p>
         </div>
@@ -291,12 +308,49 @@ function SettingsView({ state, theme, onThemeChange }: { state: DesktopUiState |
   )
 }
 
+async function persistTheme(theme: Theme, setTheme: (theme: Theme) => void) {
+  const nextTheme = theme === "dark" ? "light" : "dark"
+    const current = await getDesktopSettings()
+    await updateDesktopSettings({
+      backendOrigin: current.backendOrigin,
+      nickname: current.nickname,
+      theme: nextTheme,
+      playerPreferences: current.playerPreferences,
+    })
+  setTheme(nextTheme)
+}
+
 function SettingsHeading({ title, detail }: { title: string; detail: string }) {
   return <div className="mb-5"><h1 className="text-sm font-semibold">{title}</h1><p className="mt-1 text-xs text-muted-foreground">{detail}</p></div>
 }
 
 function CredentialsPanel() {
-  return <><SettingsHeading title="站点凭据" detail="凭据必须由 Rust 写入系统凭据库，WebView 永不持有。" /><div className="divide-y divide-border border-y border-border"><SettingRow icon="shield" title="站点用户名" detail="Caddy Basic Auth，随请求由 Rust 侧注入"><Input disabled placeholder="尚未配置" className="w-44 text-xs disabled:opacity-75" /></SettingRow><SettingRow icon="lock" title="站点密码" detail="保存后不可从界面读回"><Input disabled type="password" placeholder="••••••••••••" className="w-44 text-xs disabled:opacity-75" /></SettingRow></div><div className="mt-5 flex gap-2"><Button disabled>保存到系统凭据库</Button><Button variant="outline" disabled>清除</Button></div><p className="mt-3 text-xs text-muted-foreground">原生凭据录入 IPC 尚未实现，控件保持禁用。</p></>
+  const [status, setStatus] = useState<DesktopSettingsStatus | null>(null)
+  const [message, setMessage] = useState("正在读取原生凭据状态…")
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { void getDesktopSettings().then((value) => { setStatus(value); setMessage(value.backendOrigin ? "" : "请先在后端与网络中保存站点") }).catch((error: unknown) => setMessage(errorMessage(error, "无法读取凭据状态"))) }, [])
+  async function prompt() {
+    setBusy(true)
+    setMessage("等待系统凭据对话框…")
+    try {
+      const result = await promptSiteCredentials()
+      if (result) { setStatus(result); setMessage("凭据已保存，请重新加入房间") }
+      else setMessage("已取消，凭据未更改")
+    } catch (error) { setMessage(errorMessage(error, "凭据录入失败")) }
+    finally { setBusy(false) }
+  }
+  async function clear() {
+    setBusy(true)
+    try { setStatus(await clearSiteCredentials()); setMessage("凭据已清除，原会话已停止") } catch (error) { setMessage(errorMessage(error, "清除凭据失败")) }
+    finally { setBusy(false) }
+  }
+  async function verify() {
+    setBusy(true)
+    setMessage("正在验证后端…")
+    try { await verifyBackend(); setMessage("后端连接正常") } catch (error) { setMessage(errorMessage(error, "后端验证失败")) }
+    finally { setBusy(false) }
+  }
+  return <><SettingsHeading title="站点凭据" detail="站点密码保存在 Windows 凭据库中。更改凭据会结束当前房间会话。" /><div className="border-y border-border"><SettingRow icon="shield" title="Basic Auth" detail={status?.credentialsConfigured ? "已配置，密码不会从界面读回" : "未配置"}><span className="text-xs text-muted-foreground">{status?.credentialsConfigured ? "已配置" : "未配置"}</span></SettingRow></div><div className="mt-5 flex gap-2"><Button disabled={busy || !status?.backendOrigin} onClick={() => void prompt()}>打开系统凭据对话框</Button><Button variant="outline" onClick={() => void clear()} disabled={busy || !status?.credentialsConfigured}>清除</Button><Button variant="ghost" disabled={busy || !status?.backendOrigin} onClick={() => void verify()}>验证后端</Button></div><p role="status" className="mt-3 text-xs text-muted-foreground">{message}</p></>
 }
 
 function GeneralPanel({ theme, onThemeChange }: { theme: Theme; onThemeChange: () => void }) {
@@ -308,7 +362,23 @@ function PlaybackPanel({ state }: { state: DesktopUiState | null }) {
 }
 
 function NetworkPanel({ state }: { state: DesktopUiState | null }) {
-  return <><SettingsHeading title="后端与网络" detail="后端地址属于原生配置，不允许 WebView 任意覆盖。" /><div className="border-y border-border"><SettingRow icon="sync" title="本地开发后端" detail={connectionLabel(state?.connection)}><span className="font-mono text-xs text-muted-foreground">http://{BACKEND_LABEL}</span></SettingRow></div></>
+  const [origin, setOrigin] = useState("")
+  const [settings, setSettings] = useState<DesktopSettingsStatus | null>(null)
+  const [message, setMessage] = useState("")
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { void getDesktopSettings().then((value) => { setSettings(value); setOrigin(value.backendOrigin ?? "") }).catch((error: unknown) => setMessage(errorMessage(error, "无法读取设置"))) }, [])
+  async function save() {
+    setBusy(true)
+    try {
+      const current = await getDesktopSettings()
+      const updated = await updateDesktopSettings({ backendOrigin: origin.trim() || null, nickname: current.nickname, theme: current.theme, playerPreferences: current.playerPreferences })
+      setSettings(updated)
+      setOrigin(updated.backendOrigin ?? "")
+      setMessage(updated.backendOrigin !== current.backendOrigin ? "站点已更新，请验证连接后重新加入房间" : "已保存")
+    } catch (error) { setMessage(errorMessage(error, "设置保存失败")) }
+    finally { setBusy(false) }
+  }
+  return <><SettingsHeading title="后端与网络" detail="使用 HTTPS 地址，本机可用 HTTP。更换站点会结束当前房间会话；留空可清除站点。" /><div className="border-y border-border"><SettingRow icon="sync" title="WatchParty 站点" detail={settings?.backendOrigin ? connectionLabel(state?.connection) : "未配置"}><Input aria-label="站点地址" disabled={busy} value={origin} onChange={(event) => setOrigin(event.target.value)} placeholder={`http://${BACKEND_LABEL}`} className="w-64 font-mono text-xs" /></SettingRow></div><div className="mt-5 flex items-center gap-3"><Button disabled={busy || !settings} onClick={() => void save()}>保存站点</Button><span role="status" className="text-xs text-muted-foreground">{message}</span></div></>
 }
 
 function SettingRow({ icon, title, detail, children }: { icon: MaterialSymbolName; title: string; detail: string; children: ReactNode }) {

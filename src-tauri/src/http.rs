@@ -98,6 +98,18 @@ impl DesktopHttpTransport {
         self.site_basic_auth.is_some()
     }
 
+    pub fn verify_backend(&self) -> Result<(), TransportError> {
+        let response = self
+            .headers(self.client.get(format!("{}/ping", self.base_url)), None)
+            .send()
+            .map_err(|error| TransportError::Network(error.to_string()))?;
+        match response.status() {
+            status if status.is_success() => Ok(()),
+            reqwest::StatusCode::UNAUTHORIZED => Err(TransportError::Unauthorized),
+            status => Err(TransportError::Http(status.as_u16(), String::new())),
+        }
+    }
+
     fn apply_site_auth(&self, builder: RequestBuilder) -> RequestBuilder {
         match &self.site_basic_auth {
             Some(auth) => builder.basic_auth(&auth.username, Some(&auth.password)),
@@ -381,6 +393,60 @@ mod tests {
     use crate::transport::RoomTransport;
 
     #[test]
+    fn local_basic_auth_accepts_only_current_credentials() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            thread,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            for expected in [true, false, false, true] {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    assert!(request.len() < 8192);
+                    stream.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                }
+                let request = String::from_utf8(request).unwrap().to_lowercase();
+                assert!(request.starts_with("get /ping "));
+                let valid =
+                    request.contains("authorization: basic dGVzdDpwYXNz".to_lowercase().as_str());
+                assert_eq!(valid, expected);
+                let status = if valid { "200 OK" } else { "401 Unauthorized" };
+                write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                )
+                .unwrap();
+            }
+        });
+        let correct =
+            || super::DesktopHttpTransport::with_site_basic_auth(&origin, "test", "pass").unwrap();
+        assert!(correct().verify_backend().is_ok());
+        assert!(matches!(
+            super::DesktopHttpTransport::with_site_basic_auth(&origin, "test", "wrong")
+                .unwrap()
+                .verify_backend(),
+            Err(crate::transport::TransportError::Unauthorized)
+        ));
+        assert!(matches!(
+            super::DesktopHttpTransport::new(&origin)
+                .unwrap()
+                .verify_backend(),
+            Err(crate::transport::TransportError::Unauthorized)
+        ));
+        assert!(correct().verify_backend().is_ok());
+        server.join().unwrap();
+    }
+
+    #[test]
     fn room_token_header_is_marked_sensitive() {
         let value = room_token_header("room-secret").expect("valid header value");
         assert!(value.is_sensitive());
@@ -388,18 +454,27 @@ mod tests {
 
     #[test]
     fn site_basic_auth_only_attaches_to_same_origin_media_urls() {
-        let transport =
-            crate::http::DesktopHttpTransport::with_site_basic_auth(
-                "https://watch.example",
-                "site-user",
-                "site-pass",
-            )
-            .expect("transport");
-        assert!(transport.site_basic_auth_for("https://watch.example/p/video").is_some());
-        assert!(transport.site_basic_auth_for("https://watch.example:8443/p/video").is_none());
-        assert!(transport.site_basic_auth_for("http://watch.example/p/video").is_none());
-        assert!(transport.site_basic_auth_for("https://cdn.example/video").is_none());
-        assert!(transport.site_basic_auth_for("file:///C:/video.mkv").is_none());
+        let transport = crate::http::DesktopHttpTransport::with_site_basic_auth(
+            "https://watch.example",
+            "site-user",
+            "site-pass",
+        )
+        .expect("transport");
+        assert!(transport
+            .site_basic_auth_for("https://watch.example/p/video")
+            .is_some());
+        assert!(transport
+            .site_basic_auth_for("https://watch.example:8443/p/video")
+            .is_none());
+        assert!(transport
+            .site_basic_auth_for("http://watch.example/p/video")
+            .is_none());
+        assert!(transport
+            .site_basic_auth_for("https://cdn.example/video")
+            .is_none());
+        assert!(transport
+            .site_basic_auth_for("file:///C:/video.mkv")
+            .is_none());
         assert!(transport.site_basic_auth_for("not a url").is_none());
     }
 
@@ -407,6 +482,8 @@ mod tests {
     fn site_basic_auth_for_without_credentials_is_none() {
         let transport =
             crate::http::DesktopHttpTransport::new("https://watch.example").expect("transport");
-        assert!(transport.site_basic_auth_for("https://watch.example/p/video").is_none());
+        assert!(transport
+            .site_basic_auth_for("https://watch.example/p/video")
+            .is_none());
     }
 }
