@@ -265,6 +265,8 @@ use dynamic_library::NativeLibrary;
 struct LoadIdentity {
     generation: u64,
     playlist_item_id: Option<String>,
+    /// External subtitles (controlled temp paths) attached to this load.
+    subtitles: Vec<crate::subtitles::PreparedSubtitle>,
 }
 
 pub struct LibMpvPlayer {
@@ -627,6 +629,22 @@ impl LibMpvPlayer {
             .collect()
     }
 
+    /// Adds the load's downloaded external subtitles as selectable tracks.
+    /// "auto" keeps the current selection; the viewer picks tracks locally.
+    /// Failures are ignored — missing subtitles must never break playback.
+    fn attach_external_subtitles(&mut self, load: &LoadIdentity) {
+        if load.subtitles.is_empty() {
+            return;
+        }
+        for subtitle in &load.subtitles {
+            let path = subtitle.path.to_string_lossy();
+            let title = subtitle.title.as_str();
+            let language = subtitle.language.as_deref().unwrap_or("");
+            let _ = self.command(&["sub-add", &path, "auto", title, language]);
+        }
+        self.refresh_media_metadata();
+    }
+
     fn handle_native_event(&mut self, event: &MpvEvent) {
         match event.event_id {
             MPV_EVENT_START_FILE => {
@@ -643,10 +661,11 @@ impl LibMpvPlayer {
                 self.state.loaded = true;
                 self.state.buffering = false;
                 self.refresh_state();
-                if let Some(load) = self
+                let load = self
                     .active_entry_id
-                    .and_then(|entry| self.entry_loads.get(&entry))
-                {
+                    .and_then(|entry| self.entry_loads.get(&entry).cloned());
+                if let Some(load) = load {
+                    self.attach_external_subtitles(&load);
                     self.queued_events.push(PlayerEvent::Loaded {
                         generation: load.generation,
                     });
@@ -705,6 +724,7 @@ impl PlayerEngine for LibMpvPlayer {
         let identity = LoadIdentity {
             generation: request.generation,
             playlist_item_id: request.playlist_item_id.map(String::from),
+            subtitles: request.subtitles.clone(),
         };
         self.pending_loads.push_back(identity.clone());
         self.state.loaded = false;

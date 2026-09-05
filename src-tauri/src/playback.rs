@@ -79,7 +79,11 @@ impl PlaybackPolicy {
     }
     pub fn resolved(&mut self, media: &ResolvedMedia) -> PlaybackAction {
         self.remember_fallback(media);
-        if let Some(url) = media.direct_url.as_deref().filter(|url| is_trusted_media_url(url)) {
+        if let Some(url) = media
+            .direct_url
+            .as_deref()
+            .filter(|url| is_trusted_media_url(url))
+        {
             self.state = PlaybackState::Direct;
             return PlaybackAction::Load {
                 url: url.to_owned(),
@@ -109,7 +113,11 @@ impl PlaybackPolicy {
 
     pub fn resolved_retry(&mut self, media: &ResolvedMedia) -> PlaybackAction {
         self.remember_fallback(media);
-        if let Some(url) = media.direct_url.as_deref().filter(|url| is_trusted_media_url(url)) {
+        if let Some(url) = media
+            .direct_url
+            .as_deref()
+            .filter(|url| is_trusted_media_url(url))
+        {
             self.state = PlaybackState::DirectRetry;
             return PlaybackAction::Load {
                 url: url.to_owned(),
@@ -155,6 +163,10 @@ pub struct PlaybackLoad<'a> {
     pub generation: u64,
     pub playlist_item_id: Option<&'a str>,
     pub basic_auth: Option<(&'a str, &'a str)>,
+    /// External subtitles already downloaded into the controlled temp store.
+    /// The player attaches them after the media finishes loading; these are
+    /// local-only and never broadcast.
+    pub subtitles: Vec<crate::subtitles::PreparedSubtitle>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -288,10 +300,7 @@ mod tests {
         p.begin(3);
         assert!(matches!(
             p.resolved(&media(Some("file:///etc/passwd"), Some("https://fallback"))),
-            PlaybackAction::Load {
-                fallback: true,
-                ..
-            }
+            PlaybackAction::Load { fallback: true, .. }
         ));
     }
 
@@ -300,7 +309,10 @@ mod tests {
         let mut p = PlaybackPolicy::new();
         p.begin(3);
         assert_eq!(
-            p.resolved(&media(Some("http://lan-server/video"), Some("file:///etc/passwd"))),
+            p.resolved(&media(
+                Some("http://lan-server/video"),
+                Some("file:///etc/passwd")
+            )),
             PlaybackAction::Fail
         );
         // A later player error must not resurrect the untrusted fallback.

@@ -8,6 +8,7 @@ pub mod libmpv;
 pub mod playback;
 pub mod runtime;
 pub mod session;
+pub mod subtitles;
 mod tauri_api;
 pub mod transport;
 

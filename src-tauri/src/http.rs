@@ -1,7 +1,8 @@
 use crate::{
     contracts::{CommandAck, DesktopCommand, MediaDirectoryPage, MediaSource, RoomMember},
     transport::{
-        Handoff, RequestTiming, ResolvedMedia, RoomTransport, SnapshotResponse, TransportError,
+        Handoff, RequestTiming, ResolvedMedia, RoomTransport, SnapshotResponse, SubtitleTrackInfo,
+        TransportError,
     },
 };
 use reqwest::{
@@ -203,6 +204,36 @@ impl DesktopHttpTransport {
             .json()
             .map(Some)
             .map_err(|error| TransportError::Protocol(error.to_string()))
+    }
+
+    /// Raw-body variant for subtitle downloads. Enforces the server's 5 MiB
+    /// guard with headroom so a hostile response cannot balloon memory.
+    fn request_bytes(&self, builder: RequestBuilder) -> Result<Vec<u8>, TransportError> {
+        let response = builder
+            .send()
+            .map_err(|error| TransportError::Network(error.to_string()))?;
+        let status = response.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(TransportError::Unauthorized);
+        }
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Err(TransportError::NotFound);
+        }
+        if !status.is_success() {
+            return Err(TransportError::Http(
+                status.as_u16(),
+                response.text().unwrap_or_default(),
+            ));
+        }
+        let bytes = response
+            .bytes()
+            .map_err(|error| TransportError::Network(error.to_string()))?;
+        if bytes.len() > crate::subtitles::MAX_SUBTITLE_BYTES {
+            return Err(TransportError::Protocol(
+                "subtitle exceeds size guard".into(),
+            ));
+        }
+        Ok(bytes.to_vec())
     }
 
     fn command_request(&self, builder: RequestBuilder) -> Result<CommandAck, TransportError> {
@@ -485,6 +516,46 @@ impl RoomTransport for DesktopHttpTransport {
         })
     }
 
+    fn discover_subtitles(
+        &mut self,
+        room: &str,
+        token: &str,
+        generation: u64,
+        source: &MediaSource,
+    ) -> Result<Vec<SubtitleTrackInfo>, TransportError> {
+        let media_id = match source {
+            MediaSource::Openlist { media_id, .. } => media_id,
+            _ => return Ok(Vec::new()),
+        };
+        let request = self.headers(
+            self.client
+                .get(format!(
+                    "{}/api/rooms/{room}/media/subtitles",
+                    self.base_url
+                ))
+                .query(&[("mediaId", media_id.as_str())]),
+            Some(generation),
+        );
+        self.request(self.with_room_token(request, token)?)?
+            .ok_or_else(|| TransportError::Protocol("empty subtitle discovery response".into()))
+    }
+
+    fn download_subtitle(
+        &mut self,
+        room: &str,
+        token: &str,
+        generation: u64,
+        subtitle_media_id: &str,
+    ) -> Result<Vec<u8>, TransportError> {
+        let request = self.headers(
+            self.client
+                .get(format!("{}/api/rooms/{room}/media/subtitle", self.base_url))
+                .query(&[("mediaId", subtitle_media_id)]),
+            Some(generation),
+        );
+        self.request_bytes(self.with_room_token(request, token)?)
+    }
+
     fn leave(&mut self, room: &str, token: &str, generation: u64) -> Result<(), TransportError> {
         let request = self.headers(
             self.client.delete(format!(
@@ -629,5 +700,118 @@ mod tests {
         assert!(transport
             .site_basic_auth_for("https://watch.example/p/video")
             .is_none());
+    }
+
+    #[test]
+    fn subtitle_discovery_and_download_hit_the_room_media_endpoints() {
+        use crate::contracts::MediaSource;
+        use crate::transport::{RoomTransport, TransportError};
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            thread,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let responses = [
+                (
+                    "/api/rooms/r1/media/subtitles?mediaId=video-signed",
+                    200,
+                    r#"[{"id":"sig1","mediaId":"sub-signed","label":"Show 01.chs.ass","format":"ass","language":"chs"}]"#,
+                ),
+                (
+                    "/api/rooms/r1/media/subtitle?mediaId=sub-signed",
+                    200,
+                    "[Script Info]",
+                ),
+                (
+                    "/api/rooms/r1/media/subtitle?mediaId=missing",
+                    404,
+                    "{\"code\":\"MEDIA_NOT_FOUND\"}",
+                ),
+            ];
+            for (path, status, body) in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    assert!(request.len() < 8192);
+                    stream.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                }
+                let request = String::from_utf8(request).unwrap();
+                let target = request.split_whitespace().nth(1).unwrap_or_default();
+                let target = urldecode_target(target);
+                assert_eq!(target, path, "unexpected request target {target}");
+                let authorized = request
+                    .to_lowercase()
+                    .contains("x-watchparty-token: room-secret");
+                let status_line = if authorized { status } else { 401 };
+                write!(
+                    stream,
+                    "HTTP/1.1 {status_line} OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+        });
+
+        let mut transport = crate::http::DesktopHttpTransport::new(&origin).unwrap();
+        let source = MediaSource::Openlist {
+            media_id: "video-signed".into(),
+            title: "Show 01.mp4".into(),
+            container: "mp4".into(),
+            display_path: None,
+        };
+        let tracks = transport
+            .discover_subtitles("r1", "room-secret", 4, &source)
+            .unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].media_id, "sub-signed");
+        assert_eq!(tracks[0].label, "Show 01.chs.ass");
+        assert_eq!(tracks[0].format, "ass");
+        assert_eq!(tracks[0].language.as_deref(), Some("chs"));
+
+        let content = transport
+            .download_subtitle("r1", "room-secret", 4, "sub-signed")
+            .unwrap();
+        assert_eq!(content, b"[Script Info]");
+
+        assert!(matches!(
+            transport.download_subtitle("r1", "room-secret", 4, "missing"),
+            Err(TransportError::NotFound)
+        ));
+        server.join().unwrap();
+    }
+
+    /// The fixture compares raw request targets; mediaId values are opaque
+    /// tokens that may contain percent-escapes in transit.
+    fn urldecode_target(target: &str) -> String {
+        let path = target.split('?').next().unwrap_or_default().to_owned();
+        let query = target.split_once('?').map(|(_, query)| query).unwrap_or("");
+        let decoded = query
+            .split('&')
+            .map(|pair| {
+                let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+                let value = value
+                    .replace("%2F", "/")
+                    .replace("%2f", "/")
+                    .replace("%3D", "=")
+                    .replace("%3d", "=")
+                    .replace("%2B", "+")
+                    .replace("%2b", "+");
+                format!("{key}={value}")
+            })
+            .collect::<Vec<_>>()
+            .join("&");
+        if decoded.is_empty() {
+            path
+        } else {
+            format!("{path}?{decoded}")
+        }
     }
 }

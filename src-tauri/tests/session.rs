@@ -1,8 +1,10 @@
 use std::collections::VecDeque;
+use std::path::PathBuf;
 use watchparty_desktop::{
     contracts::*,
     playback::{PlayerControlError, PlayerEngine, PlayerEvent},
     session::{DesktopSession, SessionStatus},
+    subtitles::SubtitleStore,
     transport::*,
 };
 
@@ -13,6 +15,19 @@ fn source() -> MediaSource {
         container: "mp4".into(),
         display_path: None,
     }
+}
+
+/// A session whose downloaded subtitles land in a private temp root so tests
+/// never collide and always clean up.
+fn test_session(
+    transport: FakeTransport,
+    player: FakePlayer,
+) -> (DesktopSession<FakeTransport, FakePlayer>, PathBuf) {
+    let root =
+        std::env::temp_dir().join(format!("watchparty-session-test-{}", uuid::Uuid::new_v4()));
+    let session = DesktopSession::new(transport, player)
+        .with_subtitle_store(SubtitleStore::with_root(root.clone()));
+    (session, root)
 }
 fn snapshot(revision: u64, item: &str) -> RoomSnapshot {
     owned_snapshot(revision, item, "browser-1")
@@ -50,7 +65,11 @@ struct FakeTransport {
     command_revisions: Vec<u64>,
     command_owner_tokens: Vec<Option<String>>,
     claim_grants: VecDeque<Result<Option<String>, TransportError>>,
+    subtitle_discoveries: VecDeque<Result<Vec<SubtitleTrackInfo>, TransportError>>,
+    subtitle_downloads: VecDeque<Result<Vec<u8>, TransportError>>,
     resolve_count: usize,
+    subtitle_discovery_count: usize,
+    subtitle_download_count: usize,
     member_requests: usize,
     left: bool,
     clock_sync: bool,
@@ -125,6 +144,34 @@ impl RoomTransport for FakeTransport {
             user_agent: "pan.baidu.com".into(),
         }))
     }
+    fn discover_subtitles(
+        &mut self,
+        _: &str,
+        _: &str,
+        _: u64,
+        source: &MediaSource,
+    ) -> Result<Vec<SubtitleTrackInfo>, TransportError> {
+        self.subtitle_discovery_count += 1;
+        if matches!(source, MediaSource::Openlist { .. }) {
+            self.subtitle_discoveries
+                .pop_front()
+                .unwrap_or(Ok(Vec::new()))
+        } else {
+            Ok(Vec::new())
+        }
+    }
+    fn download_subtitle(
+        &mut self,
+        _: &str,
+        _: &str,
+        _: u64,
+        _: &str,
+    ) -> Result<Vec<u8>, TransportError> {
+        self.subtitle_download_count += 1;
+        self.subtitle_downloads
+            .pop_front()
+            .unwrap_or(Ok(b"1\n00:00:00,000 --> 00:00:01,000\nhi\n".to_vec()))
+    }
     fn leave(&mut self, _: &str, _: &str, _: u64) -> Result<(), TransportError> {
         self.left = true;
         Ok(())
@@ -153,7 +200,7 @@ impl RoomTransport for FakeTransport {
 }
 #[derive(Default)]
 struct FakePlayer {
-    loads: Vec<(String, String, bool, u64, Option<String>, bool)>,
+    loads: Vec<(String, String, bool, u64, Option<String>, bool, usize)>,
     events: VecDeque<PlayerEvent>,
     applied: usize,
     estimated_server_times: Vec<i64>,
@@ -174,6 +221,7 @@ impl PlayerEngine for FakePlayer {
             request.generation,
             request.playlist_item_id.map(String::from),
             request.basic_auth.is_some(),
+            request.subtitles.len(),
         ));
     }
     fn apply_shared_state(&mut self, _: &RoomSnapshot, estimated_server_time_ms: i64) {
@@ -241,7 +289,7 @@ fn full_chain_redacts_secret_and_refreshes_after_eof() {
         reason: watchparty_desktop::playback::PlayerEndReason::Eof,
         playlist_item_id: Some("i1".into()),
     });
-    let mut s = DesktopSession::new(t, p);
+    let mut s = test_session(t, p).0;
     let events = s.start("TICKET_SECRET", 0).unwrap();
     s.handle_player_events(1);
     s.handle_player_events(2);
@@ -664,4 +712,170 @@ fn owner_commands_gate_on_ownership_and_persist_transitions() {
     // Non-owner commands never carry the owner token.
     session.execute(DesktopCommand::Pause, 900).unwrap();
     assert_eq!(session.transport.command_owner_tokens.pop(), Some(None));
+}
+
+fn subtitle_track(label: &str, format: &str) -> SubtitleTrackInfo {
+    SubtitleTrackInfo {
+        media_id: format!("signed:{label}"),
+        label: label.into(),
+        language: None,
+        format: format.into(),
+    }
+}
+
+#[test]
+fn openlist_media_prepares_external_subtitles_and_stops_clean_up() {
+    let mut transport = FakeTransport::default();
+    transport.subtitle_discoveries.push_back(Ok(vec![
+        subtitle_track("Show 01.chs.ass", "ass"),
+        subtitle_track("Show 01.exe", "exe"),
+    ]));
+    transport
+        .subtitle_downloads
+        .push_back(Ok(b"[Script Info]\n".to_vec()));
+    let (mut session, root) = test_session(transport, FakePlayer::default());
+
+    session.start("ticket", 0).unwrap();
+
+    assert_eq!(session.transport.subtitle_discovery_count, 1);
+    // Only the whitelisted .ass track is downloaded; the .exe is filtered
+    // before any network request. Subtitles are prepared but not selected.
+    assert_eq!(session.transport.subtitle_download_count, 1);
+    let loads = session.player.loads.clone();
+    assert_eq!(loads.len(), 1);
+    assert_eq!(loads[0].6, 1);
+
+    // Stopping the session removes the controlled temp tree.
+    session.stop().unwrap();
+    assert!(!root.exists());
+}
+
+#[test]
+fn subtitle_transport_failures_never_block_playback() {
+    let mut transport = FakeTransport::default();
+    transport
+        .subtitle_discoveries
+        .push_back(Err(TransportError::Network("openlist down".into())));
+    let (mut session, _root) = test_session(transport, FakePlayer::default());
+
+    session.start("ticket", 0).unwrap();
+
+    assert_eq!(session.transport.subtitle_download_count, 0);
+    assert_eq!(session.status, SessionStatus::Ready);
+    assert_eq!(session.player.loads.len(), 1);
+    assert_eq!(session.player.loads[0].6, 0);
+}
+
+#[test]
+fn https_and_hls_media_play_directly_without_resolve() {
+    for (kind, url, expected) in [
+        (
+            "http",
+            "https://cdn.example/video.mp4",
+            "https://cdn.example/video.mp4",
+        ),
+        (
+            "hls",
+            "https://cdn.example/live/index.m3u8",
+            "https://cdn.example/live/index.m3u8",
+        ),
+    ] {
+        let mut transport = FakeTransport::default();
+        let media = match kind {
+            "http" => MediaSource::Http {
+                url: url.into(),
+                title: Some("clip".into()),
+            },
+            _ => MediaSource::Hls {
+                url: url.into(),
+                title: Some("live".into()),
+            },
+        };
+        // The handoff snapshot carries OpenList media; the direct source
+        // arrives with the next snapshot poll, like a real mediaSet.
+        let mut snapshot = snapshot(2, "i1");
+        snapshot.source = Some(media);
+        transport.snapshots.push_back(Ok(Some(snapshot)));
+        let (mut session, _root) = test_session(transport, FakePlayer::default());
+        session.start("ticket", 0).unwrap();
+
+        session.poll(250);
+
+        assert_eq!(session.transport.resolve_count, 1); // only the handoff item
+        assert_eq!(session.transport.subtitle_discovery_count, 1);
+        assert_eq!(session.player.loads.len(), 2);
+        let load = session.player.loads.last().unwrap();
+        assert_eq!(load.0, expected);
+        assert!(!load.2, "no fallback for direct sources");
+    }
+}
+
+#[test]
+fn untrusted_https_urls_still_fail_closed() {
+    let mut transport = FakeTransport::default();
+    let mut snapshot = snapshot(2, "i1");
+    snapshot.source = Some(MediaSource::Http {
+        url: "file:///C:/video.mkv".into(),
+        title: None,
+    });
+    transport.snapshots.push_back(Ok(Some(snapshot)));
+    let (mut session, _root) = test_session(transport, FakePlayer::default());
+    session.start("ticket", 0).unwrap();
+
+    session.poll(250);
+
+    assert_eq!(session.player.loads.len(), 1); // only the handoff OpenList item
+    assert_eq!(session.status, SessionStatus::Failed);
+    let event = serde_json::to_string(&session.event()).unwrap();
+    assert!(event.contains("MEDIA_RESOLVE_FAILED"));
+}
+
+#[test]
+fn youtube_sources_fail_closed_without_a_resolve_round_trip() {
+    let mut transport = FakeTransport::default();
+    let mut snapshot = snapshot(2, "i1");
+    snapshot.source = Some(MediaSource::Youtube {
+        video_id: "dQw4w9WgXcQ".into(),
+        title: None,
+    });
+    transport.snapshots.push_back(Ok(Some(snapshot)));
+    let (mut session, _root) = test_session(transport, FakePlayer::default());
+    session.start("ticket", 0).unwrap();
+
+    session.poll(250);
+
+    assert_eq!(session.player.loads.len(), 1); // only the handoff OpenList item
+    assert_eq!(session.status, SessionStatus::Failed);
+}
+
+#[test]
+fn direct_retry_fallback_chain_still_runs_for_openlist_media() {
+    let mut transport = FakeTransport::default();
+    transport.resolves.push_back(Ok(ResolvedMedia {
+        direct_url: Some("https://direct-1".into()),
+        fallback_url: Some("https://fallback".into()),
+        user_agent: "pan.baidu.com".into(),
+    }));
+    transport.resolves.push_back(Ok(ResolvedMedia {
+        direct_url: Some("https://direct-2".into()),
+        fallback_url: Some("https://fallback".into()),
+        user_agent: "pan.baidu.com".into(),
+    }));
+    let (mut session, _root) = test_session(transport, FakePlayer::default());
+    session.start("ticket", 0).unwrap();
+
+    session.player.events.push_back(PlayerEvent::Error {
+        generation: 1,
+        retryable: true,
+    });
+    session.handle_player_events(1);
+    assert_eq!(session.player.loads.last().unwrap().0, "https://direct-2");
+
+    session.player.events.push_back(PlayerEvent::Error {
+        generation: 1,
+        retryable: true,
+    });
+    session.handle_player_events(2);
+    assert_eq!(session.player.loads.last().unwrap().0, "https://fallback");
+    assert!(session.player.loads.last().unwrap().2);
 }

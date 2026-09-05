@@ -31,7 +31,7 @@
 <div class="doc">
 
 <h1>独立桌面端 V1 · 分 Gate 执行计划</h1>
-<p class="note">状态：<b>Gate 0–4 已完成，下一步 Gate 5</b> · 边界定稿：<code>UNIVERSAL_ALIGNMENT_SPEC.md</code> 第 10 节 · 粒度基线：<code>dev/tauri-current-execution-plan.html</code>（历史记录，其“直接打包”顺序已作废）。规模估算：单人 7–10 工程周。</p>
+<p class="note">状态：<b>Gate 0–4 已完成；Gate 5 自动化链路已完成（真实媒体手动验收待做）</b> · 边界定稿：<code>UNIVERSAL_ALIGNMENT_SPEC.md</code> 第 10 节 · 粒度基线：<code>dev/tauri-current-execution-plan.html</code>（历史记录，其“直接打包”顺序已作废）。规模估算：单人 7–10 工程周。</p>
 
 <h2>目标定义</h2>
 <p class="note">用户安装应用后，无需打开浏览器即可：配置服务器与站点凭据 → 建房或房号/PIN 入房 → 成为房主并管理房间与队列 → 浏览 OpenList / 添加 HTTPS·HLS 媒体 → 播放、同步、恢复最后房间、调整播放器设置 → Windows 安装包交付。网页 handoff 降级为可选捷径。</p>
@@ -124,13 +124,22 @@
   <li>EOF 推进为既有 PlayerEvent::Ended → playlistNext 路径；真实 OpenList 播放闭环（直链/fallback/字幕）属 Gate 5。</li>
 </ul>
 
-<h2>Gate 5 <span class="tag t-todo">播放与字幕闭环</span></h2>
+<h2>Gate 5 <span class="tag t-active">自动化链路已完成；真实媒体手动验收待做</span></h2>
 <ul>
   <li>libmpv 支持 OpenList / HTTPS 文件 / HLS；不做 YouTube、Magnet、本地文件。</li>
   <li>保持 direct → 单次重解析 → fallback 链（URL 信任规则 Gate 0 已生效）。</li>
   <li>OpenList 外挂字幕（ASS/SSA/SRT/VTT）由 Rust 下载进受控临时目录并清理；内嵌 + 外挂轨道选择。</li>
   <li>保留自动追帧 + 本地 resync 兜底（不广播）。</li>
   <li>退出：三类媒体 + 两类字幕在 desktop/browser 混合房间稳定同步。</li>
+</ul>
+<h3>Gate 5 自动化验收证据（2026-09-05）</h3>
+<ul>
+  <li>三类媒体直接播放闭环：session 的 resolve 路径分流——OpenList 走服务端双链解析（direct → 单次重解析 → fallback 原样保留）；HTTP/HLS 快照源直接作为直链载入（服务端 mediaSet 时已校验 HTTPS-only / 无 userinfo / HLS 必须 .m3u8，客户端 <code>is_trusted_media_url</code> 二次防线不变）；YouTube 显式 fail closed（MEDIA_RESOLVE_FAILED），不再产生注定失败的 resolve 往返。</li>
+  <li>字幕下载链路（新 <code>src-tauri/src/subtitles.rs</code>）：会话对 OpenList 源调用 <code>GET /api/rooms/:id/media/subtitles</code> 发现 → <code>GET …/media/subtitle</code> 下载 → 写入 <code>%TEMP%\watchparty-subs\subs-&lt;uuid&gt;-&lt;generation&gt;\sub-N.&lt;ext&gt;</code> 受控目录（格式白名单 ass/ssa/srt/vtt、单文件 ≤8MB、≤8 轨、生成文件名无穿越）；换片 retire 旧目录、停止 cleanup 全树；Windows 句柄占用走 best-effort 退避重试。任何失败只跳过字幕，绝不阻塞播放或 fallback 链。</li>
+  <li>libmpv 接线：<code>PlaybackLoad.subtitles</code> 携带受控路径，FILE_LOADED 后逐条 <code>sub-add … auto title lang</code>（不抢占当前选择），随后刷新轨道列表；内嵌 + 外挂轨道统一走既有 <code>selectSubtitleTrack</code> 本地选择 IPC 与 UI 选择器，无需新命令。</li>
+  <li>秘密边界：字幕内容与路径仅在 Rust；WebView 只见脱敏 track 列表（label/language/codec）。</li>
+  <li>测试：Rust lib 43/43（新增字幕 ingest 白名单/超限/清退/清理矩阵 + 真实 HTTP fixture 验证字幕端点、404 与 token 头）、session 集成 22/22（OpenList 字幕准备与停止清理、发现失败不阻塞播放、HTTP/HLS 直连零 resolve、不可信 URL 与 YouTube fail closed、direct→重解析→fallback 链回归）、cargo check --all-targets、desktop TypeScript + Vite build 通过；服务端 57/57 未受影响（零服务端改动）。</li>
+  <li>待办（需真实媒体源，随 Gate 7 真机走查执行）：真实 OpenList 直链/fallback 播放、HLS 直播流、ASS/SRT 外挂轨道实际渲染、desktop/browser 混合房间同步断言。</li>
 </ul>
 
 <h2>Gate 6 <span class="tag t-todo">白名单播放器设置</span></h2>

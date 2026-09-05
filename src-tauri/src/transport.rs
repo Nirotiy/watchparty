@@ -33,6 +33,20 @@ pub struct ResolvedMedia {
     pub user_agent: String,
 }
 
+/// A discovered external subtitle file for the current OpenList media.
+/// `media_id` is the opaque server token used to download the content; it is
+/// never a path or a direct URL.
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubtitleTrackInfo {
+    #[serde(rename = "mediaId")]
+    pub media_id: String,
+    pub label: String,
+    #[serde(default)]
+    pub language: Option<String>,
+    pub format: String,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RequestTiming {
     pub sent_ms: i64,
@@ -114,6 +128,29 @@ pub trait RoomTransport {
         generation: u64,
         source: &MediaSource,
     ) -> Result<ResolvedMedia, TransportError>;
+    /// External subtitle discovery for an OpenList source. Empty = no matches.
+    fn discover_subtitles(
+        &mut self,
+        _room_id: &str,
+        _token: &str,
+        _generation: u64,
+        _source: &MediaSource,
+    ) -> Result<Vec<SubtitleTrackInfo>, TransportError> {
+        Ok(Vec::new())
+    }
+    /// Downloads one external subtitle into a native byte buffer. The content
+    /// never crosses into the WebView or the room transport.
+    fn download_subtitle(
+        &mut self,
+        _room_id: &str,
+        _token: &str,
+        _generation: u64,
+        _subtitle_media_id: &str,
+    ) -> Result<Vec<u8>, TransportError> {
+        Err(TransportError::Protocol(
+            "subtitle download is unavailable".into(),
+        ))
+    }
     fn leave(&mut self, room_id: &str, token: &str, generation: u64) -> Result<(), TransportError>;
     fn site_basic_auth(&self) -> Option<(&str, &str)> {
         None

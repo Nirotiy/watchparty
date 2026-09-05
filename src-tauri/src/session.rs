@@ -6,11 +6,15 @@ use crate::{
         is_trusted_media_url, PlaybackAction, PlaybackLoad, PlaybackPolicy, PlayerControlError,
         PlayerEndReason, PlayerEngine, PlayerEvent,
     },
-    transport::{RoomTransport, TransportError},
+    subtitles::SubtitleStore,
+    transport::{ResolvedMedia, RoomTransport, TransportError},
 };
 use serde::Deserialize;
 
 const MEMBERS_REFRESH_INTERVAL_MS: i64 = 2_000;
+/// Neutral user agent for direct HTTPS/HLS sources; OpenList media always uses
+/// the user agent the resolver reports for the upstream share.
+const DIRECT_MEDIA_USER_AGENT: &str = "libmpv";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SessionStatus {
@@ -46,6 +50,8 @@ pub struct DesktopSession<T: RoomTransport, P: PlayerEngine> {
     locally_suspended: bool,
     capability: NativeCapabilityReport,
     last_error: Option<UiError>,
+    /// Controlled temp storage for downloaded external subtitles. Native-only.
+    subtitles: SubtitleStore,
     /// Native-only persistence for owner token changes (claim/clear). The
     /// token itself never crosses this boundary, only the fact it changed.
     owner_token_persist: Option<Box<dyn Fn(Option<String>) + Send>>,
@@ -77,6 +83,7 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
             locally_suspended: false,
             capability,
             last_error: None,
+            subtitles: SubtitleStore::new(),
             owner_token_persist: None,
         }
     }
@@ -363,6 +370,12 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
         }
     }
 
+    /// Overrides the controlled subtitle temp root (tests only).
+    pub fn with_subtitle_store(mut self, store: SubtitleStore) -> Self {
+        self.subtitles = store;
+        self
+    }
+
     /// Installs a native-only persistence hook invoked when the owner token is
     /// claimed or dropped. The token value crosses only inside the Rust process.
     pub fn with_owner_token_persist(mut self, persist: Box<dyn Fn(Option<String>) + Send>) -> Self {
@@ -508,6 +521,7 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
             Ok(())
         };
         self.player.dispose();
+        self.subtitles.cleanup();
         self.transport.clear_site_basic_auth();
         self.status = SessionStatus::Stopped;
         self.token = None;
@@ -607,6 +621,7 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
         ));
         self.snapshot = Some(snapshot.clone());
         if changed {
+            self.subtitles.retire();
             if let Some(source) = snapshot.source.clone() {
                 self.load_generation = self.load_generation.saturating_add(1);
                 self.policy.begin(self.load_generation);
@@ -644,12 +659,64 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
 
     fn resolve_and_load(&mut self, source: MediaSource) -> Result<(), TransportError> {
         let (room, token) = self.credentials()?;
-        let resolved = self
-            .transport
-            .resolve(&room, &token, self.generation, &source)?;
+        let resolved = match &source {
+            MediaSource::Openlist { .. } => {
+                self.transport
+                    .resolve(&room, &token, self.generation, &source)?
+            }
+            // HTTPS/HLS sources were validated by the server when the owner set
+            // them; the URL itself is the direct link. `is_trusted_media_url`
+            // re-checks it before anything reaches the player.
+            MediaSource::Http { url, .. } | MediaSource::Hls { url, .. } => ResolvedMedia {
+                direct_url: Some(url.clone()),
+                fallback_url: None,
+                user_agent: DIRECT_MEDIA_USER_AGENT.into(),
+            },
+            // Desktop V1 does not play YouTube; fail explicitly instead of a
+            // resolve round-trip that can never succeed.
+            MediaSource::Youtube { .. } => {
+                self.apply_playback_action(PlaybackAction::Fail);
+                return Ok(());
+            }
+        };
         let action = self.policy.resolved(&resolved);
+        if matches!(action, PlaybackAction::Load { .. }) {
+            self.prepare_subtitles(&room, &token, &source);
+        }
         self.apply_playback_action(action);
         Ok(())
+    }
+
+    /// Best-effort external subtitle preparation for OpenList media. Any
+    /// failure (discovery, download, disk) skips subtitles but never blocks
+    /// playback or the direct→fallback chain.
+    fn prepare_subtitles(&mut self, room: &str, token: &str, source: &MediaSource) {
+        if !matches!(source, MediaSource::Openlist { .. }) {
+            return;
+        }
+        let tracks = match self
+            .transport
+            .discover_subtitles(room, token, self.generation, source)
+        {
+            Ok(tracks) => tracks,
+            Err(_) => return,
+        };
+        let mut payloads = Vec::new();
+        for track in tracks.into_iter().take(crate::subtitles::MAX_TRACKS) {
+            if !crate::subtitles::format_allowed(&track.format) {
+                continue;
+            }
+            match self
+                .transport
+                .download_subtitle(room, token, self.generation, &track.media_id)
+            {
+                Ok(bytes) => payloads.push((track, bytes)),
+                Err(_) => continue,
+            }
+        }
+        if !payloads.is_empty() {
+            self.subtitles.ingest(self.load_generation, &payloads);
+        }
     }
 
     fn retry_or_fallback(&mut self, source: MediaSource) -> Result<(), TransportError> {
@@ -693,6 +760,7 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
                     .snapshot
                     .as_ref()
                     .and_then(|snapshot| snapshot.current_playlist_item_id.as_deref());
+                let subtitles = self.subtitles.prepared().to_vec();
                 self.player.load(PlaybackLoad {
                     url: &url,
                     user_agent: &user_agent,
@@ -700,6 +768,7 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
                     generation: self.load_generation,
                     playlist_item_id,
                     basic_auth,
+                    subtitles,
                 });
             }
             PlaybackAction::ResolveAgain => {}

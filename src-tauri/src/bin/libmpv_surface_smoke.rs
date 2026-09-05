@@ -103,6 +103,7 @@ fn run_smoke(
         generation: 1,
         playlist_item_id: Some("surface-smoke"),
         basic_auth: None,
+        subtitles: Vec::new(),
     });
 
     wait_for(&mut player, Duration::from_secs(30), |events, _| {
