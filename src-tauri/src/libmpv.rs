@@ -118,6 +118,7 @@ pub struct LibMpvConfig {
     pub window_handle: usize,
     /// Whitelisted preferences applied when the player is created.
     pub preferences: PlayerPreferences,
+    pub tls_ca_file: Option<PathBuf>,
 }
 
 impl LibMpvConfig {
@@ -154,12 +155,18 @@ impl LibMpvConfig {
             dll_path,
             window_handle,
             preferences: PlayerPreferences::default(),
+            tls_ca_file: None,
         })
     }
 
     /// Replaces the preference set applied when the player is created.
     pub fn with_preferences(mut self, preferences: PlayerPreferences) -> Self {
         self.preferences = preferences;
+        self
+    }
+
+    pub fn with_tls_ca_file(mut self, path: Option<PathBuf>) -> Self {
+        self.tls_ca_file = path;
         self
     }
 }
@@ -415,6 +422,9 @@ impl LibMpvPlayer {
             ("vo", "gpu-next"),
         ] {
             player.set_option(name, value)?;
+        }
+        if let Some(path) = &config.tls_ca_file {
+            player.set_option("tls-ca-file", path.to_string_lossy().as_ref())?;
         }
         // Preference-driven creation options: hardware decoding and cache profile.
         for (name, value) in open_options(&config.preferences) {
@@ -832,6 +842,8 @@ impl PlayerEngine for LibMpvPlayer {
         self.state.buffering = true;
 
         let _ = self.set_property_string("user-agent", request.user_agent);
+        let tls_ca_file = request.tls_ca_file.map(|path| path.to_string_lossy().into_owned()).unwrap_or_default();
+        let _ = self.set_property_string("tls-ca-file", &tls_ca_file);
         let header = request.basic_auth.map(|(username, password)| {
             format!(
                 "Authorization: Basic {}",
@@ -1049,6 +1061,15 @@ mod tests {
         assert!(options.contains(&("cache-secs", "120".into())));
         prefs.hardware_decoding = "auto".into();
         assert!(open_options(&prefs).contains(&("hwdec", "auto".into())));
+    }
+
+    #[test]
+    fn tls_ca_file_is_optional_and_origin_scoped_by_configuration() {
+        let config = LibMpvConfig::new(PathBuf::from(r"C:\libmpv-2.dll"), 1)
+            .unwrap()
+            .with_tls_ca_file(Some(PathBuf::from(r"C:\app-data\tls-trust\origin-a.pem")));
+        assert_eq!(config.tls_ca_file.as_deref(), Some(Path::new(r"C:\app-data\tls-trust\origin-a.pem")));
+        assert!(LibMpvConfig::new(PathBuf::from(r"C:\libmpv-2.dll"), 1).unwrap().tls_ca_file.is_none());
     }
 
     #[test]

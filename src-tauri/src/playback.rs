@@ -163,6 +163,7 @@ pub struct PlaybackLoad<'a> {
     pub generation: u64,
     pub playlist_item_id: Option<&'a str>,
     pub basic_auth: Option<(&'a str, &'a str)>,
+    pub tls_ca_file: Option<&'a std::path::Path>,
     /// External subtitles already downloaded into the controlled temp store.
     /// The player attaches them after the media finishes loading; these are
     /// local-only and never broadcast.

@@ -18,6 +18,22 @@ use std::sync::{
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
+#[allow(non_snake_case)]
+#[tauri::command]
+pub fn listOriginTrust(app: AppHandle) -> Result<Vec<crate::config::OriginTrustRecord>, String> {
+    crate::config::OriginTrustStore::new(app.path().app_data_dir().map_err(|_|"Trust storage unavailable")?).list().map_err(|_|"Trust storage unavailable".into())
+}
+#[allow(non_snake_case)]
+#[tauri::command]
+pub fn importOriginTrust(app: AppHandle, origin: String, pem: String) -> Result<crate::config::OriginTrustRecord, String> {
+    crate::config::OriginTrustStore::new(app.path().app_data_dir().map_err(|_|"Trust storage unavailable")?).import(&origin, &pem).map_err(|_|"Certificate trust could not be saved".into())
+}
+#[allow(non_snake_case)]
+#[tauri::command]
+pub fn deleteOriginTrust(app: AppHandle, origin: String) -> Result<(), String> {
+    crate::config::OriginTrustStore::new(app.path().app_data_dir().map_err(|_|"Trust storage unavailable")?).delete(&origin).map_err(|_|"Certificate trust could not be deleted".into())
+}
+
 /// Managed Tauri state. The renderer receives neither the runtime config nor its credentials.
 pub struct TauriDesktopState {
     runtime: Mutex<Option<Arc<DesktopRuntime>>>,
@@ -94,12 +110,17 @@ impl TauriDesktopState {
             .flatten()
             .map(NativeSiteCredentials::from_stored)
             .transpose()?;
+        let trust_store = crate::config::OriginTrustStore::new(
+            self.app_handle.path().app_data_dir().map_err(|_| RuntimeError::configuration_error())?,
+        );
+        let tls_ca_file = trust_store.ca_file_for(&origin).map_err(|_| RuntimeError::configuration_error())?;
         let config = NativeRuntimeConfig::with_player(
             origin,
             credentials,
             self.player
                 .clone()
-                .with_preferences(settings.player_preferences.clone()),
+                .with_preferences(settings.player_preferences.clone())
+                .with_tls_ca_file(tls_ca_file),
         )?
         .with_owner_token_persistence(owner_token_persist_hook(
             self.room_store,

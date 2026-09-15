@@ -6,10 +6,61 @@ use std::{
     path::{Path, PathBuf},
 };
 use zeroize::Zeroize;
+use sha2::{Digest, Sha256};
 
 const SETTINGS_FILE: &str = "settings.json";
 const CREDENTIAL_TARGET_PREFIX: &str = "WatchParty/site-basic/";
 const ROOM_CREDENTIAL_TARGET_PREFIX: &str = "WatchParty/room-session/";
+const TRUST_FILE: &str = "trust.json";
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all="camelCase")]
+pub struct OriginTrustRecord { pub origin: String, pub fingerprint: String, pub pem: String }
+
+pub struct OriginTrustStore { path: PathBuf }
+#[derive(Clone, Debug, PartialEq)]
+pub struct OriginTlsPolicy {
+    pub origin: String,
+    pub extra_pem: Option<String>,
+}
+
+impl OriginTlsPolicy {
+    pub fn for_origin(store: &OriginTrustStore, origin: &str) -> Result<Self, ConfigError> {
+        let origin = validate_backend_origin(origin)?;
+        Ok(Self { extra_pem: store.pem_for(&origin)?, origin })
+    }
+    pub fn uses_extra_certificate(&self) -> bool { self.extra_pem.is_some() }
+}
+
+impl OriginTrustStore {
+    pub fn new(dir: PathBuf) -> Self { Self { path: dir.join(TRUST_FILE) } }
+    pub fn list(&self) -> Result<Vec<OriginTrustRecord>, ConfigError> { match fs::read(&self.path) { Ok(b)=>Ok(serde_json::from_slice(&b)?), Err(e) if e.kind()==io::ErrorKind::NotFound=>Ok(Vec::new()), Err(e)=>Err(e.into()) } }
+    pub fn import(&self, origin: &str, pem: &str) -> Result<OriginTrustRecord, ConfigError> {
+        let origin=validate_backend_origin(origin)?; let pem=pem.trim(); if pem.len()>200_000 || !pem.contains("-----BEGIN CERTIFICATE-----") || !pem.contains("-----END CERTIFICATE-----") { return Err(ConfigError::Invalid); }
+        let mut h=Sha256::new(); h.update(pem.as_bytes()); let fingerprint=h.finalize().iter().map(|b| format!("{b:02x}")).collect();
+        let rec=OriginTrustRecord{origin:origin.clone(), fingerprint, pem:pem.to_string()}; let mut all=self.list()?; all.retain(|r|r.origin!=origin); all.push(rec.clone()); self.write(&all)?; let _ = self.ca_file_for(&origin)?; Ok(rec)
+    }
+    pub fn delete(&self, origin: &str) -> Result<(), ConfigError> { let origin=validate_backend_origin(origin)?; let mut all=self.list()?; all.retain(|r|r.origin!=origin); self.write(&all)?; self.remove_ca_file(&origin) }
+    pub fn pem_for(&self, origin: &str) -> Result<Option<String>, ConfigError> { let origin=validate_backend_origin(origin)?; Ok(self.list()?.into_iter().find(|r|r.origin==origin).map(|r|r.pem)) }
+    pub fn ca_file_for(&self, origin: &str) -> Result<Option<PathBuf>, ConfigError> {
+        let origin = validate_backend_origin(origin)?;
+        let Some(pem) = self.pem_for(&origin)? else { return Ok(None) };
+        let mut hash = Sha256::new(); hash.update(origin.as_bytes());
+        let name = hash.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let path = self.path.parent().unwrap_or_else(|| Path::new(".")).join("tls-trust").join(format!("{name}.pem"));
+        if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; }
+        fs::write(&path, pem.as_bytes())?;
+        Ok(Some(path))
+    }
+    pub fn remove_ca_file(&self, origin: &str) -> Result<(), ConfigError> {
+        let origin = validate_backend_origin(origin)?;
+        let mut hash = Sha256::new(); hash.update(origin.as_bytes());
+        let name = hash.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let path = self.path.parent().unwrap_or_else(|| Path::new(".")).join("tls-trust").join(format!("{name}.pem"));
+        match fs::remove_file(path) { Ok(()) => Ok(()), Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()), Err(e) => Err(e.into()) }
+    }
+    fn write(&self, all:&Vec<OriginTrustRecord>) -> Result<(), ConfigError> { if let Some(d)=self.path.parent(){fs::create_dir_all(d)?;} fs::write(&self.path, serde_json::to_vec(all)?)?; Ok(()) }
+}
 
 /// Whitelisted player preferences. Every field is bounded and falls back to a
 /// documented default; secrets never live here. Fields absent from an older
@@ -323,6 +374,99 @@ impl Drop for StoredSiteCredentials {
 }
 
 pub struct SiteCredentialStore;
+
+/// One origin-scoped generic credential containing UTF-8 JSON with MP_SESSION and MP_CSRF.
+/// Login provisioning is native-only; there is deliberately no credential-writing IPC.
+pub struct MusicPartyCredentialStore;
+
+#[cfg(all(test, windows))]
+#[test]
+fn musicparty_credential_read_and_clear_are_origin_scoped() {
+    use std::{io::{BufRead, BufReader, Write}, net::TcpListener};
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let target = MusicPartyCredentialStore::target(&origin).unwrap();
+    struct Cleanup(String);
+    impl Drop for Cleanup { fn drop(&mut self) { let _ = platform::clear(&self.0); } }
+    let _cleanup = Cleanup(target.clone());
+    platform::write_blob(&target, "MusicParty", br#"{"MP_SESSION":"test-session-secret","MP_CSRF":"test-csrf-secret"}"#).unwrap();
+    let session = MusicPartyCredentialStore.read(&origin).unwrap().unwrap();
+    assert_eq!(session.session, "test-session-secret");
+    assert_eq!(session.csrf, "test-csrf-secret");
+    drop(session);
+    let server = std::thread::spawn(move || {
+        let mut requests = Vec::new();
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+            let mut reader = BufReader::new(&stream);
+            let mut headers = String::new();
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" || line.is_empty() { break; }
+                headers.push_str(&line);
+            }
+            requests.push(headers.to_ascii_lowercase());
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\nSet-Cookie: MP_SESSION=stale\r\n\r\n{}").unwrap();
+        }
+        requests
+    });
+    let bridge = crate::musicparty::MusicPartyBridge::default();
+    let input = || crate::musicparty::MusicPartyRequest {
+        origin: origin.clone(), path: "/api/desktop/v1/invites/redeem".into(),
+        method: "POST".into(), body: None, client_version: "0.2.0".into(),
+    };
+    assert_eq!(bridge.request(input()).unwrap().status, 200);
+    bridge.clear(&origin).unwrap();
+    assert!(MusicPartyCredentialStore.read(&origin).unwrap().is_none());
+    assert!(matches!(bridge.request(input()), Err(error) if error == "musicparty_credentials_failed"));
+    let requests = server.join().unwrap();
+    assert!(requests[0].contains("cookie: mp_session=test-session-secret"));
+    assert!(requests[0].contains("x-csrf-token: test-csrf-secret"));
+    assert!(!requests[1].contains("cookie:"));
+    assert!(!requests[1].contains("x-csrf-token:"));
+    MusicPartyCredentialStore.clear(&origin).unwrap();
+}
+
+impl MusicPartyCredentialStore {
+    pub fn write(&self, origin: &str, session: &crate::http::MusicPartySession) -> Result<(), ConfigError> {
+        if session.session.is_empty() || session.csrf.is_empty() { return Err(ConfigError::CredentialOperation); }
+        #[derive(Serialize)] struct Blob<'a> { #[serde(rename="MP_SESSION")] session: &'a str, #[serde(rename="MP_CSRF")] csrf: &'a str, #[serde(rename="MP_ROOM_ACCESS", skip_serializing_if="Option::is_none")] room_access: Option<&'a str> }
+        let blob = Blob { session: &session.session, csrf: &session.csrf, room_access: session.room_access.as_deref() };
+        let bytes = zeroize::Zeroizing::new(serde_json::to_vec(&blob).map_err(|_| ConfigError::CredentialOperation)?);
+        platform::write_blob(&Self::target(origin)?, "MusicParty", &bytes)
+    }
+    fn target(origin: &str) -> Result<String, ConfigError> {
+        Ok(format!("MusicParty Desktop/session/{}", validate_backend_origin(origin)?))
+    }
+
+    pub fn read(&self, origin: &str) -> Result<Option<crate::http::MusicPartySession>, ConfigError> {
+        let Some((mut username, bytes)) = platform::read_blob(&Self::target(origin)?)? else { return Ok(None) };
+        username.zeroize();
+        let bytes = zeroize::Zeroizing::new(bytes);
+        #[derive(Deserialize)]
+        struct SessionBlob {
+            #[serde(rename = "MP_SESSION")]
+            session: String,
+            #[serde(rename = "MP_CSRF")]
+            csrf: String,
+            #[serde(rename = "MP_ROOM_ACCESS", default)]
+            room_access: Option<String>,
+        }
+        impl Drop for SessionBlob {
+            fn drop(&mut self) { self.session.zeroize(); self.csrf.zeroize(); if let Some(value) = &mut self.room_access { value.zeroize(); } }
+        }
+        let mut blob: SessionBlob = serde_json::from_slice(&bytes).map_err(|_| ConfigError::CredentialOperation)?;
+        let mut session = crate::http::MusicPartySession::new(std::mem::take(&mut blob.session), std::mem::take(&mut blob.csrf));
+        if let Some(room_access) = blob.room_access.take() { session = session.with_room_access(room_access); }
+        Ok(Some(session))
+    }
+
+    pub fn clear(&self, origin: &str) -> Result<(), ConfigError> {
+        platform::clear(&Self::target(origin)?)
+    }
+}
 
 impl SiteCredentialStore {
     pub fn has(&self, backend_origin: &str) -> Result<bool, ConfigError> {
@@ -699,6 +843,31 @@ mod platform {
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn origin_tls_policy_is_scoped_and_defaults_to_system_chain() {
+        let dir = std::env::temp_dir().join(format!("watchparty-tls-policy-{}", uuid::Uuid::new_v4()));
+        let store = OriginTrustStore::new(dir.clone());
+        assert!(!OriginTlsPolicy::for_origin(&store, "https://a.example").unwrap().uses_extra_certificate());
+        store.import("https://a.example", "-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----").unwrap();
+        assert!(OriginTlsPolicy::for_origin(&store, "https://a.example").unwrap().uses_extra_certificate());
+        assert!(!OriginTlsPolicy::for_origin(&store, "https://b.example").unwrap().uses_extra_certificate());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn origin_trust_ca_file_lifecycle_is_replaceable_and_removable() {
+        let dir = std::env::temp_dir().join(format!("watchparty-tls-ca-{}", uuid::Uuid::new_v4()));
+        let store = OriginTrustStore::new(dir.clone());
+        store.import("https://a.example", "-----BEGIN CERTIFICATE-----\na\n-----END CERTIFICATE-----").unwrap();
+        let first = store.ca_file_for("https://a.example").unwrap().unwrap();
+        assert_eq!(fs::read_to_string(&first).unwrap(), "-----BEGIN CERTIFICATE-----\na\n-----END CERTIFICATE-----");
+        store.import("https://a.example", "-----BEGIN CERTIFICATE-----\nb\n-----END CERTIFICATE-----").unwrap();
+        assert_eq!(fs::read_to_string(store.ca_file_for("https://a.example").unwrap().unwrap()).unwrap(), "-----BEGIN CERTIFICATE-----\nb\n-----END CERTIFICATE-----");
+        store.delete("https://a.example").unwrap();
+        assert!(!first.exists());
+        let _ = fs::remove_dir_all(dir);
+    }
 
     fn store() -> DesktopConfigStore {
         let unique = SystemTime::now()

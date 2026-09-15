@@ -103,6 +103,7 @@ fn run_smoke(
         generation: 1,
         playlist_item_id: Some("surface-smoke"),
         basic_auth: None,
+        tls_ca_file: None,
         subtitles: Vec::new(),
     });
 

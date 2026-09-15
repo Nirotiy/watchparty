@@ -116,6 +116,36 @@ export function verifyBackend(): Promise<void> {
   return invoke("verifyBackend")
 }
 
+interface MusicPartyResponse { status: number; body: string }
+function musicPartyRequest(origin: string | null, path: string, body?: unknown): Promise<MusicPartyResponse> {
+  if (!origin) return Promise.reject(new Error("musicparty_origin_missing"))
+  return invoke("musicPartyRequest", { input: { origin, path, method: "POST", body: body ?? null, clientVersion: "0.2.0" } })
+}
+
+export async function verifyPrivateRoom(roomId: string, password: string, origin: string | null): Promise<void> {
+  const response = await musicPartyRequest(origin, `/api/rooms/${encodeURIComponent(roomId)}/verify`, { password })
+  if (response.status < 200 || response.status >= 300) throw new Error(`musicparty_http_${response.status}`)
+}
+
+export async function logoutMusicParty(origin: string | null): Promise<void> {
+  const response = await musicPartyRequest(origin, "/api/account/logout")
+  if (response.status < 200 || response.status >= 300) throw new Error(`musicparty_http_${response.status}`)
+}
+
+export interface OriginTrustRecord { origin: string; fingerprint: string; label?: string }
+
+export function listOriginTrust(): Promise<OriginTrustRecord[]> {
+  return invoke("listOriginTrust")
+}
+
+export function importOriginTrust(input: { origin: string; pem: string; fingerprint?: string }): Promise<OriginTrustRecord> {
+  return invoke("importOriginTrust", { origin: input.origin, pem: input.pem })
+}
+
+export function deleteOriginTrust(origin: string): Promise<void> {
+  return invoke("deleteOriginTrust", { origin })
+}
+
 export function mediaRoots(): Promise<string[]> {
   return invoke("mediaRoots")
 }

@@ -14,6 +14,44 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use zeroize::Zeroize;
 
 const WATCHPARTY_TOKEN_HEADER: &str = "X-WatchParty-Token";
+const MUSICPARTY_CSRF_HEADER: &str = "X-CSRF-Token";
+
+/// Native MusicParty session credentials. Cookie values never leave Rust.
+pub struct MusicPartySession {
+    pub(crate) session: String,
+    pub(crate) csrf: String,
+    pub(crate) room_access: Option<String>,
+}
+
+impl MusicPartySession {
+    pub fn new(session: impl Into<String>, csrf: impl Into<String>) -> Self {
+        Self { session: session.into(), csrf: csrf.into(), room_access: None }
+    }
+
+    pub fn with_room_access(mut self, value: impl Into<String>) -> Self {
+        self.room_access = Some(value.into());
+        self
+    }
+
+    pub fn apply(&self, request: RequestBuilder, state_changing: bool) -> Result<RequestBuilder, TransportError> {
+        let mut cookie_value = format!("MP_SESSION={}; MP_CSRF={}", self.session, self.csrf);
+        if let Some(room_access) = &self.room_access { cookie_value.push_str("; MP_ROOM_ACCESS="); cookie_value.push_str(room_access); }
+        let cookie = zeroize::Zeroizing::new(cookie_value);
+        let mut cookie_header = HeaderValue::from_bytes(cookie.as_bytes())
+            .map_err(|_| TransportError::Protocol("invalid MusicParty cookie".into()))?;
+        cookie_header.set_sensitive(true);
+        let request = request.header(reqwest::header::COOKIE, cookie_header);
+        if !state_changing { return Ok(request); }
+        let mut csrf = HeaderValue::from_bytes(self.csrf.as_bytes())
+            .map_err(|_| TransportError::Protocol("invalid MusicParty CSRF token".into()))?;
+        csrf.set_sensitive(true);
+        Ok(request.header(MUSICPARTY_CSRF_HEADER, csrf))
+    }
+}
+
+impl Drop for MusicPartySession {
+    fn drop(&mut self) { self.session.zeroize(); self.csrf.zeroize(); if let Some(value) = &mut self.room_access { value.zeroize(); } }
+}
 
 fn room_token_header(token: &str) -> Result<HeaderValue, TransportError> {
     let mut value = HeaderValue::from_bytes(token.as_bytes())
@@ -90,6 +128,7 @@ impl DesktopHttpTransport {
         Ok(Self {
             base_url: base_url.into().trim_end_matches('/').into(),
             client: Client::builder()
+                .cookie_store(true)
                 .connect_timeout(Duration::from_secs(5))
                 .timeout(Duration::from_secs(15))
                 .build()

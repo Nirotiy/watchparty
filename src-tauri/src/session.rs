@@ -765,6 +765,7 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
                 } else {
                     None
                 };
+                let tls_ca_file = None;
                 let playlist_item_id = self
                     .snapshot
                     .as_ref()
@@ -777,6 +778,7 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
                     generation: self.load_generation,
                     playlist_item_id,
                     basic_auth,
+                    tls_ca_file,
                     subtitles,
                 });
             }

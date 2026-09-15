@@ -3,6 +3,8 @@ pub mod commands;
 pub mod config;
 pub mod contracts;
 pub mod http;
+pub mod musicparty;
+pub mod musicparty_ws;
 pub mod launch;
 pub mod libmpv;
 pub mod playback;
@@ -44,6 +46,15 @@ pub fn run() {
 
     builder
         .invoke_handler(tauri::generate_handler![
+            tauri_api::listOriginTrust,
+            tauri_api::importOriginTrust,
+            tauri_api::deleteOriginTrust,
+            musicparty::music_party_request,
+            musicparty::clear_music_party_session,
+            musicparty_ws::ws_connect,
+            musicparty_ws::ws_send,
+            musicparty_ws::ws_receive,
+            musicparty_ws::ws_disconnect,
             start_desktop_session,
             create_desktop_room,
             access_desktop_room,
@@ -61,6 +72,10 @@ pub fn run() {
             tauri_api::media_search
         ])
         .setup(|app| {
+            let trust = std::sync::Arc::new(config::OriginTrustStore::new(app.path().app_data_dir()?));
+            app.manage(std::sync::Arc::new(musicparty::MusicPartyBridge::with_trust_store(trust)));
+            let trust = std::sync::Arc::new(config::OriginTrustStore::new(app.path().app_data_dir()?));
+            app.manage(std::sync::Arc::new(musicparty_ws::MusicPartyWsState::with_trust_store(trust)));
             let main_window = app
                 .get_webview_window("main")
                 .ok_or("main desktop window was not created")?;
