@@ -16,30 +16,59 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
-use tauri::{AppHandle, Emitter, Manager, State};
+use std::path::PathBuf;
 
-#[allow(non_snake_case)]
-#[tauri::command]
-pub fn listOriginTrust(app: AppHandle) -> Result<Vec<crate::config::OriginTrustRecord>, String> {
-    crate::config::OriginTrustStore::new(app.path().app_data_dir().map_err(|_|"Trust storage unavailable")?).list().map_err(|_|"Trust storage unavailable".into())
-}
-#[allow(non_snake_case)]
-#[tauri::command]
-pub fn importOriginTrust(app: AppHandle, origin: String, pem: String) -> Result<crate::config::OriginTrustRecord, String> {
-    crate::config::OriginTrustStore::new(app.path().app_data_dir().map_err(|_|"Trust storage unavailable")?).import(&origin, &pem).map_err(|_|"Certificate trust could not be saved".into())
-}
-#[allow(non_snake_case)]
-#[tauri::command]
-pub fn deleteOriginTrust(app: AppHandle, origin: String) -> Result<(), String> {
-    crate::config::OriginTrustStore::new(app.path().app_data_dir().map_err(|_|"Trust storage unavailable")?).delete(&origin).map_err(|_|"Certificate trust could not be deleted".into())
+pub trait DesktopHost: Send + Sync {
+    fn data_dir(&self) -> Result<PathBuf, RuntimeError>;
+    fn emit_value(&self, event: &str, payload: serde_json::Value);
+    fn window_handle(&self) -> Result<isize, RuntimeError>;
+    fn set_fullscreen(&self, enabled: bool) -> Result<(), RuntimeError>;
 }
 
-/// Managed Tauri state. The renderer receives neither the runtime config nor its credentials.
-pub struct TauriDesktopState {
+/// Keeps the native libmpv surface visible behind a transparent desktop renderer.
+#[cfg(windows)]
+pub fn configure_native_surface(handle: isize) -> Result<(), RuntimeError> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, SetWindowLongPtrW, GWL_STYLE, WS_CLIPCHILDREN};
+    let hwnd = handle as windows_sys::Win32::Foundation::HWND;
+    let style = unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) };
+    unsafe { SetWindowLongPtrW(hwnd, GWL_STYLE, style & !(WS_CLIPCHILDREN as isize)); }
+    if unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) } & (WS_CLIPCHILDREN as isize) != 0 {
+        return Err(RuntimeError::runtime_unavailable());
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn configure_native_surface(_handle: isize) -> Result<(), RuntimeError> { Ok(()) }
+
+#[derive(Clone)]
+pub struct Host(pub Arc<dyn DesktopHost>);
+impl Host {
+    fn emit(&self, event: &str, payload: impl serde::Serialize) -> Result<(), serde_json::Error> {
+        self.0.emit_value(event, serde_json::to_value(payload)?);
+        Ok(())
+    }
+}
+
+#[allow(non_snake_case)]
+pub fn listOriginTrust(state: &NativeDesktopState) -> Result<Vec<crate::config::OriginTrustRecord>, String> {
+    crate::config::OriginTrustStore::new(state.app_handle.0.data_dir().map_err(|_|"Trust storage unavailable")?).list().map_err(|_|"Trust storage unavailable".into())
+}
+#[allow(non_snake_case)]
+pub fn importOriginTrust(state: &NativeDesktopState, origin: String, pem: String) -> Result<crate::config::OriginTrustRecord, String> {
+    crate::config::OriginTrustStore::new(state.app_handle.0.data_dir().map_err(|_|"Trust storage unavailable")?).import(&origin, &pem).map_err(|_|"Certificate trust could not be saved".into())
+}
+#[allow(non_snake_case)]
+pub fn deleteOriginTrust(state: &NativeDesktopState, origin: String) -> Result<(), String> {
+    crate::config::OriginTrustStore::new(state.app_handle.0.data_dir().map_err(|_|"Trust storage unavailable")?).delete(&origin).map_err(|_|"Certificate trust could not be deleted".into())
+}
+
+/// Shared native state. The renderer receives neither the runtime config nor its credentials.
+pub struct NativeDesktopState {
     runtime: Mutex<Option<Arc<DesktopRuntime>>>,
     configuration_change: Mutex<()>,
     configured: AtomicBool,
-    app_handle: AppHandle,
+    app_handle: Host,
     player: LibMpvConfig,
     config_store: DesktopConfigStore,
     credential_store: SiteCredentialStore,
@@ -49,16 +78,26 @@ pub struct TauriDesktopState {
     /// replay it after its event listeners register (cold-start deep links are
     /// emitted before React mounts).
     launch: Mutex<Option<DesktopLaunch>>,
+    checkpoint: Mutex<Option<(String, String, StoredRoomSession)>>,
 }
 
-impl TauriDesktopState {
+impl NativeDesktopState {
+    /// Initializes either shell from the same settings and credential stores.
+    pub fn initialize(host: Host, player: LibMpvConfig) -> Result<Self, RuntimeError> {
+        let store = DesktopConfigStore::new(host.0.data_dir()?);
+        let settings = store.load().map_err(|_| RuntimeError::configuration_error())?;
+        let state = Self::new(None, false, store, SiteCredentialStore, RoomSessionStore, host, player);
+        state.rebuild_runtime(&settings)?;
+        Ok(state)
+    }
+
     pub fn new(
         runtime: Option<DesktopRuntime>,
         configured: bool,
         config_store: DesktopConfigStore,
         credential_store: SiteCredentialStore,
         room_store: RoomSessionStore,
-        app_handle: AppHandle,
+        app_handle: Host,
         player: LibMpvConfig,
     ) -> Self {
         Self {
@@ -72,6 +111,7 @@ impl TauriDesktopState {
             room_store,
             shutdown_started: AtomicBool::new(false),
             launch: Mutex::new(None),
+            checkpoint: Mutex::new(None),
         }
     }
 
@@ -111,7 +151,7 @@ impl TauriDesktopState {
             .map(NativeSiteCredentials::from_stored)
             .transpose()?;
         let trust_store = crate::config::OriginTrustStore::new(
-            self.app_handle.path().app_data_dir().map_err(|_| RuntimeError::configuration_error())?,
+            self.app_handle.0.data_dir().map_err(|_| RuntimeError::configuration_error())?,
         );
         let tls_ca_file = trust_store.ca_file_for(&origin).map_err(|_| RuntimeError::configuration_error())?;
         let config = NativeRuntimeConfig::with_player(
@@ -122,6 +162,7 @@ impl TauriDesktopState {
                 .with_preferences(settings.player_preferences.clone())
                 .with_tls_ca_file(tls_ca_file),
         )?
+        .with_trust_store(std::sync::Arc::new(trust_store))
         .with_owner_token_persistence(owner_token_persist_hook(
             self.room_store,
             settings.backend_origin.clone(),
@@ -234,20 +275,17 @@ pub struct DesktopRoomResult {
     pub room_id: String,
 }
 
-#[tauri::command(rename = "startDesktopSession")]
-pub async fn start_desktop_session(
+pub fn start_desktop_session(
     ticket: String,
     expected_room_id: Option<String>,
-    state: State<'_, TauriDesktopState>,
+    state: &NativeDesktopState,
 ) -> Result<(), RuntimeError> {
     let runtime = state.runtime()?;
-    tauri::async_runtime::spawn_blocking(move || runtime.start(ticket, expected_room_id))
-        .await
-        .map_err(|_| RuntimeError::runtime_unavailable())?
+    runtime.start(ticket, expected_room_id)
 }
 
 fn transport_for_settings(
-    state: &TauriDesktopState,
+    state: &NativeDesktopState,
     settings: &crate::config::DesktopSettings,
 ) -> Result<DesktopHttpTransport, RuntimeError> {
     let origin = settings
@@ -268,7 +306,7 @@ fn transport_for_settings(
 }
 
 fn settings_for_state(
-    state: &TauriDesktopState,
+    state: &NativeDesktopState,
 ) -> Result<crate::config::DesktopSettings, RuntimeError> {
     state
         .config_store
@@ -295,7 +333,7 @@ pub(crate) fn owner_token_persist_hook(
 }
 
 fn persist_and_start(
-    state: &TauriDesktopState,
+    state: &NativeDesktopState,
     settings: &crate::config::DesktopSettings,
     session: StoredRoomSession,
 ) -> Result<DesktopRoomResult, RuntimeError> {
@@ -323,12 +361,11 @@ fn persist_and_start(
     })
 }
 
-#[tauri::command(rename = "createDesktopRoom")]
-pub async fn create_desktop_room(
+pub fn create_desktop_room(
     input: DesktopRoomInput,
-    app: AppHandle,
+    state: &NativeDesktopState,
 ) -> Result<DesktopRoomResult, RuntimeError> {
-    configuration_task(app, move |state| {
+    configuration_task(state, move |state| {
         let settings = settings_for_state(state)?;
         let origin = settings
             .backend_origin
@@ -355,7 +392,7 @@ pub async fn create_desktop_room(
         let _ = origin;
         persist_and_start(state, &settings, session)
     })
-    .await
+
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -366,12 +403,11 @@ pub struct DesktopAccessInput {
     pub pin: Option<String>,
 }
 
-#[tauri::command(rename = "accessDesktopRoom")]
-pub async fn access_desktop_room(
+pub fn access_desktop_room(
     input: DesktopAccessInput,
-    app: AppHandle,
+    state: &NativeDesktopState,
 ) -> Result<DesktopRoomResult, RuntimeError> {
-    configuration_task(app, move |state| {
+    configuration_task(state, move |state| {
         let settings = settings_for_state(state)?;
         let origin = settings
             .backend_origin
@@ -398,12 +434,11 @@ pub async fn access_desktop_room(
             .map_err(|_| RuntimeError::configuration_error())?;
         persist_and_start(state, &settings, session)
     })
-    .await
+
 }
 
-#[tauri::command(rename = "restoreDesktopSession")]
-pub async fn restore_desktop_session(app: AppHandle) -> Result<bool, RuntimeError> {
-    configuration_task(app, move |state| {
+pub fn restore_desktop_session(state: &NativeDesktopState) -> Result<bool, RuntimeError> {
+    configuration_task(state, move |state| {
         let settings = settings_for_state(state)?;
         let Some(origin) = settings.backend_origin.as_deref() else {
             return Ok(false);
@@ -427,92 +462,41 @@ pub async fn restore_desktop_session(app: AppHandle) -> Result<bool, RuntimeErro
         )?;
         Ok(true)
     })
-    .await
+
 }
 
 /// Replays the latest deep-link launch. The renderer calls this right after
 /// registering its event listeners so a cold-start deep link is never lost.
-#[tauri::command(rename = "currentDesktopLaunch")]
-pub fn current_desktop_launch(state: State<'_, TauriDesktopState>) -> Option<DesktopLaunch> {
+pub fn current_desktop_launch(state: &NativeDesktopState) -> Option<DesktopLaunch> {
     state.current_launch()
 }
 
-#[tauri::command(rename = "executeRoomCommand")]
-pub async fn execute_room_command(
-    app: AppHandle,
+pub fn execute_room_command(
+    state: &NativeDesktopState,
     command: DesktopCommand,
-    state: State<'_, TauriDesktopState>,
 ) -> Result<CommandAck, RuntimeError> {
     validate_command(&command).map_err(|_| RuntimeError::invalid_command())?;
     let runtime = state.runtime()?;
     match command {
         DesktopCommand::PlayerVisibility { visible } => {
-            set_player_visibility(runtime, visible).await?;
+            set_player_visibility(runtime, visible)?;
             Ok(local_ack())
         }
         DesktopCommand::Fullscreen { enabled } => {
-            set_player_fullscreen(&app, runtime, enabled).await?;
+            set_player_fullscreen(&state.app_handle, runtime, enabled)?;
             Ok(local_ack())
         }
-        command => tauri::async_runtime::spawn_blocking(move || runtime.execute(command))
-            .await
-            .map_err(|_| RuntimeError::runtime_unavailable())?,
+        command => runtime.execute(command),
     }
 }
 
-/// Lets the transparent WebView reveal libmpv output rendered into the host
-/// HWND instead of clipping native drawing out of the window's paint region.
-#[cfg(windows)]
-pub(crate) fn configure_main_window_for_native_surface<R: tauri::Runtime>(
-    window: &tauri::WebviewWindow<R>,
-) -> Result<(), RuntimeError> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, SetWindowLongPtrW, GWL_STYLE, WS_CLIPCHILDREN,
-    };
-
-    let hwnd = window
-        .hwnd()
-        .map_err(|_| RuntimeError::runtime_unavailable())?
-        .0 as windows_sys::Win32::Foundation::HWND;
-    let style = unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) };
-    let updated = style & !(WS_CLIPCHILDREN as isize);
-    unsafe { SetWindowLongPtrW(hwnd, GWL_STYLE, updated) };
-    if unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) } & (WS_CLIPCHILDREN as isize) != 0 {
-        return Err(RuntimeError::runtime_unavailable());
-    }
-    Ok(())
+fn set_player_visibility(runtime: Arc<DesktopRuntime>, visible: bool) -> Result<(), RuntimeError> {
+    runtime.set_local_suspended(!visible)
 }
 
-#[cfg(not(windows))]
-pub(crate) fn configure_main_window_for_native_surface<R: tauri::Runtime>(
-    _window: &tauri::WebviewWindow<R>,
-) -> Result<(), RuntimeError> {
-    Ok(())
-}
-
-async fn set_player_visibility(
-    runtime: Arc<DesktopRuntime>,
-    visible: bool,
-) -> Result<(), RuntimeError> {
-    tauri::async_runtime::spawn_blocking(move || runtime.set_local_suspended(!visible))
-        .await
-        .map_err(|_| RuntimeError::runtime_unavailable())?
-}
-
-async fn set_player_fullscreen(
-    app: &AppHandle,
-    runtime: Arc<DesktopRuntime>,
-    enabled: bool,
-) -> Result<(), RuntimeError> {
-    tauri::async_runtime::spawn_blocking(move || runtime.set_local_suspended(false))
-        .await
-        .map_err(|_| RuntimeError::runtime_unavailable())??;
-    let main_window = app
-        .get_window("main")
-        .ok_or_else(RuntimeError::runtime_unavailable)?;
-    main_window
-        .set_fullscreen(enabled)
-        .map_err(|_| RuntimeError::runtime_unavailable())
+fn set_player_fullscreen(app: &Host, runtime: Arc<DesktopRuntime>, enabled: bool) -> Result<(), RuntimeError> {
+    runtime.set_local_suspended(false)?;
+    app.0.set_fullscreen(enabled)
 }
 
 fn local_ack() -> CommandAck {
@@ -523,12 +507,52 @@ fn local_ack() -> CommandAck {
     }
 }
 
-#[tauri::command(rename = "stopDesktopSession")]
-pub async fn stop_desktop_session(state: State<'_, TauriDesktopState>) -> Result<(), RuntimeError> {
+#[derive(serde::Serialize)]
+pub struct DesktopSessionCheckpoint { pub id: String }
+
+/// Credentials stay native; only one bounded, opaque recovery handle is retained.
+pub fn checkpoint_desktop_session(state: &NativeDesktopState) -> Result<Option<DesktopSessionCheckpoint>, RuntimeError> {
+    configuration_task(state, |state| {
+        let settings = settings_for_state(state)?;
+        let Some(origin) = settings.backend_origin else { return Ok(None) };
+        let session = state.room_store.read(&origin).map_err(|_| RuntimeError::credential_error())?;
+        let Some(session) = session else { return Ok(None) };
+        let id = uuid::Uuid::new_v4().to_string();
+        *state.checkpoint.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((id.clone(), origin, session));
+        Ok(Some(DesktopSessionCheckpoint { id }))
+    })
+}
+
+pub fn suspend_desktop_session(state: &NativeDesktopState) -> Result<(), RuntimeError> {
+    configuration_task(state, |state| state.runtime()?.stop_session())
+}
+
+pub fn rollback_desktop_session(state: &NativeDesktopState, id: String) -> Result<(), RuntimeError> {
+    configuration_task(state, |state| {
+        let settings = settings_for_state(state)?;
+        let mut checkpoint = state.checkpoint.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some((stored_id, origin, session)) = checkpoint.as_ref() else { return Err(RuntimeError::configuration_error()) };
+        if stored_id != &id || settings.backend_origin.as_ref() != Some(origin) { return Err(RuntimeError::configuration_error()) }
+        let (room_id, client_id, token, owner_token, _) = session.parts();
+        let runtime = state.runtime()?;
+        runtime.stop_session()?;
+        state.room_store.write(origin, session).map_err(|_| RuntimeError::credential_error())?;
+        runtime.start_persisted(room_id.to_owned(), client_id.to_owned(), token.to_owned(), owner_token.map(str::to_owned))?;
+        *checkpoint = None;
+        Ok(())
+    })
+}
+
+pub fn discard_desktop_session_checkpoint(state: &NativeDesktopState, id: String) -> Result<(), RuntimeError> {
+    let mut checkpoint = state.checkpoint.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if checkpoint.as_ref().is_some_and(|entry| entry.0 == id) { *checkpoint = None; }
+    Ok(())
+}
+
+pub fn stop_desktop_session(state: &NativeDesktopState) -> Result<(), RuntimeError> {
+    *state.checkpoint.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     let runtime = state.runtime()?;
-    let result = tauri::async_runtime::spawn_blocking(move || runtime.stop_session())
-        .await
-        .map_err(|_| RuntimeError::runtime_unavailable())?;
+    let result = runtime.stop_session();
     if result.is_ok() {
         if let Ok(settings) = state.config_store.load() {
             if let Some(origin) = settings.backend_origin.as_deref() {
@@ -539,34 +563,25 @@ pub async fn stop_desktop_session(state: State<'_, TauriDesktopState>) -> Result
     result
 }
 
-#[tauri::command(rename = "getDesktopSettings")]
-pub async fn get_desktop_settings(app: AppHandle) -> Result<DesktopSettingsStatus, RuntimeError> {
-    configuration_task(app, |state| state.settings_status()).await
+pub fn get_desktop_settings(state: &NativeDesktopState) -> Result<DesktopSettingsStatus, RuntimeError> {
+    configuration_task(state, |state| state.settings_status())
 }
 
-/// Serializes settings and credential changes off the Tauri UI thread.
-async fn configuration_task<T: Send + 'static>(
-    app: AppHandle,
-    action: impl FnOnce(&TauriDesktopState) -> Result<T, RuntimeError> + Send + 'static,
-) -> Result<T, RuntimeError> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<TauriDesktopState>();
-        let _guard = state
-            .configuration_change
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        action(&state)
-    })
-    .await
-    .map_err(|_| RuntimeError::runtime_unavailable())?
+pub fn list_audio_output_devices(state: &NativeDesktopState) -> Result<Vec<crate::libmpv::AudioOutputDevice>, String> {
+    crate::libmpv::list_audio_output_devices(&state.player).map_err(|error| error.message.to_owned())
 }
 
-#[tauri::command(rename = "updateDesktopSettings")]
-pub async fn update_desktop_settings(
+/// Serializes settings and credential changes across shell request workers.
+fn configuration_task<T>(state: &NativeDesktopState, action: impl FnOnce(&NativeDesktopState) -> Result<T, RuntimeError>) -> Result<T, RuntimeError> {
+    let _guard = state.configuration_change.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    action(state)
+}
+
+pub fn update_desktop_settings(
     input: DesktopSettingsInput,
-    app: AppHandle,
+    state: &NativeDesktopState,
 ) -> Result<DesktopSettingsStatus, RuntimeError> {
-    configuration_task(app, move |state| {
+    configuration_task(state, move |state| {
         let previous = state
             .config_store
             .load()
@@ -618,12 +633,11 @@ pub async fn update_desktop_settings(
         let _ = state.app_handle.emit("desktop://settings", &result);
         Ok(result)
     })
-    .await
+
 }
 
-#[tauri::command(rename = "clearSiteCredentials")]
-pub async fn clear_site_credentials(app: AppHandle) -> Result<DesktopSettingsStatus, RuntimeError> {
-    configuration_task(app, |state| {
+pub fn clear_site_credentials(state: &NativeDesktopState) -> Result<DesktopSettingsStatus, RuntimeError> {
+    configuration_task(state, |state| {
         let settings = state
             .config_store
             .load()
@@ -638,23 +652,14 @@ pub async fn clear_site_credentials(app: AppHandle) -> Result<DesktopSettingsSta
         state.rebuild_runtime(&settings)?;
         state.settings_status()
     })
-    .await
+
 }
 
-#[tauri::command(rename = "promptSiteCredentials")]
-pub async fn prompt_site_credentials(
-    app: AppHandle,
+pub fn prompt_site_credentials(
+    state: &NativeDesktopState,
 ) -> Result<Option<DesktopSettingsStatus>, RuntimeError> {
-    #[cfg(windows)]
-    let owner_hwnd = app
-        .get_webview_window("main")
-        .ok_or_else(RuntimeError::runtime_unavailable)?
-        .hwnd()
-        .map_err(|_| RuntimeError::runtime_unavailable())?
-        .0 as isize;
-    #[cfg(not(windows))]
-    let owner_hwnd = 0isize;
-    configuration_task(app, move |state| {
+    let owner_hwnd = state.app_handle.0.window_handle()?;
+    configuration_task(state, move |state| {
         let settings = state
             .config_store
             .load()
@@ -674,10 +679,10 @@ pub async fn prompt_site_credentials(
         state.rebuild_runtime(&settings)?;
         state.settings_status().map(Some)
     })
-    .await
+
 }
 
-impl TauriDesktopState {
+impl NativeDesktopState {
     /// Builds a same-origin transport for media browsing with site Basic Auth
     /// attached. Resolved media URLs never flow through this path over IPC.
     fn media_transport(&self) -> Result<DesktopHttpTransport, RuntimeError> {
@@ -704,26 +709,24 @@ impl TauriDesktopState {
     }
 }
 
-#[tauri::command(rename = "mediaRoots")]
-pub async fn media_roots(app: AppHandle) -> Result<Vec<String>, RuntimeError> {
-    configuration_task(app, |state| {
+pub fn media_roots(state: &NativeDesktopState) -> Result<Vec<String>, RuntimeError> {
+    configuration_task(state, |state| {
         let _ = state.runtime()?;
         state
             .media_transport()?
             .media_roots()
             .map_err(|_| RuntimeError::runtime_unavailable())
     })
-    .await
+
 }
 
-#[tauri::command(rename = "mediaList")]
-pub async fn media_list(
-    app: AppHandle,
+pub fn media_list(
+    state: &NativeDesktopState,
     root: String,
     path: Option<String>,
     cursor: Option<String>,
 ) -> Result<MediaDirectoryPage, RuntimeError> {
-    configuration_task(app, move |state| {
+    configuration_task(state, move |state| {
         let _ = state.runtime()?;
         let path = path.unwrap_or_else(|| "/".into());
         if !is_safe_media_path(&path) {
@@ -734,16 +737,15 @@ pub async fn media_list(
             .media_list(&root, &path, cursor.as_deref())
             .map_err(|_| RuntimeError::runtime_unavailable())
     })
-    .await
+
 }
 
-#[tauri::command(rename = "mediaSearch")]
-pub async fn media_search(
-    app: AppHandle,
+pub fn media_search(
+    state: &NativeDesktopState,
     query: String,
     cursor: Option<String>,
 ) -> Result<MediaDirectoryPage, RuntimeError> {
-    configuration_task(app, move |state| {
+    configuration_task(state, move |state| {
         let _ = state.runtime()?;
         let query = query.trim().to_owned();
         if query.is_empty() || query.chars().count() > 200 {
@@ -754,7 +756,7 @@ pub async fn media_search(
             .media_search(&query, cursor.as_deref())
             .map_err(|_| RuntimeError::runtime_unavailable())
     })
-    .await
+
 }
 
 /// Rejects traversal attempts before they reach the backend; the server still
@@ -763,16 +765,15 @@ fn is_safe_media_path(path: &str) -> bool {
     path.len() <= 1000 && !path.contains('\\') && !path.split('/').any(|segment| segment == "..")
 }
 
-#[tauri::command(rename = "verifyBackend")]
-pub async fn verify_backend(app: AppHandle) -> Result<(), RuntimeError> {
-    configuration_task(app, |state| {
+pub fn verify_backend(state: &NativeDesktopState) -> Result<(), RuntimeError> {
+    configuration_task(state, |state| {
         let _ = state.runtime()?;
         state
             .media_transport()?
             .verify_backend()
             .map_err(|_| RuntimeError::runtime_unavailable())
     })
-    .await
+
 }
 
 #[cfg(test)]

@@ -1,5 +1,4 @@
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { invoke, listen, type UnlistenFn } from "../../shared/desktop-runtime"
 
 import type { CommandAck, DesktopCommand, DesktopUiState, MediaDirectoryPage } from "@/lib/contracts"
 
@@ -24,12 +23,23 @@ export interface DesktopSettingsStatus {
   backendOrigin: string | null
   nickname: string
   theme: "dark" | "light"
+  windowMaterial: "auto" | "none"
   playerPreferences: PlayerPreferences
   credentialsConfigured: boolean
   playerPreferenceFailures: string[]
 }
 
 export interface DesktopRoomResult { roomId: string }
+
+export interface AudioOutputDevice { id: string; name: string }
+export function listAudioOutputDevices(): Promise<AudioOutputDevice[]> {
+  return invoke("listAudioOutputDevices")
+}
+
+export interface DesktopWallpaperBackdrop { image: string | null }
+export function getDesktopWallpaperBackdrop(): Promise<DesktopWallpaperBackdrop> {
+  return invoke("getDesktopWallpaperBackdrop")
+}
 
 interface DesktopStateEvent {
   type: "state"
@@ -71,6 +81,36 @@ export function stopDesktopSession(): Promise<void> {
   return invoke("stopDesktopSession")
 }
 
+export function checkpointDesktopSession(): Promise<{ id: string } | null> {
+  return invoke("checkpointDesktopSession")
+}
+export function suspendDesktopSession(): Promise<void> { return invoke("suspendDesktopSession") }
+export function rollbackDesktopSession(checkpointId: string): Promise<void> {
+  return invoke("rollbackDesktopSession", { checkpointId })
+}
+export function discardDesktopSessionCheckpoint(checkpointId: string): Promise<void> {
+  return invoke("discardDesktopSessionCheckpoint", { checkpointId })
+}
+
+/** Install the existing native state listener before joining or rolling back. */
+export async function withAuthoritativeSnapshot(roomId: string, action: () => Promise<unknown>, timeoutMs = 10000): Promise<void> {
+  let unsubscribe: UnlistenFn | undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let resolveState: () => void = () => {}
+  let rejectState: (error: Error) => void = () => {}
+  const stateReady = new Promise<void>((resolve, reject) => { resolveState = resolve; rejectState = reject })
+  // The state may reject while the native action is still pending.
+  void stateReady.catch(() => {})
+  try {
+    unsubscribe = await listenForState(state => {
+      if (state.roomId === roomId && state.connection === "ready" && state.room) resolveState()
+      else if (state.connection === "expired" || state.connection === "failed") rejectState(new Error("room_connection_failed"))
+    })
+    timer = setTimeout(() => rejectState(new Error("room_snapshot_timeout")), timeoutMs)
+    await Promise.all([action(), stateReady])
+  } finally { clearTimeout(timer); unsubscribe?.() }
+}
+
 export function createDesktopRoom(input: { nickname: string; pin?: string }): Promise<DesktopRoomResult> {
   return invoke("createDesktopRoom", { input })
 }
@@ -91,6 +131,7 @@ export function updateDesktopSettings(input: {
   backendOrigin: string | null
   nickname: string
   theme: "dark" | "light"
+  windowMaterial?: "auto" | "none"
   playerPreferences: PlayerPreferences
 }): Promise<DesktopSettingsStatus> {
   return invoke("updateDesktopSettings", { input })
@@ -114,6 +155,17 @@ export function clearSiteCredentials(): Promise<DesktopSettingsStatus> {
 
 export function verifyBackend(): Promise<void> {
   return invoke("verifyBackend")
+}
+
+/** Catch the local management website before saving it as the Electron backend. */
+export function backendAddressError(origin: string): string | undefined {
+  try {
+    const url = new URL(origin.trim())
+    if (["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) && url.port === "18083") {
+      return "18083 是管理网页，Electron 后端使用 18082。请将端口改为 18082。"
+    }
+  } catch { /* Native settings validation handles incomplete or invalid URLs on save. */ }
+  return undefined
 }
 
 interface MusicPartyResponse { status: number; body: string }

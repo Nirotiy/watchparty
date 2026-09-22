@@ -7,6 +7,8 @@ export interface PlayerAdapter {
   pause(): Promise<void>
   resume(): Promise<void>
   stop(): Promise<void>
+  setVolume(volume: number): Promise<void>
+  getVolume(): Promise<number>
   setAudioFocus(active: boolean): Promise<void>
   dispose(): Promise<void>
 }

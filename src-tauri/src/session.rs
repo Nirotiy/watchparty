@@ -10,6 +10,8 @@ use crate::{
     transport::{ResolvedMedia, RoomTransport, TransportError},
 };
 use serde::Deserialize;
+use std::sync::Arc;
+use crate::config::OriginTrustStore;
 
 const MEMBERS_REFRESH_INTERVAL_MS: i64 = 2_000;
 /// Neutral user agent for direct HTTPS/HLS sources; OpenList media always uses
@@ -55,6 +57,7 @@ pub struct DesktopSession<T: RoomTransport, P: PlayerEngine> {
     /// Native-only persistence for owner token changes (claim/clear). The
     /// token itself never crosses this boundary, only the fact it changed.
     owner_token_persist: Option<Box<dyn Fn(Option<String>) + Send>>,
+    trust_store: Option<Arc<OriginTrustStore>>,
 }
 
 impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
@@ -85,8 +88,11 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
             last_error: None,
             subtitles: SubtitleStore::new(),
             owner_token_persist: None,
+            trust_store: None,
         }
     }
+
+    pub fn with_trust_store(mut self, store: Arc<OriginTrustStore>) -> Self { self.trust_store = Some(store); self }
 
     pub fn start(&mut self, ticket: &str, now: i64) -> Result<Vec<DesktopEvent>, TransportError> {
         self.status = SessionStatus::Connecting;
@@ -304,21 +310,16 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
             }
             _ => {}
         }
-        // Owner-gated commands stay local when this client is not the room
-        // owner; the owner token only rides on commands that require it.
-        let owner_token: Option<String> = match &command {
-            DesktopCommand::Lock { .. } | DesktopCommand::TransferOwner { .. } => {
-                let is_owner = self.owner_token.is_some()
-                    && self.snapshot.as_ref().is_some_and(|snapshot| {
-                        self.client_id.as_deref() == Some(snapshot.owner_client_id.as_str())
-                    });
-                if !is_owner {
-                    return Ok(rejected_owner_ack());
-                }
-                self.owner_token.clone()
-            }
-            _ => None,
-        };
+        // Locked rooms also require owner proof for play/seek/queue commands.
+        // The token stays native and is sent only while the snapshot names us as owner.
+        let is_owner = self.owner_token.is_some()
+            && self.snapshot.as_ref().is_some_and(|snapshot| {
+                self.client_id.as_deref() == Some(snapshot.owner_client_id.as_str())
+            });
+        if matches!(&command, DesktopCommand::Lock { .. } | DesktopCommand::TransferOwner { .. }) && !is_owner {
+            return Ok(rejected_owner_ack());
+        }
+        let owner_token = if is_owner { self.owner_token.clone() } else { None };
         let (room, token) = self.credentials()?;
         let revision = self.revision.unwrap_or(0);
         self.command_retry_used = false;
@@ -765,7 +766,9 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
                 } else {
                     None
                 };
-                let tls_ca_file = None;
+                let tls_ca_file = url::Url::parse(&url)
+                    .ok()
+                    .and_then(|u| self.trust_store.as_ref().and_then(|store| store.ca_file_for(&u.origin().ascii_serialization()).ok().flatten()));
                 let playlist_item_id = self
                     .snapshot
                     .as_ref()
@@ -778,7 +781,8 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
                     generation: self.load_generation,
                     playlist_item_id,
                     basic_auth,
-                    tls_ca_file,
+                    cookie_header: None,
+                    tls_ca_file: tls_ca_file.as_deref(),
                     subtitles,
                 });
             }
@@ -888,3 +892,5 @@ fn player_control_error(error: PlayerControlError, control: &str) -> TransportEr
     };
     TransportError::Protocol(format!("local player {control} {reason}"))
 }
+
+

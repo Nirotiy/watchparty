@@ -1,4 +1,8 @@
 //! Origin-scoped HTTP bridge. No credential or response-header DTO crosses IPC.
+#[cfg(all(test, windows))]
+#[path = "musicparty_http_e2e.rs"]
+mod real_http_tests;
+
 use crate::{
     config::{validate_backend_origin, MusicPartyCredentialStore, OriginTrustStore},
     http::MusicPartySession,
@@ -67,7 +71,7 @@ fn request_result(origin: &str, input: &MusicPartyRequest, session: Option<&Musi
         "GET" => {
             matches!(
                 path,
-                "/api/desktop/v1/health" | "/api/desktop/v1/capabilities" | "/api/platforms"
+                "/api/desktop/v1/health" | "/api/desktop/v1/capabilities" | "/api/platforms" | "/api/rooms"
             ) || path.starts_with("/api/desktop/v1/search/")
                 || (path.starts_with("/api/desktop/v1/music/") && path.ends_with("/lyrics"))
                 || (path.starts_with("/api/desktop/v1/media/") && path.ends_with("/resolve"))
@@ -160,7 +164,13 @@ fn request_result(origin: &str, input: &MusicPartyRequest, session: Option<&Musi
     let clear = mutations.iter().any(|(name, value)| *name != "MP_ROOM_ACCESS" && value.is_none());
     let updated = if mutations.is_empty() || clear { None } else {
         let mut value = MusicPartySession::new(session.map_or("", |s| s.session.as_str()), session.map_or("", |s| s.csrf.as_str()));
-        value.room_access = session.and_then(|s| s.room_access.clone());
+        // Invite redemption establishes a new member session. Never carry a
+        // room proof from the previous session into that identity.
+        value.room_access = if path == "/api/desktop/v1/invites/redeem" {
+            None
+        } else {
+            session.and_then(|s| s.room_access.clone())
+        };
         for (name, cookie) in mutations { match name {
             "MP_SESSION" => value.session = cookie.unwrap_or_default(),
             "MP_CSRF" => value.csrf = cookie.unwrap_or_default(),
@@ -200,27 +210,9 @@ fn cookie_mutations(headers: &reqwest::header::HeaderMap, origin: &str) -> Vec<(
     }).collect()
 }
 
-#[tauri::command(rename = "musicPartyRequest")]
-pub async fn music_party_request(
-    state: tauri::State<'_, std::sync::Arc<MusicPartyBridge>>,
-    input: MusicPartyRequest,
-) -> Result<MusicPartyResponse, String> {
-    let bridge = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || bridge.request(input))
-        .await
-        .map_err(|_| "musicparty_unavailable".to_owned())?
-}
 
-#[tauri::command(rename = "clearMusicPartySession")]
-pub async fn clear_music_party_session(
-    state: tauri::State<'_, std::sync::Arc<MusicPartyBridge>>,
-    origin: String,
-) -> Result<(), String> {
-    let bridge = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || bridge.clear(&origin))
-        .await
-        .map_err(|_| "musicparty_unavailable".to_owned())?
-}
+
+
 
 #[cfg(test)]
 mod tests {
@@ -362,6 +354,25 @@ mod tests {
             input.path = path.into();
             assert_eq!(
                 request("http://127.0.0.1:1", &input, None).err().as_deref(),
+                Some("invalid_musicparty_request")
+            );
+        }
+    }
+
+    #[test]
+    fn allows_room_list_but_rejects_unapproved_room_reads() {
+        let (origin, server) = fixture("200 OK", "[]", "");
+        let mut allowed = input("GET");
+        allowed.path = "/api/rooms".into();
+        let reply = request(&origin, &allowed, None).unwrap();
+        assert_eq!(reply.status, 200);
+        assert!(server.join().unwrap().contains("get /api/rooms http/1.1"));
+
+        for path in ["/api/rooms/room-1", "/api/rooms/room-1/members"] {
+            let mut rejected = input("GET");
+            rejected.path = path.into();
+            assert_eq!(
+                request("http://127.0.0.1:1", &rejected, None).err().as_deref(),
                 Some("invalid_musicparty_request")
             );
         }

@@ -4,14 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "npm run electron:start",
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 1420",
-    "tauri:dev": "cd .. && npx --prefix desktop-shell tauri dev --config src-tauri/tauri.conf.json",
-    "tauri:build": "cd .. && npx --prefix desktop-shell tauri build --config src-tauri/tauri.conf.json"
+    "electron:build": "tsc --noEmit && vite build --outDir dist-electron && node electron/build.mjs",
+    "electron:start": "npm --prefix electron start"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.8.0",
+    "@fluentui/react-components": "^9.74.7",
+    "@fluentui/react-icons": "^2.0.341",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "radix-ui": "^1.4.3",
@@ -21,7 +23,6 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.14",
-    "@tauri-apps/cli": "^2.8.4",
     "@types/node": "^24.6.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",

@@ -1,8 +1,8 @@
 use reqwest::Url;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, Runtime};
 
-use crate::tauri_api::TauriDesktopState;
+
+
 
 pub const DESKTOP_LAUNCH_EVENT: &str = "desktop://launch";
 
@@ -12,7 +12,8 @@ pub struct DesktopLaunch {
     pub room_id: String,
 }
 
-/// Accepts only the public room identifier. Secrets, paths and URL metadata are rejected.
+/// Accepts only the public room identifier, including Windows' normalized trailing slash.
+/// Secrets, non-root paths and URL metadata are rejected.
 pub fn parse_room_deep_link(raw: &str) -> Option<DesktopLaunch> {
     let url = Url::parse(raw).ok()?;
     if url.scheme() != "watchparty"
@@ -21,7 +22,7 @@ pub fn parse_room_deep_link(raw: &str) -> Option<DesktopLaunch> {
         || url.port().is_some()
         || url.query().is_some()
         || url.fragment().is_some()
-        || !url.path().is_empty()
+        || !matches!(url.path(), "" | "/")
     {
         return None;
     }
@@ -42,30 +43,9 @@ pub fn parse_room_deep_link(raw: &str) -> Option<DesktopLaunch> {
     })
 }
 
-pub fn handle_open_urls<R: Runtime>(app: &AppHandle<R>, urls: Vec<Url>) {
-    let Some(launch) = (urls.len() == 1)
-        .then(|| parse_room_deep_link(urls[0].as_str()))
-        .flatten()
-    else {
-        return;
-    };
 
-    // Record before emitting: the renderer replays this via `currentDesktopLaunch`
-    // because cold-start deep links fire before its listeners exist.
-    if let Some(state) = app.try_state::<TauriDesktopState>() {
-        state.record_launch(launch.clone());
-    }
-    let _ = app.emit(DESKTOP_LAUNCH_EVENT, &launch);
-    focus_main_window(app);
-}
 
-pub fn focus_main_window<R: Runtime>(app: &AppHandle<R>) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-    }
-}
+
 
 #[cfg(test)]
 mod tests {
@@ -73,6 +53,10 @@ mod tests {
 
     #[test]
     fn accepts_only_room_id_deep_links() {
+        assert_eq!(
+            parse_room_deep_link("watchparty://room-46d67a7cf5a6700b/"),
+            parse_room_deep_link("watchparty://room-46d67a7cf5a6700b")
+        );
         assert_eq!(
             parse_room_deep_link("watchparty://room-46d67a7cf5a6700b"),
             Some(DesktopLaunch {

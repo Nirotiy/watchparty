@@ -30,15 +30,35 @@ export interface MusicMetadata {
 }
 
 export interface QueueEntry { queueId: string; music: MusicMetadata; status?: string }
+export interface NowPlayingPayload {
+  music: MusicMetadata
+  currentPosition: number
+  enqueuedById?: string | null
+  enqueuedByName?: string | null
+  likedUserIds?: string[]
+  likeMarkers?: number[]
+  playEpoch?: number
+  positionUpdatedAt?: number
+}
 export interface PlayerStatePayload {
-  nowPlaying?: { music: MusicMetadata; currentPosition: number } | null
+  idempotencyScopeId?: string
+  idempotencyTtlMs?: number
+  nowPlaying?: NowPlayingPayload | null
+  queue: QueueEntry[]
   isPaused: boolean
+  isShuffle: boolean
+  isPauseLocked: boolean
+  isSkipLocked: boolean
+  isShuffleLocked: boolean
+  isLoading: boolean
   stateVersion: number
   queueVersion: number
+  historyCursor?: number
   playEpoch: number
   serverTimestamp: number
-  queue: QueueEntry[]
 }
+export interface PlayerProgressPayload { currentPosition: number; stateVersion: number; playEpoch: number; serverTimestamp: number }
+export interface SyncPongPayload { pingId: string; clientSendTime: number; serverReceiveTime: number; serverSendTime: number }
 export interface QueuePatchPayload {
   operation: "append" | "remove" | "move" | "snapshot" | "status" | "clear"
   queueVersion: number

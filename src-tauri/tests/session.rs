@@ -671,6 +671,10 @@ fn owner_commands_gate_on_ownership_and_persist_transitions() {
         Some(Some("ot-1".into()))
     );
 
+    // Shared playback also needs owner proof when the room is locked.
+    session.execute(DesktopCommand::Play, 350).unwrap();
+    assert_eq!(session.transport.command_owner_tokens.pop(), Some(Some("ot-1".into())));
+
     // Ownership moving away clears the token and persists the drop.
     session
         .transport
@@ -718,7 +722,9 @@ fn owner_commands_gate_on_ownership_and_persist_transitions() {
         Some(Some("ot-2".into()))
     );
 
-    // Non-owner commands never carry the owner token.
+    // Once the authoritative snapshot transfers ownership, shared commands omit proof.
+    session.transport.snapshots.push_back(Ok(Some(owned_snapshot(4, "i1", "browser-1"))));
+    session.poll(850);
     session.execute(DesktopCommand::Pause, 900).unwrap();
     assert_eq!(session.transport.command_owner_tokens.pop(), Some(None));
 }

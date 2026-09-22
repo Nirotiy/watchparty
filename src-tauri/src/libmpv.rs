@@ -56,9 +56,7 @@ pub fn immediate_property_writes(prefs: &PlayerPreferences) -> Vec<(&'static str
         }
         .into(),
     ));
-    if let Some(device) = prefs.audio_device.as_deref() {
-        writes.push(("audio-device", device.to_owned()));
-    }
+    writes.push(("audio-device", prefs.audio_device.as_deref().unwrap_or("auto").to_owned()));
     let font = prefs.subtitle_font.trim();
     if !font.is_empty() {
         writes.push(("sub-font", font.to_owned()));
@@ -119,6 +117,8 @@ pub struct LibMpvConfig {
     /// Whitelisted preferences applied when the player is created.
     pub preferences: PlayerPreferences,
     pub tls_ca_file: Option<PathBuf>,
+    /// MusicParty uses the shared engine without rendering any video track.
+    pub audio_only: bool,
 }
 
 impl LibMpvConfig {
@@ -156,6 +156,7 @@ impl LibMpvConfig {
             window_handle,
             preferences: PlayerPreferences::default(),
             tls_ca_file: None,
+            audio_only: false,
         })
     }
 
@@ -254,6 +255,77 @@ type MpvWaitEvent = unsafe extern "C" fn(*mut MpvHandle, f64) -> *mut MpvEvent;
 type MpvDestroy = unsafe extern "C" fn(*mut MpvHandle);
 type MpvTerminateDestroy = unsafe extern "C" fn(*mut MpvHandle);
 type MpvFree = unsafe extern "C" fn(*mut c_void);
+type MpvFreeNodeContents = unsafe extern "C" fn(*mut MpvNode);
+
+#[repr(C)]
+union MpvNodeValue {
+    string: *mut c_char,
+    flag: c_int,
+    int64: i64,
+    double: f64,
+    list: *mut MpvNodeList,
+}
+#[repr(C)]
+struct MpvNode { value: MpvNodeValue, format: c_int }
+#[repr(C)]
+struct MpvNodeList { count: c_int, values: *mut MpvNode, keys: *mut *mut c_char }
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioOutputDevice { pub id: String, pub name: String }
+
+/// A short-lived, media-free client enumerates outputs without changing the active player.
+pub fn list_audio_output_devices(config: &LibMpvConfig) -> Result<Vec<AudioOutputDevice>, LibMpvError> {
+    let library = NativeLibrary::load(&config.dll_path)?;
+    let api = library.api;
+    let handle = unsafe { (api.create)() };
+    if handle.is_null() { return Err(LibMpvError::initialization()); }
+    let result = (|| {
+        for (key, value) in [("config", "no"), ("terminal", "no"), ("vo", "null"), ("vid", "no")] {
+            let key = CString::new(key).unwrap();
+            let value = CString::new(value).unwrap();
+            if unsafe { (api.set_option_string)(handle, key.as_ptr(), value.as_ptr()) } < 0 { return Err(LibMpvError::initialization()); }
+        }
+        if unsafe { (api.initialize)(handle) } < 0 { return Err(LibMpvError::initialization()); }
+        let mut node = MpvNode { value: MpvNodeValue { int64: 0 }, format: 0 };
+        let key = CString::new("audio-device-list").unwrap();
+        if unsafe { (api.get_property)(handle, key.as_ptr(), 6, &mut node as *mut _ as *mut c_void) } < 0 { return Err(LibMpvError::command()); }
+        let devices = unsafe { read_audio_devices(&node) };
+        unsafe { (api.free_node_contents)(&mut node) };
+        devices
+    })();
+    unsafe { (api.terminate_destroy)(handle) };
+    result
+}
+
+// Only traverse the documented array/map/string shape while libmpv owns the nodes.
+unsafe fn read_audio_devices(node: &MpvNode) -> Result<Vec<AudioOutputDevice>, LibMpvError> {
+    if node.format != 7 || node.value.list.is_null() { return Err(LibMpvError::command()); }
+    let list = &*node.value.list;
+    if !(0..=4096).contains(&list.count) || (list.count > 0 && list.values.is_null()) { return Err(LibMpvError::command()); }
+    let mut devices = Vec::new();
+    for index in 0..list.count as usize {
+        let item = &*list.values.add(index);
+        if item.format != 8 || item.value.list.is_null() { continue; }
+        let fields = &*item.value.list;
+        if !(0..=64).contains(&fields.count) || fields.values.is_null() || fields.keys.is_null() { continue; }
+        let mut id = None;
+        let mut name = None;
+        for field in 0..fields.count as usize {
+            let key = *fields.keys.add(field);
+            let value = &*fields.values.add(field);
+            if key.is_null() || value.format != 1 || value.value.string.is_null() { continue; }
+            let text = CStr::from_ptr(value.value.string).to_string_lossy().into_owned();
+            match CStr::from_ptr(key).to_bytes() { b"name" => id = Some(text), b"description" => name = Some(text), _ => {} }
+        }
+        if let Some(id) = id.filter(|id| !id.is_empty() && id != "auto") {
+            if !devices.iter().any(|device: &AudioOutputDevice| device.id == id) {
+                devices.push(AudioOutputDevice { name: name.filter(|name| !name.is_empty()).unwrap_or_else(|| id.clone()), id });
+            }
+        }
+    }
+    Ok(devices)
+}
 
 #[derive(Clone, Copy)]
 struct MpvApi {
@@ -269,6 +341,7 @@ struct MpvApi {
     destroy: MpvDestroy,
     terminate_destroy: MpvTerminateDestroy,
     free: MpvFree,
+    free_node_contents: MpvFreeNodeContents,
 }
 
 #[cfg(windows)]
@@ -323,6 +396,7 @@ mod dynamic_library {
                 destroy: load!("mpv_destroy", MpvDestroy),
                 terminate_destroy: load!("mpv_terminate_destroy", MpvTerminateDestroy),
                 free: load!("mpv_free", MpvFree),
+                free_node_contents: load!("mpv_free_node_contents", MpvFreeNodeContents),
             };
             Ok(Self { module, api })
         }
@@ -420,12 +494,16 @@ impl LibMpvPlayer {
             ("keep-open", "no"),
             ("pause", "yes"),
             ("vo", "gpu-next"),
+            // mpv does not enable TLS certificate verification by default.
+            // Custom CA trust is meaningful only with verification enabled.
+            ("tls-verify", "yes"),
         ] {
             player.set_option(name, value)?;
         }
         if let Some(path) = &config.tls_ca_file {
             player.set_option("tls-ca-file", path.to_string_lossy().as_ref())?;
         }
+        if config.audio_only { player.set_option("vid", "no")?; }
         // Preference-driven creation options: hardware decoding and cache profile.
         for (name, value) in open_options(&config.preferences) {
             player.set_option(name, &value)?;
@@ -850,7 +928,13 @@ impl PlayerEngine for LibMpvPlayer {
                 encode_base64(format!("{username}:{password}").as_bytes())
             )
         });
-        let _ = self.set_property_string("http-header-fields", header.as_deref().unwrap_or(""));
+        let fields = match (header.as_deref(), request.cookie_header) {
+            (Some(auth), Some(cookie)) => format!("{auth}\nCookie: {cookie}"),
+            (Some(auth), None) => auth.to_string(),
+            (None, Some(cookie)) => format!("Cookie: {cookie}"),
+            (None, None) => String::new(),
+        };
+        let _ = self.set_property_string("http-header-fields", &fields);
 
         if self.command(&["loadfile", request.url, "replace"]).is_err() {
             self.pending_loads.pop_back();
@@ -1007,11 +1091,12 @@ mod tests {
         assert!(immediate.contains(&("audio-channels", "auto-safe".into())));
         assert!(immediate.contains(&("sub-scale", "1".into())));
         assert!(immediate.contains(&("sub-ass-override", "no".into())));
-        // Defaults write no HDR, audio-device or font entries.
+        assert!(immediate.contains(&("audio-device", "auto".into())));
+        // Defaults write no HDR or font entries.
         assert!(immediate.iter().all(|(name, _)| {
             !matches!(
                 *name,
-                "tone-mapping" | "target-colorspace-hint" | "audio-device" | "sub-font"
+                "tone-mapping" | "target-colorspace-hint" | "sub-font"
             )
         }));
 
@@ -1047,6 +1132,29 @@ mod tests {
         assert!(next_load.contains(&("slang", "chi,eng".into())));
         assert!(next_load.contains(&("alang", "jpn".into())));
         assert!(next_load.contains(&("network-timeout", "90".into())));
+    }
+
+    #[test]
+    fn audio_device_nodes_preserve_native_ids_and_descriptions() {
+        let id = CString::new("wasapi/{test-device}").unwrap();
+        let description = CString::new("扬声器 USB").unwrap();
+        let name_key = CString::new("name").unwrap();
+        let description_key = CString::new("description").unwrap();
+        let mut keys = [name_key.as_ptr() as *mut c_char, description_key.as_ptr() as *mut c_char];
+        let mut values = [
+            MpvNode { value: MpvNodeValue { string: id.as_ptr() as *mut c_char }, format: 1 },
+            MpvNode { value: MpvNodeValue { string: description.as_ptr() as *mut c_char }, format: 1 },
+        ];
+        let mut fields = MpvNodeList { count: 2, values: values.as_mut_ptr(), keys: keys.as_mut_ptr() };
+        let mut item = MpvNode { value: MpvNodeValue { list: &mut fields }, format: 8 };
+        let mut list = MpvNodeList { count: 1, values: &mut item, keys: ptr::null_mut() };
+        let node = MpvNode { value: MpvNodeValue { list: &mut list }, format: 7 };
+        let result = unsafe { read_audio_devices(&node) }.unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, "wasapi/{test-device}");
+        assert_eq!(result[0].name, "扬声器 USB");
+        unsafe { (*list.values).format = 0; }
+        assert!(unsafe { read_audio_devices(&node) }.unwrap().is_empty());
     }
 
     #[test]

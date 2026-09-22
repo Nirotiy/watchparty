@@ -129,11 +129,12 @@ impl Default for PlayerPreferences {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct DesktopSettings {
     pub backend_origin: Option<String>,
     pub nickname: String,
     pub theme: String,
+    pub window_material: String,
     pub player_preferences: PlayerPreferences,
 }
 
@@ -143,6 +144,7 @@ impl Default for DesktopSettings {
             backend_origin: None,
             nickname: String::new(),
             theme: "dark".into(),
+            window_material: "auto".into(),
             player_preferences: PlayerPreferences::default(),
         }
     }
@@ -155,8 +157,12 @@ pub struct DesktopSettingsInput {
     pub backend_origin: Option<String>,
     pub nickname: String,
     pub theme: String,
+    #[serde(default = "default_window_material")]
+    pub window_material: String,
     pub player_preferences: PlayerPreferences,
 }
+
+fn default_window_material() -> String { "auto".into() }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -164,6 +170,7 @@ pub struct DesktopSettingsStatus {
     pub backend_origin: Option<String>,
     pub nickname: String,
     pub theme: String,
+    pub window_material: String,
     pub player_preferences: PlayerPreferences,
     pub credentials_configured: bool,
     /// Whitelisted properties that failed to apply to the live player; their
@@ -178,6 +185,7 @@ impl DesktopSettingsStatus {
             backend_origin: settings.backend_origin,
             nickname: settings.nickname,
             theme: settings.theme,
+            window_material: settings.window_material,
             player_preferences: settings.player_preferences,
             credentials_configured,
             player_preference_failures: Vec::new(),
@@ -241,6 +249,7 @@ impl DesktopConfigStore {
                 .transpose()?,
             nickname: validate_nickname(input.nickname)?,
             theme: validate_theme(input.theme)?,
+            window_material: validate_window_material(input.window_material)?,
             player_preferences: validate_player_preferences(input.player_preferences)?,
         })
     }
@@ -315,6 +324,13 @@ fn validate_nickname(value: String) -> Result<String, ConfigError> {
 fn validate_theme(value: String) -> Result<String, ConfigError> {
     match value.as_str() {
         "dark" | "light" => Ok(value),
+        _ => Err(ConfigError::Invalid),
+    }
+}
+
+fn validate_window_material(value: String) -> Result<String, ConfigError> {
+    match value.as_str() {
+        "auto" | "none" => Ok(value),
         _ => Err(ConfigError::Invalid),
     }
 }
@@ -882,6 +898,7 @@ mod tests {
             backend_origin: Some(origin.into()),
             nickname: "Nirotiy".into(),
             theme: "dark".into(),
+            window_material: "auto".into(),
             player_preferences: PlayerPreferences::default(),
         }
     }

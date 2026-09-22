@@ -10,6 +10,8 @@ use crate::{
     session::DesktopSession,
     transport::{RoomTransport, TransportError},
 };
+use std::sync::Arc;
+use crate::config::OriginTrustStore;
 use serde::Serialize;
 use std::{
     fmt,
@@ -78,6 +80,7 @@ pub struct NativeRuntimeConfig {
     site_credentials: Option<NativeSiteCredentials>,
     player: Option<LibMpvConfig>,
     owner_token_persist: Option<std::sync::Arc<dyn Fn(Option<String>) + Send + Sync>>,
+    trust_store: Option<Arc<OriginTrustStore>>,
 }
 
 impl NativeRuntimeConfig {
@@ -92,8 +95,11 @@ impl NativeRuntimeConfig {
             site_credentials,
             player: None,
             owner_token_persist: None,
+            trust_store: None,
         })
     }
+
+    pub fn with_trust_store(mut self, store: Arc<OriginTrustStore>) -> Self { self.trust_store = Some(store); self }
 
     /// Wires native owner-token persistence (Credential Manager) into every
     /// session created from this config. The token value stays in Rust.
@@ -135,6 +141,7 @@ impl NativeRuntimeConfig {
             })?;
 
         let mut session = DesktopSession::new(transport, player);
+        if let Some(store) = &self.trust_store { session = session.with_trust_store(Arc::clone(store)); }
         if let Some(persist) = &self.owner_token_persist {
             let persist = std::sync::Arc::clone(persist);
             session = session.with_owner_token_persist(Box::new(move |token| persist(token)));

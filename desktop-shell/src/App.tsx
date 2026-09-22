@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState, useCallback, type ReactNode } from "react"
+import { FluentProvider, Button as FluentButton, webDarkTheme, webLightTheme } from "@fluentui/react-components"
+import { ShellStatusToast, ShellToastProvider } from "@/components/shell-toast"
 
 import { MaterialSymbol, type MaterialSymbolName } from "@/components/material-symbol"
+import { LobbyView } from "@/components/lobby-view"
+import { BanguruLobby } from "@/components/banguru-lobby"
+import { FluentSettingsView } from "@/components/fluent-settings"
+import { useLobbyFacade } from "@/hooks/use-lobby-facade"
+import type { RoomIdentity, SwitchTarget } from "../shared/lobby-contract"
 import { RoomView } from "@/components/room-view"
 import { SessionGate } from "@/components/session-gate"
 import { Button } from "@/components/ui/button"
@@ -11,16 +18,21 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { useDesktopSession } from "@/hooks/use-desktop-session"
 import type { CommandAck, ConnectionState, DesktopCommand, DesktopUiState, MediaDirectoryItem, MediaDirectoryPage, MediaSource, NativeCapabilityReport } from "@/lib/contracts"
 import { cn } from "@/lib/utils"
-import { createDefaultLocalSettings, migrateLocalSettings } from "../shared/local-schema"
+import { createDefaultLocalSettings, migrateLocalSettings, saveMusicPartyService, serviceForProduct } from "../shared/local-schema"
 import { MusicPartyAdapter, type MusicSearchResult } from "../shared/musicparty-adapter"
+import { MusicPartyConnection } from "../shared/musicparty-connection"
 import { NativeAudioPlayer } from "../shared/native-audio-player"
 import { AudioFocusOwner } from "../shared/player"
-import { invoke } from "@tauri-apps/api/core"
+import { invoke, listen } from "../shared/desktop-runtime"
+import { getDesktopWallpaperBackdrop } from "@/lib/ipc"
+import type { DomainEvent } from "../shared/domain"
+import { LinkleRoom } from "@/components/linkle-room"
 import { clearSiteCredentials, errorMessage, getDesktopSettings, listenForSettings, mediaList, mediaRoots, mediaSearch, promptSiteCredentials, updateDesktopSettings, verifyBackend, verifyPrivateRoom, logoutMusicParty, listOriginTrust, importOriginTrust, deleteOriginTrust, type DesktopSettingsStatus, type PlayerPreferences, type OriginTrustRecord } from "@/lib/ipc"
 
 type View = "home" | "room" | "media" | "settings"
 type Drawer = "queue" | "members" | null
 type Theme = "dark" | "light"
+type WindowMaterial = "auto" | "none"
 type SettingsSection = "general" | "playback" | "credentials" | "network" | "security"
 
 const BACKEND_LABEL = "127.0.0.1:8080"
@@ -69,16 +81,38 @@ function formatTime(seconds: number): string {
 
 export default function App() {
   const session = useDesktopSession()
+  const locallyHandledStatus = useRef(false)
+  const [completedLocalNotice, setCompletedLocalNotice] = useState(0)
+  useEffect(() => { locallyHandledStatus.current = false }, [completedLocalNotice])
   const [view, setView] = useState<View>("home")
   const [product, setProduct] = useState<"watchparty" | "musicparty">("watchparty")
+  const musicParty = useMusicPartyEntry()
+  const [currentLobbyRoom, setCurrentLobbyRoom] = useState<RoomIdentity | null>(null)
+  const switchingLobby = useRef(false)
+  const switchLobby = async (target: SwitchTarget, nickname = "桌面用户") => {
+    locallyHandledStatus.current = true
+    switchingLobby.current = true
+    try {
+      await session.switchTo(target, {
+        music: musicParty.getConnection(),
+        current: () => currentLobbyRoom ?? (session.state?.roomId && backendOrigin ? { service: "watchparty", origin: backendOrigin, roomId: session.state.roomId } : musicParty.currentRoom()),
+        nickname: () => nickname,
+        focus: musicParty.setFocus,
+        committed: identity => { setCurrentLobbyRoom(identity); if (identity) setProduct(identity.service) },
+      })
+      setView(target.identity.service === "watchparty" ? "room" : "home")
+    } finally { switchingLobby.current = false; setCompletedLocalNotice(value => value + 1) }
+  }
+  const lobby = useLobbyFacade({ origin: musicParty.serviceOrigin, connection: musicParty.getConnection(), createAdapter: () => new MusicPartyAdapter({ origin: musicParty.serviceOrigin, nativeInvoke: invoke }), switchTo: switchLobby })
   const [drawer, setDrawer] = useState<Drawer>(null)
   const [theme, setTheme] = useState<Theme>("dark")
+  const [windowMaterial, setWindowMaterial] = useState<WindowMaterial>("auto")
   const [backendOrigin, setBackendOrigin] = useState<string | null>(null)
   useEffect(() => {
     let disposed = false
     let unlisten: (() => void) | undefined
     const apply = (settings: DesktopSettingsStatus) => {
-      if (!disposed) { setTheme(settings.theme); setBackendOrigin(settings.backendOrigin) }
+      if (!disposed) { setTheme(settings.theme); setWindowMaterial(settings.windowMaterial); setBackendOrigin(settings.backendOrigin) }
     }
     void listenForSettings(apply).then(async (stop) => {
       if (disposed) { stop(); return }
@@ -88,23 +122,41 @@ export default function App() {
     return () => { disposed = true; unlisten?.() }
   }, [session.setStatus])
   const [fullscreen, setFullscreen] = useState(false)
+  const [wallpaper, setWallpaper] = useState<string | null>(null)
+  useEffect(() => {
+    if (windowMaterial !== "auto") return
+    let disposed = false
+    void getDesktopWallpaperBackdrop()
+      .then((backdrop) => { if (!disposed) setWallpaper(backdrop.image) })
+      .catch(() => { if (!disposed) setWallpaper(null) })
+    return () => { disposed = true }
+  }, [windowMaterial])
   const suspendedForNavigation = useRef(false)
   const previouslyConnected = useRef(false)
   const state = session.state
   // The joined room comes from the native session itself; the deep-link hint is
   // only a fallback before any session exists.
   const activeRoomId = state?.roomId ?? session.launchRoomId
-  const isPlaybackView = Boolean(state) && view === "room"
+  const isPlaybackView = product === "watchparty" && Boolean(state) && view === "room"
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark")
     document.documentElement.classList.toggle("playback-mode", isPlaybackView)
+    document.documentElement.dataset.windowMaterial = windowMaterial
     document.documentElement.style.colorScheme = theme
     return () => document.documentElement.classList.remove("playback-mode")
-  }, [isPlaybackView, theme])
+  }, [isPlaybackView, theme, windowMaterial])
 
   useEffect(() => {
-    if (state && !previouslyConnected.current) setView("room")
+    const title = product === "watchparty" ? "Banguru" : "Linkle"
+    document.title = title
+    const caption = document.getElementById("watchparty-titlebar")
+    if (caption) caption.textContent = title
+    if (window.watchpartyDesktop) void invoke("updateDesktopWindowChrome", { title, theme, windowMaterial })
+  }, [product, theme, windowMaterial])
+
+  useEffect(() => {
+    if (state && !previouslyConnected.current && !switchingLobby.current) setView("room")
     if (!state && previouslyConnected.current) {
       setDrawer(null)
       setFullscreen(false)
@@ -136,6 +188,17 @@ export default function App() {
     setDrawer(null)
   }
 
+  async function changeProduct(nextProduct: "watchparty" | "musicparty") {
+    if (nextProduct === product) return
+    if (nextProduct === "musicparty" && state?.playerWindowVisible) {
+      suspendedForNavigation.current = await session.command({ type: "playerVisibility", visible: false })
+    }
+    setProduct(nextProduct)
+    if (nextProduct === "watchparty" && view === "room" && suspendedForNavigation.current) {
+      if (await session.command({ type: "playerVisibility", visible: true })) suspendedForNavigation.current = false
+    }
+  }
+
   async function openRoomDrawer(nextDrawer: Exclude<Drawer, null>) {
     await navigate("room")
     setDrawer(nextDrawer)
@@ -143,6 +206,7 @@ export default function App() {
 
   async function leaveRoom() {
     if (await session.stop()) {
+      setCurrentLobbyRoom(null)
       setFullscreen(false)
       setDrawer(null)
       setView("home")
@@ -165,11 +229,19 @@ export default function App() {
           onLeave={() => void leaveRoom()}
         />
       ) : (
-        <div className="desktop-shell-surface grid h-screen min-w-[760px] grid-cols-[232px_minmax(0,1fr)] text-foreground">
+        <FluentProvider applyStylesToPortals={false} theme={{ ...(theme === "dark" ? webDarkTheme : webLightTheme), colorBrandBackground: "var(--primary)", colorNeutralForegroundOnBrand: "var(--primary-foreground)", colorBrandForeground1: "var(--primary)", colorNeutralBackground1: "var(--card)", colorNeutralBackground2: "var(--background)" }} className="desktop-shell-surface desktop-shell-grid text-foreground">
+          {windowMaterial === "auto" ? (
+            <div className={cn("desktop-mica-layer", !wallpaper && "desktop-mica-layer-solid")} aria-hidden="true">
+              {wallpaper ? <div className="desktop-mica-image" style={{ backgroundImage: `url("${wallpaper}")` }} /> : null}
+              <div className="desktop-mica-tint" />
+            </div>
+          ) : null}
+          <ShellToastProvider>
+          <ShellStatusToast status={session.status} locallyHandledStatus={locallyHandledStatus} />
           <Sidebar
             backendOrigin={backendOrigin}
             product={product}
-            onProduct={setProduct}
+            onProduct={(next) => void changeProduct(next)}
             view={view}
             state={state}
             roomId={activeRoomId}
@@ -177,8 +249,15 @@ export default function App() {
             onView={(nextView) => void navigate(nextView)}
             onDrawer={(nextDrawer) => void openRoomDrawer(nextDrawer)}
           />
-          <main className="min-h-0 min-w-0 overflow-auto">
-            {product === "musicparty" && view !== "settings" ? <MusicPartyEntry /> : view === "home" || view === "room" ? (
+          <main className="desktop-main">
+            <div className={cn("desktop-page", view === "settings" && "desktop-page-settings")}>{view === "home" ? (product === "musicparty" ? (currentLobbyRoom?.service === "musicparty" ? (
+              <LinkleRoom
+                room={currentLobbyRoom}
+                connection={musicParty.getConnection()}
+                subscribeRoom={musicParty.subscribeRoom}
+                onLeave={() => setCurrentLobbyRoom(null)}
+              />
+            ) : <><LobbyView facade={lobby!} origin={musicParty.serviceOrigin} busy={session.starting} activeRoom={currentLobbyRoom} /><details className="shell-lobby-secondary"><summary className="cursor-pointer text-sm">服务与账号</summary>{musicParty.content}</details></>) : <BanguruLobby onStart={session.start} launchRoomId={session.launchRoomId} busy={session.starting} canJoin={Boolean(backendOrigin)} canCreate={currentLobbyRoom?.service !== "musicparty"} activeRoomId={state?.roomId ?? null} onCreate={(nickname, pin) => { locallyHandledStatus.current = true; return session.createRoom(nickname, pin).finally(() => setCompletedLocalNotice(value => value + 1)) }} onJoin={(roomId, nickname, pin) => { locallyHandledStatus.current = true; return switchLobby({ identity: { service: "watchparty", origin: backendOrigin ?? "", roomId }, password: pin }, nickname).then(() => true).catch(() => false) }} />) : view === "room" ? (
               <HomeView
                 state={state}
                 roomId={activeRoomId}
@@ -187,19 +266,33 @@ export default function App() {
                 onCreate={session.createRoom}
                 onAccess={session.accessRoom}
                 onReturn={() => void navigate("room")}
-                onProduct={setProduct}
+                onProduct={(next) => void changeProduct(next)}
               />
             ) : view === "media" ? (
               <MediaLibraryView state={state} command={session.command} navigate={(nextView) => void navigate(nextView)} />
             ) : (
-              <SettingsView
+              <FluentSettingsView
                 state={state}
                 theme={theme}
-                onThemeChange={() => { void persistTheme(theme, setTheme).catch((error: unknown) => session.setStatus({ text: errorMessage(error, "主题保存失败"), tone: "error" })) }}
+                onThemeChange={() => persistTheme(theme, windowMaterial, setTheme)}
+                windowMaterial={windowMaterial}
+                onWindowMaterialChange={() => persistWindowMaterial(windowMaterial, setWindowMaterial)}
+                musicPartyOrigin={musicParty.serviceOrigin}
+                onMusicPartyLogout={musicParty.logout}
               />
-            )}
+            )}</div>
+            {currentLobbyRoom?.service !== "musicparty" && (currentLobbyRoom || state?.roomId) ? <SessionBar
+              service="watchparty"
+              roomId={currentLobbyRoom?.roomId ?? state?.roomId ?? ""}
+              media={mediaTitle(state?.room?.source)}
+              status={connectionLabel(state?.connection)}
+              onReturn={() => {
+                void changeProduct("watchparty").then(() => navigate("room"))
+              }}
+            /> : null}
           </main>
-        </div>
+          </ShellToastProvider>
+        </FluentProvider>
       )}
 
       {state && (state.connection === "expired" || state.connection === "failed") ? (
@@ -207,6 +300,24 @@ export default function App() {
       ) : null}
     </TooltipProvider>
   )
+}
+
+/** A session affordance, kept separate from browsing navigation and only shown while connected. */
+function SessionBar({ service, roomId, media, status, onReturn }: {
+  service: "watchparty" | "musicparty"
+  roomId: string
+  media: string
+  status: string
+  onReturn: () => void
+}) {
+  const label = service === "musicparty" ? "Linkle" : "Banguru"
+  const icon: MaterialSymbolName = service === "musicparty" ? "music-note" : "monitor"
+  return <section className="desktop-session-bar" aria-label={`当前 ${label} 会话`}>
+    <div className="desktop-session-bar-service"><MaterialSymbol name={icon} /><span>{label}</span></div>
+    <div className="desktop-session-bar-copy"><strong>{media}</strong><span>{roomId} · {status}</span></div>
+    <span className="desktop-session-bar-permission">{service === "musicparty" ? "房主控制" : "同步播放"}</span>
+    <FluentButton appearance="subtle" onClick={onReturn}>返回当前会话</FluentButton>
+  </section>
 }
 
 function Sidebar({ view, state, roomId, status, onView, onDrawer, backendOrigin, product, onProduct }: {
@@ -221,34 +332,13 @@ function Sidebar({ view, state, roomId, status, onView, onDrawer, backendOrigin,
   onDrawer: (drawer: Exclude<Drawer, null>) => void
 }) {
   return (
-    <aside className="flex min-h-0 flex-col border-r border-border/80 bg-card/76 px-3 py-4">
-      <div className="px-2 pb-4">
-        <strong className="text-[15px] tracking-tight">Banguru</strong>
-        <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{roomId ? `/${roomId}` : "Watch Party · 原生桌面播放器"}</p>
-      </div>
-      <div className="mb-3 grid grid-cols-2 gap-1 border-b border-border/80 pb-2"><Button size="sm" variant="ghost" className={cn("rounded-md text-xs", product === "watchparty" && "bg-accent text-foreground") } onClick={() => onProduct("watchparty")}>Banguru</Button><Button size="sm" variant="ghost" className={cn("rounded-md text-xs", product === "musicparty" && "bg-accent text-foreground") } onClick={() => onProduct("musicparty")}>Linkle</Button></div>
-
-      <div className="relative mb-3">
-        <MaterialSymbol name="search" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input aria-label="搜索或输入房号，尚未开放" title="智能入口将在后续原生 IPC 完成后开放" disabled placeholder="搜索或输入房号…" className="h-8 border-border/80 bg-background/55 pl-9 text-xs disabled:opacity-75" />
-      </div>
-
-      <nav className="space-y-0.5" aria-label="桌面端导航">
-        <NavButton icon="home" label="首页" active={view === "home"} onClick={() => onView("home")} />
-        <NavButton icon="monitor" label="房间" active={view === "room"} disabled={!state} onClick={() => onView("room")} />
-        <NavButton icon="queue" label="队列" disabled={!state} onClick={() => onDrawer("queue")} />
-        <NavButton icon="group" label="成员" disabled={!state} onClick={() => onDrawer("members")} />
+    <aside className="desktop-sidebar">
+      <nav className="desktop-service-nav" aria-label="服务浏览">
+        <FluentButton appearance="subtle" aria-current={product === "watchparty" ? "page" : undefined} onClick={() => { onProduct("watchparty"); onView("home") }}><MaterialSymbol name="monitor" /><span><strong>Banguru</strong><small>一起看</small></span></FluentButton>
+        <FluentButton appearance="subtle" aria-current={product === "musicparty" ? "page" : undefined} onClick={() => { onProduct("musicparty"); onView("home") }}><MaterialSymbol name="music-note" /><span><strong>Linkle</strong><small>一起听</small></span></FluentButton>
       </nav>
-
-      <div className="mt-auto space-y-0.5">
-        <NavButton icon="library" label="媒体库" active={view === "media"} onClick={() => onView("media")} />
-        <NavButton icon="settings" label="设置" active={view === "settings"} onClick={() => onView("settings")} />
-        <div className="mt-3 border-t border-border/80 px-2 pt-3 text-[10px] leading-4 text-muted-foreground">
-          <p className="flex items-center gap-2"><i className={cn("size-1.5 rounded-full", connectionTone(state?.connection))} /><span className="truncate">{backendOrigin ?? "站点未配置"} · {connectionLabel(state?.connection)}</span></p>
-          <p className={cn("mt-1 truncate", status.tone === "warning" && "text-warning", status.tone === "error" && "text-destructive")}>{status.text}</p>
-          <p className="truncate font-mono">{capabilityLabel(state?.capability)}</p>
-        </div>
-      </div>
+      <div className={cn("desktop-session", !roomId && "desktop-session-empty")}>{roomId ? <><strong>{roomId}</strong><p>{state ? connectionLabel(state.connection) : status.text}</p><p>{backendOrigin ?? "Banguru 站点未配置"}</p></> : null}</div>
+      <div className="desktop-settings-link"><FluentButton appearance="subtle" aria-current={view === "settings" ? "page" : undefined} onClick={() => onView("settings")}><MaterialSymbol name="settings" /> 设置</FluentButton></div>
     </aside>
   )
 }
@@ -306,10 +396,17 @@ function HomeView({ state, roomId, starting, onStart, onCreate, onAccess, onRetu
   )
 }
 
-function MusicPartyEntry() {
+function useMusicPartyEntry() {
+  const activeRef = useRef(false)
+  const roomListeners = useRef(new Set<(event: DomainEvent) => void>())
+  const subscribeRoom = useCallback((listener: (event: DomainEvent) => void) => {
+    roomListeners.current.add(listener)
+    return () => { roomListeners.current.delete(listener) }
+  }, [])
   const [origin, setOrigin] = useState(() => {
-    try { return migrateLocalSettings(JSON.parse(localStorage.getItem("watchparty.local-settings") ?? "null")).services.find((service) => service.product === "musicparty")?.origin ?? "http://localhost:18081" } catch { return "http://localhost:18081" }
+    try { return serviceForProduct(migrateLocalSettings(JSON.parse(localStorage.getItem("watchparty.local-settings") ?? "null")), "musicparty")?.origin ?? "http://127.0.0.1:18081" } catch { return "http://127.0.0.1:18081" }
   })
+  const [serviceOrigin, setServiceOrigin] = useState(origin)
   const [invite, setInvite] = useState("")
   const [message, setMessage] = useState("")
   const [backendOrigin, setBackendOrigin] = useState<string | null>(null)
@@ -319,34 +416,91 @@ function MusicPartyEntry() {
   const [queueCount, setQueueCount] = useState(0)
   const [queueTitles, setQueueTitles] = useState<string[]>([])
   const [playing, setPlaying] = useState(false)
-  const adapterRef = useRef<MusicPartyAdapter | null>(null)
   const playerRef = useRef<NativeAudioPlayer | null>(null)
   const focusOwner = useRef(new AudioFocusOwner())
-  useEffect(() => () => { void focusOwner.current.release("musicparty"); void playerRef.current?.dispose() }, [])
-  useEffect(() => () => { void adapterRef.current?.disconnect() }, [])
-  const connect = async () => {
-    const adapter = new MusicPartyAdapter({ origin: origin.trim(), nativeInvoke: invoke })
-    adapterRef.current = adapter
-    const unsubscribe = adapter.subscribe((event) => {
-      if (event.type === "connection") setConnection(event.status === "ready" ? "已连接" : event.status === "reconnecting" ? "重连中" : event.status === "failed" ? "连接失败" : "连接中")
-      if (event.type === "error") setMessage(event.message)
-      if (event.type === "room") { setQueueCount(event.room?.queue?.length ?? 0); setQueueTitles((event.room?.queue ?? []).slice(0, 3).map((item) => item.title)); setRoomStatus(event.room?.name ? `房间：${event.room.name}` : "已连接房间") }
-      if (event.type === "playback") { setPlaying(event.snapshot.playing); setRoomStatus(event.snapshot.item?.title ? `播放中：${event.snapshot.item.title}` : "房间已连接") }
+  useEffect(() => () => { void focusOwner.current.release("musicparty").catch(() => {}); void playerRef.current?.dispose().catch(() => {}) }, [])
+  useEffect(() => {
+    const subscription = listen<{ playerId: string; code: string }>("musicparty://audio-error", ({ payload }) => {
+      if (payload.playerId === playerRef.current?.id) { setPlaying(false); setMessage("媒体解析或播放失败") }
     })
-    try { await adapter.connect(); setMessage("已建立 Linkle 服务连接") } catch { unsubscribe(); setMessage("无法连接 Linkle 服务") }
+    return () => { void subscription.then(unlisten => unlisten()).catch(() => {}) }
+  }, [])
+  const connectionRef = useRef<MusicPartyConnection | null>(null)
+  const getConnection = () => {
+    if (connectionRef.current) return connectionRef.current
+    const connection = new MusicPartyConnection(
+    (serviceOrigin, roomId) => {
+      setServiceOrigin(serviceOrigin)
+      setPlaying(false)
+      setRoomStatus("未进入房间")
+      setQueueCount(0)
+      setQueueTitles([])
+      return new MusicPartyAdapter({ origin: serviceOrigin, roomId, nativeInvoke: invoke })
+    },
+    event => {
+      for (const listener of roomListeners.current) listener(event)
+      if (event.type === "connection") {
+        setConnection(event.status === "ready" ? "已连接" : event.status === "reconnecting" ? "重连中" : event.status === "failed" ? "连接失败" : event.status === "idle" ? "未连接" : "连接中")
+        if (event.status === "ready") setMessage("已建立 Linkle 服务连接")
+      }
+      if (event.type === "error") setMessage(event.message)
+      if (event.type === "room") { setQueueCount(event.room?.queue?.length ?? 0); setQueueTitles((event.room?.queue ?? []).slice(0, 3).map(item => item.title)); setRoomStatus(event.room?.name ? `房间：${event.room.name}` : "已连接房间") }
+      if (event.type === "playback") { setPlaying(event.snapshot.playing); setRoomStatus(event.snapshot.item?.title ? `播放中：${event.snapshot.item.title}` : "房间已连接") }
+    },
+    )
+    const player = playerRef.current ?? new NativeAudioPlayer(invoke)
+    playerRef.current = player
+    focusOwner.current.register("musicparty", player)
+    // Bind before hello and the initial snapshot, including entry into a playing room.
+    connection.bindPlayer(player, () => activeRef.current ? focusOwner.current.request("musicparty") : Promise.resolve(false))
+    connectionRef.current = connection
+    return connection
   }
-  return <section className="mt-10 border-t border-border pt-5">
+  useEffect(() => () => { const old = connectionRef.current; connectionRef.current = null; void old?.dispose() }, [])
+  const connect = async () => {
+    try { await getConnection().run(origin, adapter => adapter.connect()) } catch { setMessage("无法连接 Linkle 服务") }
+  }
+  const logout = async () => {
+    const targetOrigin = serviceOrigin
+    await getConnection().withCurrent(targetOrigin, async adapter => {
+      await logoutMusicParty(targetOrigin)
+      await adapter?.disconnect()
+      await playerRef.current?.stop()
+      setPlaying(false)
+      setRoomStatus("未进入房间")
+      setQueueCount(0)
+      setQueueTitles([])
+    })
+  }
+  const saveService = () => {
+    try {
+      const settings = migrateLocalSettings(JSON.parse(localStorage.getItem("watchparty.local-settings") ?? "null"))
+      const next = saveMusicPartyService(settings, origin)
+      localStorage.setItem("watchparty.local-settings", JSON.stringify(next))
+      if (!connectionRef.current?.current) setServiceOrigin(serviceForProduct(next, "musicparty")!.origin)
+      setMessage("服务地址已保存")
+    } catch { setMessage("服务地址无效或无法保存") }
+  }
+  const content = <section className="mt-10 border-t border-border pt-5">
     <div className="flex items-baseline justify-between"><SectionTitle detail="远程服务 · 邀请兑换">Linkle</SectionTitle><span className="text-[11px] text-muted-foreground">{connection}</span></div>
     <div className="mt-2 flex items-center gap-2"><div><p className="text-[11px] text-muted-foreground" role="status">{roomStatus} · 队列 {queueCount}</p>{queueTitles.length ? <p className="text-[10px] text-muted-foreground">{queueTitles.join(" · ")}</p> : null}</div>{playerRef.current ? <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => { const p = playerRef.current; if (!p) return; void (playing ? p.pause() : p.resume()).then(() => setPlaying(!playing)) }}>{playing ? "暂停" : "继续"}</Button> : null}</div>
-    <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]" ><Input value={origin} onChange={(event) => setOrigin(event.target.value)} placeholder="https://music.example.com" aria-label="Linkle 服务地址" className="h-9 font-mono text-xs" /><div className="flex gap-2"><Button variant="outline" size="sm" className="h-9" disabled={!origin.trim()} onClick={() => { const settings = migrateLocalSettings(JSON.parse(localStorage.getItem("watchparty.local-settings") ?? "null")); const services = [...settings.services.filter((service) => service.product !== "musicparty"), { id: "musicparty-default", product: "musicparty" as const, origin: origin.trim(), label: "Linkle" }]; localStorage.setItem("watchparty.local-settings", JSON.stringify({ ...settings, services })); setMessage("服务地址已保存") }}>保存服务</Button><Button variant="ghost" size="sm" className="h-9" disabled={!origin.trim()} onClick={() => void connect()}>连接</Button></div></div>
-    <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]"><Input value={invite} onChange={(event) => setInvite(event.target.value)} placeholder="输入 Linkle 邀请码" aria-label="Linkle 邀请码" className="h-9 text-xs" /><Button size="sm" className="h-9" disabled={!origin.trim() || !invite.trim()} onClick={() => { const adapter = adapterRef.current ?? new MusicPartyAdapter({ origin: origin.trim(), nativeInvoke: invoke }); adapterRef.current = adapter; void adapter.redeemInvite(invite.trim()).then((result) => setMessage(`已进入 ${result.roomName ?? result.roomId}`)).catch(() => setMessage("邀请兑换失败，请检查服务地址和邀请码")) }}>兑换并进入</Button></div>
+    <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]" ><Input value={origin} onChange={(event) => setOrigin(event.target.value)} placeholder="https://music.example.com" aria-label="Linkle 服务地址" className="h-9 font-mono text-xs" /><div className="flex gap-2"><Button variant="outline" size="sm" className="h-9" disabled={!origin.trim()} onClick={saveService}>保存服务</Button><Button variant="ghost" size="sm" className="h-9" disabled={!origin.trim()} onClick={() => void connect()}>连接</Button></div></div>
+    <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]"><Input value={invite} onChange={(event) => setInvite(event.target.value)} placeholder="输入 Linkle 邀请码" aria-label="Linkle 邀请码" className="h-9 text-xs" /><Button size="sm" className="h-9" disabled={!origin.trim() || !invite.trim()} onClick={() => { void getConnection().run(origin, adapter => adapter.redeemInvite(invite.trim())).then((result) => setMessage(`已进入 ${result.roomName ?? result.roomId}`)).catch(() => setMessage("邀请兑换失败，请检查服务地址和邀请码")) }}>兑换并进入</Button></div>
     <div className="mt-2 flex gap-3 text-[11px] text-muted-foreground"><button type="button" className="hover:text-foreground" onClick={() => setMessage("Cookie 将由系统安全存储管理")}>导入 Cookie</button><button type="button" className="hover:text-foreground" onClick={() => setMessage("迁移包导入将在阶段 2 后续接入")}>导入 Web 迁移包</button></div>
     {message ? <p className="mt-2 text-[11px] text-muted-foreground" role="status">{message}</p> : null}
-    <MusicPartySearch origin={origin} adapterRef={adapterRef} playerRef={playerRef} focusOwner={focusOwner} />
+    <MusicPartySearch key={origin} origin={origin} getConnection={getConnection} />
   </section>
+  return { content, serviceOrigin, logout, getConnection, subscribeRoom,
+    currentRoom: (): RoomIdentity | null => { const adapter = connectionRef.current?.current; return adapter?.roomId ? { service: "musicparty", origin: adapter.origin, roomId: adapter.roomId } : null },
+    setFocus: async (service: RoomIdentity["service"] | null) => {
+      activeRef.current = service === "musicparty"
+      if (service === "musicparty") await focusOwner.current.request("musicparty")
+      else await focusOwner.current.release("musicparty")
+    },
+  }
 }
 
-function MusicPartySearch({ origin, adapterRef, playerRef, focusOwner }: { origin: string; adapterRef: React.MutableRefObject<MusicPartyAdapter | null>; playerRef: React.MutableRefObject<NativeAudioPlayer | null>; focusOwner: React.MutableRefObject<AudioFocusOwner> }) {
+function MusicPartySearch({ origin, getConnection }: { origin: string; getConnection: () => MusicPartyConnection }) {
   const [platform, setPlatform] = useState("netease")
   const [query, setQuery] = useState("")
   const [results, setResults] = useState<MusicSearchResult[]>([])
@@ -357,9 +511,7 @@ function MusicPartySearch({ origin, adapterRef, playerRef, focusOwner }: { origi
     event.preventDefault()
     if (!origin.trim() || !query.trim()) return
     try {
-      const adapter = adapterRef.current ?? new MusicPartyAdapter({ origin: origin.trim(), nativeInvoke: invoke })
-      adapterRef.current = adapter
-      setResults(await adapter.search(platform, query.trim()))
+      setResults(await getConnection().run(origin, adapter => adapter.search(platform, query.trim())))
       setMessage("")
     } catch { setMessage("搜索失败，请检查服务连接") }
   }
@@ -371,7 +523,7 @@ function MusicPartySearch({ origin, adapterRef, playerRef, focusOwner }: { origi
       <Button size="sm" className="h-9" disabled={!origin.trim() || !query.trim()}>搜索</Button>
     </form>
     {message ? <p className="mt-2 text-[11px] text-destructive">{message}</p> : null}
-    {results.length ? <ul className="mt-3 divide-y divide-border border-y border-border">{results.map((item) => <li key={item.id} className="flex items-center gap-3 py-2 text-xs"><span className="min-w-0 flex-1 truncate">{item.title}<span className="ml-2 text-muted-foreground">{item.artist ?? "未知艺术家"}</span></span><Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setMessage(adapterRef.current?.enqueue(item.platform, item.sourceId) ? "已加入房间队列" : "请先连接 MusicParty 房间")}>加入队列</Button><Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => { const adapter = adapterRef.current; if (!adapter) { setMessage("请先连接 MusicParty 房间"); return }; const player = playerRef.current ?? new NativeAudioPlayer(); playerRef.current = player; void adapter.loadForPlayer(player, item).then(() => { focusOwner.current.register("musicparty", player); adapter.bindPlayer(player); return focusOwner.current.request("musicparty") }).then(() => player.resume()).then(() => setMessage(`正在播放：${item.title}`)).catch(() => setMessage("媒体解析或播放失败")) }}>播放</Button></li>)}</ul> : null}
+    {results.length ? <ul className="mt-3 divide-y divide-border border-y border-border">{results.map((item) => <li key={item.id} className="flex items-center gap-3 py-2 text-xs"><span className="min-w-0 flex-1 truncate">{item.title}<span className="ml-2 text-muted-foreground">{item.artist ?? "未知艺术家"}</span></span><Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => { const adapter = getConnection().current; if (!adapter) { setMessage("请先连接 MusicParty 房间"); return }; void adapter.enqueue(item.platform, item.sourceId).then(ok => setMessage(ok ? "已加入房间队列" : "入队未获服务端确认")) }}>加入队列</Button><Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => { void (async () => { const adapter = getConnection().current; if (!adapter) { setMessage("请先连接 MusicParty 房间"); return }; const accepted = await adapter.enqueue(item.platform, item.sourceId); if (!accepted) { setMessage("入队未获服务端确认"); return }; if (adapter !== getConnection().current) return; setMessage("已加入房间队列，跟随房间播放") })() }}>播放</Button></li>)}</ul> : null}
   </div>
 }
 
@@ -592,47 +744,59 @@ function MediaLibraryView({ state, command, navigate }: {
   )
 }
 
-function SettingsView({ state, theme, onThemeChange }: { state: DesktopUiState | null; theme: Theme; onThemeChange: () => void }) {
-  const [section, setSection] = useState<SettingsSection>("credentials")
+function SettingsView({ state, theme, onThemeChange, musicPartyOrigin, onMusicPartyLogout }: { state: DesktopUiState | null; theme: Theme; onThemeChange: () => void; musicPartyOrigin: string; onMusicPartyLogout: () => Promise<void> }) {
+  const [section, setSection] = useState<SettingsSection>("general")
   const labels: Array<[SettingsSection, string]> = [["general", "通用"], ["playback", "播放"], ["credentials", "站点凭据"], ["network", "后端与网络"], ["security", "安全与会话"]]
   return (
     <div className="grid min-h-full grid-cols-[172px_minmax(0,1fr)]">
       <nav className="border-r border-border/80 bg-card/36 px-3 py-8" aria-label="设置分类">{labels.map(([value, label]) => <Button key={value} variant="ghost" onClick={() => setSection(value)} className={cn("relative h-9 w-full justify-start px-3 text-xs", section === value && "bg-accent text-foreground before:absolute before:left-0 before:h-4 before:w-[3px] before:rounded-full before:bg-primary")}>{label}</Button>)}</nav>
-      <section className="w-full max-w-[680px] px-8 py-8">
+      <section className="min-w-0 w-full max-w-[680px] px-8 py-8">
         {section === "credentials" ? <CredentialsPanel /> : null}
         {section === "general" ? <GeneralPanel theme={theme} onThemeChange={onThemeChange} /> : null}
         {section === "playback" ? <PlaybackPanel state={state} /> : null}
         {section === "network" ? <NetworkPanel state={state} /> : null}
-        {section === "security" ? <SecurityPanel /> : null}
+        {section === "security" ? <SecurityPanel musicPartyOrigin={musicPartyOrigin} onLogout={onMusicPartyLogout} /> : null}
       </section>
     </div>
   )
 }
 
-function SecurityPanel() {
+function SecurityPanel({ musicPartyOrigin, onLogout }: { musicPartyOrigin: string; onLogout: () => Promise<void> }) {
   const [roomId, setRoomId] = useState("")
   const [password, setPassword] = useState("")
   const [origin, setOrigin] = useState("")
   const [pem, setPem] = useState("")
   const [records, setRecords] = useState<OriginTrustRecord[]>([])
   const [message, setMessage] = useState("")
-  const [backendOrigin, setBackendOrigin] = useState<string | null>(null)
-  useEffect(() => { void getDesktopSettings().then((s) => setBackendOrigin(s.backendOrigin)).catch(() => setMessage("请先配置后端站点")) }, [])
   useEffect(() => { void listOriginTrust().then(setRecords).catch(() => setMessage("TLS 信任管理暂不可用")) }, [])
   async function run(action: () => Promise<unknown>, ok: string) { try { await action(); setMessage(ok) } catch (error) { setMessage(errorMessage(error, "该原生能力暂不可用，请更新桌面端后重试")) } }
-  return <><SettingsHeading title="安全与会话" detail="私有房间授权、服务端注销与按服务来源隔离的 TLS 信任。" /><div className="space-y-6"><div className="border-y border-border py-4"><p className="text-xs font-medium">私有房间</p><div className="mt-3 grid gap-2 sm:grid-cols-2"><Input value={roomId} onChange={(e) => setRoomId(e.target.value)} placeholder="房间 ID" aria-label="房间 ID" /><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="房间密码" aria-label="房间密码" /></div><Button className="mt-3" size="sm" disabled={!roomId || !password} onClick={() => void run(() => verifyPrivateRoom(roomId, password, backendOrigin), "房间授权已更新")}>验证并保存授权</Button></div><div className="border-y border-border py-4"><p className="text-xs font-medium">服务端会话</p><Button className="mt-3" variant="outline" size="sm" onClick={() => void run(() => logoutMusicParty(backendOrigin), "已从服务端注销")}>注销 Linkle</Button></div><div className="border-y border-border py-4"><p className="text-xs font-medium">Origin TLS 信任</p><Input className="mt-3" value={origin} onChange={(e) => setOrigin(e.target.value)} placeholder="https://music.example.com" aria-label="服务来源" /><textarea className="mt-2 min-h-20 w-full rounded-md border border-border bg-background p-2 text-xs font-mono" value={pem} onChange={(e) => setPem(e.target.value)} placeholder="粘贴 PEM 证书" aria-label="PEM 证书" /><Button className="mt-3" size="sm" disabled={!origin || !pem} onClick={() => void run(() => importOriginTrust({ origin, pem }).then((r) => setRecords((v) => [...v.filter((x) => x.origin !== r.origin), r])), "已保存该来源的 TLS 信任")}>导入或替换</Button><ul className="mt-3 divide-y divide-border border-y border-border">{records.map((record) => <li key={record.origin} className="flex items-center justify-between py-2 text-xs"><span className="truncate">{record.origin}<span className="ml-2 text-muted-foreground">{record.fingerprint}</span></span><Button variant="ghost" size="sm" onClick={() => void run(() => deleteOriginTrust(record.origin).then(() => setRecords((v) => v.filter((x) => x.origin !== record.origin)),), "已删除信任记录")}>删除</Button></li>)}</ul></div></div><p role="status" className="mt-3 text-xs text-muted-foreground">{message}</p></>
+  return <><SettingsHeading title="安全与会话" detail="私有房间授权、服务端注销与按服务来源隔离的 TLS 信任。" /><div className="space-y-6"><div className="border-y border-border py-4"><p className="text-xs font-medium">私有房间</p><div className="mt-3 grid gap-2 sm:grid-cols-2"><Input value={roomId} onChange={(e) => setRoomId(e.target.value)} placeholder="房间 ID" aria-label="房间 ID" /><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="房间密码" aria-label="房间密码" /></div><Button className="mt-3" size="sm" disabled={!roomId || !password} onClick={() => void run(() => verifyPrivateRoom(roomId, password, musicPartyOrigin), "房间授权已更新")}>验证并保存授权</Button></div><div className="border-y border-border py-4"><p className="text-xs font-medium">服务端会话</p><Button className="mt-3" variant="outline" size="sm" onClick={() => void run(onLogout, "已从服务端注销")}>注销 Linkle</Button></div><div className="border-y border-border py-4"><p className="text-xs font-medium">Origin TLS 信任</p><Input className="mt-3" value={origin} onChange={(e) => setOrigin(e.target.value)} placeholder="https://music.example.com" aria-label="服务来源" /><textarea className="mt-2 min-h-20 w-full rounded-md border border-border bg-background p-2 text-xs font-mono" value={pem} onChange={(e) => setPem(e.target.value)} placeholder="粘贴 PEM 证书" aria-label="PEM 证书" /><Button className="mt-3" size="sm" disabled={!origin || !pem} onClick={() => void run(() => importOriginTrust({ origin, pem }).then((r) => setRecords((v) => [...v.filter((x) => x.origin !== r.origin), r])), "已保存该来源的 TLS 信任")}>导入或替换</Button><ul className="mt-3 divide-y divide-border border-y border-border">{records.map((record) => <li key={record.origin} className="flex items-center justify-between py-2 text-xs"><span className="truncate">{record.origin}<span className="ml-2 text-muted-foreground">{record.fingerprint}</span></span><Button variant="ghost" size="sm" onClick={() => void run(() => deleteOriginTrust(record.origin).then(() => setRecords((v) => v.filter((x) => x.origin !== record.origin)),), "已删除信任记录")}>删除</Button></li>)}</ul></div></div><p role="status" className="mt-3 text-xs text-muted-foreground">{message}</p></>
 }
 
-async function persistTheme(theme: Theme, setTheme: (theme: Theme) => void) {
+async function persistTheme(theme: Theme, windowMaterial: WindowMaterial, setTheme: (theme: Theme) => void) {
   const nextTheme = theme === "dark" ? "light" : "dark"
     const current = await getDesktopSettings()
     await updateDesktopSettings({
       backendOrigin: current.backendOrigin,
-      nickname: current.nickname,
-      theme: nextTheme,
-      playerPreferences: current.playerPreferences,
+    nickname: current.nickname,
+    theme: nextTheme,
+    windowMaterial,
+    playerPreferences: current.playerPreferences,
     })
   setTheme(nextTheme)
+}
+
+async function persistWindowMaterial(windowMaterial: WindowMaterial, setWindowMaterial: (material: WindowMaterial) => void) {
+  const nextMaterial = windowMaterial === "auto" ? "none" : "auto"
+  const current = await getDesktopSettings()
+  await updateDesktopSettings({
+    backendOrigin: current.backendOrigin,
+    nickname: current.nickname,
+    theme: current.theme,
+    windowMaterial: nextMaterial,
+    playerPreferences: current.playerPreferences,
+  })
+  setWindowMaterial(nextMaterial)
 }
 
 function SettingsHeading({ title, detail }: { title: string; detail: string }) {
@@ -701,6 +865,7 @@ function PlaybackPanel({ state }: { state: DesktopUiState | null }) {
         backendOrigin: current.backendOrigin,
         nickname: current.nickname,
         theme: current.theme,
+        windowMaterial: current.windowMaterial,
         playerPreferences: preferences,
       })
       setPreferences(updated.playerPreferences)
@@ -830,7 +995,7 @@ function NetworkPanel({ state }: { state: DesktopUiState | null }) {
     setBusy(true)
     try {
       const current = await getDesktopSettings()
-      const updated = await updateDesktopSettings({ backendOrigin: origin.trim() || null, nickname: current.nickname, theme: current.theme, playerPreferences: current.playerPreferences })
+      const updated = await updateDesktopSettings({ backendOrigin: origin.trim() || null, nickname: current.nickname, theme: current.theme, windowMaterial: current.windowMaterial, playerPreferences: current.playerPreferences })
       setSettings(updated)
       setOrigin(updated.backendOrigin ?? "")
       setMessage(updated.backendOrigin !== current.backendOrigin ? "站点已更新，请验证连接后重新加入房间" : "已保存")

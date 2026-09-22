@@ -21,6 +21,10 @@
 /web/public/vendor
 /desktop-shell/node_modules
 /desktop-shell/dist
+/desktop-shell/dist-electron/
+/desktop-shell/electron/node_modules/
+/desktop-shell/electron/native/
+/desktop-shell/electron/preload-built.cjs
 
 # misc
 .DS_Store

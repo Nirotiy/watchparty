@@ -1,0 +1,9 @@
+{
+  "name": "watchparty-electron-local",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": { "start": "node launch.mjs", "test:native": "node launch.mjs --smoke", "package:local": "node package-local.mjs" },
+  "devDependencies": { "electron": "^44.0.0" }
+}

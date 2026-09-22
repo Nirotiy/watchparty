@@ -43,6 +43,21 @@ export function upsertService(settings: LocalSettingsV1, service: LocalServicePr
   return { ...settings, services, activeServiceId: settings.activeServiceId ?? service.id }
 }
 
+export function serviceForProduct(settings: LocalSettingsV1, product: ProductId): LocalServiceProfile | undefined {
+  return settings.services.find((service) => service.product === product && service.id === settings.activeServiceId)
+    ?? settings.services.find((service) => service.product === product)
+}
+
+/** Saves one origin without replacing other services or their native credentials. */
+export function saveMusicPartyService(settings: LocalSettingsV1, input: string): LocalSettingsV1 {
+  const url = new URL(input.trim())
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || !['', '/'].includes(url.pathname)) throw new Error('invalid_service_origin')
+  const origin = url.origin
+  const existing = settings.services.find(service => service.product === 'musicparty' && service.origin === origin)
+  const id = existing?.id ?? `musicparty:${origin}`
+  return { ...upsertService(settings, { id, product: 'musicparty', origin, label: existing?.label ?? 'Linkle' }), activeServiceId: id }
+}
+
 export function removeService(settings: LocalSettingsV1, serviceId: string): LocalSettingsV1 {
   const services = settings.services.filter((service) => service.id !== serviceId)
   return { ...settings, services, activeServiceId: settings.activeServiceId === serviceId ? services[0]?.id : settings.activeServiceId }

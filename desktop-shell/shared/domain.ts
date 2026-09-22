@@ -13,6 +13,8 @@ export interface MediaItem {
   kind: MediaKind
   source: string
   status?: string
+  /** Underlying track id for queue rows, whose `id` is the queue row id. */
+  musicId?: string
 }
 
 export interface PlaybackSnapshot {
@@ -26,6 +28,36 @@ export interface PlaybackSnapshot {
   serverTimeMs?: number
 }
 
+export interface ClockSample { rttMs: number; offsetMs: number; takenAtLocalMs: number }
+
+/** Read-only room projection. PlaybackSnapshot remains the native player's input. */
+export interface SharedRoomState {
+  roomId: string
+  item: MediaItem | null
+  durationMs: number
+  paused: boolean
+  shuffle: boolean
+  loading: boolean
+  pauseLocked: boolean
+  skipLocked: boolean
+  shuffleLocked: boolean
+  enqueuedById: string | null
+  enqueuedByName: string | null
+  likedUserIds: string[]
+  positionUpdatedAt: number | null
+  stateVersion: number
+  queueVersion: number
+  /** Entries still available behind the current track; null means the server did not report it. */
+  historyCursor: number | null
+  playEpoch: number
+  positionAnchorMs: number
+  anchorServerMs: number
+  anchorLocalMs: number
+  clockSamples: ClockSample[]
+}
+
+export type SharedCommandKind = "play" | "pause" | "seek" | "next" | "previous" | "shuffle" | "like"
+
 export interface RoomSummary {
   id: string
   name: string
@@ -35,6 +67,9 @@ export interface RoomSummary {
 }
 
 export type DomainEvent =
+  | { type: "shared-room-state"; state: SharedRoomState }
+  | { type: "command-pending"; roomId: string; requestId: string; kind: SharedCommandKind; pending: boolean }
+  | { type: "denied"; roomId: string; requestId: string; code: string; message: string }
   | { type: "queue-state"; roomId: string; items: MediaItem[]; queueVersion: number }
   | { type: "server-ready"; apiVersion: string; minimumClientVersion?: string }
   | { type: "clock-sync"; pingId: string; clientSendTime: number; serverReceiveTime: number; serverSendTime: number; receivedAt: number }

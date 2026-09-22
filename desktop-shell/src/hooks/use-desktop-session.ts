@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from "react"
-import { isTauri } from "@tauri-apps/api/core"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { createLobbySwitchTransaction, type LobbySwitchOptions } from "../../shared/lobby-switch-driver"
+import type { SwitchTarget } from "../../shared/lobby-contract"
+import { isDesktopRuntime } from "../../shared/desktop-runtime"
 
 import type { DesktopCommand, DesktopUiState } from "@/lib/contracts"
 import {
@@ -14,6 +16,12 @@ import {
   startDesktopSession,
   restoreDesktopSession,
   stopDesktopSession,
+  checkpointDesktopSession,
+  suspendDesktopSession,
+  rollbackDesktopSession,
+  discardDesktopSessionCheckpoint,
+  getDesktopSettings,
+  withAuthoritativeSnapshot,
 } from "@/lib/ipc"
 
 export type StatusTone = "idle" | "ready" | "warning" | "error"
@@ -24,11 +32,41 @@ export interface StatusMessage {
 }
 
 export function useDesktopSession() {
-  const runtimeAvailable = isTauri()
+  const runtimeAvailable = isDesktopRuntime()
   const [state, setState] = useState<DesktopUiState | null>(null)
   const [launchRoomId, setLaunchRoomId] = useState<string | null>(null)
   const [status, setStatus] = useState<StatusMessage>({ text: "等待网页交接", tone: "idle" })
   const [starting, setStarting] = useState(false)
+  const lobbySwitch = useRef<ReturnType<typeof createLobbySwitchTransaction> | null>(null)
+  const lobbyOptions = useRef<Omit<LobbySwitchOptions, "watch"> | null>(null)
+
+  /** The lobby supplies the existing connection and local focus owner once. */
+  const switchTo = useCallback(async (target: SwitchTarget, options: Omit<LobbySwitchOptions, "watch">) => {
+    if (!runtimeAvailable) throw new Error("desktop_runtime_unavailable")
+    if (!lobbySwitch.current) {
+      lobbyOptions.current = options
+      lobbySwitch.current = createLobbySwitchTransaction({ ...options,
+        current: () => lobbyOptions.current!.current(),
+        nickname: () => lobbyOptions.current!.nickname(),
+        focus: service => lobbyOptions.current!.focus(service),
+        committed: identity => lobbyOptions.current!.committed(identity),
+        watch: {
+        checkpointDesktopSession, suspendDesktopSession, rollbackDesktopSession,
+        discardDesktopSessionCheckpoint, getDesktopSettings, accessDesktopRoom, withAuthoritativeSnapshot,
+      } })
+    } else if (lobbyOptions.current?.music !== options.music) {
+      throw new Error("lobby_connection_changed")
+    }
+    lobbyOptions.current = options
+    setStarting(true)
+    try {
+      await lobbySwitch.current.switchTo(target)
+      setStatus({ text: "已加入房间", tone: "ready" })
+    } catch (error) {
+      setStatus({ text: errorMessage(error, "切换房间失败"), tone: "error" })
+      throw error
+    } finally { setStarting(false) }
+  }, [runtimeAvailable])
 
   useEffect(() => {
     if (!runtimeAvailable) {
@@ -157,5 +195,5 @@ export function useDesktopSession() {
     }
   }, [])
 
-  return { accessRoom, command, createRoom, launchRoomId, setStatus, start, starting, state, status, stop }
+  return { accessRoom, command, createRoom, launchRoomId, setStatus, start, starting, state, status, stop, switchTo }
 }
