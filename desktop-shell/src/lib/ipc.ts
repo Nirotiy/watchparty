@@ -36,7 +36,7 @@ export function listAudioOutputDevices(): Promise<AudioOutputDevice[]> {
   return invoke("listAudioOutputDevices")
 }
 
-export interface DesktopWallpaperBackdrop { image: string | null }
+export interface DesktopWallpaperBackdrop { image: string | null; average: string | null }
 export function getDesktopWallpaperBackdrop(): Promise<DesktopWallpaperBackdrop> {
   return invoke("getDesktopWallpaperBackdrop")
 }

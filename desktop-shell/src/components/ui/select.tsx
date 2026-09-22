@@ -7,40 +7,42 @@ import { cn } from "@/lib/utils"
 const Select = SelectPrimitive.Root
 const SelectValue = SelectPrimitive.Value
 
+/** WinUI 3 ComboBox: 32px, 4px radius, chevron in TextFillColorSecondary. */
 function SelectTrigger({ className, children, ...props }: React.ComponentProps<typeof SelectPrimitive.Trigger>) {
   return (
     <SelectPrimitive.Trigger
       className={cn(
-        "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-45 [&>span]:truncate",
+        "flex min-h-8 w-full items-center justify-between gap-2 rounded-sm border border-input bg-[var(--fill-control)] px-3 text-sm text-[var(--text-primary)] outline-none transition-colors focus-visible:border-[var(--stroke-strong)] winui-focus hover:bg-[var(--fill-control-secondary)] data-[disabled]:pointer-events-none data-[disabled]:bg-transparent data-[disabled]:text-[var(--text-disabled)] [&>span]:truncate",
         className,
       )}
       {...props}
     >
       {children}
       <SelectPrimitive.Icon asChild>
-        <MaterialSymbol name="expand-more" className="size-4 opacity-60" />
+        <MaterialSymbol name="expand-more" className="size-3 text-[var(--text-secondary)]" />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   )
 }
 
+/** Flyout = overlay surface: OverlayCornerRadius 8, CardBackground + 1px card stroke, Shadow8. */
 function SelectContent({ className, children, position = "popper", ...props }: React.ComponentProps<typeof SelectPrimitive.Content>) {
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
         position={position}
         className={cn(
-          "z-50 max-h-72 min-w-32 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-sm",
+          "z-50 max-h-80 min-w-36 overflow-hidden rounded-lg border border-[var(--stroke-card)] bg-[var(--fill-menu)] p-1 text-[var(--text-primary)] shadow-[var(--f2-shadow8)]",
           position === "popper" && "data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1",
           className,
         )}
         {...props}
       >
-        <SelectPrimitive.ScrollUpButton className="flex h-7 items-center justify-center">
+        <SelectPrimitive.ScrollUpButton className="flex h-7 items-center justify-center text-[var(--text-secondary)]">
           <MaterialSymbol name="expand-less" className="size-4" />
         </SelectPrimitive.ScrollUpButton>
-        <SelectPrimitive.Viewport className="p-1">{children}</SelectPrimitive.Viewport>
-        <SelectPrimitive.ScrollDownButton className="flex h-7 items-center justify-center">
+        <SelectPrimitive.Viewport className="p-0">{children}</SelectPrimitive.Viewport>
+        <SelectPrimitive.ScrollDownButton className="flex h-7 items-center justify-center text-[var(--text-secondary)]">
           <MaterialSymbol name="expand-more" className="size-4" />
         </SelectPrimitive.ScrollDownButton>
       </SelectPrimitive.Content>
@@ -48,16 +50,17 @@ function SelectContent({ className, children, position = "popper", ...props }: R
   )
 }
 
+/** Item list rows are 32px; the checked row carries WinUI's 3px accent indicator. */
 function SelectItem({ className, children, ...props }: React.ComponentProps<typeof SelectPrimitive.Item>) {
   return (
     <SelectPrimitive.Item
       className={cn(
-        "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pr-8 pl-2 text-xs outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-45",
+        "relative flex min-h-8 w-full cursor-pointer select-none items-center rounded-sm py-1 pr-8 pl-2.5 text-sm outline-none data-[highlighted]:bg-[var(--menu-item-hover)] data-[state=checked]:bg-[var(--fill-selected)] data-[state=checked]:before:absolute data-[state=checked]:before:left-0 data-[state=checked]:before:top-1.5 data-[state=checked]:before:h-[calc(100%-12px)] data-[state=checked]:before:w-[3px] data-[state=checked]:before:rounded-full data-[state=checked]:before:bg-[var(--accent)] data-[disabled]:pointer-events-none data-[disabled]:text-[var(--text-disabled)]",
         className,
       )}
       {...props}
     >
-      <span className="absolute right-2 flex size-4 items-center justify-center">
+      <span className="absolute right-2 flex size-4 items-center justify-center text-[var(--text-secondary)]">
         <SelectPrimitive.ItemIndicator><MaterialSymbol name="check" className="size-4" /></SelectPrimitive.ItemIndicator>
       </span>
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>

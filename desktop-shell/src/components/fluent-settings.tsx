@@ -2,8 +2,9 @@ import { useEffect, useState } from "react"
 import {
   Accordion, AccordionHeader, AccordionItem, AccordionPanel,
   Button, Dropdown, Field, Input, MessageBar, MessageBarBody, MessageBarTitle,
-  Option, Slider, Switch, Tab, TabList, Text, Textarea,
+  Option, Switch, Tab, TabList, Text, Textarea,
 } from "@fluentui/react-components"
+import { Slider as WinUiSlider } from "@/components/ui/slider"
 import {
   CheckmarkCircleRegular, DeleteRegular, GlobeRegular,
   PlayCircleRegular, SaveRegular, SettingsRegular, ShieldRegular, WarningRegular,
@@ -198,12 +199,12 @@ function AudioDeviceChoice({ value, onChange }: { value: string | null; onChange
 }
 
 function NumberSlider({ value, min, max, step, onChange }: { value: number; min: number; max: number; step: number; onChange: (value: number) => void }) {
-  return <div className="fluent-settings-slider"><Slider value={value} min={min} max={max} step={step} onChange={(_, data) => onChange(data.value)} /><Text size={200}>{value.toFixed(step < 1 ? 1 : 0)}</Text></div>
+  return <div className="fluent-settings-slider"><WinUiSlider value={[value]} min={min} max={max} step={step} onValueChange={([next]) => onChange(next ?? value)} /><Text size={200}>{value.toFixed(step < 1 ? 1 : 0)}</Text></div>
 }
 
 function VolumeControl({ value, onChange }: { value: number; onChange: (value: number) => void }) {
   return <div className="fluent-settings-volume" title="双击恢复 100%" onDoubleClick={() => onChange(100)}>
-    <Slider value={value} min={0} max={100} aria-label="默认音量" onChange={(_, data) => onChange(data.value)} />
+    <WinUiSlider value={[value]} min={0} max={100} size="compact" aria-label="默认音量" onValueChange={([next]) => onChange(next ?? value)} />
     <Text size={200}>{value}%</Text>
   </div>
 }

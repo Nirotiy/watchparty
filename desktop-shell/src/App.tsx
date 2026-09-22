@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, type ReactNode } from "react"
+import { useEffect, useRef, useState, useCallback, type CSSProperties, type ReactNode } from "react"
 import { FluentProvider, Button as FluentButton, webDarkTheme, webLightTheme } from "@fluentui/react-components"
 import { ShellStatusToast, ShellToastProvider } from "@/components/shell-toast"
 
@@ -18,6 +18,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { useDesktopSession } from "@/hooks/use-desktop-session"
 import type { CommandAck, ConnectionState, DesktopCommand, DesktopUiState, MediaDirectoryItem, MediaDirectoryPage, MediaSource, NativeCapabilityReport } from "@/lib/contracts"
 import { cn } from "@/lib/utils"
+import { winuiFluentTheme } from "@/lib/winui-theme"
 import { createDefaultLocalSettings, migrateLocalSettings, saveMusicPartyService, serviceForProduct } from "../shared/local-schema"
 import { MusicPartyAdapter, type MusicSearchResult } from "../shared/musicparty-adapter"
 import { MusicPartyConnection } from "../shared/musicparty-connection"
@@ -122,13 +123,13 @@ export default function App() {
     return () => { disposed = true; unlisten?.() }
   }, [session.setStatus])
   const [fullscreen, setFullscreen] = useState(false)
-  const [wallpaper, setWallpaper] = useState<string | null>(null)
+  const [mica, setMica] = useState<{ image: string | null; average: string | null } | null>(null)
   useEffect(() => {
     if (windowMaterial !== "auto") return
     let disposed = false
     void getDesktopWallpaperBackdrop()
-      .then((backdrop) => { if (!disposed) setWallpaper(backdrop.image) })
-      .catch(() => { if (!disposed) setWallpaper(null) })
+      .then((backdrop) => { if (!disposed) setMica(backdrop) })
+      .catch(() => { if (!disposed) setMica(null) })
     return () => { disposed = true }
   }, [windowMaterial])
   const suspendedForNavigation = useRef(false)
@@ -229,11 +230,10 @@ export default function App() {
           onLeave={() => void leaveRoom()}
         />
       ) : (
-        <FluentProvider applyStylesToPortals={false} theme={{ ...(theme === "dark" ? webDarkTheme : webLightTheme), colorBrandBackground: "var(--primary)", colorNeutralForegroundOnBrand: "var(--primary-foreground)", colorBrandForeground1: "var(--primary)", colorNeutralBackground1: "var(--card)", colorNeutralBackground2: "var(--background)" }} className="desktop-shell-surface desktop-shell-grid text-foreground">
+        <FluentProvider applyStylesToPortals={false} theme={winuiFluentTheme(theme === "dark" ? webDarkTheme : webLightTheme)} className="desktop-shell-surface desktop-shell-grid text-foreground">
           {windowMaterial === "auto" ? (
-            <div className={cn("desktop-mica-layer", !wallpaper && "desktop-mica-layer-solid")} aria-hidden="true">
-              {wallpaper ? <div className="desktop-mica-image" style={{ backgroundImage: `url("${wallpaper}")` }} /> : null}
-              <div className="desktop-mica-tint" />
+            <div className="desktop-mica-layer" style={mica?.average ? ({ "--mica-tint": mica.average } as CSSProperties) : undefined} aria-hidden="true">
+              {mica?.image ? <div className="desktop-mica-image" style={{ backgroundImage: `url("${mica.image}")` }} /> : null}
             </div>
           ) : null}
           <ShellToastProvider>
@@ -345,7 +345,7 @@ function Sidebar({ view, state, roomId, status, onView, onDrawer, backendOrigin,
 
 function NavButton({ icon, label, active, disabled, onClick }: { icon: MaterialSymbolName; label: string; active?: boolean; disabled?: boolean; onClick: () => void }) {
   return (
-    <Button className={cn("relative h-9 w-full justify-start rounded-md px-3 text-xs", active && "bg-accent text-foreground before:absolute before:left-0 before:h-4 before:w-[3px] before:rounded-full before:bg-primary hover:bg-accent")} variant="ghost" disabled={disabled} onClick={onClick}>
+    <Button className={cn("relative h-8 w-full justify-start rounded-sm px-3 text-sm", active && "bg-[var(--fill-selected)] text-[var(--text-primary)] before:absolute before:left-0 before:top-2 before:h-4 before:w-[3px] before:rounded-full before:bg-[var(--accent)] hover:bg-[var(--fill-selected)]")} variant="ghost" disabled={disabled} onClick={onClick}>
       <MaterialSymbol name={icon} />{label}
     </Button>
   )
@@ -362,35 +362,35 @@ function HomeView({ state, roomId, starting, onStart, onCreate, onAccess, onRetu
   const [joinRoomId, setJoinRoomId] = useState("")
   return (
     <div className="mx-auto min-h-full w-full max-w-[1040px] px-8 py-8">
-      <div className="mb-6 border-b border-border/80 pb-4"><div className="flex items-center justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary">Banguru · Watch Party</p><SectionTitle detail={state ? "房间仍存活" : "等待网页交接"}>房间工作台</SectionTitle></div><span className="text-[11px] text-muted-foreground">桌面端 · Fluent</span></div><div className="mt-4 inline-grid grid-cols-2 border border-border/80 bg-card/40 p-0.5" role="tablist" aria-label="Banguru 模式切换"><button type="button" role="tab" aria-selected="true" className="border-b-2 border-primary px-4 py-2 text-xs font-medium text-foreground">Banguru <span className="ml-1 text-[10px] text-muted-foreground">Watch Party</span></button><button type="button" role="tab" aria-selected="false" className="px-4 py-2 text-xs text-muted-foreground hover:text-foreground" onClick={() => onProduct("musicparty")}>Linkle <span className="ml-1 text-[10px]">Music Party</span></button></div></div>
+      <div className="mb-6 border-b border-[var(--stroke-card)] pb-4"><div className="flex items-center justify-between"><div><p className="text-xs text-[var(--text-secondary)]">Banguru · Watch Party</p><SectionTitle detail={state ? "房间仍存活" : "等待网页交接"}>房间工作台</SectionTitle></div><span className="text-xs text-[var(--text-secondary)]">桌面端 · Fluent</span></div><div className="mt-4 flex items-end gap-1 border-b border-[var(--stroke-divider)]" role="tablist" aria-label="Banguru 模式切换"><button type="button" role="tab" aria-selected="true" className="winui-focus relative min-h-8 px-3 pb-2 text-sm font-semibold text-[var(--text-primary)] after:absolute after:bottom-0 after:left-3 after:h-[3px] after:w-[calc(100%-24px)] after:rounded-full after:bg-[var(--accent)]">Banguru <span className="ml-1 text-xs font-normal text-[var(--text-secondary)]">Watch Party</span></button><button type="button" role="tab" aria-selected="false" className="winui-focus relative min-h-8 rounded-sm px-3 pb-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--fill-subtle-hover)] hover:text-[var(--text-primary)]" onClick={() => onProduct("musicparty")}>Linkle <span className="ml-1 text-xs">Music Party</span></button></div></div>
       {state ? (
-        <section className="mt-3 flex items-center gap-3 rounded-lg border border-border bg-card/72 px-4 py-3">
+        <section className="mt-3 flex items-center gap-3 rounded-sm border border-[var(--stroke-card)] bg-[var(--fill-card)] px-4 py-3">
           <i className="size-2 rounded-full bg-positive" />
-          <div className="min-w-0 flex-1 truncate text-xs text-muted-foreground"><span className="font-mono text-foreground">{roomId ?? "room"}</span><span className="mx-2">·</span><span className="text-foreground">{mediaTitle(room?.source)}</span><span className="mx-2">·</span><span className="font-mono">{formatTime(state.player.time)} / {formatTime(state.player.duration)}</span></div>
-          <Button size="sm" onClick={onReturn}>返回房间</Button>
+          <div className="min-w-0 flex-1 truncate text-xs text-[var(--text-secondary)]"><span className="font-mono text-foreground">{roomId ?? "room"}</span><span className="mx-2">·</span><span className="text-foreground">{mediaTitle(room?.source)}</span><span className="mx-2">·</span><span className="font-mono">{formatTime(state.player.time)} / {formatTime(state.player.duration)}</span></div>
+          <Button variant="accent" size="sm" onClick={onReturn}>返回房间</Button>
         </section>
-      ) : <p className="mt-3 text-xs text-muted-foreground">尚未连接房间。请从网页端生成一次性交接码。</p>}
+      ) : <p className="mt-3 text-xs text-[var(--text-secondary)]">尚未连接房间。请从网页端生成一次性交接码。</p>}
       {!state ? <>
         <SessionGate roomId={roomId} starting={starting} onStart={onStart} />
-        <section className="mt-5 max-w-[680px] border-y border-border/80 py-4">
+        <section className="mt-5 max-w-[680px] border-y border-[var(--stroke-card)] py-4">
           <p className="text-xs font-semibold">独立桌面会话</p>
-          <p className="mt-1 text-[11px] text-muted-foreground">桌面端直接建房或输入房号加入，令牌只保存在本机凭据库。</p>
+          <p className="mt-1 text-xs text-[var(--text-secondary)]">桌面端直接建房或输入房号加入，令牌只保存在本机凭据库。</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            <Input value={nickname} onChange={(event) => setNickname(event.target.value)} placeholder="昵称" aria-label="桌面昵称" className="h-9 text-xs" />
-            <Input value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="PIN（可选，4 位）" inputMode="numeric" aria-label="房间 PIN" className="h-9 text-xs" />
-            <Input value={joinRoomId} onChange={(event) => setJoinRoomId(event.target.value.trim())} placeholder="房号，例如 room-abc123" aria-label="要加入的房号" className="h-9 text-xs sm:col-span-2" />
+            <Input value={nickname} onChange={(event) => setNickname(event.target.value)} placeholder="昵称" aria-label="桌面昵称" />
+            <Input value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="PIN（可选，4 位）" inputMode="numeric" aria-label="房间 PIN" />
+            <Input value={joinRoomId} onChange={(event) => setJoinRoomId(event.target.value.trim())} placeholder="房号，例如 room-abc123" aria-label="要加入的房号" className="sm:col-span-2" />
           </div>
           <div className="mt-3 flex gap-2">
-            <Button size="sm" disabled={starting || !nickname.trim() || Boolean(pin && pin.length !== 4)} onClick={() => void onCreate(nickname.trim(), pin || undefined)}>创建房间</Button>
-            <Button size="sm" variant="outline" disabled={starting || !joinRoomId || !nickname.trim() || Boolean(pin && pin.length !== 4)} onClick={() => void onAccess(joinRoomId, nickname.trim(), pin || undefined)}>加入房间</Button>
+            <Button variant="accent" disabled={starting || !nickname.trim() || Boolean(pin && pin.length !== 4)} onClick={() => void onCreate(nickname.trim(), pin || undefined)}>创建房间</Button>
+            <Button disabled={starting || !joinRoomId || !nickname.trim() || Boolean(pin && pin.length !== 4)} onClick={() => void onAccess(joinRoomId, nickname.trim(), pin || undefined)}>加入房间</Button>
           </div>
         </section>
       </> : (
-        <div className="mt-5 flex max-w-[680px] gap-2"><Input disabled value={`watchparty://${roomId ?? "room"}`} aria-label="当前房间地址" className="h-9 font-mono text-xs disabled:opacity-75" /><Button variant="outline" disabled>加入或开播</Button></div>
+        <div className="mt-5 flex max-w-[680px] gap-2"><Input disabled value={`watchparty://${roomId ?? "room"}`} aria-label="当前房间地址" className="font-mono text-xs" /><Button variant="outline" disabled>加入或开播</Button></div>
       )}
       <div className="mt-8 grid gap-4 md:grid-cols-2">
-        <section className="border-y border-border/80 py-4"><SectionTitle detail="当前连接状态">服务与房间</SectionTitle><div className="mt-3 space-y-2 text-xs text-muted-foreground"><p className="flex justify-between"><span>房间</span><span className="font-mono text-foreground">{roomId ?? "未加入"}</span></p><p className="flex justify-between"><span>播放会话</span><span className="text-foreground">{state ? "可恢复" : "等待连接"}</span></p><p className="flex justify-between"><span>队列</span><span className="text-foreground">{state ? "房间队列已同步" : "等待加入房间"}</span></p></div></section>
-        <section className="border-y border-border/80 py-4"><SectionTitle detail="需要进入房间后可用">协作摘要</SectionTitle><div className="mt-3 space-y-2 text-xs text-muted-foreground"><p className="flex justify-between"><span>成员</span><span className="text-foreground">{state ? "在线成员已同步" : "尚未连接"}</span></p><p className="flex justify-between"><span>播放队列</span><span className="text-foreground">{state ? "打开房间查看" : "等待加入房间"}</span></p><Button size="sm" variant="outline" className="mt-2" disabled={!state} onClick={onReturn}>打开播放房间</Button></div></section>
+        <section className="border-y border-[var(--stroke-card)] py-4"><SectionTitle detail="当前连接状态">服务与房间</SectionTitle><div className="mt-3 space-y-2 text-xs text-[var(--text-secondary)]"><p className="flex justify-between"><span>房间</span><span className="font-mono text-foreground">{roomId ?? "未加入"}</span></p><p className="flex justify-between"><span>播放会话</span><span className="text-foreground">{state ? "可恢复" : "等待连接"}</span></p><p className="flex justify-between"><span>队列</span><span className="text-foreground">{state ? "房间队列已同步" : "等待加入房间"}</span></p></div></section>
+        <section className="border-y border-[var(--stroke-card)] py-4"><SectionTitle detail="需要进入房间后可用">协作摘要</SectionTitle><div className="mt-3 space-y-2 text-xs text-[var(--text-secondary)]"><p className="flex justify-between"><span>成员</span><span className="text-foreground">{state ? "在线成员已同步" : "尚未连接"}</span></p><p className="flex justify-between"><span>播放队列</span><span className="text-foreground">{state ? "打开房间查看" : "等待加入房间"}</span></p><Button className="mt-2" disabled={!state} onClick={onReturn}>打开播放房间</Button></div></section>
       </div>
     </div>
   )
@@ -482,12 +482,12 @@ function useMusicPartyEntry() {
     } catch { setMessage("服务地址无效或无法保存") }
   }
   const content = <section className="mt-10 border-t border-border pt-5">
-    <div className="flex items-baseline justify-between"><SectionTitle detail="远程服务 · 邀请兑换">Linkle</SectionTitle><span className="text-[11px] text-muted-foreground">{connection}</span></div>
-    <div className="mt-2 flex items-center gap-2"><div><p className="text-[11px] text-muted-foreground" role="status">{roomStatus} · 队列 {queueCount}</p>{queueTitles.length ? <p className="text-[10px] text-muted-foreground">{queueTitles.join(" · ")}</p> : null}</div>{playerRef.current ? <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => { const p = playerRef.current; if (!p) return; void (playing ? p.pause() : p.resume()).then(() => setPlaying(!playing)) }}>{playing ? "暂停" : "继续"}</Button> : null}</div>
-    <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]" ><Input value={origin} onChange={(event) => setOrigin(event.target.value)} placeholder="https://music.example.com" aria-label="Linkle 服务地址" className="h-9 font-mono text-xs" /><div className="flex gap-2"><Button variant="outline" size="sm" className="h-9" disabled={!origin.trim()} onClick={saveService}>保存服务</Button><Button variant="ghost" size="sm" className="h-9" disabled={!origin.trim()} onClick={() => void connect()}>连接</Button></div></div>
-    <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]"><Input value={invite} onChange={(event) => setInvite(event.target.value)} placeholder="输入 Linkle 邀请码" aria-label="Linkle 邀请码" className="h-9 text-xs" /><Button size="sm" className="h-9" disabled={!origin.trim() || !invite.trim()} onClick={() => { void getConnection().run(origin, adapter => adapter.redeemInvite(invite.trim())).then((result) => setMessage(`已进入 ${result.roomName ?? result.roomId}`)).catch(() => setMessage("邀请兑换失败，请检查服务地址和邀请码")) }}>兑换并进入</Button></div>
-    <div className="mt-2 flex gap-3 text-[11px] text-muted-foreground"><button type="button" className="hover:text-foreground" onClick={() => setMessage("Cookie 将由系统安全存储管理")}>导入 Cookie</button><button type="button" className="hover:text-foreground" onClick={() => setMessage("迁移包导入将在阶段 2 后续接入")}>导入 Web 迁移包</button></div>
-    {message ? <p className="mt-2 text-[11px] text-muted-foreground" role="status">{message}</p> : null}
+    <div className="flex items-baseline justify-between"><SectionTitle detail="远程服务 · 邀请兑换">Linkle</SectionTitle><span className="text-xs text-muted-foreground">{connection}</span></div>
+    <div className="mt-2 flex items-center gap-2"><div><p className="text-xs text-muted-foreground" role="status">{roomStatus} · 队列 {queueCount}</p>{queueTitles.length ? <p className="text-xs text-muted-foreground">{queueTitles.join(" · ")}</p> : null}</div>{playerRef.current ? <Button size="sm" variant="outline" onClick={() => { const p = playerRef.current; if (!p) return; void (playing ? p.pause() : p.resume()).then(() => setPlaying(!playing)) }}>{playing ? "暂停" : "继续"}</Button> : null}</div>
+    <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]" ><Input value={origin} onChange={(event) => setOrigin(event.target.value)} placeholder="https://music.example.com" aria-label="Linkle 服务地址" className="font-mono text-xs" /><div className="flex gap-2"><Button variant="outline" size="sm" disabled={!origin.trim()} onClick={saveService}>保存服务</Button><Button variant="ghost" size="sm" disabled={!origin.trim()} onClick={() => void connect()}>连接</Button></div></div>
+    <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]"><Input value={invite} onChange={(event) => setInvite(event.target.value)} placeholder="输入 Linkle 邀请码" aria-label="Linkle 邀请码" /><Button size="sm" disabled={!origin.trim() || !invite.trim()} onClick={() => { void getConnection().run(origin, adapter => adapter.redeemInvite(invite.trim())).then((result) => setMessage(`已进入 ${result.roomName ?? result.roomId}`)).catch(() => setMessage("邀请兑换失败，请检查服务地址和邀请码")) }}>兑换并进入</Button></div>
+    <div className="mt-2 flex gap-3 text-xs text-muted-foreground"><button type="button" className="hover:text-foreground" onClick={() => setMessage("Cookie 将由系统安全存储管理")}>导入 Cookie</button><button type="button" className="hover:text-foreground" onClick={() => setMessage("迁移包导入将在阶段 2 后续接入")}>导入 Web 迁移包</button></div>
+    {message ? <p className="mt-2 text-xs text-muted-foreground" role="status">{message}</p> : null}
     <MusicPartySearch key={origin} origin={origin} getConnection={getConnection} />
   </section>
   return { content, serviceOrigin, logout, getConnection, subscribeRoom,
@@ -515,15 +515,15 @@ function MusicPartySearch({ origin, getConnection }: { origin: string; getConnec
       setMessage("")
     } catch { setMessage("搜索失败，请检查服务连接") }
   }
-  return <div className="mt-5 border-t border-border/70 pt-4">
+  return <div className="mt-5 border-t border-[var(--stroke-card)] pt-4">
     <div className="text-xs font-semibold">搜索音乐</div>
     <form className="mt-2 flex gap-2" onSubmit={(event) => void search(event)}>
-      <select value={platform} onChange={(event) => setPlatform(event.target.value)} className="h-9 rounded-md border border-border bg-background px-2 text-xs" aria-label="音乐平台"><option value="netease">网易云</option><option value="youtube">YouTube</option><option value="bilibili">Bilibili</option></select>
-      <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索歌曲、艺术家或专辑" aria-label="搜索音乐" className="h-9 flex-1 text-xs" />
-      <Button size="sm" className="h-9" disabled={!origin.trim() || !query.trim()}>搜索</Button>
+      <select value={platform} onChange={(event) => setPlatform(event.target.value)} className="h-8 min-w-28 rounded-sm border border-input bg-[var(--fill-control)] px-2 text-sm" aria-label="音乐平台"><option value="netease">网易云</option><option value="youtube">YouTube</option><option value="bilibili">Bilibili</option></select>
+      <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索歌曲、艺术家或专辑" aria-label="搜索音乐" className="flex-1" />
+      <Button size="sm" disabled={!origin.trim() || !query.trim()}>搜索</Button>
     </form>
-    {message ? <p className="mt-2 text-[11px] text-destructive">{message}</p> : null}
-    {results.length ? <ul className="mt-3 divide-y divide-border border-y border-border">{results.map((item) => <li key={item.id} className="flex items-center gap-3 py-2 text-xs"><span className="min-w-0 flex-1 truncate">{item.title}<span className="ml-2 text-muted-foreground">{item.artist ?? "未知艺术家"}</span></span><Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => { const adapter = getConnection().current; if (!adapter) { setMessage("请先连接 MusicParty 房间"); return }; void adapter.enqueue(item.platform, item.sourceId).then(ok => setMessage(ok ? "已加入房间队列" : "入队未获服务端确认")) }}>加入队列</Button><Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => { void (async () => { const adapter = getConnection().current; if (!adapter) { setMessage("请先连接 MusicParty 房间"); return }; const accepted = await adapter.enqueue(item.platform, item.sourceId); if (!accepted) { setMessage("入队未获服务端确认"); return }; if (adapter !== getConnection().current) return; setMessage("已加入房间队列，跟随房间播放") })() }}>播放</Button></li>)}</ul> : null}
+    {message ? <p className="mt-2 text-xs text-destructive">{message}</p> : null}
+    {results.length ? <ul className="mt-3 divide-y divide-border border-y border-border">{results.map((item) => <li key={item.id} className="flex items-center gap-3 py-2 text-xs"><span className="min-w-0 flex-1 truncate">{item.title}<span className="ml-2 text-muted-foreground">{item.artist ?? "未知艺术家"}</span></span><Button size="sm" variant="ghost" onClick={() => { const adapter = getConnection().current; if (!adapter) { setMessage("请先连接 MusicParty 房间"); return }; void adapter.enqueue(item.platform, item.sourceId).then(ok => setMessage(ok ? "已加入房间队列" : "入队未获服务端确认")) }}>加入队列</Button><Button size="sm" variant="outline" onClick={() => { void (async () => { const adapter = getConnection().current; if (!adapter) { setMessage("请先连接 MusicParty 房间"); return }; const accepted = await adapter.enqueue(item.platform, item.sourceId); if (!accepted) { setMessage("入队未获服务端确认"); return }; if (adapter !== getConnection().current) return; setMessage("已加入房间队列，跟随房间播放") })() }}>播放</Button></li>)}</ul> : null}
   </div>
 }
 
@@ -531,7 +531,7 @@ function EmptyPosterGrid({ label }: { label: string }) {
   return (
     <div className="mt-3 grid grid-cols-5 gap-3" aria-label={label}>
       {Array.from({ length: 5 }, (_, index) => (
-        <div key={index} className="min-w-0"><div className="grid aspect-[16/10] place-items-center rounded-lg border border-border/80 bg-card/48 text-center text-[11px] text-muted-foreground">{index === 0 ? label : null}</div><div className="mt-2 h-2.5 w-3/4 rounded-sm bg-muted/60" aria-hidden="true" /><div className="mt-1.5 h-2 w-1/2 rounded-sm bg-muted/35" aria-hidden="true" /></div>
+        <div key={index} className="min-w-0"><div className="grid aspect-[16/10] place-items-center rounded-lg border border-[var(--stroke-card)] bg-[var(--fill-card)] text-center text-xs text-muted-foreground">{index === 0 ? label : null}</div><div className="mt-2 h-2.5 w-3/4 rounded-sm bg-[var(--stroke-divider)]" aria-hidden="true" /><div className="mt-1.5 h-2 w-1/2 rounded-sm bg-[var(--fill-selected)]" aria-hidden="true" /></div>
       ))}
     </div>
   )
@@ -665,7 +665,7 @@ function MediaLibraryView({ state, command, navigate }: {
         <div className="flex-1" />
         {roots.map((root) => (
           <Button key={root} size="sm" variant={root === activeRoot && !searching ? "default" : "ghost"}
-            className="h-7 rounded-full px-3 text-[11px]"
+            className="px-3"
             onClick={() => { setActiveRoot(root); setSearching(false); setQuery(""); void load(root, "/") }}>
             {root}
           </Button>
@@ -682,19 +682,19 @@ function MediaLibraryView({ state, command, navigate }: {
       </header>
 
       <form className="mt-4 flex flex-wrap items-center gap-2 border-y border-border py-3" onSubmit={(event) => event.preventDefault()}>
-        <span className="text-[11px] font-semibold text-muted-foreground">粘贴 HTTPS / HLS</span>
+        <span className="text-xs font-semibold text-muted-foreground">粘贴 HTTPS / HLS</span>
         <Input value={pasteUrl} onChange={(event) => setPasteUrl(event.target.value)} placeholder="https://example.com/video.mp4 或 .m3u8" aria-label="粘贴媒体地址" className="h-8 min-w-64 flex-1 font-mono text-xs" />
         <Input value={pasteTitle} onChange={(event) => setPasteTitle(event.target.value)} placeholder="标题（可选）" aria-label="粘贴媒体标题" className="h-8 w-40 text-xs" />
-        <Button size="sm" className="h-7 px-2.5 text-[11px]" disabled={!canControl || !pasteUrl.trim()} onClick={() => void submitPaste(true)}>
+        <Button size="sm" disabled={!canControl || !pasteUrl.trim()} onClick={() => void submitPaste(true)}>
           <MaterialSymbol name="play-arrow" />播放
         </Button>
-        <Button variant="outline" size="sm" className="h-7 px-2.5 text-[11px]" disabled={!canControl || !pasteUrl.trim()} onClick={() => void submitPaste(false)}>
+        <Button variant="outline" size="sm" disabled={!canControl || !pasteUrl.trim()} onClick={() => void submitPaste(false)}>
           <MaterialSymbol name="add" />入队
         </Button>
       </form>
 
       {page && !searching ? (
-        <nav aria-label="目录路径" className="mt-4 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+        <nav aria-label="目录路径" className="mt-4 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
           {page.breadcrumbs.map((crumb, index) => (
             <span key={`${crumb}-${index}`} className="flex items-center gap-1">
               {index > 0 ? <span>/</span> : null}
@@ -713,14 +713,14 @@ function MediaLibraryView({ state, command, navigate }: {
               <MaterialSymbol name={item.type === "dir" ? "folder" : "movie"} className="size-5 text-muted-foreground" />
               <button type="button" className="min-w-0 flex-1 truncate text-left hover:text-primary" onClick={() => void openItem(item)} title={item.displayPath ?? item.name}>
                 {item.name}
-                {item.extension && item.type === "file" ? <span className="ml-2 font-mono text-[10px] text-muted-foreground">{item.extension}</span> : null}
+                {item.extension && item.type === "file" ? <span className="ml-2 font-mono text-xs text-muted-foreground">{item.extension}</span> : null}
               </button>
               {item.type === "file" ? (
                 <>
-                  <Button variant="ghost" size="sm" className="h-7 px-2.5 text-[11px]" disabled={!canControl} title="立即播放" onClick={() => void openItem(item)}>
+                  <Button variant="ghost" size="sm" disabled={!canControl} title="立即播放" onClick={() => void openItem(item)}>
                     <MaterialSymbol name="play-arrow" />播放
                   </Button>
-                  <Button variant="outline" size="sm" className="h-7 px-2.5 text-[11px]" disabled={!canControl} title="加入播放队列" onClick={() => void enqueue(item)}>
+                  <Button variant="outline" size="sm" disabled={!canControl} title="加入播放队列" onClick={() => void enqueue(item)}>
                     <MaterialSymbol name="add" />入队
                   </Button>
                 </>
@@ -732,7 +732,7 @@ function MediaLibraryView({ state, command, navigate }: {
       ) : <EmptyPosterGrid label={searching ? "没有匹配的媒体" : "此目录为空"} />}
 
       {page?.hasMore && page.nextCursor ? (
-        <Button variant="outline" size="sm" className="mt-3 h-7 px-3 text-[11px]"
+        <Button variant="outline" size="sm" className="mt-3"
           onClick={() => searching
             ? void runSearch(query, page.nextCursor ?? undefined)
             : activeRoot && void load(activeRoot, path, page.nextCursor ?? undefined)}>
@@ -749,7 +749,7 @@ function SettingsView({ state, theme, onThemeChange, musicPartyOrigin, onMusicPa
   const labels: Array<[SettingsSection, string]> = [["general", "通用"], ["playback", "播放"], ["credentials", "站点凭据"], ["network", "后端与网络"], ["security", "安全与会话"]]
   return (
     <div className="grid min-h-full grid-cols-[172px_minmax(0,1fr)]">
-      <nav className="border-r border-border/80 bg-card/36 px-3 py-8" aria-label="设置分类">{labels.map(([value, label]) => <Button key={value} variant="ghost" onClick={() => setSection(value)} className={cn("relative h-9 w-full justify-start px-3 text-xs", section === value && "bg-accent text-foreground before:absolute before:left-0 before:h-4 before:w-[3px] before:rounded-full before:bg-primary")}>{label}</Button>)}</nav>
+      <nav className="border-r border-[var(--stroke-card)] bg-[var(--fill-card)] px-3 py-8" aria-label="设置分类">{labels.map(([value, label]) => <Button key={value} variant="ghost" onClick={() => setSection(value)} className={cn("relative h-8 w-full justify-start rounded-sm px-3 text-sm", section === value && "bg-[var(--fill-selected)] text-[var(--text-primary)] before:absolute before:left-0 before:top-2 before:h-4 before:w-[3px] before:rounded-full before:bg-[var(--accent)]")}>{label}</Button>)}</nav>
       <section className="min-w-0 w-full max-w-[680px] px-8 py-8">
         {section === "credentials" ? <CredentialsPanel /> : null}
         {section === "general" ? <GeneralPanel theme={theme} onThemeChange={onThemeChange} /> : null}
@@ -975,7 +975,7 @@ function PlaybackPanel({ state }: { state: DesktopUiState | null }) {
         <p className="mt-2 text-xs text-warning">未生效项：{failures.join("、")}（保留的值将在下次重建播放器时重试）</p>
       ) : null}
       {state?.capability ? (
-        <p className="mt-3 font-mono text-[10px] text-muted-foreground">
+        <p className="mt-3 font-mono text-xs text-muted-foreground">
           当前生效：hwdec={state.capability.hwdec ?? state.capability.hwdecConfigured ?? "-"} · vo={state.capability.vo ?? "-"}
         </p>
       ) : null}
@@ -1006,7 +1006,7 @@ function NetworkPanel({ state }: { state: DesktopUiState | null }) {
 }
 
 function SettingRow({ icon, title, detail, children }: { icon: MaterialSymbolName; title: string; detail: string; children: ReactNode }) {
-  return <div className="flex min-h-16 items-center gap-3 py-3"><MaterialSymbol name={icon} className="size-5 text-muted-foreground" /><div className="min-w-0 flex-1"><h2 className="text-xs font-medium">{title}</h2><p className="mt-1 text-[11px] text-muted-foreground">{detail}</p></div>{children}</div>
+  return <div className="flex min-h-16 items-center gap-3 py-3"><MaterialSymbol name={icon} className="size-5 text-muted-foreground" /><div className="min-w-0 flex-1"><h2 className="text-xs font-medium">{title}</h2><p className="mt-1 text-xs text-muted-foreground">{detail}</p></div>{children}</div>
 }
 
 function TerminalOverlay({ state, onLeave }: { state: DesktopUiState; onLeave: () => void }) {

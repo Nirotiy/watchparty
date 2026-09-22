@@ -37,9 +37,9 @@ export function SessionGate({ roomId, starting, onStart }: SessionGateProps) {
             autoFocus
             required
             placeholder={roomId ? `房间 /${roomId} 的一次性交接码` : "粘贴一次性交接码…"}
-            className="h-9 min-w-0 flex-1 basis-64 font-mono text-xs"
+            className="min-w-0 flex-1 basis-64 font-mono text-xs"
           />
-          <Button className="h-9 px-5" type="submit" disabled={starting || ticket.trim().length === 0}>
+          <Button variant="accent" className="px-5" type="submit" disabled={starting || ticket.trim().length === 0}>
             {starting ? "正在加入" : "加入或开播"}
           </Button>
         </div>

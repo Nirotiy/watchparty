@@ -61,16 +61,12 @@ function IconControl({ icon, label, active, disabled, onClick, className }: {
         <Button
           type="button"
           variant="ghost"
-          size="icon-sm"
+          size="icon"
           aria-label={label}
           aria-pressed={active}
           disabled={disabled}
           onClick={onClick}
-          className={cn(
-            "text-white/75 hover:bg-white/12 hover:text-white [&_svg]:size-5",
-            active && "bg-white/12 text-primary",
-            className,
-          )}
+          className={cn("media-icon", className)}
         >
           <MaterialSymbol name={icon} />
         </Button>
@@ -86,7 +82,7 @@ function SelectIconControl({ icon, label }: { icon: MaterialSymbolName; label: s
       <TooltipTrigger asChild>
         <SelectTrigger
           aria-label={label}
-          className="size-8 shrink-0 justify-center border-0 bg-transparent px-0 text-white/75 hover:bg-white/12 hover:text-white data-[state=open]:bg-white/12 data-[state=open]:text-white [&>svg:last-child]:hidden [&_svg]:size-5"
+          className="media-icon [&>svg:last-child]:hidden"
         >
           <MaterialSymbol name={icon} />
         </SelectTrigger>
@@ -185,7 +181,7 @@ export function RoomView({
   const overlayRight = drawer ? "min(340px, 42vw)" : "0px"
 
   const overlayClass = cn(
-    "absolute inset-x-0 z-30 text-white transition-opacity duration-150 ease-out motion-reduce:transition-none",
+    "absolute inset-x-0 z-30 transition-opacity duration-200 ease-[var(--f2-ease-out)] motion-reduce:transition-none",
     showControls ? "opacity-100" : "pointer-events-none opacity-0",
   )
   const holdControls = {
@@ -197,7 +193,7 @@ export function RoomView({
 
   return (
     <section
-      className="relative h-screen min-w-[640px] overflow-hidden bg-transparent text-white"
+      className="media-scrim relative h-screen min-w-[640px] overflow-hidden bg-transparent"
       onPointerMove={revealControls}
       onPointerDown={revealControls}
     >
@@ -209,22 +205,22 @@ export function RoomView({
       >
         {!player.loaded || !state.playerWindowVisible ? (
           <div className="pointer-events-none max-w-xl px-8 text-center">
-            <MaterialSymbol name={state.playerWindowVisible ? "monitor" : "visibility-off"} className="mx-auto mb-4 size-8 text-white/45" />
-            <h1 className="truncate text-2xl font-semibold tracking-tight">{mediaTitle(room?.source ?? null)}</h1>
-            <p className="mt-2 text-sm text-white/55">
+            <MaterialSymbol name={state.playerWindowVisible ? "monitor" : "visibility-off"} className="mx-auto mb-4 size-8 text-[var(--text-disabled)]" />
+            <h1 className="truncate text-2xl font-semibold">{mediaTitle(room?.source ?? null)}</h1>
+            <p className="mt-2 text-sm text-[var(--text-secondary)]">
               {!state.playerWindowVisible ? "播放画面已隐藏，会话仍保持。" : hasMedia ? "正在解析或载入媒体。" : "房间设置媒体后会在此处播放。"}
             </p>
           </div>
         ) : null}
       </div>
 
-      <header style={{ right: overlayRight }} className={cn(overlayClass, "top-0 bg-gradient-to-b from-black/78 via-black/38 to-transparent px-4 pt-2.5 pb-14 transition-[opacity,right] duration-150 ease-out motion-reduce:transition-none")} {...holdControls}>
-        <div className="pointer-events-none min-w-0 max-w-[calc(100%_-_6rem)] [text-shadow:_0_1px_3px_rgb(0_0_0_/_80%)]">
-          <p className="truncate text-xs font-medium text-white/90">{mediaTitle(room?.source ?? null)}</p>
-          <div className="mt-1 flex min-w-0 items-center gap-1.5 font-mono text-[10px] text-white/60">
+      <header style={{ right: overlayRight }} className={cn(overlayClass, "media-top-scrim top-0 px-4 pt-2.5 pb-14 transition-[opacity,right] duration-200 ease-[var(--f2-ease-out)] motion-reduce:transition-none")} {...holdControls}>
+        <div className="pointer-events-none min-w-0 max-w-[calc(100%_-_6rem)]">
+          <p className="truncate text-xs font-medium">{mediaTitle(room?.source ?? null)}</p>
+          <div className="mt-1 flex min-w-0 items-center gap-1.5 media-time">
             <span className="shrink-0">/{roomId ?? "room"}</span>
-            <span className={cn("size-1.5 shrink-0 rounded-full", ready ? "bg-emerald-400" : state.connection === "backoff" || state.connection === "connecting" ? "bg-amber-400" : "bg-rose-500")} aria-hidden="true" />
-            {ready ? <span className="sr-only">桌面会话连接正常</span> : <span className="truncate text-white/80">{statusText}</span>}
+            <span className="media-dot shrink-0" data-state={ready ? "ready" : state.connection === "backoff" || state.connection === "connecting" ? "pending" : "error"} aria-hidden="true" />
+            {ready ? <span className="sr-only">桌面会话连接正常</span> : <span className="truncate text-[var(--text-primary)]">{statusText}</span>}
           </div>
         </div>
         <div className="absolute right-4 top-2.5 flex items-center gap-1">
@@ -233,7 +229,7 @@ export function RoomView({
         </div>
       </header>
 
-      <footer style={{ right: overlayRight }} className={cn(overlayClass, "bottom-0 space-y-2 bg-gradient-to-t from-black/90 via-black/65 to-transparent px-4 pt-14 pb-4 transition-[opacity,right] duration-150 ease-out motion-reduce:transition-none")} {...holdControls}>
+      <footer style={{ right: overlayRight }} className={cn(overlayClass, "media-bottom-scrim bottom-0 space-y-2 px-4 pt-14 pb-4 transition-[opacity,right] duration-200 ease-[var(--f2-ease-out)] motion-reduce:transition-none")} {...holdControls}>
         <div className="flex items-center gap-2">
           <SharedControl reason={lockReason}>
             <span>
@@ -242,7 +238,7 @@ export function RoomView({
                 label={room?.paused === false ? "暂停" : "播放"}
                 disabled={!sharedEnabled}
                 onClick={() => void command({ type: room?.paused === false ? "pause" : "play" })}
-                className="text-white [&_svg]:size-7"
+                className="big primary"
               />
             </span>
           </SharedControl>
@@ -256,7 +252,7 @@ export function RoomView({
               />
             </span>
           </SharedControl>
-          <output className="w-11 shrink-0 font-mono text-[11px] text-white/75">{formatTime(position)}</output>
+          <output className="media-time w-11 shrink-0">{formatTime(position)}</output>
           <Slider
             aria-label="播放进度"
             min={0}
@@ -274,7 +270,7 @@ export function RoomView({
               if (value !== undefined) void command({ type: "seek", positionSeconds: value })
             }}
           />
-          <output className="w-11 shrink-0 text-right font-mono text-[11px] text-white/75">{formatTime(duration)}</output>
+          <output className="media-time w-11 shrink-0 text-right">{formatTime(duration)}</output>
         </div>
 
         <div className="flex items-center gap-1.5">
@@ -286,6 +282,7 @@ export function RoomView({
           />
           <Slider
             aria-label="音量"
+            size="compact"
             className="mr-2 w-[76px]"
             min={0}
             max={100}
@@ -302,7 +299,7 @@ export function RoomView({
             }}
           />
 
-          <span className="mx-1 h-5 w-px bg-white/15" aria-hidden="true" />
+          <span className="media-divider" aria-hidden="true" />
 
           <Select
             value={subtitleTrack ? String(subtitleTrack.id) : "off"}
@@ -339,8 +336,8 @@ export function RoomView({
             disabled={!sharedEnabled}
             onValueChange={(value) => void command({ type: "rate", rate: Number(value) })}
           >
-            <SelectTrigger className="h-8 w-auto gap-1 border-0 bg-transparent px-2 font-mono text-[11px] text-white/80 hover:bg-white/12 hover:text-white [&>svg:last-child]:hidden" title="倍速" aria-label="倍速">
-              <MaterialSymbol name="speed" className="size-5" />
+            <SelectTrigger className="media-icon label [&>svg:last-child]:hidden" title="倍速" aria-label="倍速">
+              <MaterialSymbol name="speed" />
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -376,38 +373,38 @@ function RoomDrawer({ kind, state, command, onAdd, onClose }: { kind: Drawer; st
       aria-hidden={!kind}
       inert={!kind}
       className={cn(
-        "absolute inset-y-0 right-0 z-40 w-[min(340px,42vw)] overflow-auto border-l border-white/12 bg-[rgba(13,14,16,.97)] p-4 text-card-foreground shadow-[-8px_0_8px_rgb(0_0_0_/_35%)] transition-transform duration-150 ease-out motion-reduce:transition-none",
+        "media-drawer absolute inset-y-0 right-0 z-40 w-[min(340px,42vw)] overflow-auto p-4 text-card-foreground transition-transform duration-200 ease-[var(--f2-ease-out)] motion-reduce:transition-none",
         kind ? "translate-x-0" : "pointer-events-none translate-x-full",
       )}
     >
-      <div className="mb-2 flex items-center gap-2 border-b border-border pb-3">
+      <div className="mb-2 flex min-h-11 items-center gap-2 border-b border-border pb-3">
         <h2 className="text-sm font-semibold">{kind === "members" ? `在线成员 ${state.members.length}` : `播放队列 ${state.room?.playlist.length ?? 0} 项`}</h2>
         <span className="flex-1" />
         {kind === "members" && state.isOwner ? (
-          <Button variant="outline" size="sm" className="h-7 px-2.5 text-[11px]" title={state.room?.locked ? "解锁房间" : "锁定房间（仅房主可控制）"} onClick={() => void command({ type: "lock", locked: !state.room?.locked })}>
+          <Button variant="outline" size="sm" title={state.room?.locked ? "解锁房间" : "锁定房间（仅房主可控制）"} onClick={() => void command({ type: "lock", locked: !state.room?.locked })}>
             <MaterialSymbol name="lock" />{state.room?.locked ? "解锁" : "锁定"}
           </Button>
         ) : null}
-        {kind === "queue" ? <Button variant="outline" size="sm" className="h-7 px-2.5 text-[11px]" onClick={onAdd}><MaterialSymbol name="add" />添加媒体</Button> : null}
-        <Button variant="ghost" size="icon-sm" title="收起" aria-label="收起" onClick={onClose}>×</Button>
+        {kind === "queue" ? <Button variant="outline" size="sm" onClick={onAdd}><MaterialSymbol name="add" />添加媒体</Button> : null}
+        <Button variant="ghost" size="icon" title="收起" aria-label="收起" onClick={onClose}><MaterialSymbol name="close" /></Button>
       </div>
       {kind === "queue" ? (
         state.room?.playlist.length ? state.room.playlist.map((item, index) => (
-          <div key={item.id} className={cn("grid w-full grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-2 border-b border-border px-1 py-3 text-xs", item.id === state.room?.currentPlaylistItemId && "bg-primary/8 text-primary")}>
+          <div key={item.id} className={cn("grid w-full grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-2 rounded-sm border-b border-border px-1 py-3 text-xs", item.id === state.room?.currentPlaylistItemId && "bg-[var(--fill-selected)]")}>
             <button
               type="button"
-              className="grid w-full grid-cols-[30px_minmax(0,1fr)] gap-2 text-left disabled:cursor-default"
+              className="winui-focus grid w-full grid-cols-[30px_minmax(0,1fr)] gap-2 rounded-sm text-left disabled:cursor-default"
               disabled={!state.canControlSharedPlayback || item.id === state.room?.currentPlaylistItemId}
               onClick={() => void command({ type: "playlistPlay", itemId: item.id })}
             >
               <span className="font-mono text-muted-foreground">{String(index + 1).padStart(2, "0")}</span>
-              <span className="min-w-0"><span className="block truncate">{mediaTitle(item.media)}</span><span className="mt-1 block truncate text-[10px] text-muted-foreground">{item.id === state.room?.currentPlaylistItemId ? `正在播放 · ${formatTime(state.player.time)}` : `${state.members.find((member) => member.clientId === item.addedByClientId)?.name ?? "成员"} 添加`}</span></span>
+              <span className="min-w-0"><span className="block truncate">{mediaTitle(item.media)}</span><span className="mt-1 block truncate text-xs text-muted-foreground">{item.id === state.room?.currentPlaylistItemId ? `正在播放 · ${formatTime(state.player.time)}` : `${state.members.find((member) => member.clientId === item.addedByClientId)?.name ?? "成员"} 添加`}</span></span>
             </button>
             {state.canControlSharedPlayback ? (
               <span className="flex items-center gap-0.5">
-                <Button variant="ghost" size="icon-sm" title="上移" aria-label={`上移 ${mediaTitle(item.media)}`} disabled={index === 0} onClick={() => void command({ type: "playlistMove", itemId: item.id, targetIndex: index - 1 })}><MaterialSymbol name="expand-less" /></Button>
-                <Button variant="ghost" size="icon-sm" title="下移" aria-label={`下移 ${mediaTitle(item.media)}`} disabled={index >= (state.room?.playlist.length ?? 0) - 1} onClick={() => void command({ type: "playlistMove", itemId: item.id, targetIndex: index + 1 })}><MaterialSymbol name="expand-more" /></Button>
-                <Button variant="ghost" size="icon-sm" title="移出队列" aria-label={`移出 ${mediaTitle(item.media)}`} onClick={() => void command({ type: "playlistRemove", itemId: item.id })}><MaterialSymbol name="close" /></Button>
+                <Button variant="ghost" size="icon" title="上移" aria-label={`上移 ${mediaTitle(item.media)}`} disabled={index === 0} onClick={() => void command({ type: "playlistMove", itemId: item.id, targetIndex: index - 1 })}><MaterialSymbol name="expand-less" /></Button>
+                <Button variant="ghost" size="icon" title="下移" aria-label={`下移 ${mediaTitle(item.media)}`} disabled={index >= (state.room?.playlist.length ?? 0) - 1} onClick={() => void command({ type: "playlistMove", itemId: item.id, targetIndex: index + 1 })}><MaterialSymbol name="expand-more" /></Button>
+                <Button variant="ghost" size="icon" title="移出队列" aria-label={`移出 ${mediaTitle(item.media)}`} onClick={() => void command({ type: "playlistRemove", itemId: item.id })}><MaterialSymbol name="close" /></Button>
               </span>
             ) : null}
           </div>
@@ -415,9 +412,9 @@ function RoomDrawer({ kind, state, command, onAdd, onClose }: { kind: Drawer; st
       ) : kind === "members" && state.members.length ? state.members.map((member) => (
         <div key={member.clientId} className="flex items-center gap-3 border-b border-border py-3 text-xs">
           <span className="grid size-8 place-items-center rounded-full border border-border font-semibold text-muted-foreground">{member.name.slice(0, 2).toUpperCase()}</span>
-          <span className="min-w-0 flex-1 truncate">{member.name}{member.clientId === state.clientId ? <span className="ml-1 text-[10px] text-muted-foreground">（我）</span> : null}</span>
+          <span className="min-w-0 flex-1 truncate">{member.name}{member.clientId === state.clientId ? <span className="ml-1 text-xs text-muted-foreground">（我）</span> : null}</span>
           {state.isOwner && !member.isOwner && member.clientType !== "mpv" ? (
-            <Button variant="outline" size="sm" className="h-7 px-2.5 text-[11px]" title={`将房主转让给 ${member.name}`} onClick={() => void command({ type: "transferOwner", targetClientId: member.clientId })}>转让房主</Button>
+            <Button variant="outline" size="sm" title={`将房主转让给 ${member.name}`} onClick={() => void command({ type: "transferOwner", targetClientId: member.clientId })}>转让房主</Button>
           ) : null}
           <span className="text-muted-foreground">{member.isOwner ? "房主" : member.clientType === "desktop" ? "桌面端" : "在线"}</span>
         </div>

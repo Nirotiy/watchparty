@@ -19,7 +19,7 @@ const ts = require('typescript')
 const root = fileURLToPath(new URL('../../', import.meta.url))
 async function moduleUrl(name) {
   let js = ts.transpile(await readFile(join(root, 'desktop-shell/shared', `${name}.ts`), 'utf8'), { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 })
-  for (const dep of ['musicparty-contract', 'retry']) if (js.includes(`from "./${dep}"`)) js = js.replaceAll(`from "./${dep}"`, `from "${await moduleUrl(dep)}"`)
+  for (const dep of ['musicparty-contract', 'retry', 'shared-room-state']) if (js.includes(`from "./${dep}"`)) js = js.replaceAll(`from "./${dep}"`, `from "${await moduleUrl(dep)}"`)
   return `data:text/javascript;base64,${Buffer.from(js).toString('base64')}`
 }
 async function until(test, label, ms = 15000) {

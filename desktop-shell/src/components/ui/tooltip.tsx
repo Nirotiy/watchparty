@@ -15,17 +15,20 @@ function TooltipTrigger(props: React.ComponentProps<typeof TooltipPrimitive.Trig
   return <TooltipPrimitive.Trigger {...props} />
 }
 
-function TooltipContent({ className, sideOffset = 6, ...props }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+/** WinUI 3 ToolTip: 4px radius, 12/16 caption type, Shadow2, light bubble in both themes. */
+function TooltipContent({ className, sideOffset = 6, children, ...props }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content
         sideOffset={sideOffset}
         className={cn(
-          "z-50 max-w-72 rounded-md border border-border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-sm",
+          "z-50 w-max max-w-72 rounded-sm border border-[var(--stroke-card)] bg-[var(--tooltip-bg)] px-[9px] py-[5px] text-xs leading-4 text-[var(--tooltip-fg)] shadow-[var(--f2-shadow2)]",
           className,
         )}
         {...props}
-      />
+      >
+        {children}
+      </TooltipPrimitive.Content>
     </TooltipPrimitive.Portal>
   )
 }

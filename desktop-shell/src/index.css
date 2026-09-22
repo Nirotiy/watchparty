@@ -2,50 +2,128 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* WinUI 3 theme resources (Common_themeresources_any.xaml) are the single source
+   of truth for this app; Fluent 2 (v9) conflicts resolve to WinUI 3. Values are
+   the semantic brushes themselves, so surfaces stay translucent over the faux-Mica
+   layer. Accent fills are the measured default-accent pair (#005FB8 / #4CC2FF). */
 :root {
   color-scheme: light;
-  --background: oklch(0.97 0.004 255);
-  --foreground: oklch(0.2 0.012 255);
-  --card: oklch(0.995 0.002 255);
-  --card-foreground: oklch(0.2 0.012 255);
-  --popover: oklch(0.995 0.002 255);
-  --popover-foreground: oklch(0.2 0.012 255);
-  --primary: oklch(0.5 0.15 235);
-  --primary-foreground: oklch(0.99 0 0);
-  --muted: oklch(0.92 0.008 255);
-  --muted-foreground: oklch(0.43 0.015 255);
-  --accent: oklch(0.91 0.035 235);
-  --accent-foreground: oklch(0.2 0.03 235);
-  --destructive: oklch(0.58 0.2 25);
-  --border: oklch(0.82 0.012 255);
-  --input: oklch(0.7 0.015 255);
-  --ring: oklch(0.5 0.15 235);
-  --positive: oklch(0.52 0.14 160);
-  --warning: oklch(0.58 0.14 80);
-  /* WinUI 3 ControlCornerRadius is 4px */
-  --radius: 0.25rem;
+  --text-primary: #000000e4;
+  --text-secondary: #0000009e;
+  --text-tertiary: #00000072;
+  --text-disabled: #0000005d;
+  --accent: #005fb8;
+  --accent-hover: #1a6fc0;
+  --accent-press: #004e8c;
+  --fg-on-accent: #ffffff;
+  --fill-control: #ffffffb3;
+  --fill-control-secondary: #ffffffed;
+  --fill-control-disabled: #0000004d;
+  --fill-subtle-hover: rgba(0,0,0,.037);
+  --fill-subtle-press: rgba(0,0,0,.024);
+  --fill-selected: rgba(0,0,0,.06);
+  --fill-card: #ffffffb3;
+  --fill-layer: rgba(255,255,255,.5);
+  --fill-menu: #ffffff;
+  --stroke-control: rgba(0,0,0,.06);
+  --stroke-card: rgba(0,0,0,.058);
+  --stroke-divider: rgba(0,0,0,.0803);
+  --stroke-strong: rgba(0,0,0,.14);
+  --focus-outer: #000;
+  --focus-inner: #fff;
+  --base: #f3f3f3;
+  --base-secondary: #ebebeb;
+  --base-tertiary: #ffffff;
+  /* Mica wash: base keeps most of its own value, the wallpaper only tints it. */
+  --mica-tint-share: 86%;
+  --mica-image-opacity: .35;
+  --critical: #c42b1c;
+  --critical-bg: #fdcdcc;
+  --success: #0f7b0f;
+  --caution: #9d5d00;
+  --fill-track: #808080;
+  --on-media: #ffffff;
+  --tooltip-bg: #fafafa;
+  --tooltip-fg: #1b1b1b;
+  --menu-item-hover: #f5f5f5;
+  --scrollbar-thumb: #b0b0b0;
+  --noise:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.04'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  /* ControlCornerRadius 4 / OverlayCornerRadius 8 */
+  --radius: 4px;
+  --radius-control: 4px;
+  --radius-overlay: 8px;
+  /* Motion: WinUI 3 P/Easing fundamentals. */
+  --f2-ease-out: cubic-bezier(.1,1,.25,1);
+  --f2-ease-in-out: cubic-bezier(0,0,0,1);
+  --f2-dur-faster: 200ms;
+  --f2-dur-fast: 250ms;
+  --f2-dur-fastest: 100ms;
+  --f2-shadow2: 0 1px 2px rgba(0,0,0,.24), 0 .5px 1px rgba(0,0,0,.12);
+  --f2-shadow8: 0 4px 8px rgba(0,0,0,.24), 0 0 2px rgba(0,0,0,.12);
+  --f2-shadow16: 0 8px 16px rgba(0,0,0,.24), 0 0 2px rgba(0,0,0,.12);
+  /* Tailwind-facing aliases (bg-card / text-muted-foreground / border ...). */
+  --background: var(--base);
+  --foreground: var(--text-primary);
+  --card: var(--fill-card);
+  --card-foreground: var(--text-primary);
+  --popover: var(--fill-menu);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--accent);
+  --primary-foreground: var(--fg-on-accent);
+  --muted: var(--base-secondary);
+  --muted-foreground: var(--text-secondary);
+  --accent-soft: var(--fill-selected);
+  --accent-foreground: var(--text-primary);
+  --destructive: var(--critical);
+  --border: var(--stroke-divider);
+  --input: var(--stroke-control);
+  --ring: var(--focus-outer);
+  --positive: var(--success);
+  --warning: var(--caution);
 }
 
 .dark {
   color-scheme: dark;
-  --background: oklch(0.22 0.009 255);
-  --foreground: oklch(0.97 0.004 255);
-  --card: oklch(0.255 0.01 255);
-  --card-foreground: oklch(0.97 0.004 255);
-  --popover: oklch(0.255 0.01 255);
-  --popover-foreground: oklch(0.97 0.004 255);
-  --primary: oklch(0.76 0.13 230);
-  --primary-foreground: oklch(0.12 0.02 230);
-  --muted: oklch(0.29 0.012 255);
-  --muted-foreground: oklch(0.72 0.015 255);
-  --accent: oklch(0.31 0.035 250);
-  --accent-foreground: oklch(0.97 0.004 255);
-  --destructive: oklch(0.7 0.17 25);
-  --border: oklch(0.39 0.015 255);
-  --input: oklch(0.39 0.015 255);
-  --ring: oklch(0.76 0.13 230);
-  --positive: oklch(0.76 0.13 160);
-  --warning: oklch(0.82 0.14 85);
+  --text-primary: #ffffff;
+  --text-secondary: #ffffffc5;
+  --text-tertiary: #ffffffa3;
+  --text-disabled: #ffffff5d;
+  --accent: #4cc2ff;
+  --accent-hover: #63ccff;
+  --accent-press: #3aa8e0;
+  --fg-on-accent: #000000;
+  --fill-control: rgba(255,255,255,.051);
+  --fill-control-secondary: rgba(255,255,255,.041);
+  --fill-control-disabled: rgba(255,255,255,.042);
+  --fill-subtle-hover: rgba(255,255,255,.061);
+  --fill-subtle-press: rgba(255,255,255,.042);
+  --fill-selected: rgba(255,255,255,.086);
+  --fill-card: rgba(255,255,255,.0512);
+  --fill-layer: rgba(58,58,58,.3);
+  --fill-menu: #292929;
+  --stroke-control: rgba(0,0,0,.2);
+  --stroke-card: rgba(255,255,255,.0656);
+  --stroke-divider: rgba(255,255,255,.0803);
+  --stroke-strong: rgba(0,0,0,.44);
+  --focus-outer: #fff;
+  --focus-inner: #000;
+  --base: #202020;
+  --base-secondary: #1c1c1c;
+  --base-tertiary: #282828;
+  /* Dark Mica lets the wallpaper read a little stronger, matching the reference. */
+  --mica-tint-share: 74%;
+  --mica-image-opacity: .5;
+  --critical: #ff99a4;
+  --critical-bg: #442726;
+  --success: #6ccb5b;
+  --caution: #fce100;
+  --fill-track: #4d4d4d;
+  --on-media: #ffffff;
+  /* The approved player-bar tooltip stays light in both themes. */
+  --tooltip-bg: #fafafa;
+  --tooltip-fg: #1b1b1b;
+  --menu-item-hover: #2d2d2d;
+  --scrollbar-thumb: #5a5a5a;
 }
 
 @theme inline {
@@ -62,7 +140,7 @@
   --color-primary-foreground: var(--primary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
+  --color-accent: var(--accent-soft);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
@@ -70,9 +148,29 @@
   --color-ring: var(--ring);
   --color-positive: var(--positive);
   --color-warning: var(--warning);
-  --radius-sm: 0.125rem;
-  --radius-md: 0.25rem;
-  --radius-lg: 0.5rem;
+  /* WinUI 3 type ramp mapped onto the Tailwind scale:
+     Caption 12/16 · Body 14/20 · BodyLarge 16/22 · Subtitle 20/28 · Title 28/36 · Display 40/52 */
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 14px;
+  --text-sm--line-height: 20px;
+  --text-base: 16px;
+  --text-base--line-height: 22px;
+  --text-lg: 16px;
+  --text-lg--line-height: 22px;
+  --text-xl: 20px;
+  --text-xl--line-height: 28px;
+  --text-2xl: 28px;
+  --text-2xl--line-height: 36px;
+  --text-3xl: 40px;
+  --text-3xl--line-height: 52px;
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+  --radius-xl: 8px;
+  --radius-2xl: 8px;
+  --radius-3xl: 8px;
 }
 
 * {
@@ -88,11 +186,223 @@ body,
   margin: 0;
 }
 
+/* WinUI 3 ships thin scrollbars app-wide and Body (14/20) as the default ramp. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
 body {
   overflow: hidden;
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* WinUI FocusVisual: 2px outer + 1px inner, drawn as two stacked shadows.
+   Callers on a tinted surface override --focus-inner with their own backing. */
+.winui-focus:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--focus-inner), 0 0 0 3px var(--focus-outer);
+}
+
+/* WinUI 3 Slider: 4px rail that thickens to 5px on hover, plus the two-layer thumb
+   (opaque ring + solid accent dot). Built from border + background, never a
+   radial-gradient: Chrome dithers gradient hard stops and smears a 14-20px dot. */
+.winui-slider {
+  position: relative;
+  display: flex;
+  min-height: 20px;
+  min-width: 0;
+  align-items: center;
+  touch-action: none;
+  user-select: none;
+}
+
+.winui-slider-track {
+  position: relative;
+  display: flex;
+  flex: 1;
+  height: 4px;
+  width: 100%;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--fill-track);
+  transition: height var(--f2-dur-faster) var(--f2-ease-out);
+}
+
+.winui-slider:hover .winui-slider-track { height: 5px; }
+
+.winui-slider-range {
+  position: absolute;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.winui-slider-thumb {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: 4px solid var(--on-media);
+  border-radius: 50%;
+  background-color: var(--accent);
+  box-shadow: var(--f2-shadow2);
+  outline: none;
+  transition: background-color var(--f2-dur-faster) var(--f2-ease-out), transform var(--f2-dur-faster) var(--f2-ease-out);
+}
+
+.winui-slider-thumb:hover { background-color: var(--accent-hover); }
+.winui-slider-thumb:active { background-color: var(--accent-press); transform: scale(.92); }
+.winui-slider-thumb:focus-visible { box-shadow: 0 0 0 1px var(--focus-inner), 0 0 0 3px var(--focus-outer), var(--f2-shadow2); }
+
+.winui-slider[data-size="compact"] .winui-slider-track { height: 2px; }
+.winui-slider[data-size="compact"]:hover .winui-slider-track { height: 3px; }
+.winui-slider[data-size="compact"] .winui-slider-thumb { width: 14px; height: 14px; border-width: 3px; }
+.winui-slider[data-disabled] { cursor: default; opacity: .5; }
+.winui-slider[data-disabled] .winui-slider-thumb { transform: none; }
+
+/* Banguru playback overlays. Video is always a dark canvas, so the header, footer
+   and drawer carry the dark palette regardless of the app theme, exactly like the
+   WinUI transport controls over media. */
+.media-scrim {
+  --text-primary: #fff;
+  --text-secondary: #ffffffc5;
+  --text-tertiary: #ffffffa3;
+  --text-disabled: #ffffff5d;
+  --accent: #4cc2ff;
+  --accent-hover: #63ccff;
+  --accent-press: #3aa8e0;
+  --fg-on-accent: #000;
+  --fill-control: rgba(255,255,255,.051);
+  --fill-control-secondary: rgba(255,255,255,.041);
+  --fill-control-disabled: rgba(255,255,255,.042);
+  --fill-subtle-hover: rgba(255,255,255,.061);
+  --fill-subtle-press: rgba(255,255,255,.042);
+  --fill-selected: rgba(255,255,255,.086);
+  --fill-card: rgb(23 23 23 / .97);
+  --fill-menu: #292929;
+  --stroke-control: rgba(0,0,0,.2);
+  --stroke-card: rgba(255,255,255,.0656);
+  --stroke-divider: rgba(255,255,255,.0803);
+  --focus-inner: #000;
+  --focus-outer: #fff;
+  --fill-track: #4d4d4d;
+  --menu-item-hover: #2d2d2d;
+  --scrollbar-thumb: #5a5a5a;
+  --success: #6ccb5b;
+  --critical: #ff99a4;
+  --caution: #fce100;
+  /* Tailwind utilities resolve their alias vars here, so the palette below the
+     :root aliases has to be rebound too or the drawer keeps the light brushes. */
+  --foreground: var(--text-primary);
+  --card-foreground: var(--text-primary);
+  --popover: var(--fill-menu);
+  --popover-foreground: var(--text-primary);
+  --muted-foreground: var(--text-secondary);
+  --primary: var(--accent);
+  --primary-foreground: var(--fg-on-accent);
+  --accent-soft: var(--fill-selected);
+  --accent-foreground: var(--text-primary);
+  --border: var(--stroke-divider);
+  --input: var(--stroke-control);
+  --ring: var(--focus-outer);
+  color: var(--text-primary);
+}
+
+.media-top-scrim { background: linear-gradient(to bottom, rgb(0 0 0 / .78), rgb(0 0 0 / .38) 55%, transparent) }
+.media-bottom-scrim { background: linear-gradient(to top, rgb(0 0 0 / .9), rgb(0 0 0 / .65) 45%, transparent) }
+.media-drawer {
+  background: rgb(23 23 23 / .97);
+  border-left: 1px solid var(--stroke-divider);
+  border-top-left-radius: var(--radius-overlay);
+  border-bottom-left-radius: var(--radius-overlay);
+  box-shadow: var(--f2-shadow16);
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* WinUI Subtle button over media: SubtleFillColor tiers in white. */
+.media-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  width: 32px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  transition: background-color var(--f2-dur-faster) var(--f2-ease-out), color var(--f2-dur-faster) var(--f2-ease-out);
+}
+.media-icon:hover { background: rgb(255 255 255 / .061); color: var(--text-primary) }
+.media-icon:active { background: rgb(255 255 255 / .042); color: var(--text-secondary) }
+.media-icon[aria-pressed="true"],.media-icon.is-active { background: rgb(255 255 255 / .12); color: var(--text-primary) }
+.media-icon[data-state="open"] { background: rgb(255 255 255 / .12); color: var(--text-primary) }
+.media-icon:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--focus-inner), 0 0 0 3px var(--focus-outer) }
+.media-icon:disabled { background: transparent; color: var(--text-disabled) }
+.media-icon svg,.media-icon .material-symbols { width: 20px; height: 20px }
+.media-icon.big { width: 40px; height: 40px }
+.media-icon.big svg,.media-icon.big .material-symbols { width: 26px; height: 26px }
+/* Transport primary action reads one tier brighter; declared last so it wins the
+   equal-specificity tie against the state rules above. */
+.media-icon.primary { color: var(--text-primary) }
+.media-icon.primary:disabled { color: var(--text-disabled) }
+.media-icon.label { width: auto; min-width: 44px; gap: 2px; padding: 0 6px; font-family: var(--font-mono); font-size: 12px; line-height: 16px }
+
+.media-time { font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--text-secondary); font-variant-numeric: tabular-nums }
+.media-divider { width: 1px; height: 20px; flex-shrink: 0; background: var(--stroke-divider) }
+.media-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--critical) }
+.media-dot[data-state="ready"] { background: var(--success) }
+.media-dot[data-state="pending"] { background: #fdc448 }
+
+/* High contrast: the system palette owns every surface, so the faux-Mica layer,
+   the media scrims and the alpha fills all collapse to solid Canvas. */
+@media (forced-colors: active) {
+  :root,
+  .dark {
+    --text-primary: CanvasText;
+    --text-secondary: CanvasText;
+    --text-tertiary: CanvasText;
+    --text-disabled: GrayText;
+    --accent: Highlight;
+    --accent-hover: Highlight;
+    --accent-press: Highlight;
+    --fg-on-accent: HighlightText;
+    --fill-control: Canvas;
+    --fill-control-secondary: Canvas;
+    --fill-card: Canvas;
+    --fill-menu: Canvas;
+    --fill-selected: Highlight;
+    --fill-subtle-hover: Canvas;
+    --fill-subtle-press: Canvas;
+    --fill-track: CanvasText;
+    --stroke-control: CanvasText;
+    --stroke-card: CanvasText;
+    --stroke-divider: CanvasText;
+    --base: Canvas;
+    --base-secondary: Canvas;
+    --base-tertiary: Canvas;
+    --tooltip-bg: Canvas;
+    --tooltip-fg: CanvasText;
+    --focus-outer: CanvasText;
+    --focus-inner: Canvas;
+  }
+  .desktop-mica-layer { display: none }
+  .winui-slider-thumb { border-color: Canvas; background-color: CanvasText }
+  .media-top-scrim,
+  .media-bottom-scrim { background: Canvas }
+  .media-drawer { background: Canvas }
+  .media-icon { border: 1px solid ButtonText }
+  .media-icon[aria-pressed="true"],
+  .media-icon.is-active,
+  .media-icon[data-state="open"] { background: Highlight; color: HighlightText }
 }
 
 .desktop-shell-surface { background: var(--background); }
@@ -123,7 +433,7 @@ button:not(:disabled),
 }
 
 /* Banguru / Linkle desktop lobby. The native Electron caption remains outside React. */
-.desktop-shell-grid{display:grid;grid-template-columns:248px minmax(0,1fr);height:100vh;overflow:hidden}.desktop-sidebar{display:flex;min-height:0;flex-direction:column;border-right:1px solid var(--border);background:var(--card);padding:16px 12px}.desktop-brand{padding:8px 8px 20px;font-size:20px;font-weight:600}.desktop-service-nav{display:grid;gap:4px}.desktop-service-nav button{display:flex;min-height:52px;align-items:center;gap:12px;border:0;border-radius:0;background:transparent;padding:10px 12px;text-align:left}.desktop-service-nav button[aria-current="page"]{background:var(--accent)}.desktop-service-nav small{display:block;color:var(--muted-foreground);font-size:12px}.desktop-session{margin-top:auto;border-top:1px solid var(--border);padding:16px 8px;min-height:0}.desktop-session strong{display:block;overflow-wrap:anywhere}.desktop-session p{margin:6px 0 0;color:var(--muted-foreground);font-size:12px}.desktop-settings-link{height:64px;border-top:1px solid var(--border);display:flex;align-items:center}.desktop-settings-link button{width:100%;height:48px;border:0;border-radius:0;background:transparent;text-align:left}.desktop-settings-link button[aria-current="page"]{background:var(--accent)}.desktop-main{display:grid;min-width:0;grid-template-rows:minmax(0,1fr) 64px;overflow:hidden}.desktop-page{min-width:0;overflow:auto}.desktop-footer{display:flex;align-items:center;gap:12px;border-top:1px solid var(--border);background:var(--card);padding:0 24px;color:var(--muted-foreground);font-size:13px}.desktop-footer strong{color:var(--foreground);font-weight:600}.linkle-lobby,.banguru-lobby{min-height:100%;padding-bottom:32px}.lobby-header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;border-bottom:1px solid var(--border);padding:24px 32px;flex-wrap:wrap}.lobby-header h1{margin:0;font-size:24px;line-height:1.3}.lobby-header p{margin:6px 0 0;color:var(--muted-foreground);font-size:14px}.lobby-actions{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap}.lobby-search{height:44px;width:min(320px,40vw);border:1px solid var(--input);border-radius:4px;background:var(--background);padding:0 12px}.lobby-action{min-height:44px;border:1px solid var(--border);border-radius:4px;background:transparent;padding:8px 16px}.lobby-action.primary{background:var(--primary);border-color:var(--primary);color:var(--primary-foreground);font-weight:600}.lobby-hint,.lobby-notice{margin:16px 32px;border:1px solid var(--border);padding:12px 16px;color:var(--muted-foreground)}.lobby-notice{display:flex;gap:12px;align-items:center;justify-content:space-between;border-color:var(--primary);color:var(--foreground)}.lobby-notice button{border:0;background:transparent;color:var(--primary)}.lobby-directory{display:grid;grid-template-columns:minmax(0,1fr) 288px;gap:32px;padding:24px 32px}.lobby-directory.no-detail{grid-template-columns:1fr}.lobby-table{width:100%;border-collapse:collapse;table-layout:fixed}.lobby-table caption{text-align:left;padding-bottom:12px;color:var(--muted-foreground);font-size:13px}.lobby-table th,.lobby-table td{border-bottom:1px solid color-mix(in oklab,var(--foreground) 8%,transparent);padding:10px 8px;text-align:left}.lobby-table th{color:var(--muted-foreground);font-size:13px;font-weight:400}.lobby-table th:first-child{width:60%}.lobby-table tr.selected{background:var(--accent)}.room-button{width:100%;min-height:44px;border:0;border-radius:0;background:transparent;padding:8px;text-align:left}.room-button[aria-pressed="true"]{box-shadow:inset 2px 0 var(--primary);color:var(--primary)}.lobby-inspector{min-width:0;border-left:1px solid var(--border);padding-left:24px}.lobby-inspector>div{display:flex;gap:12px;align-items:center;justify-content:space-between}.lobby-inspector h2{margin:0;overflow-wrap:anywhere;font-size:20px}.lobby-inspector dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:10px 16px;margin:24px 0}.lobby-inspector dt{color:var(--muted-foreground)}.lobby-inspector dd{margin:0;overflow-wrap:anywhere}.lobby-inspector>p{border-top:1px solid var(--border);margin-top:20px;padding-top:16px;color:var(--muted-foreground);font-size:13px}.icon-button{width:40px;height:40px;border:0;border-radius:0;background:transparent;font-size:20px}.mono{font-family:var(--font-mono);font-size:12px}.lobby-empty{padding:40px 0;color:var(--muted-foreground)}.lobby-dialog{width:min(520px,calc(100vw - 32px));border:1px solid var(--border);border-radius:4px;background:var(--background);color:var(--foreground);padding:24px}.lobby-dialog::backdrop{background:rgb(0 0 0 / 80%)}.lobby-dialog h2{margin:0;font-size:20px}.lobby-dialog label{display:grid;gap:8px;margin:16px 0}.lobby-dialog input{height:44px;border:1px solid var(--input);border-radius:4px;background:var(--background);padding:0 12px}.lobby-dialog .check{display:flex;align-items:center;gap:12px}.lobby-dialog .check input{width:20px;height:20px}.lobby-dialog footer{display:flex;justify-content:flex-end;gap:8px;margin-top:24px}.banguru-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(240px,.75fr);gap:48px;padding:32px;max-width:1120px}.banguru-grid h2{font-size:20px;margin:0 0 10px}.banguru-grid p{color:var(--muted-foreground);margin:0 0 24px}.banguru-grid label{display:grid;gap:8px;margin-bottom:20px}.banguru-grid input{height:44px;border:1px solid var(--input);border-radius:4px;background:var(--background);padding:0 12px}.banguru-grid aside{border-left:1px solid var(--border);padding-left:32px}.banguru-grid details{margin-top:32px;border-top:1px solid var(--border);padding-top:16px}.lobby-session-note{margin:0 32px;border-top:1px solid var(--border);padding-top:16px;color:var(--muted-foreground);font-size:13px}.lobby-session-note span{font-family:var(--font-mono);color:var(--foreground)}
+.desktop-shell-grid{display:grid;grid-template-columns:248px minmax(0,1fr);height:100vh;overflow:hidden}.desktop-sidebar{display:flex;min-height:0;flex-direction:column;background:transparent;padding:16px 12px}.desktop-brand{padding:8px 8px 20px;font-size:20px;font-weight:600}.desktop-service-nav{display:grid;gap:4px}.desktop-service-nav button{display:flex;min-height:52px;align-items:center;gap:12px;border:0;border-radius:0;background:transparent;padding:10px 12px;text-align:left}.desktop-service-nav button[aria-current="page"]{background:var(--accent)}.desktop-service-nav small{display:block;color:var(--muted-foreground);font-size:12px}.desktop-session{margin-top:auto;border-top:1px solid var(--border);padding:16px 8px;min-height:0}.desktop-session strong{display:block;overflow-wrap:anywhere}.desktop-session p{margin:6px 0 0;color:var(--muted-foreground);font-size:12px}.desktop-settings-link{height:64px;border-top:1px solid var(--border);display:flex;align-items:center}.desktop-settings-link button{width:100%;height:48px;border:0;border-radius:0;background:transparent;text-align:left}.desktop-settings-link button[aria-current="page"]{background:var(--accent)}.desktop-main{display:grid;min-width:0;grid-template-rows:minmax(0,1fr) 64px;overflow:hidden}.desktop-page{min-width:0;overflow:auto}.desktop-footer{display:flex;align-items:center;gap:12px;border-top:1px solid var(--stroke-divider);background:transparent;padding:0 24px;color:var(--text-secondary);font-size:12px}.desktop-footer strong{color:var(--foreground);font-weight:600}.linkle-lobby,.banguru-lobby{min-height:100%;padding-bottom:32px}.lobby-header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;border-bottom:1px solid var(--border);padding:24px 32px;flex-wrap:wrap}.lobby-header h1{margin:0;font-size:24px;line-height:1.3}.lobby-header p{margin:6px 0 0;color:var(--muted-foreground);font-size:14px}.lobby-actions{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap}.lobby-search{height:32px;width:min(320px,40vw);border:1px solid var(--stroke-control);border-radius:var(--radius-control);background:var(--fill-control);padding:0 12px}.lobby-action{min-height:32px;border:1px solid var(--stroke-control);border-radius:var(--radius-control);background:var(--fill-control);padding:5px 12px}.lobby-action.primary{background:var(--primary);border-color:var(--primary);color:var(--primary-foreground);font-weight:600}.lobby-hint,.lobby-notice{margin:16px 32px;border:1px solid var(--border);padding:12px 16px;color:var(--muted-foreground)}.lobby-notice{display:flex;gap:12px;align-items:center;justify-content:space-between;border-color:var(--primary);color:var(--foreground)}.lobby-notice button{border:0;background:transparent;color:var(--primary)}.lobby-directory{display:grid;grid-template-columns:minmax(0,1fr) 288px;gap:32px;padding:24px 32px}.lobby-directory.no-detail{grid-template-columns:1fr}.lobby-table{width:100%;border-collapse:collapse;table-layout:fixed}.lobby-table caption{text-align:left;padding-bottom:12px;color:var(--muted-foreground);font-size:13px}.lobby-table th,.lobby-table td{border-bottom:1px solid color-mix(in oklab,var(--foreground) 8%,transparent);padding:10px 8px;text-align:left}.lobby-table th{color:var(--text-secondary);font-size:12px;font-weight:400}.lobby-table th:first-child{width:60%}.lobby-table tr.selected{background:var(--accent)}.room-button{width:100%;min-height:32px;border:0;border-radius:var(--radius-control);background:transparent;padding:6px 8px;text-align:left}.room-button[aria-pressed="true"]{box-shadow:inset 2px 0 var(--primary);color:var(--primary)}.lobby-inspector{min-width:0;border-left:1px solid var(--border);padding-left:24px}.lobby-inspector>div{display:flex;gap:12px;align-items:center;justify-content:space-between}.lobby-inspector h2{margin:0;overflow-wrap:anywhere;font-size:20px}.lobby-inspector dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:10px 16px;margin:24px 0}.lobby-inspector dt{color:var(--text-secondary)}.lobby-inspector dd{margin:0;overflow-wrap:anywhere}.lobby-inspector>p{border-top:1px solid var(--border);margin-top:20px;padding-top:16px;color:var(--text-secondary);font-size:12px}.icon-button{width:32px;height:32px;border:0;border-radius:var(--radius-control);background:transparent;font-size:20px}.mono{font-family:var(--font-mono);font-size:12px}.lobby-empty{padding:40px 0;color:var(--muted-foreground)}.lobby-dialog{width:min(520px,calc(100vw - 32px));border:1px solid var(--border);border-radius:4px;background:var(--background);color:var(--foreground);padding:24px}.lobby-dialog::backdrop{background:rgb(0 0 0 / 80%)}.lobby-dialog h2{margin:0;font-size:20px}.lobby-dialog label{display:grid;gap:8px;margin:16px 0}.lobby-dialog input{height:32px;border:1px solid var(--stroke-control);border-radius:var(--radius-control);background:var(--fill-control);padding:0 12px}.lobby-dialog .check{display:flex;align-items:center;gap:12px}.lobby-dialog .check input{width:20px;height:20px}.lobby-dialog footer{display:flex;justify-content:flex-end;gap:8px;margin-top:24px}.banguru-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(240px,.75fr);gap:48px;padding:32px;max-width:1120px}.banguru-grid h2{font-size:20px;margin:0 0 10px}.banguru-grid p{color:var(--muted-foreground);margin:0 0 24px}.banguru-grid label{display:grid;gap:8px;margin-bottom:20px}.banguru-grid input{height:32px;border:1px solid var(--stroke-control);border-radius:var(--radius-control);background:var(--fill-control);padding:0 12px}.banguru-grid aside{border-left:1px solid var(--border);padding-left:32px}.banguru-grid details{margin-top:32px;border-top:1px solid var(--border);padding-top:16px}.lobby-session-note{margin:0 32px;border-top:1px solid var(--border);padding-top:16px;color:var(--text-secondary);font-size:12px}.lobby-session-note span{font-family:var(--font-mono);color:var(--foreground)}
 .desktop-shell-grid{height:calc(100dvh - var(--desktop-title-height,0px))}.desktop-sidebar{display:grid;grid-template-rows:auto minmax(0,1fr) 64px;padding:16px 12px 0}.desktop-session{align-self:end;max-height:100%;overflow:auto}.desktop-session p{overflow-wrap:anywhere}.desktop-settings-link{flex-shrink:0;margin-inline:-12px;padding-inline:12px}.desktop-settings-link button{display:flex;align-items:center;gap:8px}.desktop-main,.desktop-page{min-height:0}.desktop-page{overflow-x:hidden;overflow-y:auto}
 @media(max-width:1200px){.desktop-shell-grid{grid-template-columns:216px minmax(0,1fr)}.lobby-directory{grid-template-columns:1fr}.lobby-inspector{border-left:0;border-top:1px solid var(--border);padding:24px 0 0}.banguru-grid{grid-template-columns:1fr;gap:32px}.banguru-grid aside{border-left:0;border-top:1px solid var(--border);padding:24px 0 0}}
 
@@ -133,22 +443,23 @@ html[data-window-material="auto"] body,
 html[data-window-material="auto"] .desktop-shell-surface,
 html[data-window-material="auto"] #watchparty-titlebar,
 html[data-window-material="auto"] .fluent-settings-provider{background:transparent}
-html[data-window-material="auto"] .desktop-sidebar,
-html[data-window-material="auto"] .desktop-footer{background:color-mix(in srgb,var(--card) 45%,transparent)}
 html[data-window-material="auto"] #watchparty-titlebar{color:var(--foreground)}
-/* Faux Mica: the DWM refuses system backdrops on this layered window, so the
-   wallpaper is sampled in the main process and blurred in-page instead. */
-.desktop-mica-layer{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
-.desktop-mica-image{position:absolute;inset:-48px;background-position:center;background-size:cover;filter:blur(56px) saturate(1.2)}
-.desktop-mica-tint{position:absolute;inset:0;background:var(--background);opacity:.62}
-html.dark .desktop-mica-tint{opacity:.55}
-.desktop-mica-layer-solid .desktop-mica-tint{opacity:1}
+/* Faux Mica: the DWM refuses system backdrops on this layered window (the mpv
+   surface needs transparency), so the wallpaper is sampled in the main process.
+   Measured against WinUI 3 Gallery, Mica is a FLAT wash of SolidBackgroundFillColorBase
+   toward the wallpaper mean — light #F3F3F3 -> #EFF4F8, dark #202020 -> #1A2030 —
+   not a visible blurred photo. Blurring the wallpaper at full strength is what made
+   text hard to read here, so the sample is kept as a whisper of texture only. */
+.desktop-mica-layer{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;isolation:isolate;background:color-mix(in srgb,var(--base) var(--mica-tint-share),var(--mica-tint,var(--base)))}
+.desktop-mica-image{position:absolute;inset:-64px;background-position:center;background-size:cover;opacity:var(--mica-image-opacity);mix-blend-mode:soft-light;filter:blur(64px) grayscale(1) contrast(.75)}
 .desktop-mica-layer::after{content:"";position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.04'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")}
 html.playback-mode .desktop-mica-layer{display:none}
 .desktop-service-nav button,.desktop-settings-link button{justify-content:flex-start;border-radius:4px;font-weight:400}
-.desktop-service-nav button:hover,.desktop-settings-link button:hover{background:var(--muted)}
-.desktop-service-nav button[aria-current="page"],.desktop-settings-link button[aria-current="page"]{background:var(--accent);color:var(--foreground)}
-.desktop-main{position:relative;display:block;overflow:hidden}
+.desktop-service-nav button:hover,.desktop-settings-link button:hover{background:var(--fill-subtle-hover)}
+.desktop-service-nav button:active,.desktop-settings-link button:active{background:var(--fill-subtle-press)}
+.desktop-service-nav button[aria-current="page"],.desktop-settings-link button[aria-current="page"]{background:var(--fill-selected);color:var(--text-primary)}
+.desktop-service-nav button[aria-current="page"]:hover{background:var(--fill-selected)}
+.desktop-main{position:relative;display:block;overflow:hidden;background:var(--fill-layer);border-top-left-radius:var(--radius-overlay);border-bottom-left-radius:var(--radius-overlay)}
 .desktop-page{height:100%;padding-bottom:96px}
 .desktop-main{--shell-content-gutter:32px;--shell-content-width:960px}
 .lobby-header{padding-inline:var(--shell-content-gutter)}
@@ -159,7 +470,7 @@ html.playback-mode .desktop-mica-layer{display:none}
 .banguru-handoff,.banguru-grid,.lobby-session-note,.shell-lobby-secondary{width:min(calc(100% - (var(--shell-content-gutter) * 2)),var(--shell-content-width));margin-inline:var(--shell-content-gutter)}
 .banguru-grid{padding-inline:0}
 .shell-lobby-secondary{margin-top:12px;border-top:1px solid var(--border);padding-block:12px}
-.desktop-session-bar{position:absolute;right:24px;bottom:20px;left:24px;z-index:10;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:16px;min-height:64px;border:1px solid var(--border);border-radius:6px;background:var(--card);padding:10px 12px;color:var(--muted-foreground);font-size:12px}
+.desktop-session-bar{position:absolute;right:24px;bottom:20px;left:24px;z-index:10;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:16px;min-height:64px;border:1px solid var(--stroke-card);border-radius:var(--radius-overlay);background:var(--fill-card);box-shadow:var(--f2-shadow8);padding:10px 12px;color:var(--muted-foreground);font-size:12px}
 .desktop-session-bar-service{display:flex;align-items:center;gap:8px;color:var(--foreground);font-weight:600}
 .desktop-session-bar-service svg{width:20px;height:20px;color:var(--primary)}
 .desktop-session-bar-copy{display:grid;min-width:0;gap:2px}
@@ -171,21 +482,22 @@ html.playback-mode .desktop-mica-layer{display:none}
 .lobby-header{align-items:center;border:0;padding-bottom:16px}
 .lobby-header h1{font-size:28px;font-weight:600}
 .lobby-header p{max-width:65ch}
-.lobby-search{height:32px;width:240px;max-width:100%;padding:0 10px;background:var(--card)}
+.lobby-search{height:32px;width:240px;max-width:100%;padding:0 10px;background:var(--fill-control);border-color:var(--stroke-control)}
+.lobby-search:focus-within{border-color:var(--stroke-strong);box-shadow:0 0 0 1px var(--focus-inner),0 0 0 3px var(--focus-outer)}
 .lobby-search input{min-width:0}
-.lobby-hint{margin:0 32px 12px;border:0;padding:0;font-size:13px}
+.lobby-hint{margin:0 32px 12px;border:0;padding:0;font-size:12px;line-height:16px}
 .lobby-service-hint{margin:0 32px 16px}
 .lobby-filters{margin:0 32px;border-bottom:1px solid var(--border)}
 .lobby-directory{position:relative;gap:24px;padding-top:16px;align-items:start}
 .lobby-list-scroll{min-width:0;max-height:calc(100dvh - 290px);overflow:auto;scrollbar-gutter:stable}
 .lobby-table th,.lobby-table td{padding:10px 12px;border-bottom:1px solid var(--border)}
 .lobby-table caption{font-size:12px}
-.lobby-table tr:hover{background:var(--muted)}
-.lobby-table tr.selected{background:var(--accent)}
+.lobby-table tr:hover{background:var(--fill-subtle-hover)}
+.lobby-table tr.selected{background:var(--fill-selected)}
 .room-button{min-height:38px;padding:6px 0;overflow-wrap:anywhere}
 .room-button[aria-pressed="true"]{box-shadow:none;color:var(--foreground);font-weight:600}
 .room-button small{display:block;font-size:12px;font-weight:400;color:var(--muted-foreground);margin-top:4px}
-.room-button:focus-visible{outline:2px solid var(--ring);outline-offset:3px}
+.room-button:focus-visible{outline:none;box-shadow:inset 0 0 0 1px var(--focus-inner),inset 0 0 0 3px var(--focus-outer)}
 .lobby-inspector{padding-left:24px;max-height:calc(100dvh - 250px);overflow:auto}
 .lobby-inspector h2{font-size:20px;line-height:1.4}
 .lobby-detail-backdrop{display:none}
@@ -222,7 +534,7 @@ html.playback-mode .desktop-mica-layer{display:none}
 }
 
 /* Settings shares the desktop content column. Fluent owns its controls and state. */
-.fluent-settings-provider{--settings-space-tight:var(--spacingVerticalS,8px);--settings-space:var(--spacingVerticalMNudge,10px);min-height:100%;background:var(--background)}.fluent-settings-layout{display:block;min-height:100%}.fluent-settings-nav{display:flex;align-items:center;gap:20px;border-bottom:1px solid var(--border);padding:20px var(--shell-content-gutter)}.fluent-settings-nav-title{flex-shrink:0;margin:0}.fluent-settings-nav [role="tablist"]{align-items:center;gap:4px;overflow-x:auto}.fluent-settings-nav [role="tab"]{min-height:32px;white-space:nowrap}.fluent-settings-content{width:min(100%,calc(var(--shell-content-width) + (var(--shell-content-gutter) * 2)));min-height:0;max-width:none;overflow:auto;scrollbar-gutter:stable;padding:24px var(--shell-content-gutter)}.fluent-settings-heading{margin:0 0 var(--settings-space)}.fluent-settings-heading h1{margin:0}.fluent-settings-heading span{display:block;margin-top:var(--settings-space-tight);color:var(--muted-foreground)}.fluent-settings-content>h2{margin:var(--settings-space) 0}.fluent-settings-heading+h2{margin-top:0}.fluent-settings-group{border:1px solid var(--border);background:var(--card)}.fluent-settings-group+.fluent-settings-group{margin-top:var(--settings-space)}.fluent-settings-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,auto);align-items:center;column-gap:var(--spacingHorizontalXL,20px);min-height:72px;padding:var(--settings-space) var(--spacingHorizontalL,16px);border-bottom:1px solid var(--border)}.fluent-settings-row:last-child{border-bottom:0}.fluent-settings-copy span{display:block}.fluent-settings-copy span+span{margin-top:var(--settings-space-tight);color:var(--muted-foreground)}.fluent-settings-control{justify-self:end;min-width:0}.fluent-settings-control [role="combobox"],.fluent-settings-control input{min-width:176px}.fluent-settings-slider,.fluent-settings-volume{display:grid;grid-template-columns:176px 42px;align-items:center;gap:var(--settings-space)}.fluent-settings-volume{user-select:none}.fluent-settings-actions{display:flex;flex-wrap:wrap;gap:var(--settings-space);margin-top:var(--settings-space)}.fluent-settings-message{margin-top:var(--settings-space)}.fluent-settings-message svg{vertical-align:middle;margin-right:var(--spacingHorizontalSNudge,6px)}.fluent-settings-capability{display:block;margin-top:var(--settings-space);color:var(--muted-foreground);font-family:var(--font-mono)}.fluent-settings-block{display:grid;gap:var(--settings-space);padding:var(--spacingVerticalL,16px) var(--spacingHorizontalL,16px);border-bottom:1px solid var(--border)}.fluent-settings-block:last-child{border-bottom:0}.fluent-settings-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--settings-space)}.fluent-settings-trust{display:flex;align-items:center;justify-content:space-between;gap:var(--settings-space);padding:var(--spacingVerticalMNudge,10px) var(--spacingHorizontalL,16px);border-top:1px solid var(--border)}.fluent-settings-trust span{display:block}.fluent-settings-trust span+span{margin-top:var(--settings-space-tight);color:var(--muted-foreground);font-family:var(--font-mono);overflow-wrap:anywhere}@media(max-width:1120px){.fluent-settings-row{grid-template-columns:1fr}.fluent-settings-control{justify-self:start}.fluent-settings-fields{grid-template-columns:1fr}}
+.fluent-settings-provider{--settings-space-tight:var(--spacingVerticalS,8px);--settings-space:var(--spacingVerticalMNudge,10px);min-height:100%;background:transparent;font-size:14px;line-height:20px}.fluent-settings-layout{display:block;min-height:100%}.fluent-settings-nav{display:flex;align-items:center;gap:20px;border-bottom:1px solid var(--border);padding:20px var(--shell-content-gutter)}.fluent-settings-nav-title{flex-shrink:0;margin:0}.fluent-settings-nav [role="tablist"]{align-items:center;gap:4px;overflow-x:auto}.fluent-settings-nav [role="tab"]{min-height:32px;white-space:nowrap}.fluent-settings-content{width:min(100%,calc(var(--shell-content-width) + (var(--shell-content-gutter) * 2)));min-height:0;max-width:none;overflow:auto;scrollbar-gutter:stable;padding:24px var(--shell-content-gutter)}.fluent-settings-heading{margin:0 0 var(--settings-space)}.fluent-settings-heading h1{margin:0}.fluent-settings-heading span{display:block;margin-top:var(--settings-space-tight);color:var(--muted-foreground)}.fluent-settings-content>h2{margin:var(--settings-space) 0}.fluent-settings-heading+h2{margin-top:0}.fluent-settings-group{border:1px solid var(--stroke-card);border-radius:var(--radius-control);background:var(--fill-card)}.fluent-settings-group+.fluent-settings-group{margin-top:var(--settings-space)}.fluent-settings-row{border-bottom-color:var(--stroke-divider);display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,auto);align-items:center;column-gap:var(--spacingHorizontalXL,20px);min-height:72px;padding:var(--settings-space) var(--spacingHorizontalL,16px);border-bottom:1px solid var(--border)}.fluent-settings-row:last-child{border-bottom:0}.fluent-settings-copy span{display:block}.fluent-settings-copy span+span{margin-top:var(--settings-space-tight);color:var(--text-secondary);font-size:12px;line-height:16px}.fluent-settings-control{justify-self:end;min-width:0}.fluent-settings-control [role="combobox"],.fluent-settings-control input{min-width:176px}.fluent-settings-slider,.fluent-settings-volume{display:grid;grid-template-columns:176px 42px;align-items:center;gap:var(--settings-space)}.fluent-settings-volume{user-select:none}.fluent-settings-actions{display:flex;flex-wrap:wrap;gap:var(--settings-space);margin-top:var(--settings-space)}.fluent-settings-message{margin-top:var(--settings-space)}.fluent-settings-message svg{vertical-align:middle;margin-right:var(--spacingHorizontalSNudge,6px)}.fluent-settings-capability{display:block;margin-top:var(--settings-space);color:var(--muted-foreground);font-family:var(--font-mono)}.fluent-settings-block{border-bottom-color:var(--stroke-divider);display:grid;gap:var(--settings-space);padding:var(--spacingVerticalL,16px) var(--spacingHorizontalL,16px);border-bottom:1px solid var(--border)}.fluent-settings-block:last-child{border-bottom:0}.fluent-settings-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--settings-space)}.fluent-settings-trust{display:flex;align-items:center;justify-content:space-between;gap:var(--settings-space);padding:var(--spacingVerticalMNudge,10px) var(--spacingHorizontalL,16px);border-top:1px solid var(--border)}.fluent-settings-trust span{display:block}.fluent-settings-trust span+span{margin-top:var(--settings-space-tight);color:var(--muted-foreground);font-family:var(--font-mono);overflow-wrap:anywhere}@media(max-width:1120px){.fluent-settings-row{grid-template-columns:1fr}.fluent-settings-control{justify-self:start}.fluent-settings-fields{grid-template-columns:1fr}}
 
 /* Settings owns one content scroller; its category navigation stays outside it. */
 .desktop-page.desktop-page-settings {
@@ -293,8 +605,7 @@ html.playback-mode .desktop-mica-layer{display:none}
    Tokens: WinUI 3 Common_themeresources dark semantic brushes as the base layer,
    Fluent 2 control-layer tokens for the player bar; conflicts resolve to WinUI 3
    (4px controls / 8px overlays). Light theme mirrors the brush roles. */
-.linkle-room{--text-primary:#fff;--text-secondary:#c5ffffff;--text-tertiary:#5dffffff;--text-disabled:#3fffffff;--fill-control:rgba(255,255,255,.051);--fill-control-secondary:rgba(255,255,255,.041);--fill-subtle-hover:rgba(255,255,255,.061);--fill-subtle-press:rgba(255,255,255,.042);--fill-card:rgba(255,255,255,.0512);--fill-layer:rgba(58,58,58,.3);--stroke-control:rgba(0,0,0,.2);--stroke-card:rgba(255,255,255,.0656);--stroke-divider:rgba(255,255,255,.0803);--accent:#9bd7ff;--accent-press:#7cc4ef;--f2-ease-out:cubic-bezier(.1,1,.25,1);--f2-dur-faster:200ms;--f2-dur-fastest:100ms;--f2-shadow2:0 1px 2px rgba(0,0,0,.24),0 .5px 1px rgba(0,0,0,.12);--f2-shadow16:0 8px 16px rgba(0,0,0,.24),0 0 2px rgba(0,0,0,.12);--f2-subtle-hover:rgba(255,255,255,.049);--f2-subtle-press:rgba(255,255,255,.033);--f2-pressed-bg:rgba(255,255,255,.07);--f2-menu-hover:#2d2d2d;--f2-tooltip-bg:#fafafa;--f2-tooltip-fg:#1b1b1b;--bar-accent:#4cc2ff;--bar-accent-hover:#63ccff;--bar-accent-press:#3aa8e0;--bar-track:#4d4d4d;--bar-thumb-ring:#fff;--bar-thumb-shadow:0 1px 2px rgba(0,0,0,.32);--focus-outer:#fff;--focus-inner:#000;--base:#202020;--base-secondary:#1c1c1c;--base-tertiary:#282828;--radius-control:4px;--radius-overlay:8px;--noise:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.04'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")}
-html:not(.dark) .linkle-room{--text-primary:#000;--text-secondary:rgba(0,0,0,.66);--text-tertiary:rgba(0,0,0,.44);--text-disabled:rgba(0,0,0,.36);--fill-control:rgba(255,255,255,.7);--fill-control-secondary:rgba(255,255,255,.93);--fill-subtle-hover:rgba(0,0,0,.037);--fill-subtle-press:rgba(0,0,0,.024);--fill-card:rgba(255,255,255,.7);--fill-layer:rgba(255,255,255,.5);--stroke-control:rgba(0,0,0,.06);--stroke-card:rgba(0,0,0,.058);--stroke-divider:rgba(0,0,0,.0803);--accent:#005fb8;--accent-press:#004e8c;--f2-subtle-hover:rgba(0,0,0,.037);--f2-subtle-press:rgba(0,0,0,.024);--f2-pressed-bg:rgba(0,0,0,.057);--f2-menu-hover:#f5f5f5;--f2-tooltip-bg:#fafafa;--f2-tooltip-fg:#1b1b1b;--bar-accent:#005fb8;--bar-accent-hover:#1a6fc0;--bar-accent-press:#004e8c;--bar-track:#808080;--bar-thumb-ring:#fff;--bar-thumb-shadow:0 1px 2px rgba(0,0,0,.2);--focus-outer:#000;--focus-inner:#fff;--base:#f3f3f3;--base-secondary:#ebebeb;--base-tertiary:#ffffff}
+.linkle-room{--bar-accent:var(--accent);--bar-accent-hover:var(--accent-hover);--bar-accent-press:var(--accent-press);--bar-track:var(--fill-track);--bar-thumb-ring:var(--on-media);--bar-thumb-shadow:var(--f2-shadow2);--f2-subtle-hover:var(--fill-subtle-hover);--f2-subtle-press:var(--fill-subtle-press);--f2-pressed-bg:var(--fill-selected);--f2-menu-hover:var(--menu-item-hover);--f2-tooltip-bg:var(--tooltip-bg);--f2-tooltip-fg:var(--tooltip-fg)}
 .desktop-page:has(.linkle-room){overflow:hidden;padding-bottom:0}
 .desktop-main:has(.linkle-room){grid-template-rows:minmax(0,1fr)}
 .linkle-room{position:relative;height:100%;min-height:0;display:flex;flex-direction:column;padding:24px 32px 128px;color:var(--text-primary)}
@@ -307,18 +618,18 @@ html:not(.dark) .linkle-room{--text-primary:#000;--text-secondary:rgba(0,0,0,.66
 .linkle-room button:active{background:var(--fill-subtle-press);color:var(--text-secondary)}
 .linkle-room button:focus-visible,.linkle-room [tabindex]:focus-visible{outline:none;box-shadow:0 0 0 1px var(--focus-inner),0 0 0 3px var(--focus-outer)}
 .linkle-room button[aria-disabled=true],.linkle-room button:disabled{color:var(--text-disabled);background:transparent;cursor:not-allowed}
-.linkle-room button.primary{background:var(--accent);color:#fff;border-color:transparent}
-.linkle-room button.primary:hover{background:var(--accent-press)}
+.linkle-room button.primary{background:var(--accent);color:var(--fg-on-accent);border-color:transparent}
+.linkle-room button.primary:hover{background:var(--accent-hover)}
+.linkle-room button.primary:active{background:var(--accent-press);color:var(--fg-on-accent)}
 .linkle-room svg{width:20px;height:20px;flex-shrink:0}
 .linkle-room .muted{color:var(--text-secondary)}
 .linkle-room .roomhead{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--stroke-divider);position:relative}
 .linkle-room .identity{margin-right:auto}
-.linkle-room .connection{font-size:12px;color:#a9d9b3;margin-top:5px}
-html:not(.dark) .linkle-room .connection{color:#1a7f37}
+.linkle-room .connection{font-size:12px;color:var(--success);margin-top:5px}
 .linkle-room .room-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .linkle-room .bodygrid{display:grid;grid-template-columns:minmax(0,1fr) 10px minmax(240px,var(--lyrics-w,38%));gap:0;min-height:0;flex:1;padding-top:24px}
-.linkle-room .task,.linkle-room .lyrics{overflow:auto;scrollbar-width:thin;scrollbar-color:#5a5a5a transparent}
-html:not(.dark) .linkle-room .task,html:not(.dark) .linkle-room .lyrics{scrollbar-color:#b0b0b0 transparent}
+.linkle-room .task,.linkle-room .lyrics{overflow:auto;scrollbar-width:thin;scrollbar-color:var(--scrollbar-thumb) transparent}
+html:not(.dark) .linkle-room .task,html:not(.dark) .linkle-room .lyrics{scrollbar-color:var(--scrollbar-thumb) transparent}
 .linkle-room .task{min-width:0;display:flex;flex-direction:column;padding-right:24px;scrollbar-gutter:stable}
 .linkle-room .lyrics{padding-left:24px;min-width:0;scrollbar-gutter:stable}
 .linkle-room .splitter{position:relative;cursor:col-resize;touch-action:none}
@@ -345,7 +656,7 @@ html:not(.dark) .linkle-room .notice.warning{color:#8a5a10}
 .linkle-room .listen-view>*{flex-shrink:0}
 .linkle-room .upnext{margin-top:auto;padding-top:24px;display:flex;flex-direction:column}
 .linkle-room .upnext .sectionhead{margin-bottom:10px}
-.linkle-room .upnext-list{max-height:200px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#5a5a5a transparent;mask-image:linear-gradient(to bottom,#000 calc(100% - 16px),transparent);-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 16px),transparent)}
+.linkle-room .upnext-list{max-height:200px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--scrollbar-thumb) transparent;mask-image:linear-gradient(to bottom,#000 calc(100% - 16px),transparent);-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 16px),transparent)}
 .linkle-room .empty{padding:40px 0}
 .linkle-room .empty h3{margin-bottom:10px}
 .linkle-room .empty p{color:var(--text-secondary)}
@@ -411,8 +722,7 @@ html:not(.dark) .linkle-room .flag.local{background:rgba(120,180,220,.25);color:
 .linkle-room .tip.end .tooltip{left:auto;right:0;transform:none}
 .linkle-room .control-note{position:absolute;bottom:calc(100% + 6px);left:0;right:0;margin:0;text-align:center;font-size:11px;color:#c9e3f4;min-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 html:not(.dark) .linkle-room .control-note{color:#1b4a66}
-.linkle-room .menu{padding:6px;background:#292929;border:1px solid var(--stroke-card);border-radius:var(--radius-overlay);color:#fff;min-width:190px;max-width:calc(100vw - 24px);box-shadow:var(--f2-shadow16);z-index:8}
-html:not(.dark) .linkle-room .menu{background:#fff;color:#1b1b1b;border-color:var(--stroke-divider)}
+.linkle-room .menu{padding:6px;background:var(--fill-menu);border:1px solid var(--stroke-card);border-radius:var(--radius-overlay);color:var(--text-primary);min-width:190px;max-width:calc(100vw - 24px);box-shadow:var(--f2-shadow16);z-index:8}
 .linkle-room .menu h3{font-size:11px;padding:6px 10px 4px;color:#8a8a8a;font-weight:600}
 .linkle-room .menu button{display:block;text-align:left;width:100%;border:0;background:transparent;color:inherit;min-height:32px;padding:6px 10px;border-radius:var(--radius-control);font-size:13px}
 .linkle-room .menu button:hover{background:var(--f2-menu-hover)}
@@ -437,8 +747,8 @@ html:not(.dark) .linkle-room .menu{background:#fff;color:#1b1b1b;border-color:va
 .linkle-room .searchbar select{height:36px;background:var(--fill-control);border:1px solid var(--stroke-control);border-radius:var(--radius-control);color:var(--text-primary);padding:0 8px;font:inherit}
 .linkle-room input[type="checkbox"]{width:16px;height:16px;accent-color:var(--bar-accent)}
 /* P3: chat & members. */
-.linkle-room .chat-scroll{max-height:420px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#5a5a5a transparent}
-html:not(.dark) .linkle-room .chat-scroll{scrollbar-color:#b0b0b0 transparent}
+.linkle-room .chat-scroll{max-height:420px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--scrollbar-thumb) transparent}
+html:not(.dark) .linkle-room .chat-scroll{scrollbar-color:var(--scrollbar-thumb) transparent}
 .linkle-room .chatline{padding:12px 0;border-bottom:1px solid var(--stroke-divider)}
 .linkle-room .chatline small{font-size:12px;color:var(--text-secondary)}
 .linkle-room .chatline p{margin-top:6px;overflow-wrap:anywhere}
@@ -446,5 +756,4 @@ html:not(.dark) .linkle-room .chat-scroll{scrollbar-color:#b0b0b0 transparent}
 .linkle-room .members p{margin-top:10px}
 .linkle-room .member-tag{margin-left:8px;font-size:10px;padding:1px 7px;border-radius:10px;background:rgba(120,180,220,.14);color:inherit;vertical-align:middle}
 html:not(.dark) .linkle-room .member-tag{background:rgba(120,180,220,.25)}
-.linkle-room .room-actions .badge{position:absolute;top:3px;right:3px;min-width:15px;height:15px;padding:0 4px;border-radius:8px;background:var(--bar-accent);color:#000;font-size:10px;font-weight:600;line-height:15px;text-align:center}
-html:not(.dark) .linkle-room .room-actions .badge{color:#fff}
+.linkle-room .room-actions .badge{position:absolute;top:3px;right:3px;min-width:15px;height:15px;padding:0 4px;border-radius:8px;background:var(--accent);color:var(--fg-on-accent);font-size:10px;font-weight:600;line-height:15px;text-align:center}

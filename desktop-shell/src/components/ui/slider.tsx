@@ -3,14 +3,17 @@ import { Slider as SliderPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 
-function Slider({
-  className,
-  defaultValue,
-  value,
-  min = 0,
-  max = 100,
-  ...props
-}: React.ComponentProps<typeof SliderPrimitive.Root>) {
+interface SliderProps extends React.ComponentProps<typeof SliderPrimitive.Root> {
+  /** `compact` matches WinUI's smaller volume slider (14px thumb on a 2px rail). */
+  size?: "default" | "compact"
+}
+
+/**
+ * WinUI 3 Slider. Geometry is defined by `.winui-slider*` in index.css because the
+ * two-layer thumb (opaque ring + solid accent dot) and the 4→5px hover rail cannot
+ * be expressed with utilities alone.
+ */
+function Slider({ className, defaultValue, value, min = 0, max = 100, size = "default", ...props }: SliderProps) {
   const values = React.useMemo(
     () => (Array.isArray(value) ? value : Array.isArray(defaultValue) ? defaultValue : [min]),
     [defaultValue, max, min, value],
@@ -19,24 +22,19 @@ function Slider({
   return (
     <SliderPrimitive.Root
       data-slot="slider"
+      data-size={size}
       defaultValue={defaultValue}
       value={value}
       min={min}
       max={max}
-      className={cn(
-        "relative flex w-full touch-none items-center select-none data-[disabled]:opacity-45",
-        className,
-      )}
+      className={cn("winui-slider w-full", className)}
       {...props}
     >
-      <SliderPrimitive.Track className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-muted">
-        <SliderPrimitive.Range className="absolute h-full bg-primary" />
+      <SliderPrimitive.Track className="winui-slider-track">
+        <SliderPrimitive.Range className="winui-slider-range" />
       </SliderPrimitive.Track>
       {values.map((_, index) => (
-        <SliderPrimitive.Thumb
-          key={index}
-          className="block size-3.5 shrink-0 rounded-full border border-primary bg-background outline-none ring-ring/40 transition-shadow hover:ring-4 focus-visible:ring-4 disabled:pointer-events-none disabled:opacity-50"
-        />
+        <SliderPrimitive.Thumb key={index} className="winui-slider-thumb" />
       ))}
     </SliderPrimitive.Root>
   )

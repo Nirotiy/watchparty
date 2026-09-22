@@ -74,7 +74,7 @@ else {
     width: 1280, height: 800, minWidth: 960, minHeight: 640, title: 'Banguru',
     show: false, transparent: true, backgroundColor: '#00000000',
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#202226', symbolColor: '#ffffff', height: 48 },
+    titleBarOverlay: { color: '#202020', symbolColor: '#ffffff', height: 48 },
     webPreferences: { preload: join(directory, 'preload-built.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true },
   })
   window.setMenu(null)
@@ -104,16 +104,17 @@ else {
       if (command === 'currentDesktopLaunch' && latestLaunch) return { result: latestLaunch }
       if (command === 'updateDesktopWindowChrome') {
         window.setTitle(args.title)
-        const solidCaption = args.theme === 'dark' ? '#202226' : '#f8fafc'
+        const solidCaption = args.theme === 'dark' ? '#202020' : '#f3f3f3'
         window.setTitleBarOverlay({
           color: args.windowMaterial === 'auto' ? '#00000000' : solidCaption,
-          symbolColor: args.theme === 'dark' ? '#ffffff' : '#1f2937',
+          symbolColor: args.theme === 'dark' ? '#ffffff' : '#1b1b1b',
           height: 48,
         })
         return { result: null }
       }
       if (command === 'getDesktopWallpaperBackdrop') {
-        return { result: { image: await getWallpaperBackdrop() } }
+        const backdrop = await getWallpaperBackdrop()
+        return { result: { image: backdrop?.dataUrl ?? null, average: backdrop?.average ?? null } }
       }
       return { result: await native.request(command, args) }
     } catch (error) {
