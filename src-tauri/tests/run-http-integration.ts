@@ -52,7 +52,7 @@ const openlist = createServer((request, response) => {
     response.end(JSON.stringify({ code: 200, data: { token: "stub-token" } }));
     return;
   }
-  if (pathname === "/api/fs/list") {
+  if (pathname === "/api/fs/list" || pathname === "/api/fs/search") {
     response.end(JSON.stringify({ code: 200, data: { content: [{ name: "Show 01.mp4", is_dir: false, size: 10, path: mediaPath }] } }));
     return;
   }

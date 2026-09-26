@@ -7,7 +7,7 @@ use std::{
 use watchparty_desktop::{
     contracts::{ClientType, DesktopCommand, MediaSource},
     http::DesktopHttpTransport,
-    transport::RoomTransport,
+    transport::{RoomTransport, TransportError},
 };
 
 fn required(name: &str) -> String {
@@ -158,4 +158,111 @@ fn desktop_http_transport_matches_live_node_protocol() {
     assert!(transport
         .snapshot(&handoff.room_id, &handoff.access_token, generation, None)
         .is_err());
+}
+
+#[test]
+#[ignore = "requires the isolated Node backend; run npm run test:desktop-http"]
+fn desktop_native_entry_matches_live_node_protocol() {
+    let base_url = required("DESKTOP_HTTP_BASE_URL");
+    let media_id = required("DESKTOP_HTTP_MEDIA_ID");
+    let mut transport = DesktopHttpTransport::new(base_url).expect("transport should build");
+    let probe = transport.probe_desktop_backend().expect("probe should decode");
+    assert_eq!(probe.status, "ok");
+    assert_eq!(probe.protocol_version, 2);
+    assert!(probe.capabilities.create_room && probe.capabilities.join_room);
+    assert!(probe.capabilities.restore_session && probe.capabilities.media_search);
+    assert!(probe.capabilities.media_queue && probe.capabilities.handoff_code);
+    assert!(
+        probe.capabilities.readiness,
+        "the live backend must advertise the readiness capability"
+    );
+
+    // Readiness is an optional probe: an advertised backend must answer it, and the payload has to
+    // decode into the shared shape the completion banner reads (component status is up|down).
+    let readiness = transport
+        .probe_desktop_readiness(true)
+        .expect("readiness probe should not hard-fail")
+        .expect("an advertised readiness capability must yield a payload");
+    assert!(
+        readiness.status == "ready" || readiness.status == "degraded",
+        "unexpected readiness status: {}",
+        readiness.status
+    );
+    assert_eq!(readiness.readiness_version, 1);
+    assert_eq!(readiness.service, "watchparty");
+    let core = readiness
+        .components
+        .core
+        .as_ref()
+        .expect("core component is mandatory");
+    assert!(core.status == "up" || core.status == "down");
+    // A backend that does not advertise it must be asked nothing at all.
+    assert!(transport
+        .probe_desktop_readiness(false)
+        .expect("a declined probe is not an error")
+        .is_none());
+
+    let public = transport
+        .create_desktop(&uuid::Uuid::new_v4().to_string(), "Public owner", None, None)
+        .expect("public room creation should decode");
+    assert_eq!(public.generation, 1);
+    let public_generation = transport
+        .claim_session(&public.room_id, &public.access_token)
+        .expect("public room should restore from its token");
+    assert!(transport.snapshot(&public.room_id, &public.access_token, public_generation, None)
+        .expect("restored snapshot should decode").snapshot.is_some());
+
+    let protected = transport
+        .create_desktop(&uuid::Uuid::new_v4().to_string(), "PIN owner", Some("1234"), None)
+        .expect("PIN room creation should decode");
+    let guest_id = uuid::Uuid::new_v4().to_string();
+    for (pin, expected) in [(None, "ROOM_PIN_REQUIRED"), (Some("9999"), "ROOM_PIN_REJECTED")] {
+        match transport.access_desktop(&protected.room_id, &guest_id, "Guest", pin) {
+            Err(TransportError::Http(401, body)) => assert!(body.contains(expected), "{body}"),
+            other => panic!("expected {expected}, got {other:?}"),
+        }
+    }
+    assert_eq!(
+        transport.access_desktop("missing-room", &guest_id, "Guest", None),
+        Err(TransportError::NotFound)
+    );
+    let guest_token = transport
+        .access_desktop(&protected.room_id, &guest_id, "Guest", Some("1234"))
+        .expect("correct PIN should grant access");
+    let guest_generation = transport
+        .claim_session(&protected.room_id, &guest_token)
+        .expect("guest session should restore");
+    assert!(transport.snapshot(&protected.room_id, &guest_token, guest_generation, None)
+        .expect("guest snapshot should decode").snapshot.is_some());
+
+    let search = transport.media_search("Show", None).expect("media search should decode");
+    assert!(search.items.iter().any(|item| item.id == media_id));
+    let owner_generation = transport
+        .claim_session(&protected.room_id, &protected.access_token)
+        .expect("owner session should restore");
+    let snapshot = transport.snapshot(&protected.room_id, &protected.access_token, owner_generation, None)
+        .expect("owner snapshot should decode").snapshot.expect("snapshot body");
+    let owner_token = protected.owner_token.as_deref().expect("owner token");
+    let unlocked = transport.command(&protected.room_id, &protected.access_token, owner_generation,
+        &DesktopCommand::Lock { locked: false }, snapshot.revision, Some(owner_token))
+        .expect("unlock should decode");
+    assert!(unlocked.ok);
+    let media = MediaSource::Http { url: "https://example.com/clip.mp4".into(), title: Some("Clip".into()) };
+    let added = transport.command(&protected.room_id, &protected.access_token, owner_generation,
+        &DesktopCommand::PlaylistAdd { media: media.clone() }, unlocked.revision, Some(owner_token))
+        .expect("URL queue command should decode");
+    assert!(added.ok);
+    let queued = transport.snapshot(&protected.room_id, &protected.access_token, owner_generation, None)
+        .expect("queue snapshot should decode").snapshot.expect("queue snapshot body");
+    assert!(queued.playlist.iter().any(|item| item.media == media));
+    let item_id = queued.playlist[0].id.clone();
+    let played = transport.command(&protected.room_id, &protected.access_token, owner_generation,
+        &DesktopCommand::PlaylistPlay { item_id }, queued.revision, Some(owner_token))
+        .expect("playlist play should decode");
+    assert!(played.ok);
+
+    transport.leave(&protected.room_id, &guest_token, guest_generation).expect("guest cleanup");
+    transport.leave(&protected.room_id, &protected.access_token, owner_generation).expect("owner cleanup");
+    transport.leave(&public.room_id, &public.access_token, public_generation).expect("public cleanup");
+    println!("WATCHPARTY_NATIVE_ENTRY_E2E_OK");
 }

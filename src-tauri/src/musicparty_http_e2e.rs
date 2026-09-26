@@ -53,6 +53,12 @@ fn private_room_cookie_logout_against_real_server() {
     let ws_input = || WsConnectInput { origin: origin.clone(), room_id: "lounge".into(), client_version: "0.2.0".into() };
     let first = redeem();
     assert!(first.room_access.is_none());
+    let identity = bridge.request(request("GET", "/api/account/me", None)).unwrap();
+    assert_eq!(identity.status, 200, "the redeemed session must read its own identity");
+    let who: Value = serde_json::from_str(&identity.body).unwrap();
+    assert!(who["publicId"].as_str().is_some_and(|id| !id.is_empty()), "identity carries the account");
+    assert!(!identity.body.contains(&first.session) && !identity.body.contains(&first.csrf), "no cookie may ride in the identity body");
+    println!("MP_HTTP_ACCOUNT_ME_READABLE_OK");
     assert!(MusicPartyWsState::default().connect(ws_input()).is_err(), "invite must not bypass private-room proof");
     for path in ["/api/rooms/lounge/verify", "/api/account/logout"] {
         let response = first.apply(client.post(format!("{origin}{path}")).json(&json!({"password":password})), false)
@@ -101,6 +107,40 @@ fn private_room_cookie_logout_against_real_server() {
     let active = MusicPartyCredentialStore.read(&origin).unwrap().unwrap();
     assert!(active.room_access != before_expiry.room_access, "reverification must replace expired proof");
     println!("MP_HTTP_REAL_EXPIRY_AND_REVERIFY_OK");
+
+    // The host cancels a room socket by origin when that origin's credentials disappear.
+    let live = MusicPartyWsState::default();
+    assert!(live.connect(ws_input()).is_ok());
+    live.disconnect_origin(&origin).unwrap();
+    assert_eq!(live.receive().err().as_deref(), Some("musicparty_ws_not_connected"), "the owning origin must tear its socket down");
+    assert!(live.connect(ws_input()).is_ok(), "only the local socket is cancelled, the session is still valid");
+    live.disconnect().unwrap();
+    println!("MP_HTTP_ORIGIN_SCOPED_TEARDOWN_OK");
+
+    // Desktop room creation is the one mutation a signed-in non-admin may send, and the
+    // response carries the new private room's proof: the bridge must accept the endpoint,
+    // store that proof, and let the creator's socket in without a second password.
+    let room_name = format!("rust-desktop-{}", std::process::id());
+    let created = bridge.request(request("POST", "/api/desktop/v1/rooms",
+        Some(json!({"name": room_name, "isPrivate": true, "password": "created-room-password"})))).unwrap();
+    assert_eq!(created.status, 200, "the desktop room endpoint must accept a session");
+    let room: Value = serde_json::from_str(&created.body).unwrap();
+    let created_room = room["roomId"].as_str().unwrap_or_default().to_owned();
+    assert!(created_room.starts_with("room-") && room["privateRoom"] == true && room["accessGranted"] == true, "{created_room}");
+    let with_proof = MusicPartyCredentialStore.read(&origin).unwrap().unwrap();
+    let proof = with_proof.room_access.clone().unwrap_or_default();
+    assert!(!proof.is_empty(), "the create response must establish room access");
+    assert!(!created.body.contains(&proof) && !created.body.contains(&with_proof.session), "no cookie may ride in the room body");
+    let creator_socket = MusicPartyWsState::default();
+    assert!(creator_socket.connect(WsConnectInput { origin: origin.clone(), room_id: created_room.clone(), client_version: "0.2.0".into() }).is_ok(),
+        "the creator must enter the private room it just made without a password prompt");
+    creator_socket.disconnect().unwrap();
+    assert_eq!(bridge.request(request("POST", "/api/desktop/v1/rooms",
+        Some(json!({"name": room_name, "isPrivate": false})))).unwrap().status, 409,
+        "a duplicate name is the server's answer, passed through untouched");
+    // A room holds one proof per origin, so the scenario below restores its own lounge access.
+    assert_eq!(verify(password).status, 200);
+    println!("MP_HTTP_DESKTOP_ROOM_CREATE_OK");
 
     let socket = Arc::new(MusicPartyWsState::default());
     assert!(socket.connect(ws_input()).is_ok());

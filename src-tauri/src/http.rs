@@ -1,8 +1,8 @@
 use crate::{
     contracts::{CommandAck, DesktopCommand, MediaDirectoryPage, MediaSource, RoomMember},
     transport::{
-        Handoff, RequestTiming, ResolvedMedia, RoomTransport, SnapshotResponse, SubtitleTrackInfo,
-        TransportError,
+        DesktopCapabilities, DesktopProbeReport, DesktopReadinessReport, Handoff, RequestTiming,
+        ResolvedMedia, RoomTransport, SnapshotResponse, SubtitleTrackInfo, TransportError,
     },
 };
 use reqwest::{
@@ -15,6 +15,71 @@ use zeroize::Zeroize;
 
 const WATCHPARTY_TOKEN_HEADER: &str = "X-WatchParty-Token";
 const MUSICPARTY_CSRF_HEADER: &str = "X-CSRF-Token";
+const WATCHPARTY_PROTOCOL_VERSION: u32 = 2;
+/// The library route caps artwork at 2 MiB; keep headroom for a wrapper's own padding.
+const ARTWORK_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopHealthResponse {
+    status: String,
+    protocol_version: u32,
+    service_version: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopCapabilitiesResponse {
+    protocol_version: u32,
+    service_version: String,
+    capabilities: DesktopCapabilities,
+}
+
+fn classify_probe_network_error(error: reqwest::Error) -> TransportError {
+    classify_probe_network_message(&error.to_string())
+}
+
+fn classify_probe_network_message(message: &str) -> TransportError {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("dns") || lower.contains("name or service not known") || lower.contains("no such host") || lower.contains("host not found") {
+        TransportError::DnsFailed
+    } else if lower.contains("refused") {
+        TransportError::ConnectionRefused
+    } else if lower.contains("certificate") || lower.contains("certificat") || lower.contains("tls") || lower.contains("unknownissuer") {
+        TransportError::TlsTrustRequired
+    } else {
+        TransportError::Network(message.to_owned())
+    }
+}
+
+fn probe_http_error(
+    status: reqwest::StatusCode,
+    body: &str,
+    credentials_configured: bool,
+) -> TransportError {
+    match status {
+        reqwest::StatusCode::UNAUTHORIZED if credentials_configured => TransportError::AuthRejected,
+        reqwest::StatusCode::UNAUTHORIZED => TransportError::AuthRequired,
+        reqwest::StatusCode::FORBIDDEN => TransportError::AuthRejected,
+        reqwest::StatusCode::UPGRADE_REQUIRED => TransportError::ProtocolVersionMismatch,
+        _ if body.contains("PROTOCOL_VERSION_MISMATCH") => TransportError::ProtocolVersionMismatch,
+        _ if body.contains("AUTH_REQUIRED") => TransportError::AuthRequired,
+        _ if body.contains("AUTH_REJECTED") => TransportError::AuthRejected,
+        _ => TransportError::Http(status.as_u16(), body.to_owned()),
+    }
+}
+
+fn unauthorized_error(body: String) -> TransportError {
+    let code = serde_json::from_str::<serde_json::Value>(&body)
+        .ok()
+        .and_then(|value| value.get("code").and_then(serde_json::Value::as_str).map(str::to_owned));
+    match code {
+        Some(code) if code == "ROOM_PIN_REQUIRED" || code == "ROOM_PIN_REJECTED" => {
+            TransportError::Http(reqwest::StatusCode::UNAUTHORIZED.as_u16(), body)
+        }
+        _ => TransportError::Unauthorized,
+    }
+}
 
 /// Native MusicParty session credentials. Cookie values never leave Rust.
 pub struct MusicPartySession {
@@ -110,7 +175,11 @@ pub struct DesktopHttpTransport {
 
 impl DesktopHttpTransport {
     pub fn new(base_url: impl Into<String>) -> Result<Self, TransportError> {
-        Self::with_auth(base_url, None)
+        Self::new_with_policy(base_url, false)
+    }
+
+    pub fn new_with_policy(base_url: impl Into<String>, allow_remote_http: bool) -> Result<Self, TransportError> {
+        Self::with_auth(base_url, None, allow_remote_http)
     }
 
     pub fn with_site_basic_auth(
@@ -118,15 +187,28 @@ impl DesktopHttpTransport {
         username: impl Into<String>,
         password: impl Into<String>,
     ) -> Result<Self, TransportError> {
-        Self::with_auth(base_url, Some(SiteBasicAuth::new(username, password)))
+        Self::with_site_basic_auth_with_policy(base_url, username, password, false)
+    }
+
+    pub fn with_site_basic_auth_with_policy(
+        base_url: impl Into<String>,
+        username: impl Into<String>,
+        password: impl Into<String>,
+        allow_remote_http: bool,
+    ) -> Result<Self, TransportError> {
+        Self::with_auth(base_url, Some(SiteBasicAuth::new(username, password)), allow_remote_http)
     }
 
     fn with_auth(
         base_url: impl Into<String>,
         site_basic_auth: Option<SiteBasicAuth>,
+        allow_remote_http: bool,
     ) -> Result<Self, TransportError> {
+        let base_url = base_url.into();
+        crate::config::validate_backend_origin_with_policy(&base_url, allow_remote_http)
+            .map_err(|_| TransportError::Protocol("invalid backend origin".into()))?;
         Ok(Self {
-            base_url: base_url.into().trim_end_matches('/').into(),
+            base_url: base_url.trim_end_matches('/').into(),
             client: Client::builder()
                 .cookie_store(true)
                 .connect_timeout(Duration::from_secs(5))
@@ -143,6 +225,108 @@ impl DesktopHttpTransport {
 
     pub fn has_site_basic_auth(&self) -> bool {
         self.site_basic_auth.is_some()
+    }
+
+    pub fn probe_desktop_backend(&self) -> Result<DesktopProbeReport, TransportError> {
+        let health_response = self
+            .headers(
+                self.client
+                    .get(format!("{}/api/desktop/health", self.base_url)),
+                None,
+            )
+            .send()
+            .map_err(classify_probe_network_error)?;
+        let health_status = health_response.status();
+        if !health_status.is_success() {
+            // A body that cannot be read is a transport failure. Swallowing it here used to turn a
+            // hiccup into AuthRequired, i.e. the shell blamed the user's credentials.
+            let body = health_response
+                .text()
+                .map_err(classify_probe_network_error)?;
+            return Err(probe_http_error(
+                health_status,
+                &body,
+                self.site_basic_auth.is_some(),
+            ));
+        }
+        let health: DesktopHealthResponse = health_response
+            .json()
+            .map_err(|error| TransportError::Protocol(error.to_string()))?;
+        if health.protocol_version != WATCHPARTY_PROTOCOL_VERSION {
+            return Err(TransportError::ProtocolVersionMismatch);
+        }
+        if health.status != "ok" || health.service_version.is_empty() {
+            return Err(TransportError::Protocol(
+                "invalid desktop health response".into(),
+            ));
+        }
+
+        let capabilities_response = self
+            .headers(
+                self.client
+                    .get(format!("{}/api/desktop/capabilities", self.base_url)),
+                None,
+            )
+            .send()
+            .map_err(classify_probe_network_error)?;
+        let capabilities_status = capabilities_response.status();
+        if !capabilities_status.is_success() {
+            let body = capabilities_response
+                .text()
+                .map_err(classify_probe_network_error)?;
+            return Err(probe_http_error(
+                capabilities_status,
+                &body,
+                self.site_basic_auth.is_some(),
+            ));
+        }
+        let capabilities: DesktopCapabilitiesResponse = capabilities_response
+            .json()
+            .map_err(|error| TransportError::Protocol(error.to_string()))?;
+        if capabilities.protocol_version != WATCHPARTY_PROTOCOL_VERSION {
+            return Err(TransportError::ProtocolVersionMismatch);
+        }
+        if capabilities.service_version.is_empty() || capabilities.service_version != health.service_version {
+            return Err(TransportError::Protocol(
+                "desktop health and capabilities service versions differ".into(),
+            ));
+        }
+        Ok(DesktopProbeReport {
+            status: health.status,
+            protocol_version: health.protocol_version,
+            service_version: capabilities.service_version,
+            capabilities: capabilities.capabilities,
+        })
+    }
+
+    /// Fetches the readiness payload when the backend advertises it. A backend
+    /// without the capability bit, or any transport hiccup on this optional
+    /// probe, yields `Ok(None)`: absent readiness is not a degraded backend.
+    pub fn probe_desktop_readiness(
+        &self,
+        advertised: bool,
+    ) -> Result<Option<DesktopReadinessReport>, TransportError> {
+        if !advertised {
+            return Ok(None);
+        }
+        let response = match self
+            .headers(
+                self.client
+                    .get(format!("{}/api/desktop/readiness", self.base_url)),
+                None,
+            )
+            .send()
+        {
+            Ok(response) => response,
+            Err(_) => return Ok(None),
+        };
+        if !response.status().is_success() {
+            return Ok(None);
+        }
+        match response.json::<DesktopReadinessReport>() {
+            Ok(report) => Ok(Some(report)),
+            Err(_) => Ok(None),
+        }
     }
 
     /// Browse helpers for the media library. They reuse the site Basic Auth
@@ -197,6 +381,94 @@ impl DesktopHttpTransport {
             .ok_or_else(|| TransportError::Protocol("empty media page".into()))
     }
 
+    /// Generic call for the media library surface (handoff §1, decided 2026-09-26).
+    /// The sidecar's allow-list already decided the route; this only carries
+    /// method/path/query/body and hands the raw status and body back. The JSON-only
+    /// helpers above would collapse every failure into a DESKTOP_* code, and the
+    /// media routes answer with their own codes (SOURCE_UNREACHABLE,
+    /// LIBRARY_ROOT_NOT_FOUND, ADMIN_FORBIDDEN …) that the UI has to map itself.
+    pub fn media_request(
+        &self,
+        method: &str,
+        path: &str,
+        query: Option<&str>,
+        body: Option<&serde_json::Value>,
+    ) -> Result<(u16, String), TransportError> {
+        let url = match query {
+            Some(query) if !query.is_empty() => format!("{}{}?{}", self.base_url, path, query),
+            _ => format!("{}{}", self.base_url, path),
+        };
+        let builder = match method {
+            "GET" => self.client.get(url),
+            "POST" => self.client.post(url),
+            "PATCH" => self.client.patch(url),
+            "DELETE" => self.client.delete(url),
+            _ => return Err(TransportError::Protocol("unsupported media method".into())),
+        };
+        let builder = match body {
+            Some(body) => builder.json(body),
+            None => builder,
+        };
+        let response = self
+            .headers(builder, None)
+            .send()
+            .map_err(|error| TransportError::Network(error.to_string()))?;
+        let status = response.status().as_u16();
+        let text = response
+            .text()
+            .map_err(|error| TransportError::Network(error.to_string()))?;
+        Ok((status, text))
+    }
+
+    /// Image bytes for one media-library entry (phase 2 artwork). Same transport as
+    /// `media_request`, so it carries the site Basic Auth and the TLS policy; the caller
+    /// only ever hands the bytes to the shell's asset server, never to the renderer.
+    pub fn media_artwork(&self, media_id: &str) -> Result<(String, Vec<u8>), TransportError> {
+        let response = self
+            .headers(
+                self.client
+                    .get(format!("{}/api/media/artwork/{}", self.base_url, media_id)),
+                None,
+            )
+            .send()
+            .map_err(|error| TransportError::Network(error.to_string()))?;
+        let status = response.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(TransportError::Unauthorized);
+        }
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Err(TransportError::NotFound);
+        }
+        if !status.is_success() {
+            return Err(TransportError::Http(status.as_u16(), String::new()));
+        }
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.split(';').next().unwrap_or("").trim().to_ascii_lowercase())
+            .unwrap_or_default();
+        if !matches!(
+            content_type.as_str(),
+            "image/jpeg" | "image/png" | "image/webp"
+        ) {
+            return Err(TransportError::Protocol("artwork is not an image".into()));
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length > ARTWORK_MAX_BYTES)
+        {
+            return Err(TransportError::Protocol("artwork exceeds size guard".into()));
+        }
+        let bytes = response
+            .bytes()
+            .map_err(|error| TransportError::Network(error.to_string()))?;
+        if bytes.len() as u64 > ARTWORK_MAX_BYTES {
+            return Err(TransportError::Protocol("artwork exceeds size guard".into()));
+        }
+        Ok((content_type, bytes.to_vec()))
+    }
+
     pub fn verify_backend(&self) -> Result<(), TransportError> {
         let response = self
             .headers(self.client.get(format!("{}/ping", self.base_url)), None)
@@ -228,16 +500,21 @@ impl DesktopHttpTransport {
             return Ok(None);
         }
         if status == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(TransportError::Unauthorized);
+            // Reading the body can fail on its own; only a body that really says "unauthorized"
+            // may classify as such.
+            let body = response
+                .text()
+                .map_err(|error| TransportError::Network(error.to_string()))?;
+            return Err(unauthorized_error(body));
         }
         if status == reqwest::StatusCode::NOT_FOUND {
             return Err(TransportError::NotFound);
         }
         if !status.is_success() {
-            return Err(TransportError::Http(
-                status.as_u16(),
-                response.text().unwrap_or_default(),
-            ));
+            let body = response
+                .text()
+                .map_err(|error| TransportError::Network(error.to_string()))?;
+            return Err(TransportError::Http(status.as_u16(), body));
         }
         response
             .json()
@@ -259,10 +536,10 @@ impl DesktopHttpTransport {
             return Err(TransportError::NotFound);
         }
         if !status.is_success() {
-            return Err(TransportError::Http(
-                status.as_u16(),
-                response.text().unwrap_or_default(),
-            ));
+            let body = response
+                .text()
+                .map_err(|error| TransportError::Network(error.to_string()))?;
+            return Err(TransportError::Http(status.as_u16(), body));
         }
         let bytes = response
             .bytes()
@@ -643,8 +920,158 @@ fn unix_time_ms() -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::room_token_header;
+    use super::{room_token_header, DesktopHttpTransport};
     use crate::transport::RoomTransport;
+
+    fn serve_probe(responses: &[(&str, &str)]) -> (String, std::thread::JoinHandle<()>) {
+        use std::{
+            io::{Read, Write},
+            net::{Shutdown, TcpListener},
+            thread,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let expected = responses
+            .iter()
+            .map(|(path, body)| (path.to_string(), body.to_string()))
+            .collect::<Vec<_>>();
+        let server = thread::spawn(move || {
+            for (expected_path, body) in expected {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    stream.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                }
+                let headers = String::from_utf8(request).unwrap();
+                assert!(
+                    headers.starts_with(&format!("GET {expected_path} HTTP/1.1"))
+                        || headers.starts_with(&format!("POST {expected_path} HTTP/1.1"))
+                );
+                // Consume the request body before answering. Closing with bytes still queued in
+                // the receive buffer makes Windows send RST instead of FIN, and that RST discards
+                // the response we just wrote - which is how this fixture became a coin flip.
+                let pending: usize = headers
+                    .lines()
+                    .find_map(|line| line.strip_prefix("Content-Length: "))
+                    .and_then(|value| value.trim().parse().ok())
+                    .unwrap_or(0);
+                if pending > 0 {
+                    let mut body_bytes = vec![0u8; pending];
+                    stream.read_exact(&mut body_bytes).unwrap();
+                }
+                let (status, payload) = body.split_once('\n').unwrap_or(("200 OK", body.as_str()));
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+                    payload.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+                stream.flush().unwrap();
+                let _ = stream.shutdown(Shutdown::Write);
+            }
+        });
+        (origin, server)
+    }
+
+    #[test]
+    fn desktop_probe_parses_health_and_capabilities() {
+        let (origin, server) = serve_probe(&[
+            ("/api/desktop/health", r#"{"status":"ok","protocolVersion":2,"serviceVersion":"0.1.0"}"#),
+            ("/api/desktop/capabilities", r#"{"protocolVersion":2,"serviceVersion":"0.1.0","capabilities":{"createRoom":true,"joinRoom":true,"restoreSession":true,"mediaSearch":true,"mediaQueue":true,"handoffCode":true}}"#),
+        ]);
+        let report = DesktopHttpTransport::new(origin).unwrap().probe_desktop_backend().unwrap();
+        assert_eq!(report.status, "ok");
+        assert_eq!(report.protocol_version, 2);
+        assert_eq!(report.service_version, "0.1.0");
+        assert!(report.capabilities.create_room && report.capabilities.join_room);
+        assert!(report.capabilities.media_search && report.capabilities.media_queue);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn desktop_probe_classifies_protocol_and_capability_failures() {
+        let (origin, server) = serve_probe(&[
+            ("/api/desktop/health", r#"{"status":"ok","protocolVersion":3,"serviceVersion":"0.1.0"}"#),
+        ]);
+        assert_eq!(
+            DesktopHttpTransport::new(origin).unwrap().probe_desktop_backend().unwrap_err(),
+            crate::transport::TransportError::ProtocolVersionMismatch,
+        );
+        server.join().unwrap();
+
+        let (origin, server) = serve_probe(&[
+            ("/api/desktop/health", r#"{"status":"ok","protocolVersion":2,"serviceVersion":"0.1.0"}"#),
+            ("/api/desktop/capabilities", r#"{"protocolVersion":2,"serviceVersion":"0.1.0","capabilities":{"createRoom":false,"joinRoom":true,"restoreSession":true,"mediaSearch":true,"mediaQueue":true,"handoffCode":true}}"#),
+        ]);
+        let report = DesktopHttpTransport::new(origin).unwrap().probe_desktop_backend().unwrap();
+        assert!(!report.capabilities.create_room);
+        assert!(report.capabilities.join_room);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn desktop_probe_classifies_auth_and_network_errors() {
+        let (origin, server) = serve_probe(&[
+            ("/api/desktop/health", "401 Unauthorized\n{\"code\":\"AUTH_REQUIRED\"}"),
+        ]);
+        assert_eq!(
+            DesktopHttpTransport::new(origin).unwrap().probe_desktop_backend().unwrap_err(),
+            crate::transport::TransportError::AuthRequired,
+        );
+        server.join().unwrap();
+        assert_eq!(super::classify_probe_network_message("dns error: no such host"), crate::transport::TransportError::DnsFailed);
+        assert_eq!(super::classify_probe_network_message("tcp connect error: connection refused"), crate::transport::TransportError::ConnectionRefused);
+        assert_eq!(super::classify_probe_network_message("invalid peer certificate: UnknownIssuer"), crate::transport::TransportError::TlsTrustRequired);
+    }
+
+    // The classification is a pure mapping, so it is tested as one. Keeping it off the socket is
+    // what stops a fixture's timing from being reported as a logic failure.
+    #[test]
+    fn unauthorized_classification_keeps_pin_codes_and_hides_other_bodies() {
+        for (body, expected) in [
+            (
+                r#"{"code":"ROOM_PIN_REQUIRED","message":"PIN required"}"#,
+                crate::transport::TransportError::Http(401, r#"{"code":"ROOM_PIN_REQUIRED","message":"PIN required"}"#.into()),
+            ),
+            (
+                r#"{"code":"ROOM_PIN_REJECTED","message":"Wrong PIN"}"#,
+                crate::transport::TransportError::Http(401, r#"{"code":"ROOM_PIN_REJECTED","message":"Wrong PIN"}"#.into()),
+            ),
+            (
+                r#"{"code":"ACCESS_TOKEN_INVALID","message":"secret"}"#,
+                crate::transport::TransportError::Unauthorized,
+            ),
+            ("not json at all", crate::transport::TransportError::Unauthorized),
+            ("", crate::transport::TransportError::Unauthorized),
+        ] {
+            assert_eq!(
+                super::unauthorized_error(body.to_string()),
+                expected,
+                "classifying {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn desktop_access_preserves_pin_errors_without_exposing_other_unauthorized_bodies() {
+        for (body, expected) in [
+            (r#"{"code":"ROOM_PIN_REQUIRED","message":"PIN required"}"#, Some("ROOM_PIN_REQUIRED")),
+            (r#"{"code":"ROOM_PIN_REJECTED","message":"Wrong PIN"}"#, Some("ROOM_PIN_REJECTED")),
+            (r#"{"code":"ACCESS_TOKEN_INVALID","message":"secret"}"#, None),
+        ] {
+            let response = format!("401 Unauthorized\n{body}");
+            let (origin, server) = serve_probe(&[("/api/desktop/rooms/room-123/access", &response)]);
+            let mut transport = DesktopHttpTransport::new(origin).unwrap();
+            let error = transport.access_desktop("room-123", "client-1", "Guest", None).unwrap_err();
+            match expected {
+                Some(code) => assert!(matches!(error, crate::transport::TransportError::Http(401, body) if body.contains(code))),
+                None => assert_eq!(error, crate::transport::TransportError::Unauthorized),
+            }
+            server.join().unwrap();
+        }
+    }
 
     #[test]
     fn local_basic_auth_accepts_only_current_credentials() {

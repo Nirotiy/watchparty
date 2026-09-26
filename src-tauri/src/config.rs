@@ -115,7 +115,7 @@ impl Default for PlayerPreferences {
             hdr: "auto".into(),
             audio_device: None,
             channel_layout: "auto".into(),
-            default_volume: 100,
+            default_volume: 30,
             audio_language: String::new(),
             subtitle_language: String::new(),
             subtitle_font: String::new(),
@@ -132,20 +132,26 @@ impl Default for PlayerPreferences {
 #[serde(rename_all = "camelCase", default)]
 pub struct DesktopSettings {
     pub backend_origin: Option<String>,
+    pub allow_remote_http: bool,
     pub nickname: String,
     pub theme: String,
     pub window_material: String,
     pub player_preferences: PlayerPreferences,
+    /// Setup Guide completion flag. Absent from an older settings.json, so those
+    /// profiles deserialize to `false` and see the guide once.
+    pub setup_completed: bool,
 }
 
 impl Default for DesktopSettings {
     fn default() -> Self {
         Self {
             backend_origin: None,
+            allow_remote_http: false,
             nickname: String::new(),
             theme: "dark".into(),
             window_material: "auto".into(),
             player_preferences: PlayerPreferences::default(),
+            setup_completed: false,
         }
     }
 }
@@ -155,11 +161,29 @@ impl Default for DesktopSettings {
 #[serde(rename_all = "camelCase")]
 pub struct DesktopSettingsInput {
     pub backend_origin: Option<String>,
+    #[serde(default)]
+    pub allow_remote_http: bool,
     pub nickname: String,
     pub theme: String,
     #[serde(default = "default_window_material")]
     pub window_material: String,
     pub player_preferences: PlayerPreferences,
+    /// Setup Guide completion flag. `None` means "keep the stored value": the
+    /// flag is written by the Setup Guide, not by the settings page, so unrelated
+    /// saves must never clear it (that would resend the guide on next launch).
+    #[serde(default)]
+    pub setup_completed: Option<bool>,
+}
+
+impl DesktopSettingsInput {
+    /// Resolves the Setup Guide completion flag against what is already stored.
+    ///
+    /// `None` (field absent) keeps the stored value: theme, preference and
+    /// credential saves are not the Setup Guide and must not clear the flag,
+    /// because clearing it would replay the first-run guide on next launch.
+    pub fn merge_setup_completed(&self, stored: bool) -> bool {
+        self.setup_completed.unwrap_or(stored)
+    }
 }
 
 fn default_window_material() -> String { "auto".into() }
@@ -168,11 +192,15 @@ fn default_window_material() -> String { "auto".into() }
 #[serde(rename_all = "camelCase")]
 pub struct DesktopSettingsStatus {
     pub backend_origin: Option<String>,
+    pub allow_remote_http: bool,
     pub nickname: String,
     pub theme: String,
     pub window_material: String,
     pub player_preferences: PlayerPreferences,
     pub credentials_configured: bool,
+    /// Setup Guide completion flag: the renderer shows the first-run guide while
+    /// this is false, and the lobby banner offers "reconfigure" to reset it.
+    pub setup_completed: bool,
     /// Whitelisted properties that failed to apply to the live player; their
     /// persisted values remain in effect for the next player rebuild.
     #[serde(default)]
@@ -183,11 +211,13 @@ impl DesktopSettingsStatus {
     pub fn from_settings(settings: DesktopSettings, credentials_configured: bool) -> Self {
         Self {
             backend_origin: settings.backend_origin,
+            allow_remote_http: settings.allow_remote_http,
             nickname: settings.nickname,
             theme: settings.theme,
             window_material: settings.window_material,
             player_preferences: settings.player_preferences,
             credentials_configured,
+            setup_completed: settings.setup_completed,
             player_preference_failures: Vec::new(),
         }
     }
@@ -245,12 +275,14 @@ impl DesktopConfigStore {
             backend_origin: input
                 .backend_origin
                 .as_deref()
-                .map(validate_backend_origin)
+                .map(|origin| validate_backend_origin_with_policy(origin, input.allow_remote_http))
                 .transpose()?,
+            allow_remote_http: input.allow_remote_http,
             nickname: validate_nickname(input.nickname)?,
             theme: validate_theme(input.theme)?,
             window_material: validate_window_material(input.window_material)?,
             player_preferences: validate_player_preferences(input.player_preferences)?,
+            setup_completed: input.setup_completed.unwrap_or(false),
         })
     }
 
@@ -288,6 +320,10 @@ fn sync_directory(directory: &Path) {
 fn sync_directory(_directory: &Path) {}
 
 pub fn validate_backend_origin(value: &str) -> Result<String, ConfigError> {
+    validate_backend_origin_with_policy(value, false)
+}
+
+pub fn validate_backend_origin_with_policy(value: &str, allow_remote_http: bool) -> Result<String, ConfigError> {
     let parsed = reqwest::Url::parse(value.trim()).map_err(|_| ConfigError::Invalid)?;
     if parsed.username() != ""
         || parsed.password().is_some()
@@ -307,7 +343,7 @@ pub fn validate_backend_origin(value: &str) -> Result<String, ConfigError> {
                     .parse::<IpAddr>()
                     .is_ok_and(|ip| ip.is_loopback())
         });
-    if parsed.scheme() != "https" && !is_loopback_http {
+    if parsed.scheme() != "https" && !(allow_remote_http && parsed.scheme() == "http") && !is_loopback_http {
         return Err(ConfigError::Invalid);
     }
     Ok(parsed.as_str().trim_end_matches('/').to_owned())
@@ -489,8 +525,16 @@ impl SiteCredentialStore {
         platform::has(credential_target(backend_origin)?.as_str())
     }
 
+    pub fn has_with_policy(&self, backend_origin: &str, allow_remote_http: bool) -> Result<bool, ConfigError> {
+        platform::has(credential_target_with_policy(backend_origin, allow_remote_http)?.as_str())
+    }
+
     pub fn read(&self, backend_origin: &str) -> Result<Option<StoredSiteCredentials>, ConfigError> {
         platform::read(credential_target(backend_origin)?.as_str())
+    }
+
+    pub fn read_with_policy(&self, backend_origin: &str, allow_remote_http: bool) -> Result<Option<StoredSiteCredentials>, ConfigError> {
+        platform::read(credential_target_with_policy(backend_origin, allow_remote_http)?.as_str())
     }
 
     /// Opens a Windows-owned password dialog. Renderer code never receives its values.
@@ -580,7 +624,11 @@ pub struct RoomSessionStore;
 
 impl RoomSessionStore {
     pub fn read(&self, backend_origin: &str) -> Result<Option<StoredRoomSession>, ConfigError> {
-        let blob = platform::read_blob(room_credential_target(backend_origin)?.as_str())?;
+        self.read_with_policy(backend_origin, false)
+    }
+
+    pub fn read_with_policy(&self, backend_origin: &str, allow_remote_http: bool) -> Result<Option<StoredRoomSession>, ConfigError> {
+        let blob = platform::read_blob(room_credential_target_with_policy(backend_origin, allow_remote_http)?.as_str())?;
         let Some((_username, bytes)) = blob else {
             return Ok(None);
         };
@@ -601,16 +649,17 @@ impl RoomSessionStore {
         backend_origin: &str,
         session: &StoredRoomSession,
     ) -> Result<(), ConfigError> {
+        self.write_with_policy(backend_origin, session, false)
+    }
+
+    pub fn write_with_policy(&self, backend_origin: &str, session: &StoredRoomSession, allow_remote_http: bool) -> Result<(), ConfigError> {
         let (room_id, client_id, access_token, owner_token, generation) = session.parts();
         let blob = serde_json::to_vec(&RoomSessionBlob {
-            room_id: room_id.into(),
-            client_id: client_id.into(),
-            access_token: access_token.into(),
-            owner_token: owner_token.map(str::to_owned),
-            generation,
+            room_id: room_id.into(), client_id: client_id.into(), access_token: access_token.into(),
+            owner_token: owner_token.map(str::to_owned), generation,
         })?;
         platform::write_blob(
-            room_credential_target(backend_origin)?.as_str(),
+            room_credential_target_with_policy(backend_origin, allow_remote_http)?.as_str(),
             "WatchParty Desktop",
             &blob,
         )
@@ -622,16 +671,24 @@ impl RoomSessionStore {
 }
 
 fn credential_target(backend_origin: &str) -> Result<String, ConfigError> {
+    credential_target_with_policy(backend_origin, false)
+}
+
+fn credential_target_with_policy(backend_origin: &str, allow_remote_http: bool) -> Result<String, ConfigError> {
     Ok(format!(
         "{CREDENTIAL_TARGET_PREFIX}{}",
-        validate_backend_origin(backend_origin)?
+        validate_backend_origin_with_policy(backend_origin, allow_remote_http)?
     ))
 }
 
 fn room_credential_target(backend_origin: &str) -> Result<String, ConfigError> {
+    room_credential_target_with_policy(backend_origin, false)
+}
+
+fn room_credential_target_with_policy(backend_origin: &str, allow_remote_http: bool) -> Result<String, ConfigError> {
     Ok(format!(
         "{ROOM_CREDENTIAL_TARGET_PREFIX}{}",
-        validate_backend_origin(backend_origin)?
+        validate_backend_origin_with_policy(backend_origin, allow_remote_http)?
     ))
 }
 
@@ -896,10 +953,12 @@ mod tests {
     fn input(origin: &str) -> DesktopSettingsInput {
         DesktopSettingsInput {
             backend_origin: Some(origin.into()),
+            allow_remote_http: false,
             nickname: "Nirotiy".into(),
             theme: "dark".into(),
             window_material: "auto".into(),
             player_preferences: PlayerPreferences::default(),
+            setup_completed: None,
         }
     }
 
@@ -925,6 +984,15 @@ mod tests {
         ] {
             assert!(validate_backend_origin(origin).is_err(), "{origin}");
         }
+    }
+
+    #[test]
+    fn remote_http_requires_explicit_policy() {
+        assert!(validate_backend_origin("http://watch.example").is_err());
+        assert_eq!(
+            validate_backend_origin_with_policy("http://watch.example", true).unwrap(),
+            "http://watch.example"
+        );
     }
 
     #[test]
@@ -999,6 +1067,12 @@ break"
         .expect("legacy settings parse");
         assert_eq!(legacy.player_preferences.deinterlace, "auto");
         assert_eq!(legacy.player_preferences.network_timeout, 30);
+        // The Setup Guide completion flag follows the same rule: an older file
+        // has no such field and must read back as "guide not finished yet".
+        assert!(
+            !legacy.setup_completed,
+            "missing setupCompleted must default to false"
+        );
     }
 
     #[test]
@@ -1015,6 +1089,39 @@ break"
             assert!(!contents.contains(secret), "secret field leaked: {secret}");
         }
         assert!(contents.contains("credentialsConfigured"));
+    }
+
+    #[test]
+    fn setup_completed_merges_so_settings_pages_never_replay_the_guide() {
+        // Absent field (older renderer, or a settings page that does not know
+        // about the flag) keeps whatever is on disk.
+        let absent: DesktopSettingsInput = serde_json::from_str(
+            r#"{"backendOrigin":null,"nickname":"Nirotiy","theme":"dark","playerPreferences":{},"allowRemoteHttp":false}"#,
+        )
+        .expect("input without the flag parses");
+        assert_eq!(absent.setup_completed, None);
+        // A settings page that saves without the flag keeps what is stored, in
+        // both directions: it can never replay an already-finished guide, and it
+        // can never mark an unfinished one as done.
+        assert!(absent.merge_setup_completed(true));
+        assert!(!absent.merge_setup_completed(false));
+        // The Setup Guide writes the flag explicitly, in both directions, so the
+        // lobby banner can clear it to replay the guide without touching config.
+        let mut finished = input("https://watch.example");
+        finished.setup_completed = Some(true);
+        assert!(finished.merge_setup_completed(false));
+        let mut replay = input("https://watch.example");
+        replay.setup_completed = Some(false);
+        assert!(!replay.merge_setup_completed(true));
+    }
+
+    #[test]
+    fn settings_status_exposes_the_setup_flag_without_secrets() {
+        let mut settings = DesktopSettings::default();
+        settings.setup_completed = true;
+        let status = DesktopSettingsStatus::from_settings(settings, true);
+        let contents = serde_json::to_string(&status).expect("serialize settings status");
+        assert!(contents.contains("\"setupCompleted\":true"), "{contents}");
     }
 
     #[test]

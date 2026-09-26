@@ -854,16 +854,44 @@ fn rejected_owner_ack() -> CommandAck {
 }
 
 fn ui_error(error: &TransportError) -> UiError {
-    match error {
-        TransportError::Unauthorized => UiError {
-            code: "ACCESS_TOKEN_INVALID".into(),
-            message: "桌面凭据已失效，请重新连接".into(),
-        },
-        TransportError::NotFound => UiError {
-            code: "ROOM_NOT_FOUND".into(),
-            message: "房间不存在或已解散".into(),
-        },
-        TransportError::Network(_) => UiError {
+        match error {
+            TransportError::Unauthorized => UiError {
+                code: "ACCESS_TOKEN_INVALID".into(),
+                message: "桌面凭据已失效，请重新连接".into(),
+            },
+            TransportError::AuthRequired => UiError {
+                code: "AUTH_REQUIRED".into(),
+                message: "服务需要站点鉴权，请检查已保存的站点凭据".into(),
+            },
+            TransportError::AuthRejected => UiError {
+                code: "AUTH_REJECTED".into(),
+                message: "站点鉴权失败，请检查已保存的站点凭据".into(),
+            },
+            TransportError::NotFound => UiError {
+                code: "ROOM_NOT_FOUND".into(),
+                message: "房间不存在或已解散".into(),
+            },
+            TransportError::DnsFailed => UiError {
+                code: "DNS_FAILED".into(),
+                message: "无法解析服务地址，请检查地址或网络".into(),
+            },
+            TransportError::ConnectionRefused => UiError {
+                code: "CONNECTION_REFUSED".into(),
+                message: "服务未启动或端口错误".into(),
+            },
+            TransportError::TlsTrustRequired => UiError {
+                code: "TLS_TRUST_REQUIRED".into(),
+                message: "服务证书不受信任，请导入或确认来源信任".into(),
+            },
+            TransportError::ProtocolVersionMismatch => UiError {
+                code: "PROTOCOL_VERSION_MISMATCH".into(),
+                message: "客户端或服务端协议版本不兼容，请升级后重试".into(),
+            },
+            TransportError::CapabilityUnavailable => UiError {
+                code: "CAPABILITY_UNAVAILABLE".into(),
+                message: "服务缺少桌面端所需的创建或加入能力".into(),
+            },
+            TransportError::Network(_) => UiError {
             code: "NETWORK_BACKOFF".into(),
             message: "网络暂时不可用，正在重试".into(),
         },

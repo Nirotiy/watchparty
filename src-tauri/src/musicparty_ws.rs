@@ -9,15 +9,17 @@ pub type MusicPartySocket = WebSocket<MaybeTlsStream<TcpStream>>;
 
 const MUSICPARTY_WS_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-pub struct MusicPartyWsState(Mutex<Option<MusicPartySocket>>, AtomicU64, Option<std::sync::Arc<OriginTrustStore>>);
+/// The last field records which origin owns the published socket, so a logout from
+/// one server can cancel that server's room without touching another's.
+pub struct MusicPartyWsState(Mutex<Option<MusicPartySocket>>, AtomicU64, Option<std::sync::Arc<OriginTrustStore>>, Mutex<Option<String>>);
 
 impl Default for MusicPartyWsState {
-    fn default() -> Self { Self(Mutex::new(None), AtomicU64::new(0), None) }
+    fn default() -> Self { Self(Mutex::new(None), AtomicU64::new(0), None, Mutex::new(None)) }
 }
 
 impl MusicPartyWsState {
     pub fn with_trust_store(store: std::sync::Arc<OriginTrustStore>) -> Self {
-        Self(Mutex::new(None), AtomicU64::new(0), Some(store))
+        Self(Mutex::new(None), AtomicU64::new(0), Some(store), Mutex::new(None))
     }
 }
 
@@ -31,13 +33,14 @@ pub struct WsEvent { pub event: String }
 impl MusicPartyWsState {
     pub fn connect(&self, input: WsConnectInput) -> Result<WsEvent, String> {
         let generation = self.1.load(Ordering::Acquire);
+        let origin = validate_backend_origin(&input.origin).map_err(|_| "invalid_musicparty_origin")?;
         parse_version(&input.client_version).ok_or("version-incompatible")?;
-        let socket = connect_with_store(self.2.as_deref(), &input.origin, &input.room_id, &input.client_version)?;
-        self.negotiate(socket, &input.client_version, generation)
+        let socket = connect_with_store(self.2.as_deref(), &origin, &input.room_id, &input.client_version)?;
+        self.negotiate(socket, &input.client_version, generation, &origin)
     }
 
     /// Publishes a socket only after the desktop version handshake succeeds.
-    fn negotiate(&self, mut socket: MusicPartySocket, client_version: &str, generation: u64) -> Result<WsEvent, String> {
+    fn negotiate(&self, mut socket: MusicPartySocket, client_version: &str, generation: u64, origin: &str) -> Result<WsEvent, String> {
         let client = parse_version(client_version).ok_or("version-incompatible")?;
         socket.send(tungstenite::Message::Text(serde_json::json!({"type":"client.hello","payload":{"apiVersion":"2026-01","clientVersion":client_version}}).to_string())).map_err(|_| "musicparty_ws_send_failed")?;
         let hello = socket.read().map_err(|_| "musicparty_ws_read_failed")?;
@@ -51,6 +54,8 @@ impl MusicPartyWsState {
         if client < minimum { return Err("version-incompatible".into()); }
         let mut slot = self.0.lock().map_err(|_| "musicparty_ws_unavailable")?;
         if self.1.load(Ordering::Acquire) != generation { return Err("musicparty_ws_disconnected".into()); }
+        self.3.lock().map_err(|_| "musicparty_ws_unavailable")?
+            .replace(origin.to_owned());
         *slot = Some(socket);
         Ok(WsEvent { event: text })
     }
@@ -91,7 +96,22 @@ impl MusicPartyWsState {
         }
     }
 
-    pub fn disconnect(&self) -> Result<(), String> { self.1.fetch_add(1, Ordering::AcqRel); self.0.lock().map_err(|_| "musicparty_ws_unavailable")?.take(); Ok(()) }
+    pub fn disconnect(&self) -> Result<(), String> {
+        self.1.fetch_add(1, Ordering::AcqRel);
+        self.0.lock().map_err(|_| "musicparty_ws_unavailable")?.take();
+        self.3.lock().map_err(|_| "musicparty_ws_unavailable")?.take();
+        Ok(())
+    }
+
+    /// Cancels the live socket only when it belongs to `origin`. Credentials for one
+    /// server disappearing must not mute a room opened on another.
+    pub fn disconnect_origin(&self, origin: &str) -> Result<(), String> {
+        let Ok(normalized) = validate_backend_origin(origin) else { return Ok(()) };
+        let matches = self.3.lock().map_err(|_| "musicparty_ws_unavailable")?
+            .as_deref()
+            .is_some_and(|current| current == normalized);
+        if matches { self.disconnect() } else { Ok(()) }
+    }
 }
 
 fn set_read_timeout(socket: &mut MusicPartySocket) {
@@ -283,13 +303,15 @@ mod tests {
             });
             let socket = connect_with_session(None, &origin, "lounge", client, &MusicPartySession::new("fixture", "fixture")).unwrap();
             let state = MusicPartyWsState::default();
-            let result = state.negotiate(socket, client, state.1.load(Ordering::Acquire));
+            let result = state.negotiate(socket, client, state.1.load(Ordering::Acquire), &origin);
             if accepted {
                 assert!(result.is_ok());
                 assert!(state.0.lock().unwrap().is_some());
+                assert_eq!(state.3.lock().unwrap().as_deref(), Some(origin.as_str()));
             } else {
                 assert_eq!(result.err().as_deref(), Some("version-incompatible"));
                 assert!(state.0.lock().unwrap().is_none());
+                assert!(state.3.lock().unwrap().is_none());
                 assert_eq!(state.receive().err().as_deref(), Some("musicparty_ws_not_connected"));
             }
             state.disconnect().unwrap();
@@ -298,8 +320,35 @@ mod tests {
     }
 
     #[test]
-    fn invalid_client_versions_are_rejected_before_opening_a_socket() {
-        for client_version in ["0.2", "00.2.0", "0.2.0-beta", "-1.2.0", "0.2.0.1", "0. 2.0"] {
+    fn disconnect_origin_only_cancels_the_matching_server_socket() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut socket = tungstenite::accept(stream).unwrap();
+            assert!(socket.read().unwrap().into_text().unwrap().contains("client.hello"));
+            socket.send(tungstenite::Message::Text(serde_json::json!({
+                "type": "server.hello", "payload": {"apiVersion": "2026-01", "minimumClientVersion": "0.2.0"}
+            }).to_string())).unwrap();
+        });
+        let socket = connect_with_session(None, &origin, "lounge", "0.2.0", &MusicPartySession::new("fixture", "fixture")).unwrap();
+        let state = MusicPartyWsState::default();
+        state.negotiate(socket, "0.2.0", state.1.load(Ordering::Acquire), &origin).unwrap();
+        // A malformed origin and a different spelling of the same host must both leave the
+        // room alone: only the exact validated origin owns the socket.
+        for other in ["not a url", &origin.replace("127.0.0.1", "localhost"), "https://example.test"] {
+            state.disconnect_origin(other).unwrap();
+            assert!(state.0.lock().unwrap().is_some(), "{other} must not cancel another origin");
+        }
+        state.disconnect_origin(&format!("{origin}/")).unwrap();
+        assert!(state.0.lock().unwrap().is_none(), "the owning origin must drop the socket");
+        assert!(state.3.lock().unwrap().is_none(), "the owner record must not outlive the socket");
+        assert_eq!(state.send("{\"type\":\"ping\"}".into()).err().as_deref(), Some("musicparty_ws_not_connected"));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn invalid_client_versions_are_rejected_before_opening_a_socket() {        for client_version in ["0.2", "00.2.0", "0.2.0-beta", "-1.2.0", "0.2.0.1", "0. 2.0"] {
             let state = MusicPartyWsState::default();
             let result = state.connect(WsConnectInput { origin: "http://127.0.0.1:1".into(), room_id: "lounge".into(), client_version: client_version.into() });
             assert_eq!(result.err().as_deref(), Some("version-incompatible"));

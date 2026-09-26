@@ -1,5 +1,5 @@
 use crate::{
-    config::{validate_backend_origin, PlayerPreferences, StoredSiteCredentials},
+    config::{validate_backend_origin_with_policy, PlayerPreferences, StoredSiteCredentials},
     contracts::{
         CommandAck, ConnectionState, DesktopCommand, DesktopEvent, DesktopUiState,
         NativeCapabilityReport, PlayerState, UiError,
@@ -77,6 +77,7 @@ impl Drop for NativeSiteCredentials {
 /// Native runtime configuration. It can only be loaded by Rust and never crosses IPC.
 pub struct NativeRuntimeConfig {
     backend_origin: String,
+    allow_remote_http: bool,
     site_credentials: Option<NativeSiteCredentials>,
     player: Option<LibMpvConfig>,
     owner_token_persist: Option<std::sync::Arc<dyn Fn(Option<String>) + Send + Sync>>,
@@ -88,10 +89,19 @@ impl NativeRuntimeConfig {
         backend_origin: String,
         site_credentials: Option<NativeSiteCredentials>,
     ) -> Result<Self, RuntimeError> {
-        let backend_origin = validate_backend_origin(&backend_origin)
+        Self::new_with_policy(backend_origin, site_credentials, false)
+    }
+
+    pub fn new_with_policy(
+        backend_origin: String,
+        site_credentials: Option<NativeSiteCredentials>,
+        allow_remote_http: bool,
+    ) -> Result<Self, RuntimeError> {
+        let backend_origin = validate_backend_origin_with_policy(&backend_origin, allow_remote_http)
             .map_err(|_| RuntimeError::configuration_error())?;
         Ok(Self {
             backend_origin,
+            allow_remote_http,
             site_credentials,
             player: None,
             owner_token_persist: None,
@@ -116,19 +126,32 @@ impl NativeRuntimeConfig {
         site_credentials: Option<NativeSiteCredentials>,
         player: LibMpvConfig,
     ) -> Result<Self, RuntimeError> {
-        let mut config = Self::new(backend_origin, site_credentials)?;
+        Self::with_player_with_policy(backend_origin, site_credentials, player, false)
+    }
+
+    pub fn with_player_with_policy(
+        backend_origin: String,
+        site_credentials: Option<NativeSiteCredentials>,
+        player: LibMpvConfig,
+        allow_remote_http: bool,
+    ) -> Result<Self, RuntimeError> {
+        let mut config = Self::new_with_policy(backend_origin, site_credentials, allow_remote_http)?;
         config.player = Some(player);
         Ok(config)
     }
 
     fn create_session(&self) -> Result<Box<dyn ManagedSession>, RuntimeError> {
         let transport = match &self.site_credentials {
-            Some(credentials) => DesktopHttpTransport::with_site_basic_auth(
+            Some(credentials) => DesktopHttpTransport::with_site_basic_auth_with_policy(
                 self.backend_origin.clone(),
                 credentials.username.clone(),
                 credentials.password.clone(),
+                self.allow_remote_http,
             ),
-            None => DesktopHttpTransport::new(self.backend_origin.clone()),
+            None => DesktopHttpTransport::new_with_policy(
+                self.backend_origin.clone(),
+                self.allow_remote_http,
+            ),
         }
         .map_err(|error| RuntimeError::from_transport(&error))?;
 
@@ -170,6 +193,15 @@ impl RuntimeError {
         Self {
             code: "DESKTOP_SITE_NOT_CONFIGURED",
             message: "请先在设置中配置 WatchParty 站点",
+        }
+    }
+
+    /// The renderer asked for a media route the sidecar's allow-list does not cover.
+    /// That is a client bug or a probe, never a user state, so the copy stays generic.
+    pub(crate) fn media_route_denied() -> Self {
+        Self {
+            code: "MEDIA_ROUTE_DENIED",
+            message: "这个媒体地址不在允许清单里",
         }
     }
 
@@ -248,9 +280,45 @@ impl RuntimeError {
                 code: "ROOM_NOT_FOUND",
                 message: "房间不存在或已解散",
             },
+            TransportError::DnsFailed => Self {
+                code: "DNS_FAILED",
+                message: "无法解析服务地址，请检查地址或网络",
+            },
+            TransportError::ConnectionRefused => Self {
+                code: "CONNECTION_REFUSED",
+                message: "服务未启动或端口错误",
+            },
+            TransportError::TlsTrustRequired => Self {
+                code: "TLS_TRUST_REQUIRED",
+                message: "服务证书不受信任，请导入或确认来源信任",
+            },
+            TransportError::ProtocolVersionMismatch => Self {
+                code: "PROTOCOL_VERSION_MISMATCH",
+                message: "客户端或服务端协议版本不兼容，请升级后重试",
+            },
+            TransportError::CapabilityUnavailable => Self {
+                code: "CAPABILITY_UNAVAILABLE",
+                message: "服务缺少创建或加入 Watch Party 所需的桌面能力",
+            },
+            TransportError::AuthRequired => Self {
+                code: "AUTH_REQUIRED",
+                message: "服务需要站点鉴权，请检查已保存的站点凭据",
+            },
+            TransportError::AuthRejected => Self {
+                code: "AUTH_REJECTED",
+                message: "站点鉴权失败，请检查已保存的站点凭据",
+            },
             TransportError::Network(_) => Self {
                 code: "NETWORK_ERROR",
                 message: "网络暂时不可用",
+            },
+            TransportError::Http(401, body) if http_error_code(body).as_deref() == Some("ROOM_PIN_REQUIRED") => Self {
+                code: "ROOM_PIN_REQUIRED",
+                message: "加入该房间需要 PIN 码",
+            },
+            TransportError::Http(401, body) if http_error_code(body).as_deref() == Some("ROOM_PIN_REJECTED") => Self {
+                code: "ROOM_PIN_REJECTED",
+                message: "PIN 码错误",
             },
             TransportError::Protocol(_) | TransportError::Http(_, _) => Self {
                 code: "DESKTOP_REQUEST_FAILED",
@@ -267,6 +335,11 @@ impl fmt::Display for RuntimeError {
 }
 
 impl std::error::Error for RuntimeError {}
+
+fn http_error_code(body: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(body).ok()?
+        .get("code")?.as_str().map(str::to_owned)
+}
 
 trait ManagedSession: Send {
     fn start(&mut self, ticket: &str, now_ms: i64) -> Result<Vec<DesktopEvent>, TransportError>;

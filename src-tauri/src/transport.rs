@@ -3,10 +3,121 @@ use crate::contracts::{CommandAck, DesktopCommand, MediaSource, RoomMember, Room
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TransportError {
     Network(String),
+    DnsFailed,
+    ConnectionRefused,
+    TlsTrustRequired,
     Unauthorized,
+    AuthRequired,
+    AuthRejected,
     NotFound,
+    ProtocolVersionMismatch,
+    CapabilityUnavailable,
     Protocol(String),
     Http(u16, String),
+}
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopCapabilities {
+    pub create_room: bool,
+    pub join_room: bool,
+    pub restore_session: bool,
+    pub media_search: bool,
+    pub media_queue: bool,
+    pub handoff_code: bool,
+    /// Whether the backend serves the readiness endpoint. Absent on older
+    /// backends; absence means "no readiness information", never "degraded".
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub readiness: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopProbeReport {
+    pub status: String,
+    pub protocol_version: u32,
+    pub service_version: String,
+    pub capabilities: DesktopCapabilities,
+}
+
+/// One dependency probe inside the readiness payload. Component status uses the
+/// `up|down` vocabulary (distinct from the report's top-level `ready|degraded`);
+/// rendering keys off `status`/`code`, never a localized `message`.
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadinessComponent {
+    pub status: String,
+    #[serde(default)]
+    pub code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remediation: Option<String>,
+}
+
+/// One media-root probe inside `components.mediaRoots.roots[]`.
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadinessMediaRoot {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub code: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadinessComponents {
+    #[serde(default)]
+    pub core: Option<ReadinessComponent>,
+    #[serde(default)]
+    pub openlist: Option<ReadinessComponent>,
+    #[serde(default)]
+    pub media_roots: Option<ReadinessComponent>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadinessDiagnostic {
+    #[serde(default)]
+    pub severity: String,
+    pub code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remediation: Option<String>,
+}
+
+/// Readiness payload as served by Node (`GET /api/desktop/readiness`); unknown
+/// fields are tolerated so a Go dialect can be projected onto the same shape.
+/// `startedAt`/`checkedAt` are epoch **milliseconds** (numbers, not ISO strings)
+/// and `listener`/`cache`/`config` are carried through as opaque JSON: the
+/// banner only reads `status`/`service`/`components`/`diagnostics`, and pinning
+/// the rest down here would reject payloads for fields nobody renders.
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopReadinessReport {
+    pub status: String,
+    #[serde(default)]
+    pub service: String,
+    #[serde(default = "default_readiness_version")]
+    pub readiness_version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked_at: Option<u64>,
+    #[serde(default)]
+    pub components: ReadinessComponents,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<ReadinessDiagnostic>,
+}
+
+fn default_readiness_version() -> u32 {
+    1
 }
 
 #[derive(PartialEq, serde::Deserialize)]

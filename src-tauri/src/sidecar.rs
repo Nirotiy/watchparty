@@ -61,6 +61,10 @@ enum Command {
     ClearCredentials {},
     #[serde(rename = "verifyBackend")]
     Verify {},
+    #[serde(rename = "probeDesktopBackend")]
+    ProbeDesktopBackend {},
+    #[serde(rename = "probeDesktopReadiness")]
+    ProbeDesktopReadiness {},
     #[serde(rename = "createDesktopRoom")]
     Create { input: api::DesktopRoomInput },
     #[serde(rename = "accessDesktopRoom")]
@@ -89,6 +93,15 @@ enum Command {
     List { root: String, path: Option<String>, cursor: Option<String> },
     #[serde(rename = "mediaSearch")]
     Search { query: String, cursor: Option<String> },
+    #[serde(rename = "mediaRequest")]
+    MediaRequest {
+        method: String,
+        path: String,
+        query: Option<String>,
+        body: Option<Value>,
+    },
+    #[serde(rename = "mediaArtwork", rename_all = "camelCase")]
+    MediaArtwork { media_id: String },
     #[serde(rename = "__launch")]
     OpenUrl { url: String },
     #[serde(rename = "__shutdown")]
@@ -158,8 +171,19 @@ impl State {
             }
         }
         match command {
-            Command::MusicRequest { input } => encode(self.http.request(input)),
-            Command::ClearMusic { origin } => encode(self.http.clear(&origin)),
+            Command::MusicRequest { input } => {
+                let origin = input.origin.clone();
+                let result = self.http.request_with_clear(input);
+                // Credentials gone means the room is gone: cancel the socket here instead
+                // of trusting the renderer to remember a separate disconnect call.
+                if matches!(result, Ok((_, true))) { let _ = self.ws.disconnect_origin(&origin); }
+                encode(result.map(|(response, _)| response))
+            }
+            Command::ClearMusic { origin } => {
+                let result = self.http.clear(&origin);
+                if result.is_ok() { let _ = self.ws.disconnect_origin(&origin); }
+                encode(result)
+            }
             Command::WsConnect { input } => encode(self.ws.connect(input)),
             Command::WsSend { event } => encode(self.ws.send(event)),
             Command::WsReceive {} => encode(self.ws.receive()),
@@ -193,6 +217,8 @@ impl State {
             Command::PromptCredentials {} => encode(api::prompt_site_credentials(s)),
             Command::ClearCredentials {} => encode(api::clear_site_credentials(s)),
             Command::Verify {} => encode(api::verify_backend(s)),
+            Command::ProbeDesktopBackend {} => encode(api::probe_desktop_backend(s)),
+            Command::ProbeDesktopReadiness {} => encode(api::probe_desktop_readiness(s)),
             Command::Create { input } => encode(api::create_desktop_room(input, s)),
             Command::Access { input } => encode(api::access_desktop_room(input, s)),
             Command::Start { ticket, expected_room_id } => encode(api::start_desktop_session(ticket, expected_room_id, s)),
@@ -207,6 +233,8 @@ impl State {
             Command::Roots {} => encode(api::media_roots(s)),
             Command::List { root, path, cursor } => encode(api::media_list(s, root, path, cursor)),
             Command::Search { query, cursor } => encode(api::media_search(s, query, cursor)),
+            Command::MediaRequest { method, path, query, body } => encode(api::media_request(s, method, path, query, body)),
+            Command::MediaArtwork { media_id } => encode(api::media_artwork(s, media_id)),
             Command::OpenUrl { url } => {
                 let launch = parse_room_deep_link(&url).ok_or(json!("invalid_deep_link"))?;
                 s.record_launch(launch.clone());
