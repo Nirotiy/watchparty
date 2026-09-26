@@ -131,11 +131,17 @@ export function groupScanFiles(files: ScanFile[]): CatalogGroup[] {
   return groups.sort((left, right) => left.itemKey.localeCompare(right.itemKey));
 }
 
+/**
+ * zh-CN display string, served verbatim: clients are forbidden by the frozen
+ * contract from parsing this text, so the wording belongs to the backend.
+ * Shape is load-bearing (optional `S<n> · ` prefix, then a count) — the card
+ * sub-line truncates near 20 characters.
+ */
 export function episodeSubtitle(files: CatalogGroupFile[]): string | null {
   if (files.length <= 1) return null;
   const seasons = new Set(files.map((file) => file.season).filter((season): season is number => season !== null));
   const prefix = seasons.size === 1 ? `S${[...seasons][0]} · ` : "";
-  return `${prefix}${files.length} episodes`;
+  return `${prefix}${files.length} 集`;
 }
 
 function parentOf(relativePath: string): string {

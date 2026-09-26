@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { createBackend, type Backend } from "../app.ts";
 import { loadConfig } from "../config.ts";
-import { cleanTitle, groupScanFiles, scoreTitles } from "../media/catalog-names.ts";
+import { cleanTitle, episodeSubtitle, groupScanFiles, scoreTitles } from "../media/catalog-names.ts";
 import { chooseMatch, createBangumiClient, rankHits, type MetadataHit, type MetadataSearcher } from "../media/catalog-metadata.ts";
 import { openCatalogStore } from "../media/catalog-store.ts";
 import { createCatalogWorker } from "../media/catalog-worker.ts";
@@ -39,6 +39,30 @@ test("season folders roll up to one series and episodes stay ordered", () => {
     groups[0]?.files.map((file) => file.episode),
     [1, 2],
   );
+});
+
+test("episodeSubtitle emits a zh-CN display string with the contract's shape", () => {
+  const files = (count: number, season: number | null) =>
+    Array.from({ length: count }, (_unused, index) => ({
+      mediaId: `m${index}`,
+      name: `Show S01E${index + 1}.mkv`,
+      season,
+      episode: index + 1,
+    }));
+
+  assert.equal(episodeSubtitle([]), null);
+  assert.equal(episodeSubtitle(files(1, 1)), null);
+  assert.equal(episodeSubtitle(files(12, 1)), "S1 · 12 集");
+  assert.equal(episodeSubtitle(files(24, null)), "24 集");
+  assert.equal(episodeSubtitle([...files(12, 1), ...files(12, 2)]), "24 集");
+
+  // Frozen client contract: optional `S<n> · ` prefix then the count, nothing
+  // else, and short enough for the poster card's ~20-char sub-line.
+  assert.match(episodeSubtitle(files(12, 1)) ?? "", /^S\d+ · \d+ 集$/);
+  assert.match(episodeSubtitle(files(24, null)) ?? "", /^\d+ 集$/);
+  for (const value of [episodeSubtitle(files(12, 1)), episodeSubtitle(files(120, null))]) {
+    assert.ok((value ?? "").length <= 20, `subtitle overflows the card sub-line: ${value}`);
+  }
 });
 
 test("a tie stays a candidate and a weak overlap is not confirmed", () => {
