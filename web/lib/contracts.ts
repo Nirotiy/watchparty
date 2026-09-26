@@ -116,8 +116,31 @@ export interface RoomAccessResponse {
   accessToken: string;
 }
 
-// 9. OpenList 媒体项与目录结构
-export type AllowedOpenListRoot = "Anime" | "Film" | "TV Shows";
+// 9. 媒体库（多源 phase 1）：库、能力位与目录页
+export type MediaLibraryKind = "anime" | "movie" | "tv" | "other";
+
+export type MediaLibraryHealth =
+  | "ok"
+  | "unreachable"
+  | "auth_failed"
+  | "root_missing"
+  | "not_configured";
+
+export interface MediaLibrary {
+  id: string;
+  name: string;
+  kind: MediaLibraryKind;
+  sourceId: string;
+  sourceName: string;
+  health: MediaLibraryHealth;
+}
+
+export interface MediaCapabilities {
+  libraries: boolean;
+  artwork: boolean;
+  catalog: boolean;
+  mediaAdmin: boolean;
+}
 
 export type CompatibilityStatus = "supported" | "maybe" | "unsupported";
 
@@ -128,24 +151,32 @@ export interface MediaCompatibility {
   desktopReason?: string;
 }
 
-export interface OpenListItem {
+export interface MediaLibraryItem {
   id: string;
   name: string;
   type: "file" | "dir";
   size?: number;
   extension?: string;
-  duration?: number;
   compatibility: MediaCompatibility;
-  displayPath?: string;
+  /** 库根下的相对路径：只用来导航与显示，永远不塞进播放源。 */
+  relativePath?: string;
+  posterId?: string;
 }
 
-export interface OpenListDirectory {
-  root: AllowedOpenListRoot;
+export interface MediaBreadcrumb {
+  name: string;
+  path: string;
+}
+
+export interface MediaLibraryPage {
+  libraryId: string;
   currentPath: string;
-  breadcrumbs: string[];
+  breadcrumbs: MediaBreadcrumb[];
   hasMore: boolean;
   nextCursor?: string;
-  items: OpenListItem[];
+  items: MediaLibraryItem[];
+  /** 本目录自己的封面（目录里有 poster.jpg 时才有） */
+  posterId?: string;
 }
 
 // 10. 字幕定义

@@ -9,8 +9,9 @@ import {
   RoomInfoResponse,
   RoomAccessRequest,
   RoomAccessResponse,
-  AllowedOpenListRoot,
-  OpenListDirectory,
+  MediaCapabilities,
+  MediaLibrary,
+  MediaLibraryPage,
   SubtitleTrack,
   HandoffTicketResponse,
 } from "./contracts";
@@ -68,34 +69,39 @@ export const api = {
       },
     ),
 
-  // 4. 获取 OpenList 根目录列表 (仅依赖 Caddy Basic Auth，无需房间 Token)
-  getMediaRoots: (): Promise<AllowedOpenListRoot[]> =>
-    request<AllowedOpenListRoot[]>("/api/media/roots"),
+  // 4. 媒体库能力位（`libraries` 为真才走 libraryId 路由）
+  getMediaCapabilities: (): Promise<MediaCapabilities> =>
+    request<MediaCapabilities>("/api/media/capabilities"),
 
-  // 5. 获取 OpenList 目录列表 (分页模式，单页上限 100 项)
+  // 5. 库列表：顺序按服务端返回，客户端不排序
+  getMediaLibraries: (): Promise<MediaLibrary[]> =>
+    request<{ libraries: MediaLibrary[] }>("/api/media/libraries").then(
+      (res) => res.libraries ?? [],
+    ),
+
+  // 6. 库内目录列表（分页模式，单页上限 100 项）
   getMediaList: (
-    root: AllowedOpenListRoot,
+    libraryId: string,
     path = "/",
     cursor?: string,
-  ): Promise<OpenListDirectory> => {
-    const params = new URLSearchParams({ root, path });
+  ): Promise<MediaLibraryPage> => {
+    const params = new URLSearchParams({ libraryId, path });
     if (cursor) params.set("cursor", cursor);
-    return request<OpenListDirectory>(`/api/media/list?${params.toString()}`);
+    return request<MediaLibraryPage>(`/api/media/list?${params.toString()}`);
   },
 
-  // 6. 全局搜索媒体 (分页模式)
+  // 7. 库内文件名搜索（分页模式；cursor 是服务端给的十进制偏移，原样回传）
   searchMedia: (
     query: string,
-    root?: AllowedOpenListRoot,
+    libraryId: string,
     cursor?: string,
-  ): Promise<OpenListDirectory> => {
-    const params = new URLSearchParams({ q: query });
-    if (root) params.set("root", root);
+  ): Promise<MediaLibraryPage> => {
+    const params = new URLSearchParams({ q: query, libraryId });
     if (cursor) params.set("cursor", cursor);
-    return request<OpenListDirectory>(`/api/media/search?${params.toString()}`);
+    return request<MediaLibraryPage>(`/api/media/search?${params.toString()}`);
   },
 
-  // 7. 解析临时 HTTPS 播放直链 (需 accessToken)
+  // 8. 解析临时 HTTPS 播放直链 (需 accessToken)
   resolveMedia: (
     roomId: string,
     mediaId: string,
@@ -117,7 +123,7 @@ export const api = {
       body: JSON.stringify({ mediaId }),
     }),
 
-  // 8. 获取字幕文本内容 (需 accessToken)
+  // 9. 获取字幕文本内容 (需 accessToken)
   getSubtitleContent: async (
     roomId: string,
     mediaId: string,
@@ -137,7 +143,7 @@ export const api = {
     return res.text();
   },
 
-  // 9. Discover subtitle files associated with a media item.
+  // 10. Discover subtitle files associated with a media item.
   getSubtitleTracks: (
     roomId: string,
     mediaId: string,
@@ -148,7 +154,7 @@ export const api = {
       { headers: { "X-WatchParty-Token": accessToken } },
     ),
 
-  // 10. 签发一次性 native 交接票据（5 分钟 TTL；交接码不进 URL）
+  // 11. 签发一次性 native 交接票据（5 分钟 TTL；交接码不进 URL）
   issueHandoffTicket: (
     roomId: string,
     accessToken: string,

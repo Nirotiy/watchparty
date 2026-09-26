@@ -16,11 +16,33 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import { AllowedOpenListRoot, MediaSource, OpenListItem } from "@/lib/contracts";
+import {
+  MediaBreadcrumb,
+  MediaLibrary,
+  MediaLibraryItem,
+  MediaLibraryKind,
+  MediaSource,
+} from "@/lib/contracts";
+import { mediaErrorText } from "@/lib/media-error-text";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+
+const KIND_LABEL: Record<MediaLibraryKind, string> = {
+  anime: "番剧",
+  movie: "电影",
+  tv: "剧集",
+  other: "其他",
+};
+
+const HEALTH_LABEL: Record<string, string> = {
+  ok: "可用",
+  unreachable: "连不上",
+  auth_failed: "鉴权失败",
+  root_missing: "路径不存在",
+  not_configured: "未配置",
+};
 
 interface OpenListModalProps {
   isOpen: boolean;
@@ -29,6 +51,18 @@ interface OpenListModalProps {
   onPlayOnDesktop?: (media: MediaSource) => boolean | void | Promise<boolean | void>;
   onAddToQueue: (media: MediaSource) => void;
   onBatchAdd: (medias: MediaSource[]) => void | Promise<void>;
+}
+
+/** 库封面（相位 2）：同源 <img>，走 Next 的 /api 重写，失败就退回图标。 */
+function ArtworkThumb({ posterId, fallback }: { posterId?: string | null; fallback: React.ReactNode }) {
+  const [failed, setFailed] = React.useState(false);
+  return (
+    <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded border border-border bg-black">
+      {posterId && !failed
+        ? <img src={`/api/media/artwork/${encodeURIComponent(posterId)}`} alt="" loading="lazy" className="size-full object-cover" onError={() => setFailed(true)} />
+        : fallback}
+    </span>
+  );
 }
 
 function parseYouTubeVideoId(value: string): string | null {
@@ -57,13 +91,16 @@ export function OpenListModal({
   onAddToQueue,
   onBatchAdd,
 }: OpenListModalProps) {
-  // 当前根目录与路径
-  const [selectedRoot, setSelectedRoot] = useState<AllowedOpenListRoot>("Anime");
+  // 多源库（phase 1）：能力位为真走 /api/media/libraries + list?libraryId=，
+  // 顺序、面包屑路径都按服务端返回渲染，客户端不排序、不拼路径。
+  const [libraries, setLibraries] = useState<MediaLibrary[]>([]);
+  const [activeLibraryId, setActiveLibraryId] = useState<string | null>(null);
   const [currentPath, setCurrentPath] = useState<string>("/");
-  const [breadcrumbs, setBreadcrumbs] = useState<string[]>([]);
-  const [items, setItems] = useState<OpenListItem[]>([]);
+  const [breadcrumbs, setBreadcrumbs] = useState<MediaBreadcrumb[]>([]);
+  const [items, setItems] = useState<MediaLibraryItem[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
+  const [folderPosterId, setFolderPosterId] = useState<string | null>(null);
 
   // 加载与错误状态 (绝对零 mock 降级)
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -72,7 +109,7 @@ export function OpenListModal({
   // 搜索态与搜索分页
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [activeSearchQuery, setActiveSearchQuery] = useState<string | null>(null);
-  const [searchResults, setSearchResults] = useState<OpenListItem[]>([]);
+  const [searchResults, setSearchResults] = useState<MediaLibraryItem[]>([]);
   const [searchHasMore, setSearchHasMore] = useState<boolean>(false);
   const [searchNextCursor, setSearchNextCursor] = useState<string | undefined>(undefined);
   const requestSequenceRef = useRef(0);
@@ -82,46 +119,43 @@ export function OpenListModal({
   const [customUrl, setCustomUrl] = useState<string>("");
   const [customTitle, setCustomTitle] = useState<string>("");
 
+  const activeLibrary = libraries.find((library) => library.id === activeLibraryId) ?? null;
+
   // 1. 获取目录内容 (真机接口请求，彻底删除 mock fallback)
-  const loadDirectory = useCallback(async (root: AllowedOpenListRoot, path: string, cursor?: string) => {
+  const loadDirectory = useCallback(async (libraryId: string, path: string, cursor?: string) => {
     const requestSequence = ++requestSequenceRef.current;
     setIsLoading(true);
     setErrorMsg(null);
     try {
-      const res = await api.getMediaList(root, path, cursor);
+      const res = await api.getMediaList(libraryId, path, cursor);
       if (requestSequence !== requestSequenceRef.current) return;
-      // 自然排序
-      const sorted = [...(res.items || [])].sort((a: OpenListItem, b: OpenListItem) =>
-        a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
-      );
-
       if (cursor) {
-        setItems((prev) => [...prev, ...sorted]);
+        setItems((prev) => [...prev, ...(res.items || [])]);
       } else {
-        setItems(sorted);
+        setItems(res.items || []);
       }
       setBreadcrumbs(res.breadcrumbs || []);
+      setFolderPosterId(res.posterId ?? null);
       setHasMore(res.hasMore || false);
       setNextCursor(res.nextCursor);
     } catch (err: unknown) {
       if (requestSequence !== requestSequenceRef.current) return;
-      const error = err as Error;
-      setErrorMsg(error.message || "无法加载媒体目录，请检查网络或后端 Gateway");
-      if (!cursor) setItems([]);
+      setErrorMsg(mediaErrorText(err, "无法加载媒体目录，请检查网络或后端 Gateway"));
+      if (!cursor) { setItems([]); setFolderPosterId(null) }
     } finally {
       if (requestSequence === requestSequenceRef.current) setIsLoading(false);
     }
   }, []);
 
-  // 2. 执行全局搜索
-  const loadSearch = useCallback(async (query: string, root: AllowedOpenListRoot, cursor?: string) => {
+  // 2. 库内文件名搜索（分页模式）
+  const loadSearch = useCallback(async (query: string, libraryId: string, cursor?: string) => {
     if (!query.trim()) return;
     const requestSequence = ++requestSequenceRef.current;
     setIsLoading(true);
     setErrorMsg(null);
 
     try {
-      const res = await api.searchMedia(query.trim(), root, cursor);
+      const res = await api.searchMedia(query.trim(), libraryId, cursor);
       if (requestSequence !== requestSequenceRef.current) return;
       if (cursor) {
         setSearchResults((prev) => [...prev, ...(res.items || [])]);
@@ -132,24 +166,50 @@ export function OpenListModal({
       setSearchNextCursor(res.nextCursor);
     } catch (err: unknown) {
       if (requestSequence !== requestSequenceRef.current) return;
-      const error = err as Error;
-      setErrorMsg(error.message || "搜索失败，请稍后重试");
+      setErrorMsg(mediaErrorText(err, "搜索失败，请稍后重试"));
       if (!cursor) setSearchResults([]);
     } finally {
       if (requestSequence === requestSequenceRef.current) setIsLoading(false);
     }
   }, []);
 
+  // 打开时读能力位与库列表，再落第一个库的首页（服务端顺序，客户端不排序）
   useEffect(() => {
     if (!isOpen) return;
+    let live = true;
     const loadTimer = window.setTimeout(() => {
-      void loadDirectory(selectedRoot, currentPath);
+      void (async () => {
+        setIsLoading(true);
+        setErrorMsg(null);
+        try {
+          const listed = await api.getMediaLibraries();
+          if (!live) return;
+          setLibraries(listed);
+          const first = listed[0];
+          if (!first) {
+            setItems([]);
+            setBreadcrumbs([]);
+            setErrorMsg(null);
+            setIsLoading(false);
+            return;
+          }
+          setActiveLibraryId(first.id);
+          setCurrentPath("/");
+          await loadDirectory(first.id, "/");
+        } catch (err: unknown) {
+          if (!live) return;
+          setItems([]);
+          setErrorMsg(mediaErrorText(err, "无法读取媒体库列表"));
+          setIsLoading(false);
+        }
+      })();
     }, 0);
     return () => {
+      live = false;
       window.clearTimeout(loadTimer);
       requestSequenceRef.current += 1;
     };
-  }, [isOpen, selectedRoot, currentPath, loadDirectory]);
+  }, [isOpen, loadDirectory]);
 
   const clearSearch = useCallback(() => {
     requestSequenceRef.current += 1;
@@ -169,16 +229,30 @@ export function OpenListModal({
       clearSearch();
       return;
     }
+    if (!activeLibraryId) return;
     setActiveSearchQuery(query);
     setSearchResults([]);
     setSearchHasMore(false);
     setSearchNextCursor(undefined);
-    await loadSearch(query, selectedRoot);
+    await loadSearch(query, activeLibraryId);
   };
 
   const handleClose = () => {
     clearSearch();
     onClose();
+  };
+
+  /** 切库/进目录/回上层的唯一入口：路径只用服务端给的 relativePath 或面包屑 path。 */
+  const openPath = useCallback((libraryId: string, path: string) => {
+    setCurrentPath(path);
+    void loadDirectory(libraryId, path);
+  }, [loadDirectory]);
+
+  const selectLibrary = (libraryId: string) => {
+    clearSearch();
+    setActiveLibraryId(libraryId);
+    setCurrentPath("/");
+    void loadDirectory(libraryId, "/");
   };
 
   if (!isOpen) return null;
@@ -188,13 +262,14 @@ export function OpenListModal({
 
   // 一键入队当前目录全部可由任一正式客户端播放的文件。
   const handleBatchAddCurrentDir = async () => {
+    if (!activeLibraryId) return;
     setIsLoading(true);
     setErrorMsg(null);
     try {
       const allItems = [...items];
       let cursor = hasMore ? nextCursor : undefined;
       while (cursor && allItems.length < 200) {
-        const page = await api.getMediaList(selectedRoot, currentPath, cursor);
+        const page = await api.getMediaList(activeLibraryId, currentPath, cursor);
         allItems.push(...page.items);
         cursor = page.hasMore ? page.nextCursor : undefined;
       }
@@ -203,19 +278,15 @@ export function OpenListModal({
         .filter(
           (item) =>
             item.type === "file" &&
-            (item.compatibility.browser !== "unsupported" ||
-              item.compatibility.desktop !== "unsupported"),
+            (item.compatibility.browser === "supported" ||
+              item.compatibility.desktop === "supported"),
         )
-      .sort((left, right) =>
-        left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" }),
-      )
       .slice(0, 200)
       .map((it) => ({
         kind: "openlist" as const,
         mediaId: it.id,
         title: it.name,
         container: it.extension || "mp4",
-        displayPath: `${selectedRoot}${currentPath}`,
       }));
 
       if (supported.length > 0) {
@@ -223,7 +294,7 @@ export function OpenListModal({
         handleClose();
       }
     } catch (error: unknown) {
-      setErrorMsg(error instanceof Error ? error.message : "批量读取目录失败");
+      setErrorMsg(mediaErrorText(error, "批量读取目录失败"));
     } finally {
       setIsLoading(false);
     }
@@ -268,28 +339,39 @@ export function OpenListModal({
               <span>点播媒体库</span>
             </DialogTitle>
 
-            {/* 根目录 Tab */}
-            <div className="flex rounded border border-border bg-black p-0.5 text-xs">
-              {(["Anime", "Film", "TV Shows"] as AllowedOpenListRoot[]).map((root) => (
+            {/* 库切换器：顺序与健康位都按服务端返回，客户端不排序 */}
+            <div className="flex flex-wrap rounded border border-border bg-black p-0.5 text-xs" role="group" aria-label="媒体库">
+              {libraries.map((library) => (
                 <Button
-                  key={root}
+                  key={library.id}
                   variant="ghost"
                   size="sm"
-                  onClick={() => {
-                    setSelectedRoot(root);
-                    setCurrentPath("/");
-                    clearSearch();
-                  }}
+                  aria-pressed={library.id === activeLibraryId}
+                  title={`${library.sourceName} · ${KIND_LABEL[library.kind]} · ${HEALTH_LABEL[library.health] ?? library.health}`}
+                  onClick={() => selectLibrary(library.id)}
                   className={cn(
-                    "px-2.5",
-                    selectedRoot === root
+                    "gap-1.5 px-2.5",
+                    library.id === activeLibraryId
                       ? "bg-sky-500 font-semibold text-black hover:bg-sky-500 hover:text-black"
                       : "font-normal text-muted-foreground hover:text-white",
                   )}
                 >
-                  {root === "Anime" ? "番剧 (Anime)" : root === "Film" ? "电影 (Film)" : "剧集 (TV)"}
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "size-1.5 rounded-full",
+                      library.health === "ok" ? "bg-emerald-400" : "bg-rose-400",
+                      library.id === activeLibraryId && library.health === "ok" && "bg-emerald-900",
+                      library.id === activeLibraryId && library.health !== "ok" && "bg-rose-900",
+                    )}
+                  />
+                  <span>{library.name}</span>
+                  <span className="opacity-70">{KIND_LABEL[library.kind]}</span>
                 </Button>
               ))}
+              {libraries.length === 0 && !isLoading && (
+                <span className="px-2.5 py-1 text-muted-foreground">没有可用的库</span>
+              )}
             </div>
 
             <Button
@@ -356,8 +438,8 @@ export function OpenListModal({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="在当前分类全局搜索..."
-                aria-label={`在 ${selectedRoot} 分类中搜索`}
+                placeholder="在当前库里搜索文件名..."
+                aria-label={`在 ${activeLibrary?.name ?? "媒体库"} 中搜索`}
                 className="h-8 w-full bg-black pl-8 text-xs"
               />
             </div>
@@ -389,14 +471,31 @@ export function OpenListModal({
         {/* 面包屑与批量操作 */}
         <div className="flex shrink-0 items-center justify-between border-b border-border bg-black/40 px-5 py-2 text-xs">
           <div className="flex items-center gap-1.5 font-mono text-muted-foreground">
-            <Button variant="ghost" size="sm" onClick={() => setCurrentPath("/")} className="h-6 px-1 font-normal hover:text-white">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => activeLibraryId && openPath(activeLibraryId, "/")}
+              className="h-6 px-1 font-normal hover:text-white"
+            >
               <Folder className="size-3 text-sky-400" />
-              <span>{selectedRoot}</span>
+              <span>{activeLibrary?.name ?? "媒体库"}</span>
             </Button>
-            {breadcrumbs.map((crumb, idx) => (
-              <React.Fragment key={idx}>
+            {/* 第一格面包屑就是库根：不再额外顶一个同名按钮 */}
+            {breadcrumbs.slice(1).map((crumb) => (
+              <React.Fragment key={crumb.path}>
                 <ChevronRight className="size-3 text-muted-foreground" />
-                <span className="text-white">{crumb}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => activeLibraryId && openPath(activeLibraryId, crumb.path)}
+                  aria-current={crumb.path === currentPath ? "page" : undefined}
+                  className={cn(
+                    "h-6 px-1 font-mono font-normal hover:text-white",
+                    crumb.path === currentPath ? "text-white" : "text-muted-foreground",
+                  )}
+                >
+                  {crumb.name}
+                </Button>
               </React.Fragment>
             ))}
           </div>
@@ -416,6 +515,20 @@ export function OpenListModal({
 
         {/* ================= 主体列表区域 ================= */}
         <div className="flex-1 overflow-y-auto p-4">
+          {/* 当前目录自己的封面（相位 2）：只有这一层有 poster.jpg 时才有 */}
+          {folderPosterId && !isSearching && !errorMsg && (
+            <div className="relative mb-3 h-24 overflow-hidden rounded border border-border bg-black">
+              <img
+                src={`/api/media/artwork/${encodeURIComponent(folderPosterId)}`}
+                alt=""
+                className="size-full object-cover"
+                onError={(event) => { event.currentTarget.style.display = "none" }}
+              />
+              <span className="absolute bottom-2 left-3 max-w-[80%] truncate rounded bg-black/60 px-2 py-0.5 text-xs font-semibold text-white">
+                {breadcrumbs[breadcrumbs.length - 1]?.name ?? activeLibrary?.name ?? "媒体库"}
+              </span>
+            </div>
+          )}
           {errorMsg && (
             <div className="mb-3 flex items-center justify-between rounded border border-rose-900/50 bg-rose-950/30 p-3 text-xs text-rose-300">
               <div className="flex items-center gap-2">
@@ -426,10 +539,11 @@ export function OpenListModal({
                 variant="link"
                 size="sm"
                 onClick={() => {
+                  if (!activeLibraryId) return;
                   if (activeSearchQuery) {
-                    void loadSearch(activeSearchQuery, selectedRoot);
+                    void loadSearch(activeSearchQuery, activeLibraryId);
                   } else {
-                    void loadDirectory(selectedRoot, currentPath);
+                    void loadDirectory(activeLibraryId, currentPath);
                   }
                 }}
                 className="h-6 px-1 text-white underline-offset-2"
@@ -445,6 +559,7 @@ export function OpenListModal({
               加载媒体中...
             </div>
           ) : displayItems.length === 0 ? (
+            errorMsg ? null : (
             <div className="flex h-48 flex-col items-center justify-center text-xs text-muted-foreground space-y-1">
               <span>{isSearching ? `未找到与“${activeSearchQuery}”匹配的媒体文件` : "当前目录为空"}</span>
               {isSearching && (
@@ -453,19 +568,20 @@ export function OpenListModal({
                 </span>
               )}
             </div>
+            )
           ) : (
             <div className="space-y-1">
               {displayItems.map((item) => {
                 const isDir = item.type === "dir";
-                const isBrowserPlayable = item.compatibility.browser !== "unsupported";
-                const isDesktopPlayable = item.compatibility.desktop !== "unsupported";
+                // 严格等于 supported 才可播：maybe 与未知值都不放行（handoff §2 D7）。
+                const isBrowserPlayable = item.compatibility.browser === "supported";
+                const isDesktopPlayable = item.compatibility.desktop === "supported";
                 const isDesktopOnly = !isBrowserPlayable && isDesktopPlayable;
                 const media: MediaSource = {
                   kind: "openlist",
                   mediaId: item.id,
                   title: item.name,
                   container: item.extension || "mp4",
-                  displayPath: item.displayPath || `${selectedRoot}${currentPath}`,
                 };
 
                 return (
@@ -483,8 +599,8 @@ export function OpenListModal({
                   >
                     <div
                       onClick={() => {
-                        if (isDir) {
-                          setCurrentPath(currentPath === "/" ? `/${item.name}` : `${currentPath}/${item.name}`);
+                        if (isDir && activeLibraryId) {
+                          openPath(activeLibraryId, item.relativePath || "/");
                         }
                       }}
                       className={`flex flex-1 items-center gap-2.5 truncate pr-3 ${
@@ -492,21 +608,21 @@ export function OpenListModal({
                       }`}
                     >
                       {isDir ? (
-                        <Folder className="size-4 text-sky-400 shrink-0" />
+                        <ArtworkThumb posterId={item.posterId} fallback={<Folder className="size-4 text-sky-400" />} />
                       ) : (
-                        <Film className="size-4 text-muted-foreground shrink-0" />
+                        <ArtworkThumb posterId={item.posterId} fallback={<Film className="size-4 text-muted-foreground" />} />
                       )}
                       <span className={`truncate ${isDir ? "font-medium text-white" : ""}`}>
                         {item.name}
                       </span>
-                      {!isDir && item.compatibility.desktop === "supported" && item.compatibility.browser === "unsupported" && (
+                      {!isDir && isDesktopPlayable && !isBrowserPlayable && (
                         <span className="shrink-0 rounded border border-sky-800 bg-sky-950/40 px-1 py-0.5 text-[9px] text-sky-300">
                           桌面端 / MPV
                         </span>
                       )}
-                      {item.displayPath && (
+                      {item.relativePath && (
                         <span className="font-mono text-[10px] text-muted-foreground truncate">
-                          ({item.displayPath})
+                          ({item.relativePath})
                         </span>
                       )}
                       {!isBrowserPlayable && (
@@ -580,10 +696,11 @@ export function OpenListModal({
                     variant="outline"
                     size="sm"
                     onClick={() => {
+                      if (!activeLibraryId) return;
                       if (isSearching) {
-                        void loadSearch(activeSearchQuery, selectedRoot, searchNextCursor);
+                        void loadSearch(activeSearchQuery, activeLibraryId, searchNextCursor);
                       } else {
-                        void loadDirectory(selectedRoot, currentPath, nextCursor);
+                        void loadDirectory(activeLibraryId, currentPath, nextCursor);
                       }
                     }}
                     disabled={isLoading}
