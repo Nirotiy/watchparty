@@ -14,10 +14,12 @@ const ANIME = "/media/openlist-bdyun/Multimedia/Anime";
 function fakeClient(overrides: Partial<OpenlistClient> = {}): OpenlistClient {
   return {
     list: async () => ({ code: 200, data: { content: [] } }),
+    listShallow: async () => ({ code: 200, data: { content: [] } }),
     search: async () => ({ code: 200, data: { content: [] } }),
     getDownloadInfo: async () => null,
     getLinkInfo: async () => null,
     fetchOriginText: async () => undefined,
+    ping: async () => ({ ok: true }),
     ...overrides,
   };
 }

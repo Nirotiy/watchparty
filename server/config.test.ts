@@ -30,3 +30,25 @@ test("public url falls back to the internal openlist url", () => {
   assert.equal(config.openlistUrl, "http://127.0.0.1:5244");
   assert.equal(config.openlistPublicUrl, "");
 });
+
+test("config status reports how each setting was provisioned, not the resolved value", () => {
+  // The defaults below are exactly what loadConfig resolves these to, so a
+  // status derived from the resolved config would claim everything is set.
+  const bare = loadConfig({ NODE_ENV: "test" });
+  assert.deepEqual(bare.configStatus, {
+    openlist: { url: "default", username: "default", password: "missing" },
+    mediaIdKey: { mode: "ephemeral" },
+  });
+
+  const chosen = loadConfig({
+    NODE_ENV: "test",
+    OPENLIST_URL: "http://127.0.0.1:5244",
+    OPENLIST_USERNAME: "admin",
+    OPENLIST_PASSWORD: "pw",
+    WATCHPARTY_MEDIA_ID_KEY: "key",
+  });
+  assert.deepEqual(chosen.configStatus, {
+    openlist: { url: "explicit", username: "explicit", password: "explicit" },
+    mediaIdKey: { mode: "persistent" },
+  });
+});

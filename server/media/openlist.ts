@@ -1,7 +1,10 @@
 import type { AppConfig } from "../config.ts";
 
 export type OpenlistErrorCode =
-  "OPENLIST_AUTH_FAILED" | "OPENLIST_UNAVAILABLE" | "OPENLIST_BAD_RESPONSE";
+  | "OPENLIST_AUTH_FAILED"
+  | "OPENLIST_UNAVAILABLE"
+  | "OPENLIST_TIMEOUT"
+  | "OPENLIST_BAD_RESPONSE";
 
 export class OpenlistServiceError extends Error {
   readonly code: OpenlistErrorCode;
@@ -28,8 +31,16 @@ export type OpenlistDownloadInfo = { url: string; size: number | null };
  */
 export type OpenlistLinkInfo = { url: string; header: Record<string, string> };
 
+export type OpenlistPingResult = {
+  ok: boolean;
+  error?: OpenlistErrorCode;
+  detail?: string;
+};
+
 export type OpenlistClient = {
   list(path: string): Promise<OpenlistResponse>;
+  /** Single-entry directory probe for readiness; never pulls a full page. */
+  listShallow(path: string): Promise<OpenlistResponse>;
   search(keywords: string, parent?: string): Promise<OpenlistResponse>;
   getDownloadInfo(path: string): Promise<OpenlistDownloadInfo | null>;
   /** Admin-only fs/link: direct URL + upstream-required headers. */
@@ -43,6 +54,8 @@ export type OpenlistClient = {
     url: string,
     capBytes: number,
   ): Promise<{ status: number; text: string } | undefined>;
+  /** Lightweight health check for readiness probes. */
+  ping(): Promise<OpenlistPingResult>;
 };
 
 /**
@@ -51,17 +64,43 @@ export type OpenlistClient = {
  * memory footprint) is bounded before WatchParty sorts or pages it.
  */
 const OPENLIST_PAGE_SIZE = 2000;
+/** Short timeout for readiness checks to avoid blocking UI wizards. */
+const PING_TIMEOUT_MS = 2000;
 
 /**
  * Minimal OpenList HTTP client over native fetch: login-once session with a
  * single transparent refresh when OpenList reports an expired token.
  */
-export function createOpenlistClient(cfg: AppConfig): OpenlistClient {
+/**
+ * AbortSignal/undici rejections are DOMException-shaped, not guaranteed to be
+ * instanceof Error; classify by name (and cause.name) instead.
+ */
+function isTimeoutFailure(error: unknown): boolean {
+  const candidates = [
+    error,
+    typeof error === "object" && error !== null && "cause" in error
+      ? (error as { cause: unknown }).cause
+      : undefined,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "object" && candidate !== null && "name" in candidate) {
+      const name = String((candidate as { name: unknown }).name);
+      if (name === "TimeoutError" || name === "AbortError") return true;
+    }
+  }
+  return false;
+}
+
+export function createOpenlistClient(
+  cfg: AppConfig,
+  opts: { pingTimeoutMs?: number } = {},
+): OpenlistClient {
+  const pingTimeoutMs = opts.pingTimeoutMs ?? PING_TIMEOUT_MS;
   const baseUrl = cfg.openlistUrl.replace(/\/+$/, "");
   let token = "";
   let loginPromise: Promise<string> | null = null;
 
-  async function authenticate(): Promise<string> {
+  async function authenticate(timeoutMs?: number): Promise<string> {
     const data = await postJson(
       "/api/auth/login",
       {
@@ -69,6 +108,7 @@ export function createOpenlistClient(cfg: AppConfig): OpenlistClient {
         password: cfg.openlistPassword,
       },
       false,
+      timeoutMs,
     );
     const issued = data.data?.token;
     if (data.code !== 200 || typeof issued !== "string" || !issued) {
@@ -81,9 +121,9 @@ export function createOpenlistClient(cfg: AppConfig): OpenlistClient {
     return issued;
   }
 
-  async function ensureToken(): Promise<string> {
+  async function ensureToken(timeoutMs?: number): Promise<string> {
     if (token) return token;
-    loginPromise ??= authenticate().finally(() => {
+    loginPromise ??= authenticate(timeoutMs).finally(() => {
       loginPromise = null;
     });
     token = await loginPromise;
@@ -94,23 +134,26 @@ export function createOpenlistClient(cfg: AppConfig): OpenlistClient {
     apiPath: string,
     body: unknown,
     authenticated: boolean,
+    timeoutMs: number = cfg.openlistRequestTimeoutMs,
   ): Promise<OpenlistResponse> {
     const headers: Record<string, string> = {
       "content-type": "application/json",
     };
-    if (authenticated) headers.authorization = await ensureToken();
+    if (authenticated) headers.authorization = await ensureToken(timeoutMs);
     let response: Response;
     try {
       response = await fetch(`${baseUrl}${apiPath}`, {
         method: "POST",
         headers,
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(cfg.openlistRequestTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       });
-    } catch {
+    } catch (error: unknown) {
+      const timedOut =
+        isTimeoutFailure(error);
       throw new OpenlistServiceError(
-        "OPENLIST_UNAVAILABLE",
-        "Openlist request failed",
+        timedOut ? "OPENLIST_TIMEOUT" : "OPENLIST_UNAVAILABLE",
+        timedOut ? "Openlist request timed out" : "Openlist request failed",
         503,
       );
     }
@@ -157,11 +200,12 @@ export function createOpenlistClient(cfg: AppConfig): OpenlistClient {
   async function request(
     apiPath: string,
     body: unknown,
+    timeoutMs?: number,
   ): Promise<OpenlistResponse> {
-    let data = await postJson(apiPath, body, true);
+    let data = await postJson(apiPath, body, true, timeoutMs);
     if (!isExpired(data)) return data;
     token = "";
-    data = await postJson(apiPath, body, true);
+    data = await postJson(apiPath, body, true, timeoutMs);
     if (isExpired(data)) {
       throw new OpenlistServiceError(
         "OPENLIST_AUTH_FAILED",
@@ -172,6 +216,44 @@ export function createOpenlistClient(cfg: AppConfig): OpenlistClient {
     return data;
   }
 
+  async function ping(): Promise<OpenlistPingResult> {
+    try {
+      // Attempt to list root directory with minimal params and short timeout
+      const res = await request(
+        "/api/fs/list",
+        {
+          path: "/",
+          password: "",
+          page: 1,
+          per_page: 1, // Minimize payload
+          refresh: false,
+        },
+        pingTimeoutMs,
+      );
+      if (res.code === 200) {
+        return { ok: true };
+      }
+      return {
+        ok: false,
+        error: "OPENLIST_BAD_RESPONSE",
+        detail: `Unexpected code: ${res.code}`,
+      };
+    } catch (error: unknown) {
+      if (error instanceof OpenlistServiceError) {
+        return {
+          ok: false,
+          error: error.code,
+          detail: error.message,
+        };
+      }
+      return {
+        ok: false,
+        error: "OPENLIST_UNAVAILABLE",
+        detail: "Network or timeout error",
+      };
+    }
+  }
+
   return {
     list: (mediaPath) =>
       request("/api/fs/list", {
@@ -179,6 +261,14 @@ export function createOpenlistClient(cfg: AppConfig): OpenlistClient {
         password: "",
         page: 1,
         per_page: OPENLIST_PAGE_SIZE,
+        refresh: false,
+      }),
+    listShallow: (mediaPath) =>
+      request("/api/fs/list", {
+        path: mediaPath,
+        password: "",
+        page: 1,
+        per_page: 1,
         refresh: false,
       }),
     // OpenList v4 requires parent_ids (array) and a numeric scope; the legacy
@@ -296,5 +386,6 @@ export function createOpenlistClient(cfg: AppConfig): OpenlistClient {
         text: new TextDecoder().decode(merged),
       };
     },
+    ping,
   };
 }

@@ -28,6 +28,7 @@ export type AppConfig = {
   openlistPassword: string;
   openlistRequestTimeoutMs: number;
   watchPartyMediaIdKey: string;
+  configStatus: ConfigStatus;
 };
 
 import { randomBytes } from "node:crypto";
@@ -52,6 +53,37 @@ function envNumber(
   }
   const value = Number(raw);
   return Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * How one setting was provisioned, read off the raw environment.
+ *
+ * This must not be derived from the resolved AppConfig: OPENLIST_URL and
+ * OPENLIST_USERNAME carry built-in defaults and WATCHPARTY_MEDIA_ID_KEY gets a
+ * random fallback, so every one of them is non-empty after loadConfig even in a
+ * deployment that configured nothing. Only "explicit" means an operator chose it.
+ */
+export type ConfigFact = "explicit" | "default" | "missing";
+
+/** Non-sensitive configuration facts for the readiness surface. */
+export type ConfigStatus = {
+  openlist: {
+    url: ConfigFact;
+    username: ConfigFact;
+    password: ConfigFact;
+  };
+  /** persistent = WATCHPARTY_MEDIA_ID_KEY set; ephemeral = per-process random key. */
+  mediaIdKey: { mode: "persistent" | "ephemeral" };
+};
+
+function envFact(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  hasDefault: boolean,
+): ConfigFact {
+  const raw = env[name];
+  if (raw != null && raw.trim() !== "") return "explicit";
+  return hasDefault ? "default" : "missing";
 }
 
 /** Parse core process env. Extra SaaS keys are ignored. */
@@ -79,5 +111,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     // Dev fallback: a per-process random key. Rooms are in-memory anyway, so
     // signed ids only need to survive within one process lifetime.
     watchPartyMediaIdKey: watchPartyMediaIdKey || randomBytes(32).toString("base64url"),
+    configStatus: {
+      openlist: {
+        url: envFact(env, "OPENLIST_URL", true),
+        username: envFact(env, "OPENLIST_USERNAME", true),
+        // No default: an empty password means the source cannot authenticate.
+        password: envFact(env, "OPENLIST_PASSWORD", false),
+      },
+      mediaIdKey: {
+        mode: watchPartyMediaIdKey ? "persistent" : "ephemeral",
+      },
+    },
   };
 }

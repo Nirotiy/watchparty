@@ -1,6 +1,8 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request, RequestHandler, Response } from "express";
 import type { Server as CoreServer } from "socket.io";
 import {
+  DESKTOP_CAPABILITIES,
+  DESKTOP_SERVICE_VERSION,
   PROTOCOL_VERSION,
   errorResult,
   type ClientType,
@@ -15,6 +17,7 @@ import type {
 } from "../../media/watchparty-media.ts";
 import { isValidUUID, validateMediaSource, validateNickname, validateRevision, validateRoomId } from "../media.ts";
 import { bearerToken, requestIp, sendError } from "./shared.ts";
+import type { ListenerInfo, ReadinessProbe } from "./readiness.ts";
 
 type NativeClientType = Extract<ClientType, "mpv" | "desktop">;
 type HandoffTarget = NativeClientType;
@@ -29,6 +32,55 @@ function requireDesktopProtocol(req: Request, res: Response): boolean {
     return false;
   }
   return true;
+}
+
+function requireOptionalDesktopProtocol(req: Request, res: Response): boolean {
+  const declared = req.header("x-watchparty-protocol");
+  if (declared !== undefined && declared !== String(PROTOCOL_VERSION)) {
+    sendError(res, 426, "PROTOCOL_VERSION_MISMATCH");
+    return false;
+  }
+  return true;
+}
+
+export type DesktopProbeDeps = {
+  readiness: ReadinessProbe;
+  getListenerInfo: () => ListenerInfo;
+};
+
+/** Public, credential-free discovery endpoints used before room entry. */
+export function registerDesktopProbeHttp(
+  app: Express,
+  deps: DesktopProbeDeps,
+): void {
+  app.get("/api/desktop/health", (req, res): void => {
+    if (!requireOptionalDesktopProtocol(req, res)) return;
+    res.json({
+      status: "ok",
+      protocolVersion: PROTOCOL_VERSION,
+      serviceVersion: DESKTOP_SERVICE_VERSION,
+    });
+  });
+
+  app.get("/api/desktop/capabilities", (req, res): void => {
+    if (!requireOptionalDesktopProtocol(req, res)) return;
+    res.json({
+      protocolVersion: PROTOCOL_VERSION,
+      serviceVersion: DESKTOP_SERVICE_VERSION,
+      capabilities: DESKTOP_CAPABILITIES,
+    });
+  });
+
+  // Readiness: always 200 while the process answers; status and the stable
+  // diagnostic codes carry dependency health. The bare /api/readiness path is
+  // a kept alias of the desktop probe route.
+  const readinessHandler: RequestHandler = async (req, res) => {
+    if (!requireOptionalDesktopProtocol(req, res)) return;
+    const snapshot = await deps.readiness.snapshot(deps.getListenerInfo());
+    res.json(snapshot);
+  };
+  app.get("/api/desktop/readiness", readinessHandler);
+  app.get("/api/readiness", readinessHandler);
 }
 
 /** Native desktop lifecycle endpoints. These mint a real desktop identity;
@@ -85,6 +137,10 @@ export function registerDesktopLifecycleHttp(app: Express, registry: RoomRegistr
       sendError(res, 400, "INVALID_REQUEST");
       return;
     }
+    if (registry.isProtected(roomId) && pin === undefined) {
+      sendError(res, 401, "ROOM_PIN_REQUIRED");
+      return;
+    }
     const result = registry.issueAccess(
       roomId,
       clientId,
@@ -94,7 +150,11 @@ export function registerDesktopLifecycleHttp(app: Express, registry: RoomRegistr
       "desktop",
     );
     if (!result.ok) {
-      sendError(res, result.code === "RATE_LIMITED" ? 429 : 401, result.code);
+      sendError(
+        res,
+        result.code === "RATE_LIMITED" ? 429 : 401,
+        result.code === "INVALID_PIN" ? "ROOM_PIN_REJECTED" : result.code,
+      );
       return;
     }
     res.json({ protocolVersion: PROTOCOL_VERSION, roomId, clientId, accessToken: result.accessToken, clientType: "desktop" });

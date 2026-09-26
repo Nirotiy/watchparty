@@ -1,6 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import path from "node:path";
-import { OpenlistServiceError, type OpenlistClient } from "./openlist.ts";
+import {
+  OpenlistServiceError,
+  type OpenlistClient,
+  type OpenlistErrorCode,
+} from "./openlist.ts";
 
 export const WATCHPARTY_ROOTS = {
   Anime: "/media/openlist-bdyun/Multimedia/Anime",
@@ -108,6 +112,43 @@ export type SubtitleTrack = {
   language?: string;
 };
 
+export type MediaHealthCode =
+  | "OPENLIST_OK"
+  | "OPENLIST_UNREACHABLE"
+  | "OPENLIST_TIMEOUT"
+  | "OPENLIST_AUTH_FAILED"
+  | "OPENLIST_BAD_RESPONSE";
+
+export type MediaRootProbe = {
+  name: WatchpartyRoot;
+  ok: boolean;
+  code: "MEDIA_ROOT_OK" | "MEDIA_ROOT_NOT_FOUND";
+};
+
+export type MediaHealth =
+  | { ok: true; latencyMs: number; roots: MediaRootProbe[] }
+  | {
+      ok: false;
+      code: MediaHealthCode;
+      detail?: string;
+      latencyMs: number;
+    };
+
+/**
+ * Transport-level OpenList codes -> stable readiness health codes.
+ * OPENLIST_UNAVAILABLE means the request never produced a usable answer;
+ * the setup guide renders it as "media source unreachable".
+ */
+const HEALTH_CODE_BY_OPENLIST_ERROR: Record<
+  OpenlistErrorCode,
+  MediaHealthCode
+> = {
+  OPENLIST_AUTH_FAILED: "OPENLIST_AUTH_FAILED",
+  OPENLIST_UNAVAILABLE: "OPENLIST_UNREACHABLE",
+  OPENLIST_TIMEOUT: "OPENLIST_TIMEOUT",
+  OPENLIST_BAD_RESPONSE: "OPENLIST_BAD_RESPONSE",
+};
+
 export type WatchpartyMedia = {
   rootNames(): WatchpartyRoot[];
   isRoot(value: unknown): value is WatchpartyRoot;
@@ -127,7 +168,9 @@ export type WatchpartyMedia = {
   resolveMpv(mediaId: string): Promise<ResolvedMpvMedia | null | undefined>;
   /** undefined = invalid or forged mediaId; empty array = no matching subtitles. */
   discoverSubtitles(mediaId: string): Promise<SubtitleTrack[] | undefined>;
-  loadSubtitle(mediaId: string): Promise<string | undefined>;
+    loadSubtitle(mediaId: string): Promise<string | undefined>;
+  /** Lightweight health check for readiness probes (ping + root visibility). */
+  checkHealth(): Promise<MediaHealth>;
 };
 
 export type WatchpartyMediaOptions = {
@@ -370,6 +413,48 @@ export function createWatchpartyMedia(
     };
   }
 
+  async function checkHealth(): Promise<MediaHealth> {
+    const startedAt = performance.now();
+    const fail = (code: MediaHealthCode, detail?: string): MediaHealth => ({
+      ok: false,
+      code,
+      latencyMs: Math.round(performance.now() - startedAt),
+      ...(detail ? { detail } : {}),
+    });
+    const result = await client.ping();
+    // Map transport codes onto the stable readiness health codes.
+    const code: MediaHealthCode =
+      result.error !== undefined
+        ? HEALTH_CODE_BY_OPENLIST_ERROR[result.error]
+        : "OPENLIST_BAD_RESPONSE";
+    if (!result.ok) {
+      return fail(code, result.detail);
+    }
+    if (result.error !== undefined || result.detail !== undefined) {
+      return fail(code, result.detail);
+    }
+    // Ping passed: check each configured media root with one shallow request.
+    const roots: MediaRootProbe[] = [];
+    for (const [name, absolutePath] of Object.entries(WATCHPARTY_ROOTS)) {
+      try {
+        const response = await client.listShallow(absolutePath);
+        roots.push({
+          name: name as WatchpartyRoot,
+          ok: response.code === 200,
+          code: response.code === 200 ? "MEDIA_ROOT_OK" : "MEDIA_ROOT_NOT_FOUND",
+        });
+      } catch {
+        // Ping already proved reachability; a throwing root is a path/mount problem.
+        roots.push({ name: name as WatchpartyRoot, ok: false, code: "MEDIA_ROOT_NOT_FOUND" });
+      }
+    }
+    return {
+      ok: true,
+      latencyMs: Math.round(performance.now() - startedAt),
+      roots,
+    };
+  }
+
   return {
     rootNames: () => Object.keys(WATCHPARTY_ROOTS) as WatchpartyRoot[],
     isRoot: (value): value is WatchpartyRoot =>
@@ -380,6 +465,7 @@ export function createWatchpartyMedia(
     resolveMpv,
     discoverSubtitles,
     loadSubtitle,
+    checkHealth,
   };
 }
 

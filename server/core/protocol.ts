@@ -58,7 +58,12 @@ export type ErrorCode =
   | "OWNER_TARGET_OFFLINE"
   | "HANDOFF_TICKET_INVALID"
   | "PROTOCOL_VERSION_MISMATCH"
-  | "SESSION_GENERATION_STALE";
+  | "SESSION_GENERATION_STALE"
+  | "CAPABILITY_UNAVAILABLE"
+  | "AUTH_REQUIRED"
+  | "AUTH_REJECTED"
+  | "ROOM_PIN_REQUIRED"
+  | "ROOM_PIN_REJECTED";
 
 export type ApiError = { code: ErrorCode | string; message: string };
 
@@ -156,6 +161,19 @@ export type CoreServer = Server<
 >;
 
 export const PROTOCOL_VERSION = 2 as const;
+export const DESKTOP_SERVICE_VERSION = "0.1.0" as const;
+
+export const DESKTOP_CAPABILITIES = {
+  createRoom: true,
+  joinRoom: true,
+  restoreSession: true,
+  mediaSearch: true,
+  mediaQueue: true,
+  handoffCode: true,
+  readiness: true,
+} as const;
+
+export type DesktopCapabilities = typeof DESKTOP_CAPABILITIES;
 
 export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   INVALID_REQUEST: "请求参数无效",
@@ -174,6 +192,11 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   HANDOFF_TICKET_INVALID: "交接票据无效、已使用或已过期，请重新发射",
   PROTOCOL_VERSION_MISMATCH: "客户端协议版本不兼容，请升级客户端",
   SESSION_GENERATION_STALE: "桌面会话已被新的连接取代，请重新声明会话",
+  CAPABILITY_UNAVAILABLE: "当前服务不支持所需的桌面能力",
+  AUTH_REQUIRED: "需要房间鉴权",
+  AUTH_REJECTED: "房间鉴权失败",
+  ROOM_PIN_REQUIRED: "加入该房间需要 PIN 码",
+  ROOM_PIN_REJECTED: "PIN 码错误",
 };
 
 export function errorResult(code: ErrorCode): { ok: false; error: ApiError } {
