@@ -1,0 +1,621 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { randomBytes } from "node:crypto";
+import type { AppConfig } from "../config.ts";
+import { createOpenlistClient, OpenlistServiceError, type OpenlistClient } from "./openlist.ts";
+import { WATCHPARTY_ROOTS, type WatchpartyMedia, type ResolvedMedia, type ResolvedMpvMedia, type SubtitleTrack } from "./watchparty-media.ts";
+import {
+  createLibraryBrowser,
+  decodeLibraryMediaId,
+  type LibraryArtwork,
+  type LibraryPage,
+} from "./library-browser.ts";
+import { isVideoFileName, type ScanFile } from "./catalog-names.ts";
+import { createBangumiClient, createTmdbClient, fetchPosterBytes, type MetadataSearcher } from "./catalog-metadata.ts";
+import { openCatalogStore, type CatalogCard, type CatalogDetail } from "./catalog-store.ts";
+import { createCatalogWorker } from "./catalog-worker.ts";
+import {
+  isLibraryKind,
+  openLibraryStore,
+  type LibraryKind,
+  type LibraryStore,
+  type StoredLibrary,
+  type StoredSource,
+} from "./library-store.ts";
+
+export type LibraryHealth = "ok" | "root_missing" | "auth_failed" | "unreachable" | "not_configured";
+
+export type PublicLibrary = {
+  id: string;
+  name: string;
+  kind: LibraryKind;
+  path: string;
+};
+
+export type PublicSource = {
+  id: string;
+  name: string;
+  internalBaseUrl: string;
+  publicBaseUrl: string;
+  username: string;
+  passwordSet: boolean;
+  libraries: PublicLibrary[];
+};
+
+export type LibraryClientFactory = (source: StoredSource) => OpenlistClient;
+
+export class LibraryRequestError extends Error {
+  readonly code: string;
+  readonly status: number;
+
+  constructor(status: number, code: string) {
+    super(code);
+    this.name = "LibraryRequestError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+export type LibraryService = {
+  close(): void;
+  sourceCount(): number;
+  /** v1 ids stay on the process env client, and only while the seeded source is the only source. */
+  legacyV1Enabled(): boolean;
+  allowsAdmin(ip: string | undefined, adminHeader: string | undefined): boolean;
+  capabilities(admin: boolean): {
+    libraries: true;
+    artwork: true;
+    catalog: true;
+    mediaAdmin: boolean;
+  };
+  catalogList(libraryId: string, cursor?: string, query?: string): { items: CatalogCard[]; hasMore: boolean; nextCursor?: string };
+  catalogDetail(id: string): CatalogDetail;
+  catalogConfirm(id: string, body: unknown): Promise<CatalogDetail>;
+  catalogReject(id: string, body: unknown): CatalogDetail;
+  catalogPoster(id: string): { contentType: string; bytes: Buffer } | undefined;
+  adminScrape(libraryId: string): Promise<{ libraryId: string; status: string; total: number; scanned: number; matched: number; lastError: string | null }>;
+  adminScrapeStatus(libraryId: string): { libraryId: string; status: string; total: number; scanned: number; matched: number; lastError: string | null };
+  libraries(): Promise<Array<{
+    id: string;
+    name: string;
+    kind: LibraryKind;
+    sourceId: string;
+    sourceName: string;
+    health: LibraryHealth;
+  }>>;
+  list(libraryId: string, relativePath: string, cursor?: string): Promise<LibraryPage>;
+  search(libraryId: string, query: string, cursor?: string): Promise<LibraryPage>;
+  resolve(mediaId: string): Promise<ResolvedMedia | null | undefined>;
+  resolveMpv(mediaId: string): Promise<ResolvedMpvMedia | null | undefined>;
+  discoverSubtitles(mediaId: string): Promise<SubtitleTrack[] | undefined>;
+  loadSubtitle(mediaId: string): Promise<string | undefined>;
+  loadArtwork(mediaId: string): Promise<LibraryArtwork | undefined>;
+  adminList(): PublicSource[];
+  adminCreate(body: unknown): Promise<PublicSource>;
+  adminUpdate(id: string, body: unknown): Promise<PublicSource>;
+  adminDelete(id: string): boolean;
+};
+
+const HEALTH_TTL_MS = 5000;
+const SEEDED_SOURCE_ID = "src_default";
+
+export function createLibraryService(options: {
+  cfg: AppConfig;
+  dbPath?: string;
+  clientFactory?: LibraryClientFactory;
+  trustLoopback?: boolean;
+  adminToken?: string;
+  catalogDbPath?: string;
+  posterDir?: string;
+  bangumi?: MetadataSearcher;
+  tmdb?: MetadataSearcher;
+  fetchPoster?: (url: string) => Promise<{ contentType: string; bytes: Buffer } | undefined>;
+  catalogDelayMs?: number;
+  catalogMaxLookups?: number;
+  catalogInline?: boolean;
+}): LibraryService {
+  const { cfg } = options;
+  const trustLoopback = options.trustLoopback !== false;
+  const adminToken = options.adminToken ?? "";
+  const store = openLibraryStore(options.dbPath ?? defaultDbPath(cfg));
+  const clients = new Map<string, OpenlistClient>();
+  const healthCache = new Map<string, { at: number; health: LibraryHealth }>();
+  seedIfEmpty(store, cfg);
+
+  function openClient(source: StoredSource): OpenlistClient {
+    if (options.clientFactory) return options.clientFactory(source);
+    return createOpenlistClient({
+      ...cfg,
+      openlistUrl: source.internalBaseUrl,
+      openlistPublicUrl: source.publicBaseUrl,
+      openlistUsername: source.username,
+      openlistPassword: source.password,
+    });
+  }
+
+  function clientFor(source: StoredSource): OpenlistClient {
+    const cached = clients.get(source.id);
+    if (cached) return cached;
+    const client = openClient(source);
+    clients.set(source.id, client);
+    return client;
+  }
+
+  function browserFor(source: StoredSource) {
+    return createLibraryBrowser(clientFor(source), {
+      sourceId: source.id,
+      mediaIdKey: cfg.watchPartyMediaIdKey,
+      internalBaseUrl: source.internalBaseUrl,
+      publicBaseUrl: source.publicBaseUrl || source.internalBaseUrl,
+      libraries: store.librariesFor(source.id),
+      requestTimeoutMs: cfg.openlistRequestTimeoutMs,
+    });
+  }
+
+  function requireLibrary(libraryId: string): { library: StoredLibrary; source: StoredSource } {
+    const library = store.getLibrary(libraryId);
+    const source = library ? store.getSource(library.sourceId) : undefined;
+    if (!library || !source) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+    return { library, source };
+  }
+
+  const catalog = openCatalogStore(options.catalogDbPath ?? defaultCatalogDbPath(cfg), options.posterDir ?? defaultPosterDir(cfg));
+  const worker = createCatalogWorker({
+    catalog,
+    bangumi: options.bangumi ?? createBangumiClient(),
+    tmdb: options.tmdb ?? createTmdbClient(),
+    fetchPoster: options.fetchPoster ?? ((url) => fetchPosterBytes(url)),
+    listFiles: (library) => collectLibraryFiles(library),
+    getLibrary: (id) => store.getLibrary(id),
+    delayMs: options.catalogDelayMs ?? 250,
+    ...(options.catalogMaxLookups !== undefined ? { maxLookupsPerRun: options.catalogMaxLookups } : {}),
+    inline: options.catalogInline === true,
+  });
+
+  async function collectLibraryFiles(library: StoredLibrary): Promise<ScanFile[]> {
+    const source = store.getSource(library.sourceId);
+    if (!source) return [];
+    const files: ScanFile[] = [];
+    const queue = ["/"];
+    const seen = new Set<string>();
+    while (queue.length > 0) {
+      const relative = queue.shift() ?? "/";
+      if (seen.has(relative)) continue;
+      seen.add(relative);
+      if (relative.split("/").filter(Boolean).length > 4) continue;
+      let cursor: string | undefined;
+      do {
+        const page = await browserFor(source).list(library, relative, cursor);
+        for (const item of page.items) {
+          if (item.type === "dir") queue.push(item.relativePath);
+          else if (isVideoFileName(item.name)) files.push({ relativePath: item.relativePath, name: item.name, mediaId: item.id });
+        }
+        cursor = page.hasMore ? page.nextCursor : undefined;
+      } while (cursor);
+    }
+    return files;
+  }
+
+  async function probe(client: OpenlistClient, absolutePath: string, configured: boolean): Promise<LibraryHealth> {
+    if (!configured) return "not_configured";
+    try {
+      const response = await client.listShallow(absolutePath);
+      return response.code === 200 ? "ok" : "root_missing";
+    } catch (error) {
+      if (error instanceof OpenlistServiceError && error.code === "OPENLIST_AUTH_FAILED") return "auth_failed";
+      return "unreachable";
+    }
+  }
+
+  function healthError(health: LibraryHealth): LibraryRequestError | undefined {
+    if (health === "ok") return undefined;
+    if (health === "root_missing") return new LibraryRequestError(400, "LIBRARY_ROOT_NOT_FOUND");
+    if (health === "auth_failed") return new LibraryRequestError(502, "SOURCE_AUTH_FAILED");
+    if (health === "not_configured") return new LibraryRequestError(400, "INVALID_REQUEST");
+    return new LibraryRequestError(502, "SOURCE_UNREACHABLE");
+  }
+
+  async function assertProbe(source: StoredSource, libraries: Array<{ path: string }>): Promise<void> {
+    const client = openClient(source);
+    for (const library of libraries) {
+      const failure = healthError(await probe(client, library.path, source.internalBaseUrl.length > 0));
+      if (failure) throw failure;
+    }
+  }
+
+  function publish(source: StoredSource): PublicSource {
+    return {
+      id: source.id,
+      name: source.name,
+      internalBaseUrl: source.internalBaseUrl,
+      publicBaseUrl: source.publicBaseUrl,
+      username: source.username,
+      passwordSet: source.password.length > 0,
+      libraries: store.librariesFor(source.id).map((library) => ({
+        id: library.id,
+        name: library.name,
+        kind: library.kind,
+        path: library.absolutePath,
+      })),
+    };
+  }
+
+  const service: LibraryService = {
+    close() {
+      clients.clear();
+      healthCache.clear();
+      catalog.close();
+      store.close();
+    },
+    sourceCount() {
+      return store.sourceCount();
+    },
+    legacyV1Enabled() {
+      return store.sourceCount() === 1 && store.getSource(SEEDED_SOURCE_ID) !== undefined;
+    },
+    allowsAdmin(ip, adminHeader) {
+      if (adminToken && adminHeader === adminToken) return true;
+      return trustLoopback && isLoopbackAddress(ip);
+    },
+    capabilities(admin) {
+      return { libraries: true, artwork: true, catalog: true, mediaAdmin: admin };
+    },
+    async libraries() {
+      const sources = new Map(store.listSources().map((source) => [source.id, source]));
+      const result = [];
+      for (const library of store.listLibraries()) {
+        const source = sources.get(library.sourceId);
+        if (!source) continue;
+        const cached = healthCache.get(library.id);
+        let health = cached && Date.now() - cached.at < HEALTH_TTL_MS ? cached.health : undefined;
+        if (!health) {
+          health = await probe(clientFor(source), library.absolutePath, source.internalBaseUrl.length > 0);
+          healthCache.set(library.id, { at: Date.now(), health });
+        }
+        result.push({
+          id: library.id,
+          name: library.name,
+          kind: library.kind,
+          sourceId: source.id,
+          sourceName: source.name,
+          health,
+        });
+      }
+      return result;
+    },
+    async list(libraryId, relativePath, cursor) {
+      const { library, source } = requireLibrary(libraryId);
+      return browserFor(source).list(library, relativePath, cursor);
+    },
+    async search(libraryId, query, cursor) {
+      const trimmed = query.trim();
+      if (!trimmed || trimmed.length > 200) throw new LibraryRequestError(400, "INVALID_REQUEST");
+      const { library, source } = requireLibrary(libraryId);
+      return browserFor(source).search(library, trimmed, cursor);
+    },
+    async resolve(mediaId) {
+      const source = sourceForToken(store, cfg.watchPartyMediaIdKey, mediaId);
+      if (!source) return undefined;
+      return browserFor(source).resolve(mediaId);
+    },
+    async resolveMpv(mediaId) {
+      const source = sourceForToken(store, cfg.watchPartyMediaIdKey, mediaId);
+      if (!source) return undefined;
+      return browserFor(source).resolveMpv(mediaId);
+    },
+    async discoverSubtitles(mediaId) {
+      const source = sourceForToken(store, cfg.watchPartyMediaIdKey, mediaId);
+      if (!source) return undefined;
+      return browserFor(source).discoverSubtitles(mediaId);
+    },
+    async loadSubtitle(mediaId) {
+      const source = sourceForToken(store, cfg.watchPartyMediaIdKey, mediaId);
+      if (!source) return undefined;
+      return browserFor(source).loadSubtitle(mediaId);
+    },
+    async loadArtwork(mediaId) {
+      const source = sourceForToken(store, cfg.watchPartyMediaIdKey, mediaId);
+      if (!source) return undefined;
+      return browserFor(source).loadArtwork(mediaId);
+    },
+    adminList() {
+      return store.listSources().map(publish);
+    },
+    async adminCreate(body) {
+      refuseEphemeralProduction(cfg);
+      const draft = parseCreate(body);
+      const source: StoredSource = {
+        id: `src_${randomBytes(9).toString("base64url")}`,
+        name: draft.name,
+        internalBaseUrl: draft.internalBaseUrl,
+        publicBaseUrl: draft.publicBaseUrl,
+        username: draft.username,
+        password: draft.password,
+        createdAt: new Date().toISOString(),
+      };
+      await assertProbe(source, draft.libraries);
+      const libraries = draft.libraries.map((library) => ({
+        id: `lib_${randomBytes(9).toString("base64url")}`,
+        sourceId: source.id,
+        name: library.name,
+        kind: library.kind,
+        absolutePath: library.path,
+      }));
+      store.insertSource(source, libraries);
+      healthCache.clear();
+      return publish(source);
+    },
+    async adminUpdate(id, body) {
+      const existing = store.getSource(id);
+      if (!existing) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      const patch = parsePatch(body);
+      const next: StoredSource = {
+        ...existing,
+        name: patch.name ?? existing.name,
+        internalBaseUrl: patch.internalBaseUrl ?? existing.internalBaseUrl,
+        publicBaseUrl: patch.publicBaseUrl ?? existing.publicBaseUrl,
+        username: patch.username ?? existing.username,
+        password: patch.password ?? existing.password,
+      };
+      const libraries = patch.libraries?.map((library) => ({
+        id: `lib_${randomBytes(9).toString("base64url")}`,
+        sourceId: id,
+        name: library.name,
+        kind: library.kind,
+        absolutePath: library.path,
+      }));
+      const connectionChanged =
+        next.internalBaseUrl !== existing.internalBaseUrl ||
+        next.publicBaseUrl !== existing.publicBaseUrl ||
+        next.username !== existing.username ||
+        next.password !== existing.password ||
+        libraries !== undefined;
+      if (connectionChanged) {
+        refuseEphemeralProduction(cfg);
+        const probeTargets = (libraries ?? store.librariesFor(id)).map((library) => ({ path: library.absolutePath }));
+        await assertProbe(next, probeTargets);
+      }
+      store.replaceSource(next, libraries);
+      clients.delete(id);
+      healthCache.clear();
+      return publish(next);
+    },
+    adminDelete(id) {
+      const removed = store.deleteSource(id);
+      if (removed) {
+        clients.delete(id);
+        healthCache.clear();
+      }
+      return removed;
+    },
+    catalogList(libraryId, cursor, query) {
+      if (!store.getLibrary(libraryId)) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      try {
+        return catalog.listCards(libraryId, cursor, query);
+      } catch {
+        throw new LibraryRequestError(400, "INVALID_REQUEST");
+      }
+    },
+    catalogDetail(id) {
+      const detail = catalog.getDetail(id);
+      if (!detail) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      return detail;
+    },
+    async catalogConfirm(id, body) {
+      const candidateId = candidateIdFrom(body);
+      const saved = catalog.confirm(id, candidateId);
+      if (!saved) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      if (saved.imageUrl) await worker.cachePoster(id, saved.imageUrl);
+      const detail = catalog.getDetail(id);
+      if (!detail) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      return detail;
+    },
+    catalogReject(id, body) {
+      const candidateId = candidateIdFrom(body);
+      if (!catalog.reject(id, candidateId)) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      const detail = catalog.getDetail(id);
+      if (!detail) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      return detail;
+    },
+    catalogPoster(id) {
+      return catalog.readPoster(id);
+    },
+    async adminScrape(libraryId) {
+      const job = await worker.start(libraryId);
+      if (!job) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      return publicJob(job);
+    },
+    adminScrapeStatus(libraryId) {
+      if (!store.getLibrary(libraryId)) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      const job = catalog.getJob(libraryId);
+      if (!job) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      return publicJob(job);
+    },
+  };
+  worker.resumeIncomplete();
+  return service;
+}
+
+export function routeLibraryMedia(media: WatchpartyMedia, library: LibraryService): WatchpartyMedia {
+  const legacy = (id: string) => !id.startsWith("v2.") && library.legacyV1Enabled();
+  return {
+    ...media,
+    resolve: (id) => (id.startsWith("v2.") ? library.resolve(id) : legacy(id) ? media.resolve(id) : Promise.resolve(undefined)),
+    resolveMpv: (id) => (id.startsWith("v2.") ? library.resolveMpv(id) : legacy(id) ? media.resolveMpv(id) : Promise.resolve(undefined)),
+    discoverSubtitles: (id) =>
+      id.startsWith("v2.") ? library.discoverSubtitles(id) : legacy(id) ? media.discoverSubtitles(id) : Promise.resolve(undefined),
+    loadSubtitle: (id) =>
+      id.startsWith("v2.") ? library.loadSubtitle(id) : legacy(id) ? media.loadSubtitle(id) : Promise.resolve(undefined),
+  };
+}
+
+export function isLoopbackAddress(address: string | undefined): boolean {
+  if (!address) return false;
+  const host = address.startsWith("::ffff:") ? address.slice("::ffff:".length) : address;
+  return host === "127.0.0.1" || host === "::1";
+}
+
+function defaultDbPath(cfg: AppConfig): string {
+  if (cfg.nodeEnv === "test") return ":memory:";
+  return path.join(process.cwd(), "data", "watchparty-library.sqlite");
+}
+
+function defaultCatalogDbPath(cfg: AppConfig): string {
+  if (cfg.nodeEnv === "test") return ":memory:";
+  return path.join(process.cwd(), "data", "watchparty-catalog.sqlite");
+}
+
+function defaultPosterDir(cfg: AppConfig): string {
+  if (cfg.nodeEnv === "test") return fs.mkdtempSync(path.join(os.tmpdir(), "wp-posters-"));
+  return path.join(process.cwd(), "data", "poster-cache");
+}
+
+function publicJob(job: { libraryId: string; status: string; total: number; scanned: number; matched: number; lastError: string | null }) {
+  return {
+    libraryId: job.libraryId,
+    status: job.status,
+    total: job.total,
+    scanned: job.scanned,
+    matched: job.matched,
+    lastError: job.lastError,
+  };
+}
+
+function candidateIdFrom(body: unknown): string {
+  const record = asRecord(body);
+  const candidateId = record?.candidateId;
+  if (typeof candidateId !== "string" || !candidateId) throw new LibraryRequestError(400, "INVALID_REQUEST");
+  return candidateId;
+}
+
+function seedIfEmpty(store: LibraryStore, cfg: AppConfig): void {
+  if (store.sourceCount() > 0) return;
+  const source: StoredSource = {
+    id: SEEDED_SOURCE_ID,
+    name: "Primary",
+    internalBaseUrl: trimBase(cfg.openlistUrl),
+    publicBaseUrl: trimBase(cfg.openlistPublicUrl || cfg.openlistUrl),
+    username: cfg.openlistUsername,
+    password: cfg.openlistPassword,
+    createdAt: new Date(0).toISOString(),
+  };
+  store.insertSource(source, [
+    { id: "lib_anime", sourceId: source.id, name: "Anime", kind: "anime", absolutePath: WATCHPARTY_ROOTS.Anime },
+    { id: "lib_film", sourceId: source.id, name: "Film", kind: "movie", absolutePath: WATCHPARTY_ROOTS.Film },
+    { id: "lib_tv", sourceId: source.id, name: "TV Shows", kind: "tv", absolutePath: WATCHPARTY_ROOTS["TV Shows"] },
+  ]);
+}
+
+function sourceForToken(store: LibraryStore, key: string, mediaId: string): StoredSource | undefined {
+  const decoded = decodeLibraryMediaId(mediaId, key);
+  if (!decoded) return undefined;
+  return store.getSource(decoded.sourceId);
+}
+
+function refuseEphemeralProduction(cfg: AppConfig): void {
+  if (cfg.nodeEnv === "production" && cfg.configStatus.mediaIdKey.mode === "ephemeral") {
+    throw new LibraryRequestError(409, "MEDIA_ID_KEY_EPHEMERAL");
+  }
+}
+
+type LibraryDraft = { name: string; kind: LibraryKind; path: string };
+type SourceDraft = {
+  name: string;
+  internalBaseUrl: string;
+  publicBaseUrl: string;
+  username: string;
+  password: string;
+  libraries: LibraryDraft[];
+};
+
+function parseCreate(body: unknown): SourceDraft {
+  const record = asRecord(body);
+  if (!record) throw new LibraryRequestError(400, "INVALID_REQUEST");
+  const name = requiredName(record.name);
+  const internalBaseUrl = requiredBaseUrl(record.internalBaseUrl);
+  const publicBaseUrl = record.publicBaseUrl === undefined ? internalBaseUrl : requiredBaseUrl(record.publicBaseUrl);
+  const username = record.username === undefined ? "" : requiredPlain(record.username, 200);
+  const password = record.password === undefined ? "" : requiredPlain(record.password, 4096);
+  const libraries = requiredLibraries(record.libraries);
+  return { name, internalBaseUrl, publicBaseUrl, username, password, libraries };
+}
+
+function parsePatch(body: unknown): {
+  name?: string;
+  internalBaseUrl?: string;
+  publicBaseUrl?: string;
+  username?: string;
+  password?: string;
+  libraries?: LibraryDraft[];
+} {
+  const record = asRecord(body);
+  if (!record) throw new LibraryRequestError(400, "INVALID_REQUEST");
+  return {
+    ...(record.name !== undefined ? { name: requiredName(record.name) } : {}),
+    ...(record.internalBaseUrl !== undefined ? { internalBaseUrl: requiredBaseUrl(record.internalBaseUrl) } : {}),
+    ...(record.publicBaseUrl !== undefined ? { publicBaseUrl: requiredBaseUrl(record.publicBaseUrl) } : {}),
+    ...(record.username !== undefined ? { username: requiredPlain(record.username, 200) } : {}),
+    ...(record.password !== undefined ? { password: requiredPlain(record.password, 4096) } : {}),
+    ...(record.libraries !== undefined ? { libraries: requiredLibraries(record.libraries) } : {}),
+  };
+}
+
+function requiredLibraries(value: unknown): LibraryDraft[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 50) throw new LibraryRequestError(400, "INVALID_REQUEST");
+  return value.map((entry) => {
+    const record = asRecord(entry);
+    if (!record) throw new LibraryRequestError(400, "INVALID_REQUEST");
+    const kind = record.kind;
+    if (typeof kind !== "string" || !isLibraryKind(kind)) throw new LibraryRequestError(400, "INVALID_REQUEST");
+    return { name: requiredName(record.name), kind, path: requiredLibraryPath(record.path) };
+  });
+}
+
+function requiredName(value: unknown): string {
+  const name = requiredPlain(value, 200);
+  if (!name) throw new LibraryRequestError(400, "INVALID_REQUEST");
+  return name;
+}
+
+function requiredPlain(value: unknown, max: number): string {
+  if (typeof value !== "string") throw new LibraryRequestError(400, "INVALID_REQUEST");
+  const trimmed = value.trim();
+  if (value !== trimmed || trimmed.length > max) throw new LibraryRequestError(400, "INVALID_REQUEST");
+  return trimmed;
+}
+
+function requiredBaseUrl(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) throw new LibraryRequestError(400, "INVALID_REQUEST");
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new LibraryRequestError(400, "INVALID_REQUEST");
+  }
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) {
+    throw new LibraryRequestError(400, "INVALID_REQUEST");
+  }
+  return trimBase(value);
+}
+
+function requiredLibraryPath(value: unknown): string {
+  if (typeof value !== "string") throw new LibraryRequestError(400, "INVALID_REQUEST");
+  const trimmed = value.trim();
+  if (trimmed !== value || !trimmed.startsWith("/") || trimmed.length > 4096 || trimmed.includes("\\") || trimmed.includes("\0")) {
+    throw new LibraryRequestError(400, "INVALID_REQUEST");
+  }
+  const stripped = trimmed.length > 1 ? trimmed.replace(/\/+$/, "") : trimmed;
+  const parts = stripped.split("/");
+  if (parts.some((part) => part === "." || part === "..")) throw new LibraryRequestError(400, "INVALID_REQUEST");
+  if (path.posix.normalize(stripped) !== stripped) throw new LibraryRequestError(400, "INVALID_REQUEST");
+  return stripped;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+function trimBase(value: string): string {
+  return value.trim().replace(/\/+$/, "");
+}

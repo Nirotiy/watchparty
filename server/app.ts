@@ -7,13 +7,17 @@ import express, { type Express } from "express";
 import { Server } from "socket.io";
 import { loadConfig, type AppConfig } from "./config.ts";
 import { registerCoreHttp } from "./core/http/routes.ts";
+import { createReadinessProbe } from "./core/http/readiness.ts";
 import {
   registerHandoffHttp,
   registerDesktopLifecycleHttp,
+  registerDesktopProbeHttp,
   registerNativeClientHttp,
   registerNativeHandoffHttp,
 } from "./core/http/native-routes.ts";
+import { registerLibraryHttp } from "./core/http/library-routes.ts";
 import { createWatchpartyMedia } from "./media/watchparty-media.ts";
+import { createLibraryService, routeLibraryMedia, type LibraryClientFactory } from "./media/library-service.ts";
 import { createOpenlistClient } from "./media/openlist.ts";
 import { RoomRegistry } from "./core/room/registry.ts";
 import { bindRooms } from "./core/socket/bindRooms.ts";
@@ -33,6 +37,25 @@ export type CreateBackendOptions = {
   now?: () => number;
   config?: AppConfig;
   serveStatic?: boolean;
+  /** Setup-guide readiness cache TTL; 0 disables caching. */
+  readinessCacheTtlMs?: number;
+  /** Override the OpenList readiness ping budget (ms); default 2000. */
+  openlistPingTimeoutMs?: number;
+  /** sqlite file for media sources. Defaults to :memory: when NODE_ENV=test. */
+  libraryDbPath?: string;
+  /** Test double for per-source OpenList clients. Production uses createOpenlistClient. */
+  libraryClientFactory?: LibraryClientFactory;
+  /** When false, admin routes require libraryAdminToken even from loopback. Default true. */
+  trustLibraryAdminLoopback?: boolean;
+  libraryAdminToken?: string;
+  /** When true, POST scrape waits until the in-process job finishes or pauses. */
+  catalogInline?: boolean;
+  catalogDelayMs?: number;
+  catalogMaxLookups?: number;
+  posterDir?: string;
+  bangumi?: import("./media/catalog-metadata.ts").MetadataSearcher;
+  tmdb?: import("./media/catalog-metadata.ts").MetadataSearcher;
+  fetchPoster?: (url: string) => Promise<{ contentType: string; bytes: Buffer } | undefined>;
 };
 
 export type Backend = {
@@ -88,21 +111,59 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
     idleTtlMs,
   });
 
-  const media = createWatchpartyMedia(createOpenlistClient(cfg), {
-    mediaIdKey: cfg.watchPartyMediaIdKey,
-    internalBaseUrl: cfg.openlistUrl,
-    publicBaseUrl: cfg.openlistPublicUrl || cfg.openlistUrl,
+  const media = createWatchpartyMedia(
+    createOpenlistClient(cfg, {
+      pingTimeoutMs: options.openlistPingTimeoutMs,
+    }),
+    {
+      mediaIdKey: cfg.watchPartyMediaIdKey,
+      internalBaseUrl: cfg.openlistUrl,
+      publicBaseUrl: cfg.openlistPublicUrl || cfg.openlistUrl,
+    },
+  );
+
+  const library = createLibraryService({
+    cfg,
+    dbPath: options.libraryDbPath,
+    clientFactory: options.libraryClientFactory,
+    trustLoopback: options.trustLibraryAdminLoopback,
+    adminToken: options.libraryAdminToken,
+    ...(options.catalogInline !== undefined ? { catalogInline: options.catalogInline } : {}),
+    ...(options.catalogDelayMs !== undefined ? { catalogDelayMs: options.catalogDelayMs } : {}),
+    ...(options.catalogMaxLookups !== undefined ? { catalogMaxLookups: options.catalogMaxLookups } : {}),
+    ...(options.posterDir !== undefined ? { posterDir: options.posterDir } : {}),
+    ...(options.bangumi !== undefined ? { bangumi: options.bangumi } : {}),
+    ...(options.tmdb !== undefined ? { tmdb: options.tmdb } : {}),
+    ...(options.fetchPoster !== undefined ? { fetchPoster: options.fetchPoster } : {}),
+  });
+  // Readiness keeps the original single-source media. Library ids are routed only to HTTP/native playback.
+  const routedMedia = routeLibraryMedia(media, library);
+
+  const readiness = createReadinessProbe({
+    media,
+    configStatus: () => cfg.configStatus,
+    ...(options.readinessCacheTtlMs !== undefined
+      ? { ttlMs: options.readinessCacheTtlMs }
+      : {}),
+  });
+  const getListenerInfo = () => ({
+    host,
+    configuredPort: requestedPort,
+    boundPort,
+    secure: Boolean(cfg.sslKeyFile && cfg.sslCrtFile),
   });
 
   bindRooms(io, registry);
 
-  registerCoreHttp(app, registry, cfg, media);
+  registerLibraryHttp(app, library);
+  registerCoreHttp(app, registry, cfg, routedMedia);
+  registerDesktopProbeHttp(app, { readiness, getListenerInfo });
   registerHandoffHttp(app, registry);
   registerDesktopLifecycleHttp(app, registry);
   registerNativeHandoffHttp(app, registry, "mpv");
   registerNativeHandoffHttp(app, registry, "desktop");
-  registerNativeClientHttp(app, registry, media, "mpv");
-  registerNativeClientHttp(app, registry, media, "desktop", io);
+  registerNativeClientHttp(app, registry, routedMedia, "mpv");
+  registerNativeClientHttp(app, registry, routedMedia, "desktop", io);
 
   if (options.serveStatic !== false) {
     mountLegacyUi(app, cfg.buildDirectory);
@@ -145,6 +206,7 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
       return;
     }
     closed = true;
+    library.close();
     for (const timer of timers) {
       clearInterval(timer);
     }
