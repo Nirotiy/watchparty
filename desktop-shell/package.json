@@ -9,11 +9,12 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 1420",
     "electron:build": "tsc --noEmit && vite build --outDir dist-electron && node electron/build.mjs",
-    "electron:start": "npm --prefix electron start"
+    "electron:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-electron.ps1"
   },
   "dependencies": {
     "@fluentui/react-components": "^9.74.7",
     "@fluentui/react-icons": "^2.0.341",
+    "@kawarp/core": "^1.2.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "radix-ui": "^1.4.3",

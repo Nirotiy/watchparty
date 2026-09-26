@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState, useCallback, type CSSProperties, type ReactNode } from "react"
 import { FluentProvider, Button as FluentButton, webDarkTheme, webLightTheme } from "@fluentui/react-components"
+import { KeyRegular, PanelLeftContractRegular, PanelLeftExpandRegular, PlugConnectedRegular, PulseRegular, SaveRegular } from "@fluentui/react-icons"
 import { ShellStatusToast, ShellToastProvider } from "@/components/shell-toast"
 
 import { MaterialSymbol, type MaterialSymbolName } from "@/components/material-symbol"
 import { LobbyView } from "@/components/lobby-view"
-import { BanguruLobby } from "@/components/banguru-lobby"
+import { BanguruLobby, type BanguruProbeState } from "@/components/banguru-lobby"
+import { SetupGuide, type SetupGuideServices } from "@/components/setup-guide"
+import { linkleReadinessLine } from "@/components/setup-guide-steps"
 import { FluentSettingsView } from "@/components/fluent-settings"
 import { useLobbyFacade } from "@/hooks/use-lobby-facade"
 import type { RoomIdentity, SwitchTarget } from "../shared/lobby-contract"
@@ -16,11 +19,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useDesktopSession } from "@/hooks/use-desktop-session"
-import type { CommandAck, ConnectionState, DesktopCommand, DesktopUiState, MediaDirectoryItem, MediaDirectoryPage, MediaSource, NativeCapabilityReport } from "@/lib/contracts"
+import type { CommandAck, ConnectionState, DesktopCommand, DesktopUiState, MediaSource, NativeCapabilityReport } from "@/lib/contracts"
 import { cn } from "@/lib/utils"
+import { childDirectoryPath } from "@/lib/media-library-navigation"
+import { healthLabel, legacyView, libraryKindLabel, mediaErrorText, toView, type MediaCard, type MediaView } from "@/lib/media-library-view"
+import { MediaCardGrid, MediaFolderBanner } from "@/components/media-card-grid"
+import { MediaSourceForm, type MediaSourceDraft } from "@/components/media-source-form"
 import { winuiFluentTheme } from "@/lib/winui-theme"
-import { createDefaultLocalSettings, migrateLocalSettings, saveMusicPartyService, serviceForProduct } from "../shared/local-schema"
-import { MusicPartyAdapter, type MusicSearchResult } from "../shared/musicparty-adapter"
+import { createDefaultLocalSettings, linkleDisplayName, linkleMemberOf, migrateLocalSettings, musicPartyOriginError, saveMusicPartyService, serviceForProduct } from "../shared/local-schema"
+import { MusicPartyAdapter, probeMusicParty, type MusicPartyProbe } from "../shared/musicparty-adapter"
 import { MusicPartyConnection } from "../shared/musicparty-connection"
 import { NativeAudioPlayer } from "../shared/native-audio-player"
 import { AudioFocusOwner } from "../shared/player"
@@ -28,7 +35,7 @@ import { invoke, listen } from "../shared/desktop-runtime"
 import { getDesktopWallpaperBackdrop } from "@/lib/ipc"
 import type { DomainEvent } from "../shared/domain"
 import { LinkleRoom } from "@/components/linkle-room"
-import { clearSiteCredentials, errorMessage, getDesktopSettings, listenForSettings, mediaList, mediaRoots, mediaSearch, promptSiteCredentials, updateDesktopSettings, verifyBackend, verifyPrivateRoom, logoutMusicParty, listOriginTrust, importOriginTrust, deleteOriginTrust, type DesktopSettingsStatus, type PlayerPreferences, type OriginTrustRecord } from "@/lib/ipc"
+import { backendAddressError, clearSiteCredentials, createDesktopRoom, createMediaSource, errorMessage, getDesktopSettings, listenForSettings, mediaCapabilities, mediaLibraries, mediaLibraryPage, mediaLibrarySearch, mediaList, mediaRoots, mediaSearch, probeDesktopBackend, probeDesktopReadiness, promptSiteCredentials, updateDesktopSettings, verifyBackend, verifyPrivateRoom, listOriginTrust, importOriginTrust, deleteOriginTrust, type DesktopProbeReport, type DesktopSettingsStatus, artworkUrl, type MediaCapabilities, type MediaLibrary, type PlayerPreferences, type OriginTrustRecord } from "@/lib/ipc"
 
 type View = "home" | "room" | "media" | "settings"
 type Drawer = "queue" | "members" | null
@@ -84,10 +91,16 @@ export default function App() {
   const session = useDesktopSession()
   const locallyHandledStatus = useRef(false)
   const [completedLocalNotice, setCompletedLocalNotice] = useState(0)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(storedSidebarCollapsed)
   useEffect(() => { locallyHandledStatus.current = false }, [completedLocalNotice])
   const [view, setView] = useState<View>("home")
   const [product, setProduct] = useState<"watchparty" | "musicparty">("watchparty")
-  const musicParty = useMusicPartyEntry()
+  const inviteSwitch = useRef<((identity: RoomIdentity) => Promise<void>) | null>(null)
+  const [setupLinkleOrigin, setSetupLinkleOrigin] = useState<string | null>(null)
+  const musicParty = useMusicPartyEntry(identity => {
+    if (!inviteSwitch.current) throw new Error("room_switch_unavailable")
+    return inviteSwitch.current(identity)
+  }, setupLinkleOrigin)
   const [currentLobbyRoom, setCurrentLobbyRoom] = useState<RoomIdentity | null>(null)
   const switchingLobby = useRef(false)
   const switchLobby = async (target: SwitchTarget, nickname = "桌面用户") => {
@@ -104,16 +117,150 @@ export default function App() {
       setView(target.identity.service === "watchparty" ? "room" : "home")
     } finally { switchingLobby.current = false; setCompletedLocalNotice(value => value + 1) }
   }
+  inviteSwitch.current = identity => switchLobby({ identity })
   const lobby = useLobbyFacade({ origin: musicParty.serviceOrigin, connection: musicParty.getConnection(), createAdapter: () => new MusicPartyAdapter({ origin: musicParty.serviceOrigin, nativeInvoke: invoke }), switchTo: switchLobby })
   const [drawer, setDrawer] = useState<Drawer>(null)
   const [theme, setTheme] = useState<Theme>("dark")
   const [windowMaterial, setWindowMaterial] = useState<WindowMaterial>("auto")
   const [backendOrigin, setBackendOrigin] = useState<string | null>(null)
+  const [banguruProbe, setBanguruProbe] = useState<BanguruProbeState>({ status: "unconfigured" })
+  const [restorationSettledOrigin, setRestorationSettledOrigin] = useState<string | null>(null)
+  const restoreAttemptedOrigin = useRef<string | null>(null)
+  const previousBackendOrigin = useRef<string | null>(null)
+  // 首启向导：null = 还没读到磁盘设置，此时不闪向导。
+  const [setupCompleted, setSetupCompleted] = useState<boolean | null>(null)
+  const localLinkleOrigin = useCallback((): string => {
+    try { return serviceForProduct(migrateLocalSettings(JSON.parse(localStorage.getItem("watchparty.local-settings") ?? "null")), "musicparty")?.origin ?? "" } catch { return "" }
+  }, [])
+
+  // Setup Guide 注入面：只用既有 IPC 白名单命令（getDesktopSettings / updateDesktopSettings /
+  // verifyBackend / probeDesktopBackend / promptSiteCredentials / Linkle adapter）。
+  const setupServices: SetupGuideServices = {
+    async loadInitial() {
+      const settings = await getDesktopSettings()
+      return {
+        backendOrigin: settings.backendOrigin,
+        nickname: settings.nickname,
+        linkleOrigin: localLinkleOrigin(),
+        credentialsConfigured: settings.credentialsConfigured,
+      }
+    },
+    async saveBanguruOrigin(origin) {
+      const trimmed = origin.trim()
+      if (!trimmed) return { ok: false, message: "请填写 Banguru 服务器地址。" }
+      const invalid = backendAddressError(trimmed)
+      if (invalid) return { ok: false, message: invalid }
+      try {
+        const current = await getDesktopSettings()
+        const updated = await updateDesktopSettings({ backendOrigin: trimmed, allowRemoteHttp: current.allowRemoteHttp, nickname: current.nickname, theme: current.theme, windowMaterial: current.windowMaterial, playerPreferences: current.playerPreferences })
+        setBackendOrigin(updated.backendOrigin)
+        return { ok: true }
+      } catch (error) { return { ok: false, message: errorMessage(error, "地址保存失败，请检查格式后重试。") } }
+    },
+    async verifyBanguru() {
+      const current = await getDesktopSettings()
+      const origin = current.backendOrigin
+      if (!origin) return { ok: false, message: "还没有可验证的服务器地址。", hint: "回到上一步填写 Banguru 服务器地址后再验证。" }
+      try {
+        await verifyBackend()
+        const report = await probeDesktopBackend()
+        const enabled = [
+          report.capabilities.createRoom ? "创建" : null,
+          report.capabilities.joinRoom ? "加入" : null,
+          report.capabilities.restoreSession ? "恢复" : null,
+          report.capabilities.mediaSearch ? "搜索" : null,
+          report.capabilities.mediaQueue ? "队列" : null,
+          report.capabilities.handoffCode ? "网页交接" : null,
+        ].filter((label): label is string => label !== null)
+        return {
+          ok: true,
+          statusLine: "在线 · 服务正常",
+          protocolLine: "v" + report.protocolVersion,
+          capabilityLine: enabled.length ? enabled.join(" · ") + " 均可用" : "服务器未开放任何能力位",
+          accountLine: current.credentialsConfigured ? "已设置" : "未设置（服务器未要求 Basic Auth）",
+        }
+      } catch {
+        return {
+          ok: false,
+          message: "无法连接 " + origin + "。",
+          hint: "请确认 Banguru 后端已启动（默认监听 8080）、主机与端口正确、防火墙放行；远程网络请改用 HTTPS。服务器要求账号时到「安全与高级」设置。",
+        }
+      }
+    },
+    // 与 ipc.ts 的 promptSiteCredentials 同名：方法名不构成词法绑定，这里调用的是导入的 IPC 包装。
+    async promptSiteCredentials() {
+      try { return (await promptSiteCredentials()) !== null } catch { return false }
+    },
+    async saveNickname(nickname) {
+      const trimmed = nickname.trim()
+      if (!trimmed) return { ok: false, message: "请填写昵称。" }
+      try {
+        const current = await getDesktopSettings()
+        await updateDesktopSettings({ backendOrigin: current.backendOrigin, allowRemoteHttp: current.allowRemoteHttp, nickname: trimmed, theme: current.theme, windowMaterial: current.windowMaterial, playerPreferences: current.playerPreferences })
+        return { ok: true }
+      } catch (error) { return { ok: false, message: errorMessage(error, "昵称保存失败。") } }
+    },
+    async verifyLinkle(origin) {
+      const trimmed = origin.trim()
+      const invalid = musicPartyOriginError(trimmed)
+      if (invalid) return { ok: false, message: invalid }
+      try {
+        const probe = await probeMusicParty({ origin: trimmed, nativeInvoke: invoke }, { readiness: true })
+        if (probe.status !== "ok") return { ok: false, message: probe.message }
+        return { ok: true, line: linkleReadinessLine(probe.readiness) }
+      } catch (error) { return { ok: false, message: errorMessage(error, "无法验证 Linkle 服务地址。") } }
+    },
+    async saveLinkleOrigin(origin) {
+      const trimmed = origin.trim()
+      const invalid = musicPartyOriginError(trimmed)
+      if (invalid) return { ok: false, message: invalid }
+      try {
+        const settings = migrateLocalSettings(JSON.parse(localStorage.getItem("watchparty.local-settings") ?? "null"))
+        const next = saveMusicPartyService(settings, trimmed)
+        localStorage.setItem("watchparty.local-settings", JSON.stringify(next))
+        setSetupLinkleOrigin(serviceForProduct(next, "musicparty")?.origin ?? "")
+        return { ok: true }
+      } catch { return { ok: false, message: "服务地址无效或无法保存。" } }
+    },
+    async redeemLinkleInvite(code) {
+      const target = localLinkleOrigin()
+      const invalid = musicPartyOriginError(target)
+      if (invalid) return { ok: false, message: invalid }
+      try {
+        const member = linkleMemberOf(migrateLocalSettings(JSON.parse(localStorage.getItem("watchparty.local-settings") ?? "null")))
+        const nickname = await getDesktopSettings().then(settings => settings.nickname).catch(() => null)
+        const result = await musicParty.getConnection().run(target, adapter => adapter.redeemInvite(code.trim(), { join: false, displayName: linkleDisplayName(member, nickname) }))
+        const probe = await probeMusicParty({ origin: target, nativeInvoke: invoke }).catch(() => null)
+        const account = probe?.account ?? null
+        return { ok: true, accountName: account ? (account.displayName || account.publicId) : (result.roomName ?? "已兑换邀请码") }
+      } catch (error) { return { ok: false, message: inviteErrorMessage(error, "邀请码兑换失败，请检查服务地址与邀请码。") } }
+    },
+    async finish(setup) {
+      try {
+        const current = await getDesktopSettings()
+        const nextOrigin = setup.backendOrigin && setup.backendOrigin.trim() ? setup.backendOrigin.trim() : current.backendOrigin
+        const nextNickname = setup.nickname.trim() ? setup.nickname.trim() : current.nickname
+        const updated = await updateDesktopSettings({ backendOrigin: nextOrigin, allowRemoteHttp: current.allowRemoteHttp, nickname: nextNickname, theme: current.theme, windowMaterial: current.windowMaterial, playerPreferences: current.playerPreferences, setupCompleted: true })
+        setBackendOrigin(updated.backendOrigin)
+        setSetupCompleted(true)
+        return { ok: true }
+      } catch (error) { return { ok: false, message: errorMessage(error, "无法完成配置，请稍后重试。") } }
+    },
+  }
+
+  // 重新配置＝只重置完成位，绝不改动任何已存配置。
+  const reconfigure = useCallback(async () => {
+    try {
+      const current = await getDesktopSettings()
+      await updateDesktopSettings({ backendOrigin: current.backendOrigin, allowRemoteHttp: current.allowRemoteHttp, nickname: current.nickname, theme: current.theme, windowMaterial: current.windowMaterial, playerPreferences: current.playerPreferences, setupCompleted: false })
+      setSetupCompleted(false)
+    } catch (error) { session.setStatus({ text: errorMessage(error, "无法重新打开设置向导"), tone: "error" }) }
+  }, [session.setStatus])
   useEffect(() => {
     let disposed = false
     let unlisten: (() => void) | undefined
     const apply = (settings: DesktopSettingsStatus) => {
-      if (!disposed) { setTheme(settings.theme); setWindowMaterial(settings.windowMaterial); setBackendOrigin(settings.backendOrigin) }
+      if (!disposed) { setTheme(settings.theme); setWindowMaterial(settings.windowMaterial); setBackendOrigin(settings.backendOrigin); setSetupCompleted(settings.setupCompleted) }
     }
     void listenForSettings(apply).then(async (stop) => {
       if (disposed) { stop(); return }
@@ -122,6 +269,51 @@ export default function App() {
     }).catch(() => session.setStatus({ text: "无法读取桌面设置", tone: "error" }))
     return () => { disposed = true; unlisten?.() }
   }, [session.setStatus])
+  useEffect(() => {
+    if (previousBackendOrigin.current !== backendOrigin) {
+      previousBackendOrigin.current = backendOrigin
+      restoreAttemptedOrigin.current = null
+      setRestorationSettledOrigin(null)
+    }
+    if (view !== "home" || product !== "watchparty") return
+    if (!backendOrigin) {
+      setBanguruProbe({ status: "unconfigured" })
+      return
+    }
+    let disposed = false
+    setBanguruProbe({ status: "checking", origin: backendOrigin })
+    void probeDesktopBackend()
+      .then((report: DesktopProbeReport) => {
+        if (disposed) return
+        setBanguruProbe({ status: "online", origin: backendOrigin, protocolVersion: report.protocolVersion, serviceVersion: report.serviceVersion, capabilities: report.capabilities })
+        // Optional follow-up: a backend without the readiness capability, or a
+        // failing probe, leaves `readiness` as null and the banner simply
+        // omits its second line (never reported as degraded).
+        void probeDesktopReadiness().then(readiness => {
+          if (disposed) return
+          setBanguruProbe(current => current.origin === backendOrigin && current.status === "online" ? { ...current, readiness } : current)
+        })
+      })
+      .catch((error: unknown) => {
+        if (disposed) return
+        const message = errorMessage(error, typeof error === "string" ? error : "无法连接桌面服务")
+        const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : null
+        setBanguruProbe({ status: "error", origin: backendOrigin, error: code ? `${code}：${message}` : message })
+      })
+    return () => { disposed = true }
+  }, [backendOrigin, product, view])
+  useEffect(() => {
+    if (view !== "home" || product !== "watchparty" || !backendOrigin || banguruProbe.origin !== backendOrigin || banguruProbe.status !== "online" || !session.readyForRestore || restoreAttemptedOrigin.current === backendOrigin) return
+    restoreAttemptedOrigin.current = backendOrigin
+    if (!banguruProbe.capabilities?.restoreSession) {
+      setRestorationSettledOrigin(backendOrigin)
+      return
+    }
+    void session.restore().finally(() => setRestorationSettledOrigin(backendOrigin))
+  }, [backendOrigin, banguruProbe, product, session.readyForRestore, session.restore, view])
+  const activeProbe = banguruProbe.origin === backendOrigin ? banguruProbe : { status: "checking" as const }
+  const capabilities = activeProbe.status === "online" ? activeProbe.capabilities : undefined
+  const entryBusy = session.starting || (activeProbe.status === "online" && restorationSettledOrigin !== backendOrigin)
   const [fullscreen, setFullscreen] = useState(false)
   const [mica, setMica] = useState<{ image: string | null; average: string | null } | null>(null)
   useEffect(() => {
@@ -222,15 +414,16 @@ export default function App() {
           roomId={activeRoomId}
           drawer={drawer}
           command={session.command}
+          mediaQueueAvailable={capabilities?.mediaQueue ?? false}
           fullscreen={fullscreen}
           statusText={session.status.text}
           onFullscreenChange={setFullscreen}
-          onDrawerChange={(nextDrawer) => setDrawer((current) => current === nextDrawer ? null : nextDrawer)}
-          onOpenMedia={() => void navigate("media")}
+          onDrawerChange={(nextDrawer) => { if (nextDrawer !== "queue" || capabilities?.mediaQueue) setDrawer((current) => current === nextDrawer ? null : nextDrawer) }}
+          onOpenMedia={() => { if (capabilities?.mediaSearch || capabilities?.mediaQueue) void navigate("media") }}
           onLeave={() => void leaveRoom()}
         />
       ) : (
-        <FluentProvider applyStylesToPortals={false} theme={winuiFluentTheme(theme === "dark" ? webDarkTheme : webLightTheme)} className="desktop-shell-surface desktop-shell-grid text-foreground">
+        <FluentProvider applyStylesToPortals={false} theme={winuiFluentTheme(theme === "dark" ? webDarkTheme : webLightTheme)} className="desktop-shell-surface desktop-shell-grid text-foreground" data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}>
           {windowMaterial === "auto" ? (
             <div className="desktop-mica-layer" style={mica?.average ? ({ "--mica-tint": mica.average } as CSSProperties) : undefined} aria-hidden="true">
               {mica?.image ? <div className="desktop-mica-image" style={{ backgroundImage: `url("${mica.image}")` }} /> : null}
@@ -239,6 +432,8 @@ export default function App() {
           <ShellToastProvider>
           <ShellStatusToast status={session.status} locallyHandledStatus={locallyHandledStatus} />
           <Sidebar
+            collapsed={sidebarCollapsed}
+            onCollapse={() => setSidebarCollapsed(value => { storeSidebar(!value); return !value })}
             backendOrigin={backendOrigin}
             product={product}
             onProduct={(next) => void changeProduct(next)}
@@ -247,17 +442,20 @@ export default function App() {
             roomId={activeRoomId}
             status={session.status}
             onView={(nextView) => void navigate(nextView)}
-            onDrawer={(nextDrawer) => void openRoomDrawer(nextDrawer)}
+            onDrawer={(nextDrawer) => { if (nextDrawer !== "queue" || capabilities?.mediaQueue) void openRoomDrawer(nextDrawer) }}
+            servicesDisabled={setupCompleted === false}
           />
           <main className="desktop-main">
-            <div className={cn("desktop-page", view === "settings" && "desktop-page-settings")}>{view === "home" ? (product === "musicparty" ? (currentLobbyRoom?.service === "musicparty" ? (
+            <div className={cn("desktop-page", view === "settings" && "desktop-page-settings")}>{view === "home" && setupCompleted === false ? (
+              <SetupGuide services={setupServices} onDone={() => setSetupCompleted(true)} />
+            ) : view === "home" ? (product === "musicparty" ? (currentLobbyRoom?.service === "musicparty" ? (
               <LinkleRoom
                 room={currentLobbyRoom}
                 connection={musicParty.getConnection()}
                 subscribeRoom={musicParty.subscribeRoom}
                 onLeave={() => setCurrentLobbyRoom(null)}
               />
-            ) : <><LobbyView facade={lobby!} origin={musicParty.serviceOrigin} busy={session.starting} activeRoom={currentLobbyRoom} /><details className="shell-lobby-secondary"><summary className="cursor-pointer text-sm">服务与账号</summary>{musicParty.content}</details></>) : <BanguruLobby onStart={session.start} launchRoomId={session.launchRoomId} busy={session.starting} canJoin={Boolean(backendOrigin)} canCreate={currentLobbyRoom?.service !== "musicparty"} activeRoomId={state?.roomId ?? null} onCreate={(nickname, pin) => { locallyHandledStatus.current = true; return session.createRoom(nickname, pin).finally(() => setCompletedLocalNotice(value => value + 1)) }} onJoin={(roomId, nickname, pin) => { locallyHandledStatus.current = true; return switchLobby({ identity: { service: "watchparty", origin: backendOrigin ?? "", roomId }, password: pin }, nickname).then(() => true).catch(() => false) }} />) : view === "room" ? (
+            ) : <LobbyView facade={lobby!} origin={musicParty.serviceOrigin} busy={session.starting} activeRoom={currentLobbyRoom} onRedeemInvite={musicParty.redeemInvite} accountPanel={musicParty.content} />) : <BanguruLobby onStart={session.start} launchRoomId={session.launchRoomId} busy={entryBusy} probe={activeProbe} canCreate={currentLobbyRoom?.service !== "musicparty"} activeRoomId={state?.roomId ?? null} onCreate={async (nickname, pin) => { locallyHandledStatus.current = true; try { await createDesktopRoom({ nickname, ...(pin ? { pin } : {}) }) } finally { setCompletedLocalNotice(value => value + 1) } }} onJoin={(roomId, nickname, pin) => switchLobby({ identity: { service: "watchparty", origin: backendOrigin ?? "", roomId }, password: pin })} setupCompleted={setupCompleted === true} setupOrigin={backendOrigin} onReconfigure={() => void reconfigure()} />) : view === "room" ? (
               <HomeView
                 state={state}
                 roomId={activeRoomId}
@@ -269,7 +467,7 @@ export default function App() {
                 onProduct={(next) => void changeProduct(next)}
               />
             ) : view === "media" ? (
-              <MediaLibraryView state={state} command={session.command} navigate={(nextView) => void navigate(nextView)} />
+              <MediaLibraryView state={state} command={session.command} navigate={(nextView) => void navigate(nextView)} mediaSearchAvailable={capabilities?.mediaSearch ?? false} mediaQueueAvailable={capabilities?.mediaQueue ?? false} />
             ) : (
               <FluentSettingsView
                 state={state}
@@ -320,7 +518,18 @@ function SessionBar({ service, roomId, media, status, onReturn }: {
   </section>
 }
 
-function Sidebar({ view, state, roomId, status, onView, onDrawer, backendOrigin, product, onProduct }: {
+/** Collapsing the rail is local view state, remembered per machine. */
+const SIDEBAR_KEY = "watchparty.ui.sidebar"
+function storedSidebarCollapsed(): boolean {
+  try { return window.localStorage.getItem(SIDEBAR_KEY) === "collapsed" } catch { return false }
+}
+function storeSidebar(collapsed: boolean) {
+  try { window.localStorage.setItem(SIDEBAR_KEY, collapsed ? "collapsed" : "expanded") } catch { /* storage disabled */ }
+}
+
+function Sidebar({ view, state, roomId, status, onView, onDrawer, backendOrigin, product, onProduct, collapsed, onCollapse, servicesDisabled }: {
+  collapsed: boolean
+  onCollapse: () => void
   backendOrigin: string | null
   product: "watchparty" | "musicparty"
   onProduct: (product: "watchparty" | "musicparty") => void
@@ -330,15 +539,16 @@ function Sidebar({ view, state, roomId, status, onView, onDrawer, backendOrigin,
   status: ReturnType<typeof useDesktopSession>["status"]
   onView: (view: View) => void
   onDrawer: (drawer: Exclude<Drawer, null>) => void
+  servicesDisabled?: boolean
 }) {
   return (
-    <aside className="desktop-sidebar">
+    <aside className={cn("desktop-sidebar", collapsed && "is-collapsed")}>
       <nav className="desktop-service-nav" aria-label="服务浏览">
-        <FluentButton appearance="subtle" aria-current={product === "watchparty" ? "page" : undefined} onClick={() => { onProduct("watchparty"); onView("home") }}><MaterialSymbol name="monitor" /><span><strong>Banguru</strong><small>一起看</small></span></FluentButton>
-        <FluentButton appearance="subtle" aria-current={product === "musicparty" ? "page" : undefined} onClick={() => { onProduct("musicparty"); onView("home") }}><MaterialSymbol name="music-note" /><span><strong>Linkle</strong><small>一起听</small></span></FluentButton>
+        <FluentButton appearance="subtle" aria-label="Banguru 一起看" aria-current={product === "watchparty" ? "page" : undefined} disabled={servicesDisabled} onClick={() => { onProduct("watchparty"); onView("home") }}><MaterialSymbol name="monitor" /><span><strong>Banguru</strong><small>一起看</small></span></FluentButton>
+        <FluentButton appearance="subtle" aria-label="Linkle 一起听" aria-current={product === "musicparty" ? "page" : undefined} disabled={servicesDisabled} onClick={() => { onProduct("musicparty"); onView("home") }}><MaterialSymbol name="music-note" /><span><strong>Linkle</strong><small>一起听</small></span></FluentButton>
       </nav>
       <div className={cn("desktop-session", !roomId && "desktop-session-empty")}>{roomId ? <><strong>{roomId}</strong><p>{state ? connectionLabel(state.connection) : status.text}</p><p>{backendOrigin ?? "Banguru 站点未配置"}</p></> : null}</div>
-      <div className="desktop-settings-link"><FluentButton appearance="subtle" aria-current={view === "settings" ? "page" : undefined} onClick={() => onView("settings")}><MaterialSymbol name="settings" /> 设置</FluentButton></div>
+      <div className="desktop-settings-link"><FluentButton appearance="subtle" aria-label="设置" aria-current={view === "settings" ? "page" : undefined} onClick={() => onView("settings")}><MaterialSymbol name="settings" /><span>设置</span></FluentButton><FluentButton appearance="subtle" aria-label={collapsed ? "展开侧栏" : "折叠侧栏"} onClick={onCollapse}>{collapsed ? <PanelLeftExpandRegular /> : <PanelLeftContractRegular />}</FluentButton></div>
     </aside>
   )
 }
@@ -396,22 +606,40 @@ function HomeView({ state, roomId, starting, onStart, onCreate, onAccess, onRetu
   )
 }
 
-function useMusicPartyEntry() {
+function useMusicPartyEntry(onInviteRoom: (identity: RoomIdentity) => Promise<void>, requestedOrigin?: string | null) {
   const activeRef = useRef(false)
   const roomListeners = useRef(new Set<(event: DomainEvent) => void>())
   const subscribeRoom = useCallback((listener: (event: DomainEvent) => void) => {
     roomListeners.current.add(listener)
     return () => { roomListeners.current.delete(listener) }
   }, [])
+  // No built-in server: an unconfigured client says so, and the developer convenience lives in
+  // LINKLE_DEV_ORIGIN, not in a constant that silently points at one machine's docker.
   const [origin, setOrigin] = useState(() => {
-    try { return serviceForProduct(migrateLocalSettings(JSON.parse(localStorage.getItem("watchparty.local-settings") ?? "null")), "musicparty")?.origin ?? "http://127.0.0.1:18081" } catch { return "http://127.0.0.1:18081" }
+    try { return serviceForProduct(migrateLocalSettings(JSON.parse(localStorage.getItem("watchparty.local-settings") ?? "null")), "musicparty")?.origin ?? "" } catch { return "" }
   })
   const [serviceOrigin, setServiceOrigin] = useState(origin)
   const [invite, setInvite] = useState("")
   const [message, setMessage] = useState("")
+  const [serverProbe, setServerProbe] = useState<MusicPartyProbe | null>(null)
+  const [probing, setProbing] = useState(false)
   const [backendOrigin, setBackendOrigin] = useState<string | null>(null)
   useEffect(() => { void getDesktopSettings().then((s) => setBackendOrigin(s.backendOrigin)).catch(() => setMessage("请先配置后端站点")) }, [])
-  const [connection, setConnection] = useState("未连接")
+  useEffect(() => {
+    if (!window.watchpartyDesktop) return
+    let cancelled = false
+    void window.watchpartyDesktop.invoke<{ origin: string | null; roomId: string | null; invite: string | null }>("getLinkleDevConfig").then(async config => {
+      if (cancelled || !config.origin || !config.invite) return
+      setOrigin(config.origin)
+      setServiceOrigin(config.origin)
+      try {
+        const result = await redeemAndEnter(config.origin, config.invite)
+        if (!cancelled && config.roomId && result.roomId !== config.roomId) setMessage(`调试邀请码进入了 ${result.roomId}，与 LINKLE_DEV_ROOM 不一致`)
+        else if (!cancelled) setMessage(`已进入 ${result.roomName ?? result.roomId}`)
+      } catch (error) { if (!cancelled) setMessage(inviteErrorMessage(error, "调试入口邀请码兑换失败，请确认服务地址和邀请码有效")) }
+    }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [])
   const [roomStatus, setRoomStatus] = useState("未进入房间")
   const [queueCount, setQueueCount] = useState(0)
   const [queueTitles, setQueueTitles] = useState<string[]>([])
@@ -426,6 +654,12 @@ function useMusicPartyEntry() {
     return () => { void subscription.then(unlisten => unlisten()).catch(() => {}) }
   }, [])
   const connectionRef = useRef<MusicPartyConnection | null>(null)
+  // 设置向导保存的 Linkle 地址要不重启就生效：向导在 App 层，碰不到这里的 state。
+  useEffect(() => {
+    if (!requestedOrigin || requestedOrigin === serviceOrigin || musicPartyOriginError(requestedOrigin)) return
+    setOrigin(requestedOrigin)
+    if (!connectionRef.current?.current?.roomId) setServiceOrigin(requestedOrigin)
+  }, [requestedOrigin, serviceOrigin])
   const getConnection = () => {
     if (connectionRef.current) return connectionRef.current
     const connection = new MusicPartyConnection(
@@ -440,8 +674,8 @@ function useMusicPartyEntry() {
     event => {
       for (const listener of roomListeners.current) listener(event)
       if (event.type === "connection") {
-        setConnection(event.status === "ready" ? "已连接" : event.status === "reconnecting" ? "重连中" : event.status === "failed" ? "连接失败" : event.status === "idle" ? "未连接" : "连接中")
         if (event.status === "ready") setMessage("已建立 Linkle 服务连接")
+        else if (event.status === "failed" && event.message) setMessage(event.message)
       }
       if (event.type === "error") setMessage(event.message)
       if (event.type === "room") { setQueueCount(event.room?.queue?.length ?? 0); setQueueTitles((event.room?.queue ?? []).slice(0, 3).map(item => item.title)); setRoomStatus(event.room?.name ? `房间：${event.room.name}` : "已连接房间") }
@@ -456,41 +690,72 @@ function useMusicPartyEntry() {
     connectionRef.current = connection
     return connection
   }
+  // 建号时把本机 ID 报给服务端（用户 2026-09-25 定：自定义 ID 写进服务端，之后以服务端为基准）。
+  // 本机 ID（设置向导将写进 linkleMember）优先，其次本机昵称，都没有才是「桌面用户」。
+  const resolveDisplayName = async (): Promise<string> => {
+    const member = (() => { try { return linkleMemberOf(migrateLocalSettings(JSON.parse(localStorage.getItem("watchparty.local-settings") ?? "null"))) } catch { return null } })()
+    if (member?.name) return linkleDisplayName(member)
+    const nickname = await getDesktopSettings().then(settings => settings.nickname).catch(() => null)
+    return linkleDisplayName(member, nickname)
+  }
+  const redeemAndEnter = async (targetOrigin: string, code: string) => {
+    const displayName = await resolveDisplayName()
+    const result = await getConnection().run(targetOrigin, adapter => adapter.redeemInvite(code, { join: false, displayName }))
+    await onInviteRoom({ service: "musicparty", origin: new URL(targetOrigin).origin, roomId: result.roomId })
+    return result
+  }
   useEffect(() => () => { const old = connectionRef.current; connectionRef.current = null; void old?.dispose() }, [])
   const connect = async () => {
     try { await getConnection().run(origin, adapter => adapter.connect()) } catch { setMessage("无法连接 Linkle 服务") }
   }
+  // Probing is read-only: an unsaved or incompatible address must not disturb a live room.
+  const probe = async () => {
+    const invalid = musicPartyOriginError(origin)
+    if (invalid) { setServerProbe(null); setMessage(invalid); return }
+    setProbing(true)
+    try { const result = await probeMusicParty({ origin, nativeInvoke: invoke }); setServerProbe(result); setMessage(result.message) }
+    catch { setServerProbe(null); setMessage("服务地址无效或无法访问，请检查后重试") }
+    finally { setProbing(false) }
+  }
   const logout = async () => {
     const targetOrigin = serviceOrigin
-    await getConnection().withCurrent(targetOrigin, async adapter => {
-      await logoutMusicParty(targetOrigin)
-      await adapter?.disconnect()
-      await playerRef.current?.stop()
-      setPlaying(false)
-      setRoomStatus("未进入房间")
-      setQueueCount(0)
-      setQueueTitles([])
-    })
+    try {
+      // run() builds an adapter for a session that never joined a room, so the server-side
+      // revoke still happens; adapter.logout() clears the local credentials either way.
+      await getConnection().run(targetOrigin, adapter => adapter.logout())
+    } catch {
+      await invoke<void>("clearMusicPartySession", { origin: targetOrigin }).catch(() => undefined)
+    }
+    await playerRef.current?.stop()
+    setPlaying(false)
+    setRoomStatus("未进入房间")
+    setQueueCount(0)
+    setQueueTitles([])
   }
   const saveService = () => {
+    const invalid = musicPartyOriginError(origin)
+    if (invalid) { setServerProbe(null); setMessage(invalid); return }
     try {
       const settings = migrateLocalSettings(JSON.parse(localStorage.getItem("watchparty.local-settings") ?? "null"))
       const next = saveMusicPartyService(settings, origin)
       localStorage.setItem("watchparty.local-settings", JSON.stringify(next))
-      if (!connectionRef.current?.current) setServiceOrigin(serviceForProduct(next, "musicparty")!.origin)
+      // Saving switches the active server unless a room session is live: browsing the lobby
+      // creates an adapter, and that used to pin the old address behind the settings field.
+      if (!connectionRef.current?.current?.roomId) setServiceOrigin(serviceForProduct(next, "musicparty")?.origin ?? "")
       setMessage("服务地址已保存")
     } catch { setMessage("服务地址无效或无法保存") }
   }
   const content = <section className="mt-10 border-t border-border pt-5">
-    <div className="flex items-baseline justify-between"><SectionTitle detail="远程服务 · 邀请兑换">Linkle</SectionTitle><span className="text-xs text-muted-foreground">{connection}</span></div>
     <div className="mt-2 flex items-center gap-2"><div><p className="text-xs text-muted-foreground" role="status">{roomStatus} · 队列 {queueCount}</p>{queueTitles.length ? <p className="text-xs text-muted-foreground">{queueTitles.join(" · ")}</p> : null}</div>{playerRef.current ? <Button size="sm" variant="outline" onClick={() => { const p = playerRef.current; if (!p) return; void (playing ? p.pause() : p.resume()).then(() => setPlaying(!playing)) }}>{playing ? "暂停" : "继续"}</Button> : null}</div>
-    <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]" ><Input value={origin} onChange={(event) => setOrigin(event.target.value)} placeholder="https://music.example.com" aria-label="Linkle 服务地址" className="font-mono text-xs" /><div className="flex gap-2"><Button variant="outline" size="sm" disabled={!origin.trim()} onClick={saveService}>保存服务</Button><Button variant="ghost" size="sm" disabled={!origin.trim()} onClick={() => void connect()}>连接</Button></div></div>
-    <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]"><Input value={invite} onChange={(event) => setInvite(event.target.value)} placeholder="输入 Linkle 邀请码" aria-label="Linkle 邀请码" /><Button size="sm" disabled={!origin.trim() || !invite.trim()} onClick={() => { void getConnection().run(origin, adapter => adapter.redeemInvite(invite.trim())).then((result) => setMessage(`已进入 ${result.roomName ?? result.roomId}`)).catch(() => setMessage("邀请兑换失败，请检查服务地址和邀请码")) }}>兑换并进入</Button></div>
+    <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]" ><Input value={origin} onChange={(event) => { setOrigin(event.target.value); setServerProbe(null) }} placeholder="https://music.example.com" aria-label="Linkle 服务地址" className="font-mono text-xs" /><div className="flex gap-2"><Button variant="outline" size="icon-sm" aria-label="保存服务" title="保存服务地址" disabled={!origin.trim()} onClick={saveService}><SaveRegular /></Button><Button variant="ghost" size="icon-sm" aria-label="探测" title="只读探测这台服务器：健康、能力、当前账号（不进房间）" disabled={!origin.trim() || probing} onClick={() => void probe()}><PulseRegular /></Button><Button variant="ghost" size="icon-sm" aria-label="连接" title="用已保存的凭据连接" disabled={!origin.trim()} onClick={() => void connect()}><PlugConnectedRegular /></Button></div></div>
+    {serverProbe ? <p className="mt-2 text-xs text-muted-foreground" role="status">{probeSummary(serverProbe)}</p> : null}
+    <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]"><Input value={invite} onChange={(event) => setInvite(event.target.value)} placeholder="输入 Linkle 邀请码" aria-label="Linkle 邀请码" /><Button size="icon-sm" aria-label="兑换并进入" title="兑换邀请码并进入房间" disabled={!origin.trim() || !invite.trim()} onClick={() => { void redeemAndEnter(origin, invite.trim()).then((result) => setMessage(`已进入 ${result.roomName ?? result.roomId}`)).catch((error) => setMessage(inviteErrorMessage(error, "邀请兑换失败，请检查服务地址和邀请码有效"))) }}><KeyRegular /></Button></div>
     <div className="mt-2 flex gap-3 text-xs text-muted-foreground"><button type="button" className="hover:text-foreground" onClick={() => setMessage("Cookie 将由系统安全存储管理")}>导入 Cookie</button><button type="button" className="hover:text-foreground" onClick={() => setMessage("迁移包导入将在阶段 2 后续接入")}>导入 Web 迁移包</button></div>
     {message ? <p className="mt-2 text-xs text-muted-foreground" role="status">{message}</p> : null}
-    <MusicPartySearch key={origin} origin={origin} getConnection={getConnection} />
   </section>
   return { content, serviceOrigin, logout, getConnection, subscribeRoom,
+    /** The lobby's invite card enters a friend's room without going through the collapsed panel. */
+    redeemInvite: (code: string) => redeemAndEnter(serviceOrigin, code),
     currentRoom: (): RoomIdentity | null => { const adapter = connectionRef.current?.current; return adapter?.roomId ? { service: "musicparty", origin: adapter.origin, roomId: adapter.roomId } : null },
     setFocus: async (service: RoomIdentity["service"] | null) => {
       activeRef.current = service === "musicparty"
@@ -500,31 +765,17 @@ function useMusicPartyEntry() {
   }
 }
 
-function MusicPartySearch({ origin, getConnection }: { origin: string; getConnection: () => MusicPartyConnection }) {
-  const [platform, setPlatform] = useState("netease")
-  const [query, setQuery] = useState("")
-  const [results, setResults] = useState<MusicSearchResult[]>([])
-  const [message, setMessage] = useState("")
-  const [backendOrigin, setBackendOrigin] = useState<string | null>(null)
-  useEffect(() => { void getDesktopSettings().then((s) => setBackendOrigin(s.backendOrigin)).catch(() => setMessage("请先配置后端站点")) }, [])
-  async function search(event: React.FormEvent) {
-    event.preventDefault()
-    if (!origin.trim() || !query.trim()) return
-    try {
-      setResults(await getConnection().run(origin, adapter => adapter.search(platform, query.trim())))
-      setMessage("")
-    } catch { setMessage("搜索失败，请检查服务连接") }
-  }
-  return <div className="mt-5 border-t border-[var(--stroke-card)] pt-4">
-    <div className="text-xs font-semibold">搜索音乐</div>
-    <form className="mt-2 flex gap-2" onSubmit={(event) => void search(event)}>
-      <select value={platform} onChange={(event) => setPlatform(event.target.value)} className="h-8 min-w-28 rounded-sm border border-input bg-[var(--fill-control)] px-2 text-sm" aria-label="音乐平台"><option value="netease">网易云</option><option value="youtube">YouTube</option><option value="bilibili">Bilibili</option></select>
-      <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索歌曲、艺术家或专辑" aria-label="搜索音乐" className="flex-1" />
-      <Button size="sm" disabled={!origin.trim() || !query.trim()}>搜索</Button>
-    </form>
-    {message ? <p className="mt-2 text-xs text-destructive">{message}</p> : null}
-    {results.length ? <ul className="mt-3 divide-y divide-border border-y border-border">{results.map((item) => <li key={item.id} className="flex items-center gap-3 py-2 text-xs"><span className="min-w-0 flex-1 truncate">{item.title}<span className="ml-2 text-muted-foreground">{item.artist ?? "未知艺术家"}</span></span><Button size="sm" variant="ghost" onClick={() => { const adapter = getConnection().current; if (!adapter) { setMessage("请先连接 MusicParty 房间"); return }; void adapter.enqueue(item.platform, item.sourceId).then(ok => setMessage(ok ? "已加入房间队列" : "入队未获服务端确认")) }}>加入队列</Button><Button size="sm" variant="outline" onClick={() => { void (async () => { const adapter = getConnection().current; if (!adapter) { setMessage("请先连接 MusicParty 房间"); return }; const accepted = await adapter.enqueue(item.platform, item.sourceId); if (!accepted) { setMessage("入队未获服务端确认"); return }; if (adapter !== getConnection().current) return; setMessage("已加入房间队列，跟随房间播放") })() }}>播放</Button></li>)}</ul> : null}
-  </div>
+function inviteErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message && error.message !== "http-error" ? error.message : fallback
+}
+
+function probeSummary(probe: MusicPartyProbe): string {
+  const features = Object.entries(probe.features).filter(([, enabled]) => enabled).map(([id]) => id)
+  const parts = [`API ${probe.apiVersion ?? "未知"}`]
+  if (probe.serverVersion) parts.push(`服务 ${probe.serverVersion}`)
+  if (probe.status !== "ok") parts.push(`期望 ${probe.expectedApiVersion}`, `客户端 ${probe.clientVersion}`)
+  parts.push(`平台 ${probe.providers.length ? probe.providers.join("、") : "无"}`, `能力 ${features.length ? features.join("、") : "无"}`)
+  return parts.join(" · ")
 }
 
 function EmptyPosterGrid({ label }: { label: string }) {
@@ -537,99 +788,188 @@ function EmptyPosterGrid({ label }: { label: string }) {
   )
 }
 
-function MediaLibraryView({ state, command, navigate }: {
+function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, mediaQueueAvailable }: {
   state: ReturnType<typeof useDesktopSession>["state"]
   command: (command: DesktopCommand) => Promise<boolean>
   navigate: (view: View) => void
+  mediaSearchAvailable: boolean
+  mediaQueueAvailable: boolean
 }) {
+  // 多源库（phase 1）：capabilities.libraries 为真走 /api/media/libraries + list?libraryId=；
+  // 为假时退回旧的 root= 路由，老后端仍然能用（旧路由由后端在两端上线一周后删掉）。
+  const [capabilities, setCapabilities] = useState<MediaCapabilities | null>(null)
+  const [libraries, setLibraries] = useState<MediaLibrary[]>([])
+  const [activeLibraryId, setActiveLibraryId] = useState<string | null>(null)
   const [roots, setRoots] = useState<string[]>([])
   const [activeRoot, setActiveRoot] = useState<string | null>(null)
-  const [path, setPath] = useState("/")
-  const [page, setPage] = useState<MediaDirectoryPage | null>(null)
-  const [items, setItems] = useState<MediaDirectoryItem[]>([])
+  const [view, setView] = useState<MediaView | null>(null)
   const [query, setQuery] = useState("")
   const [searching, setSearching] = useState(false)
   const [message, setMessage] = useState("")
+  const [addingSource, setAddingSource] = useState(false)
   const [backendOrigin, setBackendOrigin] = useState<string | null>(null)
   useEffect(() => { void getDesktopSettings().then((s) => setBackendOrigin(s.backendOrigin)).catch(() => setMessage("请先配置后端站点")) }, [])
   const canControl = Boolean(state?.canControlSharedPlayback)
+  const usesLibraries = capabilities?.libraries === true
+  const activeLibrary = libraries.find(entry => entry.id === activeLibraryId) ?? null
 
-  const load = useCallback(async (root: string, targetPath: string, cursor?: string) => {
+  const loadLibrary = useCallback(async (libraryId: string, targetPath: string, cursor?: string) => {
     try {
-      const result = await mediaList(root, targetPath, cursor)
-      setPage(result)
-      setItems((current) => cursor ? [...current, ...result.items] : result.items)
-      setPath(result.currentPath)
+      const next = toView(await mediaLibraryPage({ libraryId, path: targetPath, cursor }), artworkUrl)
+      setView(current => cursor && current ? { ...next, cards: [...current.cards, ...next.cards] } : next)
       setMessage("")
     } catch (error) {
-      setMessage(errorMessage(error, "无法载入媒体目录"))
+      // 换库失败必须把上一个库的卡片清掉，否则会在坏库的面包屑下显示别的库的内容。
+      if (!cursor) setView(null)
+      setMessage(mediaErrorText(error, "无法载入这个库"))
     }
   }, [])
 
-  const runSearch = useCallback(async (text: string, cursor?: string) => {
+  const loadLegacy = useCallback(async (root: string, targetPath: string, cursor?: string) => {
     try {
-      const result = await mediaSearch(text, cursor)
-      setPage(result)
-      setItems((current) => cursor ? [...current, ...result.items] : result.items)
+      const next = legacyView(await mediaList(root, targetPath, cursor), targetPath)
+      setView(current => cursor && current ? { ...next, cards: [...current.cards, ...next.cards] } : next)
       setMessage("")
     } catch (error) {
-      setMessage(errorMessage(error, "搜索失败"))
+      setMessage(mediaErrorText(error, "无法载入媒体目录"))
+    }
+  }, [])
+
+  const searchLibrary = useCallback(async (libraryId: string, text: string, cursor?: string) => {
+    try {
+      const next = toView(await mediaLibrarySearch({ libraryId, q: text, cursor }), artworkUrl)
+      setView(current => cursor && current ? { ...next, cards: [...current.cards, ...next.cards] } : next)
+      setMessage(next.cards.length ? "" : "没有匹配的文件")
+    } catch (error) {
+      setMessage(mediaErrorText(error, "搜索失败"))
+    }
+  }, [])
+
+  const searchLegacy = useCallback(async (text: string, cursor?: string) => {
+    try {
+      const next = legacyView(await mediaSearch(text, cursor), "/")
+      setView(current => cursor && current ? { ...next, cards: [...current.cards, ...next.cards] } : next)
+      setMessage(next.cards.length ? "" : "没有匹配的文件")
+    } catch (error) {
+      setMessage(mediaErrorText(error, "搜索失败"))
     }
   }, [])
 
   useEffect(() => {
-    void mediaRoots().then((names) => {
-      setRoots(names)
-      if (names.length > 0) {
-        setActiveRoot(names[0])
-        void load(names[0], "/")
+    let live = true
+    void (async () => {
+      let caps: MediaCapabilities | null = null
+      try { caps = await mediaCapabilities() } catch { caps = null }
+      if (!live) return
+      setCapabilities(caps)
+      if (caps?.libraries === true) {
+        try {
+          // 顺序按服务端返回（seed 在前），客户端不排序。
+          const list = await mediaLibraries()
+          if (!live) return
+          setLibraries(list)
+          const first = list[0]
+          if (first) {
+            setActiveLibraryId(first.id)
+            await loadLibrary(first.id, "/")
+          } else {
+            setMessage("这台服务器还没有可浏览的库")
+          }
+        } catch (error) {
+          if (live) setMessage(mediaErrorText(error, "无法读取媒体库列表"))
+        }
+        return
       }
-    }).catch(() => setMessage("媒体浏览需要先配置站点"))
-  }, [load])
+      try {
+        const names = await mediaRoots()
+        if (!live) return
+        setRoots(names)
+        if (names.length > 0) {
+          setActiveRoot(names[0]!)
+          await loadLegacy(names[0]!, "/")
+        }
+      } catch {
+        if (live) setMessage("媒体浏览需要先配置站点")
+      }
+    })()
+    return () => { live = false }
+  }, [loadLibrary, loadLegacy])
 
-  async function openItem(item: MediaDirectoryItem) {
-    if (item.type === "dir" && activeRoot) {
+  /** 面包屑与"载入更多"都从当前数据源重新取，客户端不自造路径。 */
+  function openPath(targetPath: string, cursor?: string) {
+    if (usesLibraries) {
+      if (activeLibraryId) void loadLibrary(activeLibraryId, targetPath, cursor)
+      return
+    }
+    if (activeRoot) void loadLegacy(activeRoot, targetPath, cursor)
+  }
+
+  function retry() {
+    if (usesLibraries && activeLibraryId) void loadLibrary(activeLibraryId, view?.currentPath ?? "/")
+    else if (activeRoot) void loadLegacy(activeRoot, view?.currentPath ?? "/")
+  }
+
+  /** 新增源：服务端整单验证，成功后才回库列表，然后把新源的第一个库切到前面。 */
+  async function addSource(draft: MediaSourceDraft): Promise<{ ok: true } | { ok: false; message: string }> {
+    try {
+      const created = await createMediaSource(draft)
+      const list = await mediaLibraries()
+      setLibraries(list)
+      setAddingSource(false)
+      const target = list.find(entry => entry.id === created.libraries[0]?.id) ?? list.find(entry => entry.sourceId === created.id)
+      if (target) {
+        setActiveLibraryId(target.id)
+        setSearching(false)
+        setQuery("")
+        await loadLibrary(target.id, "/")
+      }
+      setMessage(`已添加 ${created.name}`)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: mediaErrorText(error, "无法保存这个源") }
+    }
+  }
+
+  function runSearch(text: string, cursor?: string) {
+    setSearching(true)
+    if (usesLibraries) {
+      if (activeLibraryId) void searchLibrary(activeLibraryId, text, cursor)
+      return
+    }
+    void searchLegacy(text, cursor)
+  }
+
+  async function playCard(card: MediaCard) {
+    if (card.kind === "dir") {
       setSearching(false)
       setQuery("")
-      await load(activeRoot, item.id)
+      // 库模式下目录带自己的 relativePath（服务端给的）；旧路由只有名字，只能按名字拼。
+      openPath(usesLibraries ? card.relativePath || "/" : childDirectoryPath(view?.currentPath ?? "/", card.title))
+      return
+    }
+    if (!card.playable) {
+      setMessage(card.note ?? "桌面端无法播放这个文件")
       return
     }
     if (!canControl) {
       setMessage("当前无控制权限（房间已锁定或非房主）")
       return
     }
-    const media: MediaSource = {
-      kind: "openlist",
-      mediaId: item.id,
-      title: item.name,
-      container: item.extension || "mp4",
-      displayPath: item.displayPath ?? undefined,
-    }
+    const media: MediaSource = { kind: "openlist", mediaId: card.id, title: card.title, container: card.extension || "mp4" }
     if (await command({ type: "mediaSet", media })) {
-      setMessage(`正在播放 ${item.name}`)
+      setMessage(`正在播放 ${card.title}`)
       navigate("room")
     }
   }
 
-  async function enqueue(item: MediaDirectoryItem) {
+  async function enqueueCard(card: MediaCard) {
+    if (!mediaQueueAvailable || !card.playable) return
     if (!canControl) {
       setMessage("当前无控制权限（房间已锁定或非房主）")
       return
     }
-    const media: MediaSource = {
-      kind: "openlist",
-      mediaId: item.id,
-      title: item.name,
-      container: item.extension || "mp4",
-      displayPath: item.displayPath ?? undefined,
-    }
-    if (await command({ type: "playlistAdd", media })) setMessage(`已加入队列：${item.name}`)
-  }
-
-  function breadcrumbTarget(index: number): string {
-    if (!page) return "/"
-    if (index === 0) return "/"
-    return `/${page.breadcrumbs.slice(1, index + 1).join("/")}`
+    const media: MediaSource = { kind: "openlist", mediaId: card.id, title: card.title, container: card.extension || "mp4" }
+    if (await command({ type: "playlistAdd", media })) setMessage(`已加入队列：${card.title}`)
   }
 
   const [pasteUrl, setPasteUrl] = useState("")
@@ -645,6 +985,7 @@ function MediaLibraryView({ state, command, navigate }: {
 
   async function submitPaste(play: boolean) {
     if (!pasteUrl.trim()) return
+    if (!play && !mediaQueueAvailable) return
     if (!canControl) {
       setMessage("当前无控制权限（房间已锁定或非房主）")
       return
@@ -658,28 +999,63 @@ function MediaLibraryView({ state, command, navigate }: {
     }
   }
 
+  const currentSourceName = usesLibraries ? activeLibrary?.name ?? null : activeRoot
+  // 库本身不可用时，横幅已经说清「哪个库坏了、其它库不受影响」，行内错误就不再重复一遍。
+  const unhealthyLibrary = usesLibraries && !searching && activeLibrary && activeLibrary.health !== "ok" ? activeLibrary : null
+
   return (
     <div className="mx-auto min-h-full w-full max-w-[1120px] px-8 py-8">
       <header className="flex flex-wrap items-center gap-3">
-        <SectionTitle detail="OpenList · 浏览与搜索经 Rust 原生 IPC">媒体库</SectionTitle>
+        <SectionTitle detail={usesLibraries ? "多源媒体库 · 浏览与搜索经 Rust 原生 IPC" : "OpenList · 浏览与搜索经 Rust 原生 IPC"}>媒体库</SectionTitle>
         <div className="flex-1" />
-        {roots.map((root) => (
-          <Button key={root} size="sm" variant={root === activeRoot && !searching ? "default" : "ghost"}
-            className="px-3"
-            onClick={() => { setActiveRoot(root); setSearching(false); setQuery(""); void load(root, "/") }}>
-            {root}
-          </Button>
-        ))}
-        <form className="relative w-56" onSubmit={(event) => {
+        {usesLibraries
+          ? libraries.map((library) => (
+            <button
+              key={library.id}
+              type="button"
+              className={cn("media-lib-chip", library.id === activeLibraryId && !searching && "on")}
+              aria-pressed={library.id === activeLibraryId && !searching}
+              title={`${library.sourceName} · ${libraryKindLabel(library.kind)} · ${healthLabel(library.health)}`}
+              onClick={() => { setActiveLibraryId(library.id); setSearching(false); setQuery(""); setView(null); setMessage(""); void loadLibrary(library.id, "/") }}
+            >
+              <span className={cn("media-lib-health", library.health)} aria-hidden="true" />
+              <span className="min-w-0 truncate">{library.name}</span>
+              <span className="media-lib-kind">{libraryKindLabel(library.kind)}</span>
+            </button>
+          ))
+          : roots.map((root) => (
+            <Button key={root} size="sm" variant={root === activeRoot && !searching ? "default" : "ghost"}
+              className="px-3"
+              onClick={() => { setActiveRoot(root); setSearching(false); setQuery(""); void loadLegacy(root, "/") }}>
+              {root}
+            </Button>
+          ))}
+        {mediaSearchAvailable ? <form className="relative w-56" onSubmit={(event) => {
           event.preventDefault()
           if (!query.trim()) return
-          setSearching(true)
-          void runSearch(query.trim())
+          runSearch(query.trim())
         }}>
           <MaterialSymbol name="search" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题…" aria-label="搜索媒体" className="h-8 pl-9 text-xs" />
-        </form>
+          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索文件名…" aria-label="搜索媒体" className="h-8 pl-9 text-xs" />
+        </form> : null}
       </header>
+
+      {capabilities?.mediaAdmin === true ? (
+        <div className="mt-2 flex items-center gap-2">
+          <Button variant="ghost" size="sm" aria-expanded={addingSource} onClick={() => setAddingSource(open => !open)}>
+            <MaterialSymbol name="add" />添加媒体源
+          </Button>
+        </div>
+      ) : null}
+
+      {addingSource ? <MediaSourceForm onCreate={addSource} onCancel={() => setAddingSource(false)} /> : null}
+
+      {unhealthyLibrary ? (
+        <div className="mt-3 flex items-center gap-3 border border-[var(--stroke-card)] bg-[var(--fill-card)] px-3 py-2 text-xs text-muted-foreground" role="status">
+          <span>这个库当前不可用（{healthLabel(unhealthyLibrary.health)}）。其它库不受影响。</span>
+          <Button size="sm" variant="outline" onClick={retry}>重试</Button>
+        </div>
+      ) : null}
 
       <form className="mt-4 flex flex-wrap items-center gap-2 border-y border-border py-3" onSubmit={(event) => event.preventDefault()}>
         <span className="text-xs font-semibold text-muted-foreground">粘贴 HTTPS / HLS</span>
@@ -688,58 +1064,50 @@ function MediaLibraryView({ state, command, navigate }: {
         <Button size="sm" disabled={!canControl || !pasteUrl.trim()} onClick={() => void submitPaste(true)}>
           <MaterialSymbol name="play-arrow" />播放
         </Button>
-        <Button variant="outline" size="sm" disabled={!canControl || !pasteUrl.trim()} onClick={() => void submitPaste(false)}>
+        <Button variant="outline" size="sm" disabled={!mediaQueueAvailable || !canControl || !pasteUrl.trim()} onClick={() => void submitPaste(false)}>
           <MaterialSymbol name="add" />入队
         </Button>
       </form>
 
-      {page && !searching ? (
+      {view && !searching ? (
         <nav aria-label="目录路径" className="mt-4 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-          {page.breadcrumbs.map((crumb, index) => (
-            <span key={`${crumb}-${index}`} className="flex items-center gap-1">
-              {index > 0 ? <span>/</span> : null}
-              <button type="button" className="hover:text-foreground" onClick={() => activeRoot && void load(activeRoot, breadcrumbTarget(index))}>
-                {index === 0 ? activeRoot ?? crumb : crumb}
+          {/* 库路由的面包屑第一格就是库根，再顶一个同名按钮会重复；旧路由只给文件夹名，才需要这个根。 */}
+          {!usesLibraries && currentSourceName ? (
+            <button type="button" aria-current={view.currentPath === "/" ? "page" : undefined} className="hover:text-foreground" onClick={() => openPath("/")}>
+              {currentSourceName}
+            </button>
+          ) : null}
+          {view.crumbs.map((crumb, index) => (
+            <span key={`${crumb.path}-${index}`} className="flex items-center gap-1">
+              <span aria-hidden="true">/</span>
+              <button type="button" aria-current={view.currentPath === crumb.path ? "page" : undefined} className="hover:text-foreground" onClick={() => openPath(crumb.path)}>
+                {crumb.name}
               </button>
             </span>
           ))}
         </nav>
       ) : null}
 
-      {items.length ? (
-        <ul className="mt-4 divide-y divide-border border-y border-border">
-          {items.map((item) => (
-            <li key={item.id} className="flex items-center gap-3 py-2.5 text-xs">
-              <MaterialSymbol name={item.type === "dir" ? "folder" : "movie"} className="size-5 text-muted-foreground" />
-              <button type="button" className="min-w-0 flex-1 truncate text-left hover:text-primary" onClick={() => void openItem(item)} title={item.displayPath ?? item.name}>
-                {item.name}
-                {item.extension && item.type === "file" ? <span className="ml-2 font-mono text-xs text-muted-foreground">{item.extension}</span> : null}
-              </button>
-              {item.type === "file" ? (
-                <>
-                  <Button variant="ghost" size="sm" disabled={!canControl} title="立即播放" onClick={() => void openItem(item)}>
-                    <MaterialSymbol name="play-arrow" />播放
-                  </Button>
-                  <Button variant="outline" size="sm" disabled={!canControl} title="加入播放队列" onClick={() => void enqueue(item)}>
-                    <MaterialSymbol name="add" />入队
-                  </Button>
-                </>
-              ) : null}
-            </li>
-          ))
-          }
-        </ul>
-      ) : <EmptyPosterGrid label={searching ? "没有匹配的媒体" : "此目录为空"} />}
+      {view?.posterUrl ? <MediaFolderBanner imageUrl={view.posterUrl} title={view.crumbs[view.crumbs.length - 1]?.name ?? currentSourceName ?? view.currentPath} /> : null}
 
-      {page?.hasMore && page.nextCursor ? (
-        <Button variant="outline" size="sm" className="mt-3"
-          onClick={() => searching
-            ? void runSearch(query, page.nextCursor ?? undefined)
-            : activeRoot && void load(activeRoot, path, page.nextCursor ?? undefined)}>
+      {view?.cards.length ? (
+        <MediaCardGrid cards={view.cards} controlEnabled={canControl} queueEnabled={mediaQueueAvailable} onOpen={card => void playCard(card)} onPlay={card => void playCard(card)} onEnqueue={card => void enqueueCard(card)} />
+      ) : view ? (
+        // 有页面才是"空目录"；一次都没载出来（换库失败/没配好）留给错误行说，别谎报目录为空。
+        <EmptyPosterGrid label={searching ? "没有匹配的媒体" : "这里还没有内容"} />
+      ) : null}
+
+      {view?.hasMore && view.nextCursor ? (
+        <Button variant="outline" size="sm" className="mt-3" onClick={() => searching ? runSearch(query, view.nextCursor ?? undefined) : openPath(view.currentPath, view.nextCursor ?? undefined)}>
           载入更多
         </Button>
       ) : null}
-      {message ? <p className="mt-3 text-xs text-muted-foreground">{message}</p> : null}
+      {message && !unhealthyLibrary ? (
+        <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
+          <span role="status">{message}</span>
+          {view || activeLibraryId || activeRoot ? <Button size="sm" variant="ghost" onClick={retry}>重试</Button> : null}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -782,6 +1150,7 @@ async function persistTheme(theme: Theme, windowMaterial: WindowMaterial, setThe
     theme: nextTheme,
     windowMaterial,
     playerPreferences: current.playerPreferences,
+    allowRemoteHttp: current.allowRemoteHttp,
     })
   setTheme(nextTheme)
 }
@@ -795,6 +1164,7 @@ async function persistWindowMaterial(windowMaterial: WindowMaterial, setWindowMa
     theme: current.theme,
     windowMaterial: nextMaterial,
     playerPreferences: current.playerPreferences,
+    allowRemoteHttp: current.allowRemoteHttp,
   })
   setWindowMaterial(nextMaterial)
 }
@@ -867,6 +1237,7 @@ function PlaybackPanel({ state }: { state: DesktopUiState | null }) {
         theme: current.theme,
         windowMaterial: current.windowMaterial,
         playerPreferences: preferences,
+        allowRemoteHttp: current.allowRemoteHttp,
       })
       setPreferences(updated.playerPreferences)
       setFailures(updated.playerPreferenceFailures ?? [])
@@ -931,7 +1302,7 @@ function PlaybackPanel({ state }: { state: DesktopUiState | null }) {
           </Select>
         </SettingRow>
         <SettingRow icon="volume-up" title="默认音量" detail={`${preferences.defaultVolume}% · 新建播放器时生效`}>
-          <Slider value={[preferences.defaultVolume]} min={0} max={100} step={1} className="w-44" onValueChange={(values) => patch({ defaultVolume: values[0] ?? 100 })} />
+          <Slider value={[preferences.defaultVolume]} min={0} max={100} step={1} className="w-44" onValueChange={(values) => patch({ defaultVolume: values[0] ?? 30 })} />
         </SettingRow>
         <SettingRow icon="music-note" title="首选音轨语言" detail="下次载入生效（如 chi,eng）">
           <Input value={preferences.audioLanguage} onChange={(event) => patch({ audioLanguage: event.target.value })} placeholder="默认" aria-label="首选音轨语言" className="h-8 w-36 text-xs" />
@@ -995,7 +1366,7 @@ function NetworkPanel({ state }: { state: DesktopUiState | null }) {
     setBusy(true)
     try {
       const current = await getDesktopSettings()
-      const updated = await updateDesktopSettings({ backendOrigin: origin.trim() || null, nickname: current.nickname, theme: current.theme, windowMaterial: current.windowMaterial, playerPreferences: current.playerPreferences })
+      const updated = await updateDesktopSettings({ backendOrigin: origin.trim() || null, nickname: current.nickname, theme: current.theme, windowMaterial: current.windowMaterial, playerPreferences: current.playerPreferences, allowRemoteHttp: current.allowRemoteHttp })
       setSettings(updated)
       setOrigin(updated.backendOrigin ?? "")
       setMessage(updated.backendOrigin !== current.backendOrigin ? "站点已更新，请验证连接后重新加入房间" : "已保存")
@@ -1012,7 +1383,3 @@ function SettingRow({ icon, title, detail, children }: { icon: MaterialSymbolNam
 function TerminalOverlay({ state, onLeave }: { state: DesktopUiState; onLeave: () => void }) {
   return <section className="fixed inset-0 z-50 grid place-items-center bg-black/86 px-6" aria-live="assertive"><div className="w-full max-w-lg border border-border bg-card p-7"><p className="mb-2 font-mono text-xs text-primary">{state.error?.code ?? "DESKTOP_SESSION_FAILED"}</p><h1 className="text-2xl font-semibold">{state.connection === "expired" ? "桌面会话已过期" : "桌面会话不可用"}</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">{state.error?.message ?? "请返回网页房间重新生成一次性交接码。"}</p><Button className="mt-6" onClick={onLeave}>重新加入</Button></div></section>
 }
-
-
-
-

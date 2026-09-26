@@ -81,12 +81,12 @@ export async function runSmoke(window, native) {
   await window.webContents.executeJavaScript(`(() => {
     document.querySelector('[role="combobox"]')?.blur()
     const control = document.querySelector('.fluent-settings-volume')
-    const slider = control?.querySelector('input[type="range"]')
+    // Fluent's Slider renders a focusable role="slider" thumb rather than an <input type=range>,
+    // so drive it with the key a user would press and keep the real keyboard path under test.
+    const slider = control?.querySelector('[role="slider"]')
     if (!control || !slider) throw new Error('fluent_volume_slider_missing')
-    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
-    if (!setValue) throw new Error('range_value_setter_missing')
-    setValue.call(slider, String(Math.max(0, Number(slider.value) - 1)))
-    slider.dispatchEvent(new Event('input', { bubbles: true }))
+    slider.focus()
+    slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }))
   })()`)
   await wait(50)
   const restoredVolume = await window.webContents.executeJavaScript(`(() => {
@@ -97,8 +97,8 @@ export async function runSmoke(window, native) {
   })()`)
   await wait(50)
   restoredVolume.after = await window.webContents.executeJavaScript("document.querySelector('.fluent-settings-volume')?.textContent?.trim()")
-  assert.notEqual(restoredVolume.before, '100%', 'keyboard volume adjustment must update the draft')
-  assert.equal(restoredVolume.after, '100%', 'double-click must restore the default volume draft')
+  assert.notEqual(restoredVolume.before, '30%', 'keyboard volume adjustment must update the draft')
+  assert.equal(restoredVolume.after, '30%', 'double-click must restore the default volume draft')
   assert.equal(await window.webContents.executeJavaScript("document.getElementById('watchparty-titlebar').textContent"), 'Banguru')
   assert.equal(window.getTitle(), 'Banguru')
   const lobbyLayout = await window.webContents.executeJavaScript(`(() => {
@@ -108,7 +108,9 @@ export async function runSmoke(window, native) {
     return { shellBottom: shell.bottom, sidebarBottom: sidebar.bottom, sidebarRight: sidebar.right, settingsRight: settings.right, settingsBottom: settings.bottom, settingsHeight: settings.height }
   })()`)
   assert.equal(lobbyLayout.settingsBottom, lobbyLayout.sidebarBottom)
-  assert.ok(lobbyLayout.sidebarRight > lobbyLayout.settingsRight)
+  // The settings row is full-bleed by design (index.css: margin-inline:-12px with
+  // padding-inline:12px), so its right edge meets the sidebar's; anything past it is overflow.
+  assert.ok(lobbyLayout.sidebarRight >= lobbyLayout.settingsRight)
   assert.equal(lobbyLayout.settingsHeight, 64)
   if (process.platform === 'win32') {
     const handle = window.getNativeWindowHandle()
@@ -152,15 +154,38 @@ public static class CaptionProbe {
   await assert.rejects(invoke('updateDesktopWindowChrome', { title: 'WatchParty', theme: 'dark', windowMaterial: 'auto' }))
   await assert.rejects(invoke('updateDesktopWindowChrome', { title: 'Banguru', theme: 'dark', windowMaterial: 'mica' }))
   await invoke('updateDesktopWindowChrome', { title: 'Banguru', theme: 'dark', windowMaterial: 'auto' })
+  // Windows may reserve the default fixture port, so the runner can hand us its own origin.
+  const backendOrigin = process.env.WATCHPARTY_SMOKE_BACKEND_ORIGIN ?? 'http://127.0.0.1:18082'
   const settings = await invoke('getDesktopSettings')
-  assert.equal(settings.backendOrigin, null)
+  // The check runs in a throwaway profile, so what matters is that it is not already pointing at
+  // the fixture. A fresh install may legitimately carry a shipped default origin.
+  assert.notEqual(settings.backendOrigin, backendOrigin, 'the smoke profile must start away from its own fixture')
   const configuredSettings = await invoke('updateDesktopSettings', { input: {
-    backendOrigin: 'http://127.0.0.1:18082', nickname: settings.nickname,
+    backendOrigin, nickname: settings.nickname,
     theme: settings.theme, windowMaterial: settings.windowMaterial,
     playerPreferences: settings.playerPreferences,
   } })
-  assert.equal(configuredSettings.backendOrigin, 'http://127.0.0.1:18082')
+  assert.equal(configuredSettings.backendOrigin, backendOrigin)
   await invoke('verifyBackend')
+  // 通用媒体通道（P1-1）：白名单内的路由原样带回 {status, body}，白名单外/错动词由 sidecar 拒绝。
+  const capabilities = await invoke('mediaRequest', { method: 'GET', path: '/api/media/capabilities', query: null, body: null })
+  assert.equal(capabilities.status, 200, JSON.stringify(capabilities))
+  assert.equal(JSON.parse(capabilities.body).libraries, true)
+  const libraries = await invoke('mediaRequest', { method: 'GET', path: '/api/media/libraries', query: null, body: null })
+  assert.equal(libraries.status, 200, JSON.stringify(libraries))
+  const libraryRows = JSON.parse(libraries.body).libraries
+  assert.ok(Array.isArray(libraryRows) && libraryRows.length >= 1, JSON.stringify(libraryRows))
+  assert.equal(typeof libraryRows[0].id, 'string')
+  console.log('MEDIA_LIBRARIES ' + JSON.stringify({ capabilities: JSON.parse(capabilities.body), libraries: libraryRows.map(row => ({ id: row.id, kind: row.kind, health: row.health })) }))
+  for (const attempt of [
+    { method: 'GET', path: '/api/media/roots', query: null, body: null },
+    { method: 'POST', path: '/api/media/list', query: null, body: {} },
+    { method: 'GET', path: '/api/media/catalog', query: null, body: null },
+    { method: 'GET', path: '/api/desktop/v1/health', query: null, body: null },
+  ]) {
+    const denied = await invoke('mediaRequest', attempt).then(() => null, error => error)
+    assert.equal(denied?.code, 'MEDIA_ROUTE_DENIED', `${attempt.method} ${attempt.path} → ${JSON.stringify(denied)}`)
+  }
   const audioDevices = await invoke('listAudioOutputDevices')
   assert.ok(Array.isArray(audioDevices), 'native audio enumeration must return an array')
   for (const device of audioDevices) {
@@ -171,9 +196,11 @@ public static class CaptionProbe {
   }
   await assert.rejects(invoke('listAudioOutputDevices', { unexpected: true }))
   console.log(JSON.stringify({ nativeAudioOutputDevices: audioDevices.length }))
-  const health = await invoke('musicPartyRequest', { input: { origin: 'http://127.0.0.1:18081', path: '/api/desktop/v1/health', method: 'GET', body: null, clientVersion: '0.2.0' } })
+  // The package runner owns this fixture and may have to move it off a Windows-reserved port.
+  const healthOrigin = process.env.WATCHPARTY_SMOKE_HEALTH_ORIGIN ?? 'http://127.0.0.1:18081'
+  const health = await invoke('musicPartyRequest', { input: { origin: healthOrigin, path: '/api/desktop/v1/health', method: 'GET', body: null, clientVersion: '0.2.0' } })
   assert.deepEqual(Object.keys(health).sort(), ['body', 'status'])
-  await assert.rejects(invoke('musicPartyRequest', { input: { origin: 'http://127.0.0.1:18081', path: '/.env', method: 'GET', body: null, clientVersion: '0.2.0' } }))
+  await assert.rejects(invoke('musicPartyRequest', { input: { origin: healthOrigin, path: '/.env', method: 'GET', body: null, clientVersion: '0.2.0' } }))
   await native.request('__launch', { url: 'watchparty://room-electron-smoke' })
   assert.equal((await invoke('currentDesktopLaunch')).roomId, 'room-electron-smoke')
   await assert.rejects(native.request('__launch', { url: 'watchparty://room-electron-smoke?ticket=forbidden' }))

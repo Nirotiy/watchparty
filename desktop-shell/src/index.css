@@ -181,15 +181,37 @@
 html,
 body,
 #root {
+  width: 100%;
   min-width: 960px;
   min-height: 100%;
   margin: 0;
 }
 
 /* WinUI 3 ships thin scrollbars app-wide and Body (14/20) as the default ramp. */
+
+/* 滚动条一律自绘，只留轨道和滑块（用户 2026-09-24：上下三角要去掉）。
+   坑：Chromium 只要看到 `scrollbar-width`/`scrollbar-color` 非初始值就走**标准滚动条**
+   （Windows 上是带上下三角的经典样式），此时 `::-webkit-scrollbar*` 整组被忽略——
+   所以全应用把这两个属性复位（元素级也一律不再写 thin），改用下面这组自绘规则。 */
 html {
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 body {
@@ -244,6 +266,9 @@ body {
 }
 
 .winui-slider-thumb {
+  /* A span defaults to `inline`, where width/height/border-radius are ignored: the
+     thumb rendered as a 6x23 sliver until it was made a box. */
+  display: block;
   box-sizing: border-box;
   flex-shrink: 0;
   width: 20px;
@@ -270,6 +295,7 @@ body {
    and drawer carry the dark palette regardless of the app theme, exactly like the
    WinUI transport controls over media. */
 .media-scrim {
+  height: calc(100dvh - var(--desktop-title-height, 0px));
   --text-primary: #fff;
   --text-secondary: #ffffffc5;
   --text-tertiary: #ffffffa3;
@@ -314,6 +340,171 @@ body {
   color: var(--text-primary);
 }
 
+.media-control-row {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.media-scrim .media-bottom-scrim > div:first-child {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+.media-scrim .media-bottom-scrim > div:first-child > [data-slot="slider"] {
+  min-width: 0;
+  flex: 1;
+}
+.media-control-group > [data-slot="slider"] { flex: 0 0 76px; }
+.media-control-group {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.media-control-group-end { margin-left: auto; }
+.media-directory-row { min-height: 40px; }
+.media-directory-button {
+  display: flex;
+  min-width: 0;
+  min-height: 40px;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  margin: -6px -4px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+}
+.media-directory-button:hover { background: var(--fill-subtle-hover); color: var(--primary); }
+.media-directory-button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+
+/* 媒体卡片（列表与将来的封面墙共用同一个网格）：phase 1 无图，图位只是占位。 */
+.media-card {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--stroke-card);
+  border-radius: var(--radius-control);
+  background: var(--fill-card);
+  padding: 10px;
+}
+.media-card-open {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  padding: 4px;
+  margin: -4px;
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+}
+.media-card-open:hover { background: var(--fill-subtle-hover); }
+.media-card-open:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.media-card-open:disabled { cursor: not-allowed; opacity: .6; }
+.media-card-open:disabled:hover { background: transparent; }
+.media-card-art {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid var(--stroke-card);
+  border-radius: var(--radius-control);
+  background: var(--fill-layer, var(--fill-card));
+  color: var(--text-secondary);
+}
+.media-card-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.media-card-badge {
+  flex-shrink: 0;
+  border: 1px solid var(--stroke-control);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.media-card-badge.blocked { border-color: var(--stroke-card); background: var(--fill-layer, transparent); color: var(--text-tertiary, var(--text-secondary)); }
+
+/* 目录自己的封面（相位 2）：只在这一层有 poster.jpg 时出现，不是每张文件夹卡都有。 */
+.media-folder-banner {
+  position: relative;
+  margin-top: 14px;
+  height: 96px;
+  overflow: hidden;
+  border: 1px solid var(--stroke-card);
+  border-radius: var(--radius-control);
+  background: var(--fill-card);
+}
+.media-folder-banner img { width: 100%; height: 100%; object-fit: cover; object-position: center 22%; display: block; }
+.media-folder-banner::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 56%;
+  background: linear-gradient(to top, rgba(0, 0, 0, .72), rgba(0, 0, 0, 0));
+}
+.media-folder-banner-name {
+  position: absolute;
+  left: 12px;
+  bottom: 8px;
+  z-index: 1;
+  max-width: calc(100% - 24px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+}
+
+/* 库切换器（多源媒体库 phase 1）：名字 + 类型 + 健康点，顺序按服务端返回。 */
+.media-lib-chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 240px;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  border: 1px solid var(--stroke-control);
+  border-radius: 999px;
+  background: var(--fill-control);
+  padding: 0 12px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.media-lib-chip:hover { background: var(--fill-control-secondary); }
+.media-lib-chip.on { border-color: transparent; background: var(--accent); color: var(--fg-on-accent); }
+.media-lib-chip:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.media-lib-kind { flex-shrink: 0; font-size: 11px; opacity: .75; }
+.media-lib-health { width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: var(--success); }
+.media-lib-health.unreachable, .media-lib-health.not_configured { background: var(--warning); }
+.media-lib-health.auth_failed, .media-lib-health.root_missing { background: var(--destructive); }
+
+@media (max-width: 900px) {
+  .media-control-group-end { margin-left: 0; }
+  .media-bottom-scrim { padding-inline: 10px; }
+  .media-bottom-scrim > div:first-child { gap: 5px; }
+  .media-bottom-scrim .media-time { width: 38px; font-size: 11px; }
+  .media-control-row { gap: 3px 6px; }
+  .media-control-group { gap: 2px; }
+}
+
 .media-top-scrim { background: linear-gradient(to bottom, rgb(0 0 0 / .78), rgb(0 0 0 / .38) 55%, transparent) }
 .media-bottom-scrim { background: linear-gradient(to top, rgb(0 0 0 / .9), rgb(0 0 0 / .65) 45%, transparent) }
 .media-drawer {
@@ -322,8 +513,6 @@ body {
   border-top-left-radius: var(--radius-overlay);
   border-bottom-left-radius: var(--radius-overlay);
   box-shadow: var(--f2-shadow16);
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 /* WinUI Subtle button over media: SubtleFillColor tiers in white. */
@@ -410,6 +599,7 @@ body {
 .playback-mode,
 .playback-mode body,
 .playback-mode #root {
+  min-width: 0;
   background: transparent;
 }
 
@@ -433,9 +623,9 @@ button:not(:disabled),
 }
 
 /* Banguru / Linkle desktop lobby. The native Electron caption remains outside React. */
-.desktop-shell-grid{display:grid;grid-template-columns:248px minmax(0,1fr);height:100vh;overflow:hidden}.desktop-sidebar{display:flex;min-height:0;flex-direction:column;background:transparent;padding:16px 12px}.desktop-brand{padding:8px 8px 20px;font-size:20px;font-weight:600}.desktop-service-nav{display:grid;gap:4px}.desktop-service-nav button{display:flex;min-height:52px;align-items:center;gap:12px;border:0;border-radius:0;background:transparent;padding:10px 12px;text-align:left}.desktop-service-nav button[aria-current="page"]{background:var(--accent)}.desktop-service-nav small{display:block;color:var(--muted-foreground);font-size:12px}.desktop-session{margin-top:auto;border-top:1px solid var(--border);padding:16px 8px;min-height:0}.desktop-session strong{display:block;overflow-wrap:anywhere}.desktop-session p{margin:6px 0 0;color:var(--muted-foreground);font-size:12px}.desktop-settings-link{height:64px;border-top:1px solid var(--border);display:flex;align-items:center}.desktop-settings-link button{width:100%;height:48px;border:0;border-radius:0;background:transparent;text-align:left}.desktop-settings-link button[aria-current="page"]{background:var(--accent)}.desktop-main{display:grid;min-width:0;grid-template-rows:minmax(0,1fr) 64px;overflow:hidden}.desktop-page{min-width:0;overflow:auto}.desktop-footer{display:flex;align-items:center;gap:12px;border-top:1px solid var(--stroke-divider);background:transparent;padding:0 24px;color:var(--text-secondary);font-size:12px}.desktop-footer strong{color:var(--foreground);font-weight:600}.linkle-lobby,.banguru-lobby{min-height:100%;padding-bottom:32px}.lobby-header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;border-bottom:1px solid var(--border);padding:24px 32px;flex-wrap:wrap}.lobby-header h1{margin:0;font-size:24px;line-height:1.3}.lobby-header p{margin:6px 0 0;color:var(--muted-foreground);font-size:14px}.lobby-actions{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap}.lobby-search{height:32px;width:min(320px,40vw);border:1px solid var(--stroke-control);border-radius:var(--radius-control);background:var(--fill-control);padding:0 12px}.lobby-action{min-height:32px;border:1px solid var(--stroke-control);border-radius:var(--radius-control);background:var(--fill-control);padding:5px 12px}.lobby-action.primary{background:var(--primary);border-color:var(--primary);color:var(--primary-foreground);font-weight:600}.lobby-hint,.lobby-notice{margin:16px 32px;border:1px solid var(--border);padding:12px 16px;color:var(--muted-foreground)}.lobby-notice{display:flex;gap:12px;align-items:center;justify-content:space-between;border-color:var(--primary);color:var(--foreground)}.lobby-notice button{border:0;background:transparent;color:var(--primary)}.lobby-directory{display:grid;grid-template-columns:minmax(0,1fr) 288px;gap:32px;padding:24px 32px}.lobby-directory.no-detail{grid-template-columns:1fr}.lobby-table{width:100%;border-collapse:collapse;table-layout:fixed}.lobby-table caption{text-align:left;padding-bottom:12px;color:var(--muted-foreground);font-size:13px}.lobby-table th,.lobby-table td{border-bottom:1px solid color-mix(in oklab,var(--foreground) 8%,transparent);padding:10px 8px;text-align:left}.lobby-table th{color:var(--text-secondary);font-size:12px;font-weight:400}.lobby-table th:first-child{width:60%}.lobby-table tr.selected{background:var(--accent)}.room-button{width:100%;min-height:32px;border:0;border-radius:var(--radius-control);background:transparent;padding:6px 8px;text-align:left}.room-button[aria-pressed="true"]{box-shadow:inset 2px 0 var(--primary);color:var(--primary)}.lobby-inspector{min-width:0;border-left:1px solid var(--border);padding-left:24px}.lobby-inspector>div{display:flex;gap:12px;align-items:center;justify-content:space-between}.lobby-inspector h2{margin:0;overflow-wrap:anywhere;font-size:20px}.lobby-inspector dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:10px 16px;margin:24px 0}.lobby-inspector dt{color:var(--text-secondary)}.lobby-inspector dd{margin:0;overflow-wrap:anywhere}.lobby-inspector>p{border-top:1px solid var(--border);margin-top:20px;padding-top:16px;color:var(--text-secondary);font-size:12px}.icon-button{width:32px;height:32px;border:0;border-radius:var(--radius-control);background:transparent;font-size:20px}.mono{font-family:var(--font-mono);font-size:12px}.lobby-empty{padding:40px 0;color:var(--muted-foreground)}.lobby-dialog{width:min(520px,calc(100vw - 32px));border:1px solid var(--border);border-radius:4px;background:var(--background);color:var(--foreground);padding:24px}.lobby-dialog::backdrop{background:rgb(0 0 0 / 80%)}.lobby-dialog h2{margin:0;font-size:20px}.lobby-dialog label{display:grid;gap:8px;margin:16px 0}.lobby-dialog input{height:32px;border:1px solid var(--stroke-control);border-radius:var(--radius-control);background:var(--fill-control);padding:0 12px}.lobby-dialog .check{display:flex;align-items:center;gap:12px}.lobby-dialog .check input{width:20px;height:20px}.lobby-dialog footer{display:flex;justify-content:flex-end;gap:8px;margin-top:24px}.banguru-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(240px,.75fr);gap:48px;padding:32px;max-width:1120px}.banguru-grid h2{font-size:20px;margin:0 0 10px}.banguru-grid p{color:var(--muted-foreground);margin:0 0 24px}.banguru-grid label{display:grid;gap:8px;margin-bottom:20px}.banguru-grid input{height:32px;border:1px solid var(--stroke-control);border-radius:var(--radius-control);background:var(--fill-control);padding:0 12px}.banguru-grid aside{border-left:1px solid var(--border);padding-left:32px}.banguru-grid details{margin-top:32px;border-top:1px solid var(--border);padding-top:16px}.lobby-session-note{margin:0 32px;border-top:1px solid var(--border);padding-top:16px;color:var(--text-secondary);font-size:12px}.lobby-session-note span{font-family:var(--font-mono);color:var(--foreground)}
+.desktop-shell-grid{display:grid;grid-template-columns:248px minmax(0,1fr);height:100vh;overflow:hidden}.desktop-sidebar{display:flex;min-height:0;flex-direction:column;background:transparent;padding:16px 12px}.desktop-brand{padding:8px 8px 20px;font-size:20px;font-weight:600}.desktop-service-nav{display:grid;gap:4px}.desktop-service-nav button{display:flex;min-height:52px;align-items:center;gap:12px;border:0;border-radius:0;background:transparent;padding:10px 12px;text-align:left}.desktop-service-nav button[aria-current="page"]{background:var(--accent)}.desktop-service-nav small{display:block;color:var(--muted-foreground);font-size:12px}.desktop-session{margin-top:auto;border-top:1px solid var(--border);padding:16px 8px;min-height:0}.desktop-session strong{display:block;overflow-wrap:anywhere}.desktop-session p{margin:6px 0 0;color:var(--muted-foreground);font-size:12px}.desktop-settings-link{height:64px;border-top:1px solid var(--border);display:flex;align-items:center}.desktop-settings-link button{width:100%;height:48px;border:0;border-radius:0;background:transparent;text-align:left}.desktop-settings-link button[aria-current="page"]{background:var(--accent)}.desktop-main{display:grid;min-width:0;grid-template-rows:minmax(0,1fr) 64px;overflow:hidden}.desktop-page{min-width:0;overflow:auto}.desktop-footer{display:flex;align-items:center;gap:12px;border-top:1px solid var(--stroke-divider);background:transparent;padding:0 24px;color:var(--text-secondary);font-size:12px}.desktop-footer strong{color:var(--foreground);font-weight:600}.linkle-lobby,.banguru-lobby{min-height:100%;padding-bottom:32px}.lobby-header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;border-bottom:1px solid var(--border);padding:24px 32px;flex-wrap:wrap}.lobby-header h1{margin:0;font-size:24px;line-height:1.3}.lobby-header p{margin:6px 0 0;color:var(--muted-foreground);font-size:14px}.lobby-actions{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap}.lobby-search{height:32px;width:min(320px,40vw);border:1px solid var(--stroke-control);border-radius:var(--radius-control);background:var(--fill-control);padding:0 12px}.lobby-action{min-height:32px;border:1px solid var(--stroke-control);border-radius:var(--radius-control);background:var(--fill-control);padding:5px 12px}.lobby-action.primary{background:var(--primary);border-color:var(--primary);color:var(--primary-foreground);font-weight:600}.lobby-hint,.lobby-notice{margin:16px 32px;border:1px solid var(--border);padding:12px 16px;color:var(--muted-foreground)}.lobby-notice{display:flex;gap:12px;align-items:center;justify-content:space-between;border-color:var(--primary);color:var(--foreground)}.lobby-notice button{border:0;background:transparent;color:var(--primary)}.icon-button{width:32px;height:32px;border:0;border-radius:var(--radius-control);background:transparent;font-size:20px}.mono{font-family:var(--font-mono);font-size:12px}.lobby-empty{padding:40px 0;color:var(--muted-foreground)}.lobby-dialog{width:min(520px,calc(100vw - 32px));border:1px solid var(--border);border-radius:4px;background:var(--background);color:var(--foreground);padding:24px}.lobby-dialog::backdrop{background:rgb(0 0 0 / 80%)}.lobby-dialog h2{margin:0;font-size:20px}.lobby-dialog label{display:grid;gap:8px;margin:16px 0}.lobby-dialog input{height:32px;border:1px solid var(--stroke-control);border-radius:var(--radius-control);background:var(--fill-control);padding:0 12px}.lobby-dialog .check{display:flex;align-items:center;gap:12px}.lobby-dialog .check input{width:20px;height:20px}.lobby-dialog footer{display:flex;justify-content:flex-end;gap:8px;margin-top:24px}.banguru-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(240px,.75fr);gap:48px;padding:32px;max-width:1120px}.banguru-grid h2{font-size:20px;margin:0 0 10px}.banguru-grid p{color:var(--muted-foreground);margin:0 0 24px}.banguru-grid label{display:grid;gap:8px;margin-bottom:20px}.banguru-grid input{height:32px;border:1px solid var(--stroke-control);border-radius:var(--radius-control);background:var(--fill-control);padding:0 12px}.banguru-grid aside{border-left:1px solid var(--border);padding-left:32px}.banguru-grid details{margin-top:32px;border-top:1px solid var(--border);padding-top:16px}.lobby-session-note{margin:0 32px;border-top:1px solid var(--border);padding-top:16px;color:var(--text-secondary);font-size:12px}.lobby-session-note span{font-family:var(--font-mono);color:var(--foreground)}
 .desktop-shell-grid{height:calc(100dvh - var(--desktop-title-height,0px))}.desktop-sidebar{display:grid;grid-template-rows:auto minmax(0,1fr) 64px;padding:16px 12px 0}.desktop-session{align-self:end;max-height:100%;overflow:auto}.desktop-session p{overflow-wrap:anywhere}.desktop-settings-link{flex-shrink:0;margin-inline:-12px;padding-inline:12px}.desktop-settings-link button{display:flex;align-items:center;gap:8px}.desktop-main,.desktop-page{min-height:0}.desktop-page{overflow-x:hidden;overflow-y:auto}
-@media(max-width:1200px){.desktop-shell-grid{grid-template-columns:216px minmax(0,1fr)}.lobby-directory{grid-template-columns:1fr}.lobby-inspector{border-left:0;border-top:1px solid var(--border);padding:24px 0 0}.banguru-grid{grid-template-columns:1fr;gap:32px}.banguru-grid aside{border-left:0;border-top:1px solid var(--border);padding:24px 0 0}}
+@media(max-width:1200px){.desktop-shell-grid{grid-template-columns:216px minmax(0,1fr)}.banguru-grid{grid-template-columns:1fr;gap:32px}.banguru-grid aside{border-left:0;border-top:1px solid var(--border);padding:24px 0 0}}
 
 /* Scheme B: navigation stays fixed while a current session becomes a separate floating affordance. */
 .desktop-shell-surface{font-family:var(--font-sans);background:var(--background);color:var(--foreground)}
@@ -464,12 +654,11 @@ html.playback-mode .desktop-mica-layer{display:none}
 .desktop-main{--shell-content-gutter:32px;--shell-content-width:960px}
 .lobby-header{padding-inline:var(--shell-content-gutter)}
 .lobby-header>div:first-child{width:min(var(--shell-content-width),100%)}
-.lobby-hint,.lobby-service-hint,.lobby-filters{margin-inline:var(--shell-content-gutter)}
-.lobby-directory{padding-inline:var(--shell-content-gutter)}
-.lobby-directory.no-detail,.lobby-directory.no-detail .lobby-list-scroll{max-width:var(--shell-content-width)}
-.banguru-handoff,.banguru-grid,.lobby-session-note,.shell-lobby-secondary{width:min(calc(100% - (var(--shell-content-gutter) * 2)),var(--shell-content-width));margin-inline:var(--shell-content-gutter)}
+.lobby-hint,.lobby-service-hint{margin-inline:var(--shell-content-gutter)}
+
+
+.banguru-handoff,.banguru-grid,.lobby-session-note{width:min(calc(100% - (var(--shell-content-gutter) * 2)),var(--shell-content-width));margin-inline:var(--shell-content-gutter)}
 .banguru-grid{padding-inline:0}
-.shell-lobby-secondary{margin-top:12px;border-top:1px solid var(--border);padding-block:12px}
 .desktop-session-bar{position:absolute;right:24px;bottom:20px;left:24px;z-index:10;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:16px;min-height:64px;border:1px solid var(--stroke-card);border-radius:var(--radius-overlay);background:var(--fill-card);box-shadow:var(--f2-shadow8);padding:10px 12px;color:var(--muted-foreground);font-size:12px}
 .desktop-session-bar-service{display:flex;align-items:center;gap:8px;color:var(--foreground);font-weight:600}
 .desktop-session-bar-service svg{width:20px;height:20px;color:var(--primary)}
@@ -482,27 +671,43 @@ html.playback-mode .desktop-mica-layer{display:none}
 .lobby-header{align-items:center;border:0;padding-bottom:16px}
 .lobby-header h1{font-size:28px;font-weight:600}
 .lobby-header p{max-width:65ch}
+.banguru-lobby-subtitle{color:var(--muted-foreground);font-size:16px;font-weight:400}
+.banguru-service-status{position:relative;display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:0 10px;border:1px solid var(--stroke-control);border-radius:var(--radius-control);color:var(--foreground);font-size:12px;cursor:help;outline:none}
+.banguru-service-status:focus-visible{box-shadow:0 0 0 1px var(--focus-inner),0 0 0 3px var(--focus-outer)}
+.banguru-service-status.is-error{border-color:var(--destructive);color:var(--destructive)}
+.banguru-service-status.is-unconfigured,.banguru-service-status.is-checking{color:var(--muted-foreground)}
+.banguru-service-dot{width:7px;height:7px;border-radius:50%;background:var(--success)}
+.is-error .banguru-service-dot{background:var(--destructive)}
+.is-unconfigured .banguru-service-dot,.is-checking .banguru-service-dot{background:var(--muted-foreground)}
+.banguru-service-tooltip{position:absolute;z-index:10;top:calc(100% + 8px);right:0;display:grid;gap:4px;width:min(360px,calc(100vw - 64px));padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-control);background:var(--popover);box-shadow:var(--f2-shadow8);color:var(--foreground);font-size:12px;line-height:1.5;opacity:0;pointer-events:none;transform:translateY(-3px);transition:opacity 120ms ease,transform 120ms ease}
+.banguru-service-tooltip span{color:var(--muted-foreground);overflow-wrap:anywhere;white-space:normal}
+.banguru-service-status:hover .banguru-service-tooltip,.banguru-service-status:focus-visible .banguru-service-tooltip{opacity:1;pointer-events:auto;transform:translateY(0)}
+.banguru-grid-primary{display:block;padding-top:24px}
+.banguru-grid-primary>form{max-width:680px}
+.banguru-grid-primary>aside{max-width:680px;margin-top:28px;padding:24px 0 0;border:0;border-top:1px solid var(--border)}
+.banguru-lobby-actions{display:flex;flex-wrap:wrap;gap:8px}
 .lobby-search{height:32px;width:240px;max-width:100%;padding:0 10px;background:var(--fill-control);border-color:var(--stroke-control)}
 .lobby-search:focus-within{border-color:var(--stroke-strong);box-shadow:0 0 0 1px var(--focus-inner),0 0 0 3px var(--focus-outer)}
 .lobby-search input{min-width:0}
 .lobby-hint{margin:0 32px 12px;border:0;padding:0;font-size:12px;line-height:16px}
 .lobby-service-hint{margin:0 32px 16px}
-.lobby-filters{margin:0 32px;border-bottom:1px solid var(--border)}
-.lobby-directory{position:relative;gap:24px;padding-top:16px;align-items:start}
-.lobby-list-scroll{min-width:0;max-height:calc(100dvh - 290px);overflow:auto;scrollbar-gutter:stable}
-.lobby-table th,.lobby-table td{padding:10px 12px;border-bottom:1px solid var(--border)}
-.lobby-table caption{font-size:12px}
-.lobby-table tr:hover{background:var(--fill-subtle-hover)}
-.lobby-table tr.selected{background:var(--fill-selected)}
-.room-button{min-height:38px;padding:6px 0;overflow-wrap:anywhere}
-.room-button[aria-pressed="true"]{box-shadow:none;color:var(--foreground);font-weight:600}
-.room-button small{display:block;font-size:12px;font-weight:400;color:var(--muted-foreground);margin-top:4px}
-.room-button:focus-visible{outline:none;box-shadow:inset 0 0 0 1px var(--focus-inner),inset 0 0 0 3px var(--focus-outer)}
-.lobby-inspector{padding-left:24px;max-height:calc(100dvh - 250px);overflow:auto}
-.lobby-inspector h2{font-size:20px;line-height:1.4}
-.lobby-detail-backdrop{display:none}
-.lobby-empty{display:flex;flex-direction:column;align-items:flex-start;gap:16px;font-size:14px}
-.lobby-dialog{margin:auto;border-radius:8px;background:var(--card);padding:24px;max-height:calc(100dvh - 48px);overflow:auto;line-height:1.5}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* 空列表提示居中（用户 2026-09-24）：左对齐时它会跟表头挤在一起，看着像没写完的一行。 */
+.lobby-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;min-height:180px;padding:32px 16px;font-size:14px;text-align:center}
+.lobby-dialog{margin:auto;border-radius:8px;background:var(--fill-menu);padding:24px;max-height:calc(100dvh - 48px);overflow:auto;line-height:1.5;box-shadow:var(--f2-shadow16)}
 .lobby-dialog::backdrop{background:rgb(0 0 0 / 45%)}
 .lobby-dialog h2{font-weight:600;margin-bottom:16px}
 .lobby-dialog .fui-Field{margin:16px 0}
@@ -524,6 +729,8 @@ html.playback-mode .desktop-mica-layer{display:none}
 .banguru-grid p{font-size:14px;line-height:1.6}
 .shell-toaster{position:fixed!important;top:auto!important;bottom:16px!important;right:24px!important;z-index:50;max-width:min(420px,calc(100vw - 32px));pointer-events:none}
 .desktop-shell-surface:has(.desktop-session-bar) .shell-toaster{bottom:104px!important}
+/* 顶部 popup：贴着标题栏下方落下，位置与底部那条同宽同源（同一个 Toaster 组件）。 */
+.desktop-shell-surface .shell-toaster.shell-toaster-top{top:calc(var(--desktop-title-height,0px) + 12px)!important;bottom:auto!important}
 .shell-toaster .fui-Toast{pointer-events:auto}
 @media(max-width:1200px){
   .lobby-directory{grid-template-columns:minmax(0,1fr)}
@@ -534,7 +741,9 @@ html.playback-mode .desktop-mica-layer{display:none}
 }
 
 /* Settings shares the desktop content column. Fluent owns its controls and state. */
-.fluent-settings-provider{--settings-space-tight:var(--spacingVerticalS,8px);--settings-space:var(--spacingVerticalMNudge,10px);min-height:100%;background:transparent;font-size:14px;line-height:20px}.fluent-settings-layout{display:block;min-height:100%}.fluent-settings-nav{display:flex;align-items:center;gap:20px;border-bottom:1px solid var(--border);padding:20px var(--shell-content-gutter)}.fluent-settings-nav-title{flex-shrink:0;margin:0}.fluent-settings-nav [role="tablist"]{align-items:center;gap:4px;overflow-x:auto}.fluent-settings-nav [role="tab"]{min-height:32px;white-space:nowrap}.fluent-settings-content{width:min(100%,calc(var(--shell-content-width) + (var(--shell-content-gutter) * 2)));min-height:0;max-width:none;overflow:auto;scrollbar-gutter:stable;padding:24px var(--shell-content-gutter)}.fluent-settings-heading{margin:0 0 var(--settings-space)}.fluent-settings-heading h1{margin:0}.fluent-settings-heading span{display:block;margin-top:var(--settings-space-tight);color:var(--muted-foreground)}.fluent-settings-content>h2{margin:var(--settings-space) 0}.fluent-settings-heading+h2{margin-top:0}.fluent-settings-group{border:1px solid var(--stroke-card);border-radius:var(--radius-control);background:var(--fill-card)}.fluent-settings-group+.fluent-settings-group{margin-top:var(--settings-space)}.fluent-settings-row{border-bottom-color:var(--stroke-divider);display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,auto);align-items:center;column-gap:var(--spacingHorizontalXL,20px);min-height:72px;padding:var(--settings-space) var(--spacingHorizontalL,16px);border-bottom:1px solid var(--border)}.fluent-settings-row:last-child{border-bottom:0}.fluent-settings-copy span{display:block}.fluent-settings-copy span+span{margin-top:var(--settings-space-tight);color:var(--text-secondary);font-size:12px;line-height:16px}.fluent-settings-control{justify-self:end;min-width:0}.fluent-settings-control [role="combobox"],.fluent-settings-control input{min-width:176px}.fluent-settings-slider,.fluent-settings-volume{display:grid;grid-template-columns:176px 42px;align-items:center;gap:var(--settings-space)}.fluent-settings-volume{user-select:none}.fluent-settings-actions{display:flex;flex-wrap:wrap;gap:var(--settings-space);margin-top:var(--settings-space)}.fluent-settings-message{margin-top:var(--settings-space)}.fluent-settings-message svg{vertical-align:middle;margin-right:var(--spacingHorizontalSNudge,6px)}.fluent-settings-capability{display:block;margin-top:var(--settings-space);color:var(--muted-foreground);font-family:var(--font-mono)}.fluent-settings-block{border-bottom-color:var(--stroke-divider);display:grid;gap:var(--settings-space);padding:var(--spacingVerticalL,16px) var(--spacingHorizontalL,16px);border-bottom:1px solid var(--border)}.fluent-settings-block:last-child{border-bottom:0}.fluent-settings-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--settings-space)}.fluent-settings-trust{display:flex;align-items:center;justify-content:space-between;gap:var(--settings-space);padding:var(--spacingVerticalMNudge,10px) var(--spacingHorizontalL,16px);border-top:1px solid var(--border)}.fluent-settings-trust span{display:block}.fluent-settings-trust span+span{margin-top:var(--settings-space-tight);color:var(--muted-foreground);font-family:var(--font-mono);overflow-wrap:anywhere}@media(max-width:1120px){.fluent-settings-row{grid-template-columns:1fr}.fluent-settings-control{justify-self:start}.fluent-settings-fields{grid-template-columns:1fr}}
+.fluent-settings-provider{--settings-space-tight:var(--spacingVerticalS,8px);--settings-space:var(--spacingVerticalMNudge,10px);min-height:100%;background:transparent;font-size:14px;line-height:20px}.fluent-settings-layout{display:block;min-height:100%}.fluent-settings-nav{display:flex;align-items:center;gap:20px;border-bottom:1px solid var(--border);padding:20px max(var(--shell-content-gutter), calc((100% - 1120px) / 2 + var(--shell-content-gutter)))}.fluent-settings-nav-title{flex-shrink:0;margin:0}.fluent-settings-nav [role="tablist"]{align-items:center;gap:4px;overflow-x:auto}.fluent-settings-nav [role="tab"]{min-height:32px;white-space:nowrap}.fluent-settings-content{width:min(100%,calc(var(--shell-content-width) + (var(--shell-content-gutter) * 2)));min-height:0;max-width:none;overflow:auto;scrollbar-gutter:stable;padding:24px var(--shell-content-gutter)}.fluent-settings-heading{margin:0 0 var(--settings-space)}.fluent-settings-heading h1{margin:0}.fluent-settings-heading span{display:block;margin-top:var(--settings-space-tight);color:var(--muted-foreground)}.fluent-settings-content>h2{margin:var(--settings-space) 0}.fluent-settings-heading+h2{margin-top:0}.fluent-settings-group{border:1px solid var(--stroke-card);border-radius:var(--radius-control);background:var(--fill-card)}.fluent-settings-group+.fluent-settings-group{margin-top:var(--settings-space)}.fluent-settings-row{border-bottom-color:var(--stroke-divider);display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,auto);align-items:center;column-gap:var(--spacingHorizontalXL,20px);min-height:72px;padding:var(--settings-space) var(--spacingHorizontalL,16px);border-bottom:1px solid var(--border)}.fluent-settings-row:last-child{border-bottom:0}.fluent-settings-copy span{display:block}.fluent-settings-copy span+span{margin-top:var(--settings-space-tight);color:var(--text-secondary);font-size:12px;line-height:16px}.fluent-settings-control{justify-self:end;min-width:0}.fluent-settings-control [role="combobox"],.fluent-settings-control input{min-width:176px}.fluent-settings-slider,.fluent-settings-volume{display:grid;grid-template-columns:176px 42px;align-items:center;gap:var(--settings-space)}.fluent-settings-volume{user-select:none}.fluent-settings-actions{display:flex;flex-wrap:wrap;gap:var(--settings-space);margin-top:var(--settings-space)}.fluent-settings-message{margin-top:var(--settings-space)}.fluent-settings-message svg{vertical-align:middle;margin-right:var(--spacingHorizontalSNudge,6px)}.fluent-settings-capability{display:block;margin-top:var(--settings-space);color:var(--muted-foreground);font-family:var(--font-mono)}.fluent-settings-block{border-bottom-color:var(--stroke-divider);display:grid;gap:var(--settings-space);padding:var(--spacingVerticalL,16px) var(--spacingHorizontalL,16px);border-bottom:1px solid var(--border)}.fluent-settings-block:last-child{border-bottom:0}.fluent-settings-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--settings-space)}.fluent-settings-trust{display:flex;align-items:center;justify-content:space-between;gap:var(--settings-space);padding:var(--spacingVerticalMNudge,10px) var(--spacingHorizontalL,16px);border-top:1px solid var(--border)}
+.fluent-settings-probe{display:grid;gap:var(--spacingVerticalSNudge,4px);border:1px solid var(--stroke-card);border-radius:var(--radius-control);background:var(--fill-control);padding:var(--spacingVerticalMNudge,10px) var(--spacingHorizontalMNudge,12px)}
+.fluent-settings-probe span{overflow-wrap:anywhere}.fluent-settings-trust span{display:block}.fluent-settings-trust span+span{margin-top:var(--settings-space-tight);color:var(--muted-foreground);font-family:var(--font-mono);overflow-wrap:anywhere}@media(max-width:1120px){.fluent-settings-row{grid-template-columns:1fr}.fluent-settings-control{justify-self:start}.fluent-settings-fields{grid-template-columns:1fr}}
 
 /* Settings owns one content scroller; its category navigation stays outside it. */
 .desktop-page.desktop-page-settings {
@@ -549,12 +758,24 @@ html.playback-mode .desktop-mica-layer{display:none}
 }
 .fluent-settings-content {
   height:calc(100% - 73px);
+  /* 设置页要跟着窗口铺满（用户 2026-09-25）。原来的写法是「滚动盒宽到 1024 + 内容列再被 960
+     封顶且贴左」，窗口一宽右边就空一大块。
+     现在：滚动盒吃满，留白与封顶都挂在这个滚动盒上。它和分类导航是同一个父盒的两个子元素
+     ⇒ 两者的百分比基准相同，留白公式一算就是同一条左边线，标签与卡片自动对齐。
+     ★ 这里刻意不开 scrollbar-gutter:stable：预留槽会把内容整体推右 ~8px，而导航不在滚动盒里，
+       两边就此错开（上一版就踩了这个，被 SETTINGS_LAYOUT 抓出来）。 */
+  width: 100%;
+  padding: 24px max(var(--shell-content-gutter), calc((100% - 1120px) / 2 + var(--shell-content-gutter)));
 }
 .fluent-settings-content-stack {
   display: flex;
   flex-direction: column;
   gap: var(--settings-space);
-  max-width:var(--shell-content-width);
+  /* 封顶与居中已交给上面的滚动盒，这里只负责纵向堆叠。
+     刻意不用 var(--shell-content-width)（960）—— 那个值正是"右边空一块"的来源。 */
+  width: 100%;
+  max-width: none;
+  margin: 0;
 }
 .fluent-settings-content-stack > * {
   flex-shrink: 0;
@@ -601,14 +822,27 @@ html.playback-mode .desktop-mica-layer{display:none}
   font-family: var(--font-display);
 }
 
-/* Linkle one-screen room workspace (P1: listen view + floating player bar).
-   Tokens: WinUI 3 Common_themeresources dark semantic brushes as the base layer,
-   Fluent 2 control-layer tokens for the player bar; conflicts resolve to WinUI 3
-   (4px controls / 8px overlays). Light theme mirrors the brush roles. */
-.linkle-room{--bar-accent:var(--accent);--bar-accent-hover:var(--accent-hover);--bar-accent-press:var(--accent-press);--bar-track:var(--fill-track);--bar-thumb-ring:var(--on-media);--bar-thumb-shadow:var(--f2-shadow2);--f2-subtle-hover:var(--fill-subtle-hover);--f2-subtle-press:var(--fill-subtle-press);--f2-pressed-bg:var(--fill-selected);--f2-menu-hover:var(--menu-item-hover);--f2-tooltip-bg:var(--tooltip-bg);--f2-tooltip-fg:var(--tooltip-fg)}
+/* Linkle one-screen room workspace (P1 listen view + floating bar, P4 immersive
+   listening). Tokens: WinUI 3 Common_themeresources dark semantic brushes as the
+   base layer, Fluent 2 control-layer tokens for the player bar; conflicts resolve
+   to WinUI 3 (4px controls / 8px overlays). Dark is the base; light mirrors the
+   brush roles through the html:not(.dark) convention.
+   Container map (unnamed @container rules never match, so every query is named):
+   room = the whole workspace, imm = .content-area (main column width),
+   bar = .bar-holder (its content width == the bar body), immleft = the immersive
+   left column that the proportional console scales against. */
+.linkle-room{--bar-accent:var(--accent);--bar-accent-hover:var(--accent-hover);--bar-accent-press:var(--accent-press);--bar-track:var(--fill-track);--bar-thumb-ring:var(--on-media);--bar-thumb-shadow:var(--f2-shadow2);--f2-subtle-hover:var(--fill-subtle-hover);--f2-subtle-press:var(--fill-subtle-press);--f2-pressed-bg:var(--fill-selected);--f2-menu-hover:var(--menu-item-hover);--f2-tooltip-bg:var(--tooltip-bg);--f2-tooltip-fg:var(--tooltip-fg);--note-fg:#c9e3f4;--warn-bg:rgba(200,140,40,.14);--warn-fg:#f3d6a8;--local-bg:rgba(120,180,220,.14);--local-fg:#cbe6f7;--bad-bg:rgba(196,43,28,.16);--bad-fg:#ff99a4;--menu-head:#8a8a8a;--art-fg:rgba(255,255,255,.62);--art-c1:#5c4636;--art-c2:#3a2a24;--art-c3:#20181a;--art-bg:#3a3a3a;--chip-bg:rgba(0,0,0,.38);--lyric-dim:#888;--lyric-hover-fg:#ddd;--lyric-trans:#bcbcbc;--lyric-fill:var(--text-primary);--lyric-near:rgba(255,255,255,.5);--imm-base:#120d0c;--imm-c1:#b59372;--imm-c2:#7a3324;--imm-c3:#33201c;--imm-g1:#241512;--imm-g2:#181012;--imm-g3:#120c0c;--imm-filter:blur(56px) saturate(1.35) brightness(.52);--imm-dim:rgba(255,255,255,.34);--imm-current:#fff;--imm-near:rgba(255,255,255,.5);--imm-small:rgba(255,255,255,.6);--art-hover-scrim:rgba(15,15,18,.52);--art-hover-fg:#fff}
 .desktop-page:has(.linkle-room){overflow:hidden;padding-bottom:0}
 .desktop-main:has(.linkle-room){grid-template-rows:minmax(0,1fr)}
-.linkle-room{position:relative;height:100%;min-height:0;display:flex;flex-direction:column;padding:24px 32px 128px;color:var(--text-primary)}
+.linkle-room{position:relative;container:room / inline-size;height:100%;min-height:0;display:flex;flex-direction:column;padding:24px 32px 128px;color:var(--text-primary)}
+/* Light theme keeps the same semantic roles; the immersive layer is the warm
+   paper wash from the approved mockup rather than an inverted dark set. */
+html:not(.dark) .linkle-room{--note-fg:#1b4a66;--warn-fg:#8a5a10;--local-fg:#1b4a66;--bad-bg:rgba(196,43,28,.1);--bad-fg:#9a1c10;--menu-head:#8a8a8a;--art-fg:rgba(0,0,0,.5);--art-c1:#dcc7ae;--art-c2:#c9b096;--art-c3:#ab937c;--art-bg:#e6e0da;--chip-bg:rgba(255,255,255,.72);--lyric-dim:rgba(0,0,0,.55);--lyric-hover-fg:rgba(0,0,0,.89);--lyric-trans:rgba(0,0,0,.55);--lyric-near:rgba(0,0,0,.5);--imm-base:#efe7de;--imm-c1:#e9c8a4;--imm-c2:#df8a63;--imm-c3:#d8c3ae;--imm-g1:#f8f1e9;--imm-g2:#f2ebe3;--imm-g3:#efe7de;--imm-filter:blur(56px) saturate(1.02) brightness(1.18);--imm-dim:rgba(0,0,0,.42);--imm-current:rgba(0,0,0,.92);--imm-near:rgba(0,0,0,.58);--imm-small:rgba(0,0,0,.6);--art-hover-scrim:rgba(243,243,247,.62);--art-hover-fg:rgba(0,0,0,.89)}
+/* 浅色沉浸不是「没压暗的原图」：深色字压在封面上时对比度全看封面本身（深封面直接读不了）。
+   按批准的 mockup，浅色沉浸是封面配色的暖纸底，所以把封面/画布压到四成，露出下面那层
+   取色得到的浅色渐变——封面还在，但底色始终是浅的。 */
+html:not(.dark) .linkle-room .imm-bg-cover.on,
+html:not(.dark) .linkle-room .imm-bg-canvas.ready{opacity:.42}
 .linkle-room h2,.linkle-room h3{margin:0;font-weight:600}
 .linkle-room h2{font-family:var(--font-display);font-size:20px}
 .linkle-room h3{font-size:15px}
@@ -623,137 +857,506 @@ html.playback-mode .desktop-mica-layer{display:none}
 .linkle-room button.primary:active{background:var(--accent-press);color:var(--fg-on-accent)}
 .linkle-room svg{width:20px;height:20px;flex-shrink:0}
 .linkle-room .muted{color:var(--text-secondary)}
-.linkle-room .roomhead{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--stroke-divider);position:relative}
-.linkle-room .identity{margin-right:auto}
-.linkle-room .connection{font-size:12px;color:var(--success);margin-top:5px}
+/* The head lifts itself above .imm-bg on purpose: the background layer is a
+   positioned element (z-index:0) and an unpositioned head disappears under it. */
+.linkle-room .roomhead{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--stroke-divider);position:relative;z-index:5}
+.linkle-room .identity{margin-right:auto;min-width:0}
+/* The room name is the one label that must stay readable: it sits above the bar's
+   status line and truncates instead of being overlapped. */
+.linkle-room .identity h2{position:relative;z-index:6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Connection state carries no words: dot (green ready / amber pulsing reconnect /
+   red disconnected) + people glyph + count. Semantics live in aria-label / title. */
+.linkle-room .connection{display:flex;align-items:center;gap:7px;margin-top:6px;font-size:12px;color:var(--text-secondary)}
+.linkle-room .conn-dot{width:8px;height:8px;border-radius:50%;background:#7bd08a;box-shadow:0 0 0 3px rgba(123,208,138,.16);flex-shrink:0}
+.linkle-room .conn-users{width:15px;height:15px;flex-shrink:0;color:var(--text-secondary)}
+.linkle-room .conn-count{font-weight:600;color:var(--text-primary);font-variant-numeric:tabular-nums}
+.linkle-room .connection.recon .conn-dot{background:#f3d6a8;box-shadow:0 0 0 3px rgba(243,214,168,.16);animation:linkleConnPulse 1.6s ease-in-out infinite}
+.linkle-room .connection.lost .conn-dot{background:#ff9b95;box-shadow:0 0 0 3px rgba(255,155,149,.18)}
+@keyframes linkleConnPulse{50%{opacity:.4}}
 .linkle-room .room-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.linkle-room .bodygrid{display:grid;grid-template-columns:minmax(0,1fr) 10px minmax(240px,var(--lyrics-w,38%));gap:0;min-height:0;flex:1;padding-top:24px}
-.linkle-room .task,.linkle-room .lyrics{overflow:auto;scrollbar-width:thin;scrollbar-color:var(--scrollbar-thumb) transparent}
-html:not(.dark) .linkle-room .task,html:not(.dark) .linkle-room .lyrics{scrollbar-color:var(--scrollbar-thumb) transparent}
+.linkle-room .room-actions .tab{background:transparent;border-color:transparent;position:relative}
+.linkle-room .content-area{flex:1;min-height:0;display:flex;flex-direction:column;container:imm / inline-size}
+.linkle-room .bodygrid{display:grid;gap:0;min-height:0;flex:1}
+.linkle-room .task{overflow:auto}
 .linkle-room .task{min-width:0;display:flex;flex-direction:column;padding-right:24px;scrollbar-gutter:stable}
-.linkle-room .lyrics{padding-left:24px;min-width:0;scrollbar-gutter:stable}
-.linkle-room .splitter{position:relative;cursor:col-resize;touch-action:none}
-.linkle-room .splitter:before{content:"";position:absolute;left:4.5px;top:0;bottom:0;width:1px;background:var(--stroke-divider)}
-.linkle-room .splitter:hover:before,.linkle-room .splitter:focus-visible:before{left:4px;width:2px;background:var(--bar-accent)}
-.linkle-room .album{width:min(100%,200px);aspect-ratio:1;background:var(--base-tertiary);background-image:var(--noise);border:1px solid var(--stroke-card);border-radius:var(--radius-overlay);display:grid;place-content:center;text-align:center;color:var(--text-secondary);margin-bottom:20px}
-.linkle-room .album svg{width:64px;height:64px;margin:0 auto 16px}
-.linkle-room .album small{font-size:12px}
-.linkle-room .current-track{font-size:26px;margin-bottom:6px;overflow-wrap:anywhere}
-.linkle-room .trackmeta{font-size:13px;color:var(--text-secondary);margin-bottom:16px}
+/* The panel body is the same element in both modes; in split it must stay as
+   transparent to the column as the old direct children were.
+   `min-height:100%` 是「永远多出一个面板头」的越界源（用户 2026-09-25）：它按任务列
+   的高度算，而面板头是它的兄弟——两者相加必然比列高，于是空列表也常驻一条滚动条，
+   紧挨着分割线看着像重复的拖条。flex:1 已经能让它填满，min-height 只需归零。 */
+.linkle-room .task>.panel-body{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+/* Lyrics is a flex column so the toolbar stays pinned while the scroll area moves;
+   in immersive the toolbar reorders below the lyrics. */
+.linkle-room .lyrics{display:flex;flex-direction:column;overflow:hidden;padding-left:24px;min-width:0}
+.linkle-room .lyrics-tools{display:flex;justify-content:flex-end;align-items:center;gap:2px;padding:0 0 10px}
+.linkle-room .sync-note{margin-right:auto;font-size:11px;color:var(--text-secondary);background:var(--chip-bg);border:1px solid var(--stroke-card);border-radius:999px;padding:2px 9px;white-space:nowrap}
+.linkle-room .tbtn{width:28px;height:28px;min-height:28px;padding:0;display:inline-grid;place-items:center;background:transparent;border:1px solid transparent;border-radius:var(--radius-control);color:var(--text-secondary);font-size:12px;font-weight:600;transition:background var(--f2-dur-faster) var(--f2-ease-out),color var(--f2-dur-faster) var(--f2-ease-out)}
+.linkle-room .tbtn:hover{background:var(--f2-subtle-hover);color:var(--text-primary)}
+.linkle-room .tbtn[aria-pressed=true]{background:var(--f2-pressed-bg);color:var(--bar-accent)}
+.linkle-room .tbtn[aria-disabled=true],.linkle-room .tbtn:disabled{opacity:.36;cursor:not-allowed}
+.linkle-room .tbtn svg{width:16px;height:16px}
+.linkle-room .lyric-scroll{flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable}
 .linkle-room .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.linkle-room .sectionhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:18px}
-.linkle-room .sectionhead p{font-size:12px;color:var(--text-secondary);margin-top:4px}
-.linkle-room .notice{background:var(--fill-layer);padding:9px 12px;font-size:12px;color:#d4e5f0;margin:0 0 12px;border-radius:var(--radius-control)}
-html:not(.dark) .linkle-room .notice{color:#1b4a66}
-.linkle-room .notice.warning{background:rgba(200,140,40,.14);color:#f3d6a8}
-html:not(.dark) .linkle-room .notice.warning{color:#8a5a10}
-.linkle-room .song{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:10px;align-items:center;border-bottom:1px solid var(--stroke-divider);padding:13px 0}
+.linkle-room .notice{background:var(--fill-layer);padding:9px 12px;font-size:12px;color:var(--note-fg);margin:0 0 12px;border-radius:var(--radius-control)}
+.linkle-room .notice.warning{background:var(--warn-bg);color:var(--warn-fg)}
+.linkle-room .notice.error{background:var(--bad-bg);color:var(--bad-fg)}
+.linkle-room .song{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;align-items:center;border-bottom:1px solid var(--stroke-divider);padding:13px 0}
+.linkle-room .song.trailing{grid-template-columns:minmax(0,1fr) auto}
 .linkle-room .song strong{display:block;font-weight:500}
 .linkle-room .song small{display:block;font-size:12px;margin-top:3px}
+/* Queue rows lead with a drag grip; multi-select swaps it for a checkbox. The grip
+   is a button, so it must undo the shell's button box (padding/min-height/background)
+   or it renders as a 40×32 slab that pushes into the title column. */
+.linkle-room .song .grip{width:100%;height:24px;min-height:0;padding:0;border:0;background:transparent;cursor:grab;color:var(--text-secondary);display:grid;place-items:center;border-radius:var(--radius-control)}
+.linkle-room .song .grip:hover{color:var(--text-primary);background:var(--fill-subtle-hover)}
+.linkle-room .song .grip:active{background:var(--fill-subtle-press);color:var(--text-primary)}
+.linkle-room .song .grip svg{width:16px;height:16px}
+.linkle-room .song.dragging{opacity:.45}
+.linkle-room .song.drop-before{box-shadow:inset 0 2px 0 0 var(--bar-accent)}
+.linkle-room .song.drop-after{box-shadow:inset 0 -2px 0 0 var(--bar-accent)}
+.linkle-room .song .add-btn{min-height:26px;padding:2px 10px;font-size:12px}
+/* A row title that happens to be a button must not look like a button. */
+.linkle-room .song .rowbtn{width:100%;min-height:0;padding:0;border:0;background:transparent;text-align:left;cursor:pointer}
+.linkle-room .song .rowbtn:hover{background:transparent;color:var(--bar-accent)}
+.linkle-room .song .rowbtn:active{background:transparent;color:var(--bar-accent-press)}
+.linkle-room .row.actions-end{justify-content:flex-end}
 .linkle-room .upcover{width:36px;height:36px;display:grid;place-items:center;background:var(--fill-card);border:1px solid var(--stroke-card);border-radius:var(--radius-control);color:var(--text-secondary)}
 .linkle-room .upcover svg{width:16px;height:16px}
-.linkle-room .listen-view{flex:1;display:flex;flex-direction:column;min-height:0}
-.linkle-room .listen-view>*{flex-shrink:0}
-.linkle-room .upnext{margin-top:auto;padding-top:24px;display:flex;flex-direction:column}
-.linkle-room .upnext .sectionhead{margin-bottom:10px}
-.linkle-room .upnext-list{max-height:200px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--scrollbar-thumb) transparent;mask-image:linear-gradient(to bottom,#000 calc(100% - 16px),transparent);-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 16px),transparent)}
 .linkle-room .empty{padding:40px 0}
 .linkle-room .empty h3{margin-bottom:10px}
 .linkle-room .empty p{color:var(--text-secondary)}
 .linkle-room .inline-actions{margin:14px 0}
-.linkle-room .lyrictext{font-size:24px;line-height:1.5;font-weight:600;color:#888}
-html:not(.dark) .linkle-room .lyrictext{color:#8a8a8a}
+.linkle-room .lyrictext{font-size:calc(24px * var(--lyric-scale,1));line-height:1.5;font-weight:600;color:var(--lyric-dim)}
 .linkle-room .lyrictext p{margin-bottom:20px;border-radius:var(--radius-control)}
 .linkle-room .lyrictext .current{color:var(--text-primary)}
-.linkle-room .lyrictext [role="button"]{cursor:pointer;padding:2px 6px;margin-left:-6px}
-.linkle-room .lyrictext [role="button"]:hover{background:var(--fill-subtle-hover);color:#ddd}
-html:not(.dark) .linkle-room .lyrictext [role="button"]:hover{color:#444}
-.linkle-room .lyrictext [role="button"]:hover:after{content:"⤺ " attr(data-jump);font-size:11px;font-weight:400;color:var(--bar-accent);vertical-align:middle;margin-left:8px}
+/* Word/line fill: one gradient per unit, driven by a single --p custom property
+   (spec §3). Both stops are bound to the same value on purpose — a hard colour
+   stop with a 0.5px transition band turns into a smeared edge in Chrome. */
+.linkle-room .lyrictext .u{--p:0%;--u-base:var(--lyric-dim);--u-fill:var(--lyric-fill);background-image:linear-gradient(90deg,var(--u-fill) var(--p),var(--u-base) var(--p));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.linkle-room .lyrictext .current .u{--u-base:var(--lyric-near)}
+.linkle-room .lyrictext .seekable:not(.current):hover .u{--p:100%;--u-fill:var(--lyric-hover-fg)}
+.linkle-room .lyrictext .seekable{cursor:pointer;padding:2px 6px;margin-left:-6px}
+.linkle-room .lyrictext .seekable:hover{background:var(--fill-subtle-hover);color:var(--lyric-hover-fg)}
+.linkle-room .lyrictext .seekable:hover:after{content:"⤺ " attr(data-jump);font-size:11px;font-weight:400;color:var(--bar-accent);vertical-align:middle;margin-left:8px}
+/* Without seek rights the row still highlights but is not a button. */
+.linkle-room .lyrictext.noseek .seekable{cursor:default}
+.linkle-room .lyrictext.noseek .seekable:hover{background:transparent;color:var(--lyric-dim)}
+.linkle-room .lyrictext small{font-size:14px;font-weight:400;color:var(--lyric-trans);display:block;margin-top:8px}
+.linkle-room .lyrictext small[hidden]{display:none}
 /* Floating player bar: Screenbox three-row layout, 108px proposal, cover 88px
    spans all rows; collapse thresholds ride the .bar-holder container. */
-.linkle-room .bar-holder{position:absolute;bottom:20px;left:24px;right:24px;container-type:inline-size}
+.linkle-room .bar-holder{position:absolute;bottom:36px;left:24px;right:24px;container:bar / inline-size}
 .linkle-room .player{height:108px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;padding:8px 14px 8px 8px;border:1px solid var(--stroke-card);border-radius:var(--radius-overlay);background:var(--base-tertiary);background-image:var(--noise);box-shadow:var(--f2-shadow16)}
 html:not(.dark) .linkle-room .player{border-color:var(--stroke-divider)}
-.linkle-room .art{width:88px;height:88px;align-self:center;display:grid;place-content:center;text-align:center;background:#3a3a3a;border:1px solid var(--stroke-card);border-radius:var(--radius-control);color:var(--text-secondary);overflow:hidden}
-html:not(.dark) .linkle-room .art{background:#e6e6e6}
-.linkle-room .art svg{width:40px;height:40px;margin:0 auto}
-.linkle-room .art small{font-size:9px;display:block;margin-top:4px}
 .linkle-room .stack{display:grid;grid-template-rows:auto 20px minmax(0,1fr);min-width:0;row-gap:2px;padding-top:2px}
-.linkle-room .info{display:flex;align-items:baseline;gap:10px;min-width:0}
-.linkle-room .copy{min-width:0}
-.linkle-room .copy strong{display:block;font-size:14px;font-weight:600;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.linkle-room .copy small{display:block;font-size:11px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.linkle-room .flags{margin-left:auto;display:flex;gap:6px;flex-shrink:0}
-.linkle-room .flag{font-size:10px;padding:1px 7px;border-radius:10px;background:rgba(200,140,40,.16);color:#f3d6a8;white-space:nowrap}
-html:not(.dark) .linkle-room .flag{background:rgba(200,140,40,.2);color:#7a4c00}
-.linkle-room .flag.local{background:rgba(120,180,220,.14);color:#cbe6f7}
-html:not(.dark) .linkle-room .flag.local{background:rgba(120,180,220,.25);color:#1b4a66}
-.linkle-room .progress{display:flex;align-items:center}
+.linkle-room .flag{font-size:10px;padding:1px 7px;border-radius:10px;background:var(--warn-bg);color:var(--warn-fg);white-space:nowrap}
+.linkle-room .flag.local{background:var(--local-bg);color:var(--local-fg)}
+.linkle-room .progress{display:flex;align-items:center;position:relative;gap:2px}
 .linkle-room .seek{appearance:none;-webkit-appearance:none;flex:1;height:20px;min-width:0;margin:0;border:0;background:linear-gradient(to right,var(--bar-accent) var(--fill,0%),var(--bar-track) var(--fill,0%)) no-repeat center/100% 4px;cursor:pointer}
 .linkle-room .seek:hover{background-size:100% 5px}
 .linkle-room .seek::-webkit-slider-thumb{-webkit-appearance:none;box-sizing:border-box;width:20px;height:20px;border-radius:50%;border:4px solid var(--bar-thumb-ring);background-color:var(--bar-accent);box-shadow:var(--bar-thumb-shadow);transition:background-color var(--f2-dur-faster) var(--f2-ease-out),transform var(--f2-dur-faster) var(--f2-ease-out)}
 .linkle-room .seek:hover::-webkit-slider-thumb{background-color:var(--bar-accent-hover)}
 .linkle-room .seek:active::-webkit-slider-thumb{background-color:var(--bar-accent-press);transform:scale(.92)}
-.linkle-room .seek[aria-disabled=true],.linkle-room .seek:disabled{cursor:not-allowed;opacity:.5}
+.linkle-room .seek:focus-visible{box-shadow:0 0 0 1px var(--base-tertiary),0 0 0 3px var(--bar-accent)}
+.linkle-room .seek[aria-disabled=true]{cursor:not-allowed;opacity:.5}
+.linkle-room .seek:disabled{opacity:.36;cursor:not-allowed;pointer-events:none}
 .linkle-room .controls{display:flex;align-items:center;gap:2px;min-width:0}
 .linkle-room .grp{display:flex;align-items:center;gap:2px;min-width:0}
-.linkle-room .time{font-size:11px;color:var(--text-secondary);margin-left:10px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .linkle-room .volume{margin-left:clamp(12px,6cqw,88px)}
 .linkle-room .extras{margin-left:auto}
-.linkle-room .i32{width:28px;height:28px;min-height:28px;padding:0;display:inline-grid;place-items:center;background:transparent;border:1px solid transparent;border-radius:var(--radius-control);color:var(--text-primary);transition:background var(--f2-dur-faster) var(--f2-ease-out),color var(--f2-dur-faster) var(--f2-ease-out),border-color var(--f2-dur-faster) var(--f2-ease-out)}
+/* One flat, equal-sized key row: 32px Fluent 2 icon buttons with 20px glyphs
+   (transport keys are no longer oversized — 2026-09-22 十二次修订). */
+.linkle-room .i32{width:32px;height:32px;min-height:32px;padding:0;display:inline-grid;place-items:center;background:transparent;border:1px solid transparent;border-radius:var(--radius-control);color:var(--text-primary);transition:background var(--f2-dur-faster) var(--f2-ease-out),color var(--f2-dur-faster) var(--f2-ease-out),border-color var(--f2-dur-faster) var(--f2-ease-out)}
 .linkle-room .i32:hover{background:var(--f2-subtle-hover)}
 .linkle-room .i32:active{background:var(--f2-subtle-press);color:var(--text-secondary)}
 .linkle-room .i32[aria-pressed=true]{background:var(--f2-pressed-bg);color:var(--bar-accent);border-color:transparent}
 .linkle-room .room-actions .i32.selected{background:var(--fill-card);color:var(--text-primary);border-color:var(--stroke-card)}
-.linkle-room .i32.big{width:32px;height:32px;min-height:32px}
-.linkle-room .i32 svg{width:16px;height:16px}
-.linkle-room .i32.big svg{width:20px;height:20px}
+.linkle-room .i32 svg{width:20px;height:20px}
 .linkle-room .i32:focus-visible{box-shadow:0 0 0 1px var(--base-tertiary),0 0 0 3px var(--focus-outer)}
 .linkle-room .i32[aria-disabled=true],.linkle-room .i32:disabled{opacity:.36;cursor:not-allowed}
 .linkle-room .i32[aria-disabled=true]:hover,.linkle-room .i32:disabled:hover{background:transparent;color:var(--text-primary)}
-.linkle-room .slider{appearance:none;-webkit-appearance:none;width:96px;height:20px;margin:0 0 0 6px;border:0;background:linear-gradient(to right,var(--bar-accent) var(--fill,65%),var(--bar-track) var(--fill,65%)) no-repeat center/100% 2px;cursor:pointer}
+/* Volume: 2px visual track (3px hover), WinUI two-layer thumb. The fill comes from
+   the control's own --fill, which the slider writes from the current volume. */
+.linkle-room .slider{appearance:none;-webkit-appearance:none;width:96px;height:20px;margin:0 0 0 6px;border:0;background:linear-gradient(to right,var(--bar-accent) var(--fill,0%),var(--bar-track) var(--fill,0%)) no-repeat center/100% 2px;cursor:pointer}
 .linkle-room .slider:hover{background-size:100% 3px}
-.linkle-room .slider::-webkit-slider-thumb{-webkit-appearance:none;box-sizing:border-box;width:14px;height:14px;border-radius:50%;border:3px solid var(--bar-thumb-ring);background-color:var(--bar-accent);box-shadow:var(--bar-thumb-shadow)}
+.linkle-room .slider::-webkit-slider-thumb{-webkit-appearance:none;box-sizing:border-box;width:14px;height:14px;border-radius:50%;border:3px solid var(--bar-thumb-ring);background-color:var(--bar-accent);box-shadow:var(--bar-thumb-shadow);transition:background-color var(--f2-dur-faster) var(--f2-ease-out),transform var(--f2-dur-faster) var(--f2-ease-out)}
+.linkle-room .slider:hover::-webkit-slider-thumb{background-color:var(--bar-accent-hover)}
+.linkle-room .slider:active::-webkit-slider-thumb{background-color:var(--bar-accent-press);transform:scale(.92)}
+.linkle-room .slider:focus-visible{box-shadow:0 0 0 1px var(--base-tertiary),0 0 0 3px var(--focus-outer)}
 .linkle-room .slider[aria-disabled=true],.linkle-room .slider:disabled,.linkle-room .slider[readonly]{cursor:not-allowed;opacity:.36}
 .linkle-room .tip{position:relative;display:inline-flex}
-.linkle-room .tooltip{display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);width:max-content;max-width:280px;padding:5px 9px;background:var(--f2-tooltip-bg);border:0;border-radius:var(--radius-control);font-size:12px;line-height:16px;color:var(--f2-tooltip-fg);z-index:9;white-space:normal;box-shadow:var(--f2-shadow2)}
+/* Placement is measured in JS (placeTooltip) and written as two offsets, so a key
+   near an edge — or one inside the scrolling task column — never gets clipped. */
+.linkle-room .tooltip{--tip-shift-x:0px;--tip-shift-y:0px;display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translate(calc(-50% + var(--tip-shift-x)),var(--tip-shift-y));width:max-content;max-width:280px;padding:5px 9px;background:var(--f2-tooltip-bg);border:0;border-radius:var(--radius-control);font-size:12px;line-height:16px;color:var(--f2-tooltip-fg);z-index:9;white-space:normal;box-shadow:var(--f2-shadow2)}
 .linkle-room .tooltip code{background:rgba(128,128,128,.22);padding:0 4px;border-radius:3px;font-size:11px}
-.linkle-room .tip:hover .tooltip,.linkle-room .tip:focus-within .tooltip{display:block}
-.linkle-room .tip.end .tooltip{left:auto;right:0;transform:none}
-.linkle-room .control-note{position:absolute;bottom:calc(100% + 6px);left:0;right:0;margin:0;text-align:center;font-size:11px;color:#c9e3f4;min-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-html:not(.dark) .linkle-room .control-note{color:#1b4a66}
-.linkle-room .menu{padding:6px;background:var(--fill-menu);border:1px solid var(--stroke-card);border-radius:var(--radius-overlay);color:var(--text-primary);min-width:190px;max-width:calc(100vw - 24px);box-shadow:var(--f2-shadow16);z-index:8}
-.linkle-room .menu h3{font-size:11px;padding:6px 10px 4px;color:#8a8a8a;font-weight:600}
+.linkle-room .tip:hover .tooltip,.linkle-room .tip:has(:focus-visible) .tooltip{display:block}
+.linkle-room .tip.end .tooltip{left:auto;right:0;transform:translate(var(--tip-shift-x),var(--tip-shift-y))}
+.linkle-room .control-note{position:absolute;bottom:calc(100% + 6px);left:0;right:0;margin:0;text-align:center;font-size:11px;color:var(--note-fg);min-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.linkle-room .menu{padding:6px;background:var(--fill-menu);border:1px solid var(--stroke-card);border-radius:var(--radius-overlay);color:var(--text-primary);min-width:190px;max-width:calc(100vw - 24px);box-shadow:var(--f2-shadow16);z-index:9}
+.linkle-room .menu h3{font-size:11px;padding:6px 10px 4px;color:var(--menu-head);font-weight:600}
+.linkle-room .menu .menu-group{margin:0;padding:6px 10px 2px;font-size:11px;color:var(--menu-head)}
 .linkle-room .menu button{display:block;text-align:left;width:100%;border:0;background:transparent;color:inherit;min-height:32px;padding:6px 10px;border-radius:var(--radius-control);font-size:13px}
 .linkle-room .menu button:hover{background:var(--f2-menu-hover)}
+.linkle-room .menu button[role=menuitemradio][aria-checked=true]{background:var(--f2-pressed-bg);color:var(--bar-accent)}
 .linkle-room .menu button[aria-disabled=true]{color:var(--text-disabled);background:transparent;cursor:not-allowed}
-.linkle-room .menu-backdrop{position:fixed;inset:0;z-index:7;background:transparent;border:0;cursor:default;min-height:0;padding:0}
+/* 遮罩必须一直透明。原来只写 `.linkle-room .menu-backdrop`，特异性(0,2,0) 输给通用的
+   `.linkle-room button:hover`(0,2,1)——鼠标停在遮罩上（点过菜单按钮就是这样）就套上
+   `--fill-control-secondary`，浅色里那是 #ffffffed（93% 白），整窗发白（用户 2026-09-24）。
+   把元素名写进选择器，并显式压掉 hover/active。 */
+.linkle-room button.menu-backdrop{position:fixed;inset:0;z-index:7;background:transparent;border:0;cursor:default;min-height:0;padding:0}
+.linkle-room button.menu-backdrop:hover,.linkle-room button.menu-backdrop:active{background:transparent}
 .linkle-room .menu.topmenu{position:absolute;top:calc(100% + 8px);right:0}
 .linkle-room .menu.barmenu{position:absolute;bottom:calc(100% + 34px);right:0}
-@container(max-width:1180px){.linkle-room .tip.ov-a{display:none}}
-@container(max-width:980px){.linkle-room .tip.ov-b{display:none}.linkle-room .slider{width:64px}}
-@container(max-width:760px){.linkle-room .tip.ov-c{display:none}.linkle-room .volume{margin-left:12px}.linkle-room .time{margin-left:6px}}
-@container(max-width:560px){.linkle-room .copy small{display:none}.linkle-room .art{width:64px;height:64px}.linkle-room .player{height:80px}}
-@container(max-width:1150px){.linkle-room .roomhead{gap:8px}.linkle-room .lyrictext{font-size:20px}}
+/* Collapse tiers. Every rule is named: the old unnamed @container blocks had no
+   matching ancestor container and were silently dead. Bar tiers keep the mockup's
+   1180/980/760/560 because .bar-holder's content width == the bar body width.
+   The workspace tier reads 902px = the shell's 1150px window minus the 248px
+   sidebar, since `room` measures the content area, not the window. */
+@container bar (max-width:980px){.linkle-room .slider{width:64px}}
+@container bar (max-width:760px){.linkle-room .volume{margin-left:12px}}
+@container room (max-width:902px){.linkle-room .room-actions .optional{display:none}.linkle-room .roomhead{gap:8px}.linkle-room .lyrictext{font-size:calc(20px * var(--lyric-scale,1))}}
 @media(forced-colors:active){.linkle-room button{border:1px solid ButtonText}.linkle-room .player{border:1px solid CanvasText}.linkle-room .i32{border:1px solid ButtonText}.linkle-room .seek,.linkle-room .slider{forced-color-adjust:none}.linkle-room .lyrictext .current{forced-color-adjust:none}}
 /* P2: queue management, search-to-queue and queue export panels. */
-.linkle-room .song.select{grid-template-columns:22px minmax(0,1fr) auto}
-.linkle-room .song .num{display:grid;place-items:center;color:var(--text-secondary)}
+.linkle-room .song .num{display:grid;place-items:center;color:var(--text-secondary);font-variant-numeric:tabular-nums}
 .linkle-room .song .num svg{width:16px;height:16px}
 .linkle-room .song .actions{display:flex;gap:2px;flex-shrink:0}
+.linkle-room .song.current{background:var(--fill-selected);border-radius:var(--radius-control)}
 .linkle-room .searchbar{display:flex;gap:10px;margin-bottom:18px}
 .linkle-room .searchbar input[type="search"]{flex:1;min-width:0;height:36px;background:var(--fill-control);border:1px solid var(--stroke-control);border-radius:var(--radius-control);color:var(--text-primary);padding:0 12px;font:inherit}
 .linkle-room .searchbar input[type="search"]:focus-visible{outline:none;box-shadow:0 0 0 1px var(--focus-inner),0 0 0 3px var(--focus-outer)}
-.linkle-room .searchbar select{height:36px;background:var(--fill-control);border:1px solid var(--stroke-control);border-radius:var(--radius-control);color:var(--text-primary);padding:0 8px;font:inherit}
+/* The platform picker is a Fluent dropdown: a native <select> popup is drawn by the
+   OS and cannot follow the shell theme. */
+.linkle-room .platform-picker{min-width:132px;max-width:168px;flex-shrink:0}
 .linkle-room input[type="checkbox"]{width:16px;height:16px;accent-color:var(--bar-accent)}
 /* P3: chat & members. */
-.linkle-room .chat-scroll{max-height:420px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--scrollbar-thumb) transparent}
-html:not(.dark) .linkle-room .chat-scroll{scrollbar-color:var(--scrollbar-thumb) transparent}
-.linkle-room .chatline{padding:12px 0;border-bottom:1px solid var(--stroke-divider)}
-.linkle-room .chatline small{font-size:12px;color:var(--text-secondary)}
-.linkle-room .chatline p{margin-top:6px;overflow-wrap:anywhere}
-.linkle-room .members{padding-top:18px;margin-top:20px;border-top:1px solid var(--stroke-divider)}
-.linkle-room .members p{margin-top:10px}
-.linkle-room .member-tag{margin-left:8px;font-size:10px;padding:1px 7px;border-radius:10px;background:rgba(120,180,220,.14);color:inherit;vertical-align:middle}
-html:not(.dark) .linkle-room .member-tag{background:rgba(120,180,220,.25)}
+/* 聊天与成员（方案 B，用户 2026-09-25 裁决）：左消息流 + 右成员常驻。
+   面板窄于 420px（被拖窄的分栏侧板）时成员栏收起，退化成单栏。 */
+.linkle-room .chat-panel{container:chat / inline-size;display:flex;flex-direction:column;flex:1;min-height:0}
+.linkle-room .chat-cols{display:flex;flex:1;min-height:0;gap:0}
+.linkle-room .chat-main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
+.linkle-room .chat-scroll{flex:1;min-height:0;max-height:none;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-bottom:6px}
+/* 加载更早：贴在消息区上方的一条细行，只有还有更早消息时才渲染。 */
+.linkle-room .chat-loader{display:flex;align-items:center;gap:10px;padding:0 0 6px;flex-shrink:0}
+.linkle-room .chat-loader button{min-height:24px;font-size:11.5px;padding:2px 10px;border-radius:999px;background:transparent;border:1px solid var(--stroke-control);color:var(--text-secondary)}
+.linkle-room .chat-loader button:hover{background:var(--fill-subtle-hover);color:var(--text-primary)}
+.linkle-room .chat-loader span{font-size:11px;color:var(--text-tertiary)}
+.linkle-room .chat-earlier:disabled{opacity:.6}
+.linkle-room .chat-day{align-self:center;font-size:11px;color:var(--text-tertiary);background:var(--fill-layer);border:1px solid var(--stroke-divider);border-radius:999px;padding:1px 9px}
+.linkle-room .chatline{max-width:86%;display:flex;flex-direction:column;gap:2px}
+.linkle-room .chatline.same-author{margin-top:-4px}
+.linkle-room .chat-who{font-size:11.5px;color:var(--text-tertiary)}
+.linkle-room .chat-bub{margin:0;background:var(--fill-card);border:1px solid var(--stroke-card);border-radius:10px;border-top-left-radius:3px;padding:6px 10px;overflow-wrap:anywhere}
+.linkle-room .chatline.me{align-self:flex-end;text-align:right}
+.linkle-room .chatline.me .chat-bub{background:color-mix(in oklab,var(--accent) 22%,var(--fill-menu));border-color:color-mix(in oklab,var(--accent) 34%,transparent);border-radius:10px;border-top-right-radius:3px;text-align:left}
+.linkle-room .chatline.focus .chat-bub{box-shadow:0 0 0 1px var(--accent)}
+.linkle-room .chat-jump{align-self:center;margin:0 0 6px;font-size:11.5px;font-weight:600;color:var(--fg-on-accent);background:var(--accent);border:0;border-radius:999px;padding:3px 12px;min-height:24px}
+.linkle-room .chat-composer{display:flex;gap:8px;padding-top:8px;flex-shrink:0}
+.linkle-room .chat-composer input{flex:1;min-width:0;height:32px;border:1px solid var(--stroke-control);border-radius:var(--radius-control);background:var(--fill-control);color:var(--text-primary);padding:0 10px}
+.linkle-room .chat-empty{align-self:center;text-align:center;color:var(--text-secondary);padding:28px 12px;display:grid;gap:6px;justify-items:center}
+.linkle-room .chat-side{width:210px;flex-shrink:0;border-left:1px solid var(--stroke-divider);padding-left:14px;display:flex;flex-direction:column;gap:2px;overflow-y:auto}
+.linkle-room .chat-side-cap{font-size:11px;color:var(--text-tertiary);padding:2px 0}
+.linkle-room .member{display:flex;align-items:center;gap:6px;width:100%;border:0;background:transparent;border-radius:var(--radius-control);padding:4px 6px;font-size:12.5px;color:inherit;text-align:left;min-height:26px}
+.linkle-room .member:hover{background:var(--fill-subtle-hover)}
+.linkle-room .member.hot{background:var(--fill-selected)}
+.linkle-room .member .member-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.linkle-room .member em{font-style:normal;margin-left:5px;font-size:10px;border:1px solid var(--stroke-control);border-radius:999px;padding:0 5px;color:var(--text-secondary)}
+.linkle-room .dot{width:7px;height:7px;border-radius:50%;background:var(--success);flex-shrink:0}
+.linkle-room .member-tag{margin-left:auto;flex-shrink:0;font-size:10px;padding:1px 7px;border-radius:10px;background:var(--local-bg);color:inherit;white-space:nowrap}
+@container chat (max-width:420px){.linkle-room .chat-side{display:none}}
 .linkle-room .room-actions .badge{position:absolute;top:3px;right:3px;min-width:15px;height:15px;padding:0 4px;border-radius:8px;background:var(--accent);color:var(--fg-on-accent);font-size:10px;font-weight:600;line-height:15px;text-align:center}
+/* Head tooltips drop below their key; the bar cluster keeps the above-key flip. */
+.linkle-room .tip.below .tooltip{bottom:auto;top:calc(100% + 8px)}
+.linkle-room .tip.below.end .tooltip{left:auto;right:0}
+
+/* Covers are data URLs handed over by the main process (remote images are outside
+   the CSP and would taint the palette canvas). */
+.linkle-room .imm-art img{width:100%;height:100%;object-fit:cover;display:block}
+
+/* P4: 沉浸页是唯一的播放界面（用户 2026-09-25 裁决：废弃分栏布局）。
+   `.imm-left` 就是左列本身：封面卡 + 控制台。 */
+.linkle-room .imm-bg{display:none;position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0;background:var(--imm-base)}
+/* Palette gradient base: the fallback that is always valid, cover or not. */
+.linkle-room .imm-bg:before{content:"";position:absolute;inset:-12%;transform:scale(1.6);filter:var(--imm-filter);z-index:0;
+  background:radial-gradient(58% 46% at 20% 26%,var(--imm-c1),transparent 62%),radial-gradient(52% 42% at 78% 22%,var(--imm-c2),transparent 60%),radial-gradient(70% 58% at 54% 84%,var(--imm-c3),transparent 66%),linear-gradient(160deg,var(--imm-g1),var(--imm-g2) 60%,var(--imm-g3))}
+/* Route B: the cover itself, blurred and scaled (spec §12). Two layers alternate so
+   a track change cross-fades in 400ms instead of flashing. */
+.linkle-room .imm-bg-cover{position:absolute;inset:-12%;z-index:1;opacity:0;background-position:center;background-size:cover;transform:scale(1.6);filter:var(--imm-filter);transition:opacity .4s var(--f2-ease-out)}
+.linkle-room .imm-bg-cover.on{opacity:1}
+/* Route A: @kawarp/core renders the same cover with Kawase blur + domain warp. */
+.linkle-room .imm-bg-canvas{position:absolute;inset:0;width:100%;height:100%;z-index:2;opacity:0;transition:opacity .6s var(--f2-ease-out)}
+.linkle-room .imm-bg-canvas.ready{opacity:1}
+.linkle-room .imm-bg:after{content:"";position:absolute;inset:0;opacity:.08;background-image:var(--noise);z-index:3}
+.linkle-room .imm-cover{margin:0;min-width:0}
+.linkle-room .imm-art svg{width:42%;height:42%;opacity:.6}
+/* Immersive panels are an overlay, not a page change: the task column becomes the
+   floating panel in place so the mounted panel state survives the mode switch. */
+/* The floating panel covers the whole main column: any uncovered strip (the old
+   136px bottom gap belonged to the split layout's floating bar) stays undimmed and
+   keeps eating clicks, so hover and click look broken exactly there. */
+
+.linkle-room .panel-head{display:flex;align-items:center;gap:10px;padding:12px var(--shell-content-gutter,32px);border-bottom:1px solid var(--stroke-divider);flex-shrink:0}
+.linkle-room .panel-head strong{margin-right:auto;font-size:14px}
+
+.linkle-room.immersive{padding-bottom:36px}
+.linkle-room.immersive .content-area{position:relative;z-index:1}
+.linkle-room.immersive .imm-bg{display:block}
+.linkle-room.immersive .roomhead{border-bottom:0;padding-bottom:8px;gap:12px;align-items:center}
+.linkle-room.immersive .identity{display:flex;align-items:center;gap:12px;margin-right:auto;min-width:0}
+.linkle-room.immersive .identity h2{font-size:17px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.linkle-room.immersive .connection{margin-top:0}
+.linkle-room.immersive .bodygrid{padding-top:0;align-items:center;align-content:center;justify-content:center;column-gap:44px;grid-template-columns:min(38%,440px) minmax(0,760px)}
+.linkle-room.immersive .task{display:none}
+.linkle-room.immersive .imm-left{position:relative;display:flex;flex-direction:column;gap:22px;grid-column:1;grid-row:1;width:min(100%,440px);min-width:0;margin-inline:auto;max-height:100%;overflow-y:auto;scrollbar-width:none;container:immleft / inline-size}
+.linkle-room.immersive .imm-cover{display:block}
+.linkle-room.immersive .imm-art{width:clamp(200px,min(100%,40vh),100%);margin-inline:auto;aspect-ratio:1;border-radius:var(--radius-overlay);border:1px solid var(--stroke-card);background:linear-gradient(158deg,var(--art-c1),var(--art-c2) 52%,var(--art-c3));background-image:var(--noise),linear-gradient(158deg,var(--art-c1),var(--art-c2) 52%,var(--art-c3));position:relative;box-shadow:var(--f2-shadow16);display:grid;grid-template:100% / 100%;place-items:center;color:var(--art-fg);overflow:hidden;cursor:pointer}
+.linkle-room.immersive .imm-art:focus-visible{outline:none;box-shadow:0 0 0 1px var(--base-tertiary),0 0 0 3px var(--focus-outer)}
+.linkle-room.immersive .imm-cover figcaption{margin-top:22px;text-align:center;padding-inline:2px}
+.linkle-room.immersive .imm-cover strong{display:block;font-size:28px;font-weight:650;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.linkle-room.immersive .imm-cover span{display:block;font-size:17px;color:var(--text-secondary);margin-top:6px}
+.linkle-room.immersive .imm-cover small{display:block;font-size:12.5px;color:var(--text-tertiary);margin-top:8px;letter-spacing:.01em}
+.linkle-room.immersive .bar-holder{position:static;width:auto}
+/* The options menu is taller than the console, so in immersive it anchors to the
+   left column (bottom-right, capped and scrollable) — anchored to the console it
+   grew past the room's top edge. */
+.linkle-room.immersive .menu.barmenu{bottom:10px;right:0;max-height:calc(100% - 20px);overflow-y:auto}
+.linkle-room.immersive .player{height:auto;display:flex;flex-direction:column;gap:10px;padding:0;border:0;border-radius:0;background:transparent;background-image:none;box-shadow:none}
+.linkle-room.immersive .stack{display:flex;flex-direction:column;gap:10px;padding-top:0;grid-template-rows:none}
+.linkle-room.immersive .progress{order:2;gap:1.4cqw}
+.linkle-room.immersive .seek-end{display:inline-block;font-size:2.5cqw;line-height:1.2;color:var(--text-secondary);font-variant-numeric:tabular-nums;min-width:7.6cqw;text-align:center}
+.linkle-room.immersive .seek-end.current{color:var(--text-primary)}
+.linkle-room.immersive .controls{order:1;flex-wrap:wrap;justify-content:flex-start;row-gap:8px;gap:.45cqw}
+.linkle-room.immersive .controls .grp{gap:.45cqw}
+.linkle-room.immersive .grp.volume{margin-left:0}
+.linkle-room.immersive .grp.extras{margin-left:auto}
+.linkle-room.immersive .control-note{position:static;order:9;font-size:2.4cqw;text-align:left;margin:8px 0 0;white-space:normal;overflow:visible;text-overflow:clip;min-height:0}
+/* Proportional console: the bar scales with the left column, so key targets stay
+   legible at 440px. The px seek/slider rules after this block win the cascade on
+   purpose (they are the measured, approved values). */
+.linkle-room.immersive .controls .i32{width:8.41cqw;height:8.41cqw;min-height:8.41cqw}
+.linkle-room.immersive .controls .i32 svg{width:5.23cqw;height:5.23cqw}
+/* Immersive console row: three explicit columns (transport | volume | cluster) so the
+   volume track deterministically spans the free space. Flex + auto margins made the
+   row wrap instead of growing, which left the track a fixed stub. */
+.linkle-room.immersive .controls{order:1;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;column-gap:.45cqw;row-gap:8px}
+.linkle-room.immersive .grp.volume{min-width:0}
+.linkle-room.immersive .grp.extras{margin-left:0;justify-self:end}
+.linkle-room.immersive .slider{width:auto;flex:1 1 auto;min-width:88px;max-width:none;height:22px;background-size:100% 2.3px}
+.linkle-room.immersive .slider:hover{background-size:100% 2.3px}
+.linkle-room.immersive .slider::-webkit-slider-thumb{width:16px;height:16px;border-width:3.4px}
+.linkle-room.immersive .seek{height:23px;background-size:100% 4.6px}
+.linkle-room.immersive .seek:hover{background-size:100% 5.6px}
+.linkle-room.immersive .seek::-webkit-slider-thumb{width:23px;height:23px;border-width:4.6px}
+/* Lyrics fill the right column: dim/blurred away from the current line, sharp on it. */
+.linkle-room.immersive .lyrics{grid-column:2;grid-row:1;align-self:stretch;position:relative;padding-left:0;padding-top:0;border:0;background:transparent}
+.linkle-room.immersive .lyrics-tools{position:static;order:2;padding:8px 0 0;background:transparent;backdrop-filter:none}
+.linkle-room.immersive .tbtn{width:32px;height:32px;min-height:32px;font-size:14px}
+.linkle-room.immersive .tbtn svg{width:18px;height:18px}
+.linkle-room.immersive .lyric-scroll{padding-top:0}
+.linkle-room.immersive .lyrictext{font-size:calc(clamp(24px,2.4cqw + 12px,38px) * var(--lyric-scale,1));line-height:1.5;font-weight:650}
+.linkle-room.immersive .lyrictext p{margin-bottom:26px;color:var(--imm-dim);filter:blur(1.2px);transform:scale(.985);transform-origin:left center;transition:filter var(--f2-dur-faster) var(--f2-ease-out),transform var(--f2-dur-faster) var(--f2-ease-out),color var(--f2-dur-faster) var(--f2-ease-out)}
+.linkle-room.immersive .lyrictext .u{--u-base:var(--imm-dim);--u-fill:var(--imm-current)}
+.linkle-room.immersive .lyrictext .current .u{--u-base:var(--imm-near)}
+.linkle-room.immersive .lyrictext .current{color:var(--imm-current);filter:none;transform:none}
+.linkle-room.immersive .lyrictext p.current+p,.linkle-room.immersive .lyrictext p:has(+p.current){color:var(--imm-near);filter:blur(.6px);transform:scale(.99)}
+.linkle-room.immersive .lyrictext p.current+p .u,.linkle-room.immersive .lyrictext p:has(+p.current) .u{--u-base:var(--imm-near)}
+.linkle-room.immersive .lyrictext small{color:var(--imm-small)}
+.linkle-room.immersive .grp.extras .tip{display:inline-flex}
+/* Panel tiers follow the main content width, not the window. */
+@container imm (max-width:1180px){.linkle-room.immersive .bodygrid{grid-template-columns:340px minmax(0,700px)}}
+@container imm (max-width:980px){.linkle-room.immersive .bodygrid{grid-template-columns:280px minmax(0,640px)}}
+@container imm (max-width:760px){.linkle-room.immersive .bodygrid{grid-template-columns:minmax(0,1fr);row-gap:20px}.linkle-room.immersive .imm-cover{max-width:min(52%,240px);margin-inline:auto}.linkle-room.immersive .lyrics{grid-column:1;grid-row:2}}
+/* The floating panel is the task column itself, so the geometry lives here. */
+/* 沉浸下的面板 = 主视图整页（用户 2026-09-23 裁决）：不再用浮层+遮罩，
+   因此 faux-Mica 下的玻璃透明度与遮罩尺寸问题一并消失。 */
+.linkle-room.immersive .task.has-panel{display:flex;position:absolute;inset:0;width:auto;padding:0;border:0;border-radius:0;background:var(--fill-layer);background-image:none;backdrop-filter:blur(28px) saturate(1.2);box-shadow:none;overflow:hidden;z-index:4;color:var(--text-primary);scrollbar-gutter:auto}
+/* 面板占满主视图时，房间内容（封面卡/歌词）整体让位：页面才不会透着底下的字。 */
+.linkle-room.immersive .bodygrid:has(.task.has-panel) .imm-left,
+.linkle-room.immersive .bodygrid:has(.task.has-panel) .lyrics{display:none}
+.linkle-room.immersive .task.has-panel>.panel-body{flex:1;min-height:0;overflow:auto;padding:16px var(--shell-content-gutter,32px) 24px}
+/* Our menus are not top-layer popovers, so the head must out-rank the panel while
+   one is open or its 更多 menu would render behind the scrim. */
+.linkle-room:has(.menu.topmenu) .roomhead{z-index:6}
+@media(prefers-reduced-motion:reduce){.linkle-room *{transition-duration:1ms!important;animation:none!important;scroll-behavior:auto!important}.linkle-room.immersive .lyrictext p{filter:none;transform:none}}
+@media(forced-colors:active){.linkle-room.immersive .lyrictext p{filter:none;transform:none}.linkle-room .lyrictext .u{background-image:none;-webkit-text-fill-color:CanvasText;color:CanvasText}.linkle-room .lyrictext .current .u{text-decoration:underline}.linkle-room .imm-bg,.linkle-room .imm-bg:before,.linkle-room .imm-bg:after,.linkle-room .imm-bg-cover,.linkle-room .imm-bg-canvas{display:none}.linkle-room.immersive .task.has-panel{background:Canvas;border:1px solid CanvasText}.linkle-room.immersive .player{border:0}.linkle-room .conn-dot{forced-color-adjust:none}.linkle-room .imm-art{border:1px solid CanvasText}}
+
+/* Linkle 大厅（方案 C：先连接、再选房）。连接卡与邀请码并列第一层，房间退成紧凑行。
+   数据边界：行内只用 name / visibility / memberCount / requiresPassword / creatorPublicId，
+   没有封面、简介、标签——服务端今天不提供，画上去等于给实现挖坑。 */
+.lobby-connect{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:12px;padding:4px var(--shell-content-gutter,32px) 0;max-width:var(--shell-content-width,960px)}
+.lobby-card{display:grid;gap:2px;align-content:start;border:1px solid var(--stroke-card);border-radius:var(--radius-control);background:var(--fill-card);padding:16px}
+.lobby-card-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.lobby-card-head strong{font-size:16px;font-weight:600}
+.lobby-head-right{display:flex;align-items:center;gap:6px;margin-left:auto}
+.lobby-card-icon{width:18px;height:18px;color:var(--text-secondary)}
+.lobby-dot{width:10px;height:10px;border-radius:50%;background:var(--success);flex-shrink:0}
+.lobby-dot.nt{background:var(--warning)}
+.lobby-dot.no{background:var(--destructive)}
+.lobby-tag{font-size:11.5px;color:var(--text-secondary);border:1px solid var(--stroke-control);border-radius:999px;padding:1px 8px}
+.lobby-tag.muted{color:var(--muted-foreground)}
+.lobby-account{margin-left:auto;font-size:12.5px;color:var(--text-secondary)}
+.lobby-kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 14px;margin:0;font-size:12.5px}
+.lobby-kv dt{color:var(--text-secondary)}
+.lobby-kv dd{margin:0;overflow-wrap:anywhere}
+.lobby-note{margin:12px 0 0;font-size:12.5px;line-height:1.5;color:var(--text-secondary)}
+.lobby-note.nt{color:var(--warning)}
+.lobby-note.no{color:var(--destructive)}
+.lobby-card-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+/* 服务与账号的配置面板嵌在探测卡片里：不要分割线、留白收紧，把垂直空间让给控件（用户 2026-09-25）。 */
+.lobby-account-panel{margin-top:6px}
+.lobby-account-panel>section{margin-top:0;border-top:0;padding-top:0}
+.lobby-account-panel>section>*+*{margin-top:6px}
+.lobby-account-panel>section>*:first-child{margin-top:0}
+.lobby-invite{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;margin-top:12px}
+.lobby-rooms{display:grid;gap:12px;padding:18px var(--shell-content-gutter,32px) 0;max-width:var(--shell-content-width,960px)}
+/* 大厅内容列：原来固定 960 宽贴左，窗口一宽右边就空一块（用户 2026-09-25 圈出）。
+   现在填满可用宽度并居中，左右留白一致；超宽窗口下按 1120 封顶再居中。
+   这段必须排在上面两条 max-width 规则之后，否则同权重被它们压回去。 */
+.lobby-connect,.lobby-rooms{max-width:min(100%, 1120px);margin-inline:auto}
+.lobby-header{padding-inline:max(var(--shell-content-gutter), calc((100% - 1120px) / 2 + var(--shell-content-gutter)))}
+.lobby-hint,.lobby-notice{margin-inline:max(var(--shell-content-gutter), calc((100% - 1120px) / 2 + var(--shell-content-gutter)))}
+.lobby-rooms-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.lobby-rooms-title{display:flex;align-items:baseline;gap:8px;margin-right:auto}
+.lobby-rooms-title h2{margin:0;font-size:15px;font-weight:600}
+.lobby-rooms-title .muted{font-size:12px}
+.lobby-filters{display:flex;gap:6px}
+.lobby-chip{height:26px;padding:0 10px;border:1px solid var(--stroke-control);border-radius:999px;background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer}
+.lobby-chip:hover{background:var(--fill-subtle-hover);color:var(--text-primary)}
+.lobby-chip.on{border-color:var(--accent);color:var(--accent);background:color-mix(in oklab,var(--accent) 14%,transparent)}
+.lobby-rooms-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* 不预留滚动槽：scrollbar-gutter 会常驻一条空带，表头右端于是比工具栏短一截
+   （用户 2026-09-24 圈出来的就是它）。有滚动条时行自身会让出宽度，读起来是滚动条而不是空白。 */
+.lobby-rows{border:1px solid var(--stroke-card);border-radius:var(--radius-control);background:var(--fill-card);max-height:min(52vh,460px);overflow:auto}
+.lobby-row{display:grid;grid-template-columns:minmax(0,1fr) 72px 64px auto;gap:10px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--stroke-divider)}
+.lobby-row:last-child{border-bottom:0}
+.lobby-row.head{color:var(--muted-foreground);font-size:12px;background:var(--fill-layer)}
+.lobby-row.on{background:var(--fill-selected);box-shadow:inset 2px 0 0 var(--accent)}
+.lobby-row:hover:not(.head){background:var(--fill-subtle-hover)}
+.lobby-row.on:hover{background:var(--fill-selected)}
+.lobby-room{display:flex;align-items:center;gap:8px;min-width:0;min-height:32px;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
+.lobby-room-icon{width:16px;height:16px;flex-shrink:0;color:var(--text-secondary)}
+.lobby-room-name{font-weight:500;overflow-wrap:anywhere}
+.lobby-room:focus-visible{outline:none;border-radius:var(--radius-control);box-shadow:inset 0 0 0 1px var(--focus-inner),inset 0 0 0 3px var(--focus-outer)}
+.lobby-vis,.lobby-count{font-size:12.5px;color:var(--text-secondary)}
+.lobby-row-actions{display:flex;flex-wrap:nowrap;align-items:center;gap:2px;justify-self:end}
+@media(max-width:1100px){.lobby-connect{grid-template-columns:minmax(0,1fr)}.lobby-row{grid-template-columns:minmax(0,1fr) 72px auto}.lobby-row .c3{display:none}}
+@media(max-width:720px){.lobby-rows{max-height:none}.lobby-row{grid-template-columns:minmax(0,1fr) auto}.lobby-vis{display:none}}
+
+/* 行封面（搜索/队列/接下来/歌单条目）：与网页端一致地展示缩略图。
+   缩略图走主进程代理取图（列表里用 CDN 的小尺寸变体，避免每行拉一张大图）。 */
+.linkle-room .rowcover{width:36px;height:36px;display:grid;place-items:center;overflow:hidden;background:var(--fill-card);border:1px solid var(--stroke-card);border-radius:var(--radius-control);color:var(--text-secondary);flex-shrink:0}
+.linkle-room .rowcover img{width:100%;height:100%;object-fit:cover;display:block}
+.linkle-room .rowcover svg{width:16px;height:16px}
+.linkle-room .song.with-cover{grid-template-columns:40px minmax(0,1fr) auto}
+.linkle-room .song.with-cover.has-lead{grid-template-columns:auto 40px minmax(0,1fr) auto}
+.linkle-room .song.with-cover .rowcover{width:40px;height:40px}
+
+/* 侧栏折叠：图标模式（记忆在本机）。折叠后两个页脚按钮要竖排——不然 FluentButton 默认的
+   min-width:96px 会把「设置」和「展开」整个挤出 64px 的侧栏，折叠一次就再也展不回来。 */
+.desktop-shell-grid[data-sidebar="collapsed"]{grid-template-columns:64px minmax(0,1fr)}
+/* 会话块在折叠时 display:none，页脚的自动占位就会往前挪一格、掉进 1fr 那行，
+   最底下留出 64px 的空档。grid-row:3 把它按回最后一行。 */
+.desktop-sidebar.is-collapsed{padding-inline:8px;grid-template-rows:auto minmax(0,1fr) auto}
+.desktop-sidebar.is-collapsed .desktop-service-nav button,.desktop-sidebar.is-collapsed .desktop-settings-link button{justify-content:center;padding-inline:0;min-width:0}
+.desktop-sidebar.is-collapsed .desktop-service-nav span,.desktop-sidebar.is-collapsed .desktop-settings-link span,.desktop-sidebar.is-collapsed .desktop-session{display:none}
+.desktop-sidebar.is-collapsed .desktop-settings-link{grid-row:3;margin-inline:-8px;padding:8px 0;height:auto;flex-direction:column;gap:2px}
+.desktop-sidebar.is-collapsed .desktop-settings-link button{height:40px}
+.desktop-settings-link{gap:4px}
+/* 折叠/展开的图标太小（用户 2026-09-24）：「设置」同排的图标一起放大，免得两个按钮一高一矮。 */
+.desktop-settings-link button svg{width:24px;height:24px}
+/* 歌单与导出（方案 A + 面板头导出浮层；用户 2026-09-25 裁决）：范围段 → 列表（上半区）→ 详情（下方）。
+   摘要里没有封面/简介/更新时间/创建者，所以列表行只画名称、条数与系统徽标。 */
+/* 用户 2026-09-25 复审：单栏时列表被 max-height 卡死、详情大片留白 → 左右分栏，吃满垂直空间。
+   窄于 380px 时退回上下堆叠（容器查询按面板自身宽度判断）。 */
+.linkle-room .pl-panel{position:relative;container:pl / inline-size;display:grid;grid-template-columns:minmax(150px,34%) minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr);gap:8px 14px;flex:1;min-height:0}
+.linkle-room .pl-toolbar{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.linkle-room .pl-toolbar .spacer{flex:1}
+.linkle-room .pl-seg{display:flex;gap:6px}
+/* 搜索类型分页签与搜索行之间必须有间距（原来 0，用户 2026-09-25 圈出：两个控件挨得太近）。 */
+.linkle-room .search-tabs{margin-bottom:12px}
+/* 翻页改"滚到底自动续"后的哨兵与回到顶部浮标（按钮已撤，不再顶动列表）。 */
+.linkle-room .load-sentinel{min-height:2px;padding:8px 0;font-size:12px;color:var(--text-secondary);text-align:center}
+.linkle-room .panel-top{position:sticky;bottom:10px;align-self:flex-end;margin-top:8px;width:32px;height:32px;padding:0;display:grid;place-items:center;border:1px solid var(--stroke-control);border-radius:999px;background:var(--fill-menu);color:var(--text-primary);box-shadow:var(--f2-shadow8);cursor:pointer}
+.linkle-room .panel-top:hover{background:var(--f2-subtle-hover)}
+.linkle-room .panel-top svg{width:16px;height:16px}
+.linkle-room .pl-seg button{min-height:26px;font-size:12px;padding:2px 12px;border-radius:999px}
+.linkle-room .pl-seg button.on{background:var(--accent);border-color:transparent;color:var(--fg-on-accent);font-weight:600}
+.linkle-room .pl-btn{min-height:26px;font-size:12px;padding:2px 12px;border-radius:4px}
+.linkle-room .pl-btn.primary{background:var(--accent);border-color:transparent;color:var(--fg-on-accent)}
+.linkle-room .pl-draft{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.linkle-room .pl-draft input{flex:1;min-width:0;height:28px;border:1px solid var(--stroke-control);border-radius:4px;background:var(--fill-control);color:var(--text-primary);padding:0 8px}
+.linkle-room .pl-error{color:var(--critical);font-size:12px}
+.linkle-room .pl-pop-backdrop{position:fixed;inset:0;z-index:5;background:transparent;border:0;padding:0;min-height:0}
+.linkle-room .pl-pop{position:absolute;top:38px;right:0;z-index:6;width:min(290px,100%);border:1px solid var(--stroke-card);border-radius:var(--radius-overlay);background:var(--fill-menu);box-shadow:var(--f2-shadow16);padding:10px}
+.linkle-room .pl-cap{margin:0 0 6px;font-size:11.5px;color:var(--text-tertiary)}
+.linkle-room .pl-fmts{display:flex;flex-wrap:wrap;gap:6px}
+.linkle-room .pl-fmts button{min-height:26px;font-size:12px;padding:2px 10px;border-radius:4px}
+.linkle-room .pl-sep{height:1px;background:var(--stroke-divider);margin:10px 0}
+.linkle-room .pl-toolbar,.linkle-room .pl-draft,.linkle-room .pl-panel>.muted{grid-column:1 / -1}
+.linkle-room .pl-list{grid-column:1;grid-row:3;border:1px solid var(--stroke-card);border-radius:var(--radius-control);background:var(--fill-card);min-height:0;overflow:auto;padding:4px}
+.linkle-room .pl-row{display:flex;align-items:center;gap:4px;border-radius:var(--radius-control);position:relative}
+.linkle-room .pl-row:hover{background:var(--fill-subtle-hover)}
+.linkle-room .pl-row.on{background:var(--fill-selected);box-shadow:inset 2px 0 0 var(--accent)}
+.linkle-room .pl-open{flex:1;min-width:0;display:flex;align-items:center;gap:8px;border:0;background:transparent;color:inherit;text-align:left;min-height:32px;padding:4px 8px}
+.linkle-room .pl-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.linkle-room .pl-meta{font-size:11.5px;color:var(--text-tertiary);flex-shrink:0}
+.linkle-room .pl-sys{font-size:10.5px;color:var(--text-secondary);border:1px solid var(--stroke-control);border-radius:999px;padding:0 6px;flex-shrink:0}
+.linkle-room .pl-ico{width:26px;height:26px;min-height:0;padding:0;border:0;background:transparent;color:var(--text-secondary);border-radius:4px;flex-shrink:0}
+.linkle-room .pl-ico:hover{background:var(--fill-subtle-hover);color:var(--text-primary)}
+.linkle-room .pl-menu{position:absolute;top:30px;right:4px;z-index:6;min-width:170px;border:1px solid var(--stroke-card);border-radius:var(--radius-overlay);background:var(--fill-menu);box-shadow:var(--f2-shadow16);padding:4px}
+.linkle-room .pl-menu button{display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;min-height:30px;padding:4px 8px;border-radius:4px;font-size:12.5px}
+.linkle-room .pl-menu button:hover{background:var(--fill-subtle-hover)}
+.linkle-room .pl-menu button.danger{color:var(--critical)}
+.linkle-room .pl-empty{display:grid;gap:6px;justify-items:start;padding:14px 10px;color:var(--text-secondary)}
+.linkle-room .pl-detail{grid-column:2;grid-row:3;min-height:0;display:flex;flex-direction:column;gap:6px;border-left:1px solid var(--stroke-divider);padding-left:14px}
+.linkle-room .pl-dhead{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.linkle-room .pl-dhead h4{margin:0;font-size:13.5px;font-weight:650}
+.linkle-room .pl-dhead .spacer{flex:1}
+.linkle-room .pl-tracks{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.linkle-room .pl-track{display:grid;grid-template-columns:20px 34px minmax(0,1fr) auto;gap:8px;align-items:center;padding:4px 6px;border-radius:var(--radius-control)}
+.linkle-room .pl-track:hover{background:var(--fill-subtle-hover)}
+.linkle-room .pl-num{font-size:11.5px;color:var(--text-tertiary);text-align:right;font-variant-numeric:tabular-nums}
+.linkle-room .pl-tinfo{min-width:0}
+.linkle-room .pl-tinfo strong{display:block;font-weight:500;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.linkle-room .pl-tinfo small{display:block;font-size:11px;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@container pl (max-width:380px){
+  .linkle-room .pl-panel{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto minmax(0,1fr)}
+  .linkle-room .pl-list{grid-column:1;grid-row:3;max-height:34vh}
+  .linkle-room .pl-detail{grid-column:1;grid-row:4;border-left:0;padding-left:0;border-top:1px solid var(--stroke-divider);padding-top:10px}
+}
+/* 房间播放历史（本机记录；上格是「房间历史」，下格是「我的歌单」）。 */
+.linkle-room .pl-hist{grid-column:1 / -1;grid-row:3;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:4px;border:1px solid var(--stroke-card);border-radius:var(--radius-control);background:var(--fill-card);padding:6px}
+.linkle-room .pl-hist-row{display:flex;flex-direction:column;gap:2px}
+.linkle-room .pl-hist-row .pl-track{grid-template-columns:44px 34px minmax(0,1fr) auto auto}
+.linkle-room .save-block{display:flex;flex-direction:column;gap:6px}
+.linkle-room .save-block.compact{margin:2px 0 6px 44px}
+.linkle-room .save-block input{flex:1;min-width:0;height:28px;border:1px solid var(--stroke-control);border-radius:4px;background:var(--fill-control);color:var(--text-primary);padding:0 8px}
+.linkle-room .save-notice{display:flex;flex-direction:column;gap:6px}
+.linkle-room .pl-hist-head{display:flex;align-items:center;gap:10px;padding:2px 4px 6px;flex-shrink:0}
+.linkle-room .pl-hist-head .pl-btn{margin-left:auto}
+/* 专辑曲目展开：缩进一层，和专辑行区分开。 */
+.linkle-room .album-songs{margin:2px 0 6px 22px;border-left:1px solid var(--stroke-divider);padding-left:10px;display:flex;flex-direction:column;gap:2px}
+.linkle-room .album-songs .song{padding:6px 0}
+
+/* 图标化的行内/工具动作（用户 2026-09-25）：行尾动作改用与播放键同款的 32px 图标键，
+   tooltip 承担原来的文字；带数字的批量动作（加入选中（N））和表单提交仍保留文字。 */
+.linkle-room .song .add-btn{padding:0}
+.linkle-room .song .actions .tip{flex-shrink:0}
+/* 搜索/发送 = 强调色图标提交键，尺寸与各自输入框齐平。 */
+.linkle-room .search-go{width:36px;height:36px;min-height:36px;background:var(--accent);color:var(--fg-on-accent)}
+.linkle-room .search-go:hover{background:var(--accent);color:var(--fg-on-accent);opacity:.9}
+.linkle-room .search-go:active{opacity:.8}
+.linkle-room .search-go:disabled{opacity:.5;cursor:not-allowed}
+.linkle-room .chat-send{width:32px;height:32px;min-height:32px;padding:0;display:grid;place-items:center;border:0;border-radius:var(--radius-control);background:var(--accent);color:var(--fg-on-accent);cursor:pointer;transition:opacity var(--f2-dur-faster) var(--f2-ease-out)}
+.linkle-room .chat-send:hover{opacity:.9}
+.linkle-room .chat-send:disabled{opacity:.5;cursor:not-allowed}
+.linkle-room .chat-send svg{width:16px;height:16px}
+.linkle-room .chat-earlier{width:24px;height:24px;min-height:24px;padding:0;display:grid;place-items:center}
+.linkle-room .chat-earlier svg{width:14px;height:14px}
+
+/* 封面悬浮层（用户 2026-09-25）：鼠标悬浮/键盘聚焦时出现灰遮罩 + 红心；空心=未喜欢、实心=已喜欢。
+   颜色走主题 token（浅色深色都跟随），不用红色。遮罩本身不吃点击——点封面仍然是切换喜欢。 */
+.linkle-room .imm-art .imm-like{position:absolute;inset:0;display:grid;place-items:center;margin:0;width:auto;height:auto;background:var(--art-hover-scrim);opacity:0;transition:opacity var(--f2-dur-fast) var(--f2-ease-out);pointer-events:none}
+.linkle-room .imm-art:hover .imm-like,.linkle-room .imm-art:focus-visible .imm-like{opacity:1}
+.linkle-room .imm-art .imm-like-ico{display:grid;place-items:center;margin:0;color:var(--art-hover-fg);transform:scale(.86);transition:transform var(--f2-dur-fast) var(--f2-ease-out)}
+.linkle-room .imm-art:hover .imm-like-ico,.linkle-room .imm-art:focus-visible .imm-like-ico{transform:scale(1)}
+.linkle-room .imm-art .imm-like-ico svg{width:44px;height:44px;opacity:1}

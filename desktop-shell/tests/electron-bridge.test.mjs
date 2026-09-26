@@ -37,3 +37,57 @@ test('main policy rejects unknown commands, invalid args and oversized frames', 
   for (const args of [null, [], 'bad', { text: 'x'.repeat(1024 * 1024) }]) assert.equal(policy.validRequest('getDesktopSettings', args), false)
   assert.equal(policy.validRequest('__launch', {}), false)
 })
+
+test('saveTextFile takes name/extension/text only — the renderer never picks a path', () => {
+  assert.equal(policy.validRequest('saveTextFile', { suggestedName: 'Linkle 队列 2026-09-25', extension: 'csv', text: 'a,b\n' }), true)
+  // 路径、多出来的键、非法后缀、超长正文、含路径分隔符的名字都必须被拒。
+  assert.equal(policy.validRequest('saveTextFile', { suggestedName: 'x', extension: 'txt', text: '', path: 'C:/Windows/System32/x.txt' }), false)
+  assert.equal(policy.validRequest('saveTextFile', { suggestedName: 'x', extension: 'exe', text: '' }), false)
+  assert.equal(policy.validRequest('saveTextFile', { suggestedName: '../escape', extension: 'txt', text: '' }), false)
+  assert.equal(policy.validRequest('saveTextFile', { suggestedName: 'a/b', extension: 'txt', text: '' }), false)
+  assert.equal(policy.validRequest('saveTextFile', { suggestedName: '', extension: 'txt', text: '' }), false)
+  assert.equal(policy.validRequest('saveTextFile', { suggestedName: 'x'.repeat(200), extension: 'txt', text: '' }), false)
+  assert.equal(policy.validRequest('saveTextFile', { suggestedName: 'x', extension: 'txt', text: 'y'.repeat(4 * 1024 * 1024 + 1) }), false)
+})
+
+test('mediaRequest take a whitelisted shape and nothing else', () => {
+  const call = (method, path, query = null, body = null) => policy.validRequest('mediaRequest', { method, path, query, body })
+  assert.equal(call('GET', '/api/media/capabilities'), true)
+  assert.equal(call('GET', '/api/media/list', 'libraryId=lib_anime&path=%2F'), true)
+  assert.equal(call('POST', '/api/admin/media-sources', null, { name: 'Second' }), true)
+  assert.equal(call('PATCH', '/api/admin/media-sources/7', null, { password: '' }), true)
+  assert.equal(call('DELETE', '/api/admin/media-sources/7'), true)
+  // 动词、路径前缀、长度与正文形状都要挡住（权威白名单在 Rust 侧，这里是第一道）。
+  for (const [method, path] of [['PUT', '/api/media/list'], ['HEAD', '/api/media/list'], ['GET', 'api/media/list'], ['GET', '/media/list'], ['GET', '/api/media/' + 'x'.repeat(600)]]) {
+    assert.equal(call(method, path), false, `${method} ${path}`)
+  }
+  assert.equal(call('GET', '/api/media/list', 'q=' + 'x'.repeat(3000)), false)
+  assert.equal(call('GET', '/api/media/list', null, ['array']), false)
+  assert.equal(policy.validRequest('mediaRequest', { method: 'GET', path: '/api/media/list' }), false)
+  assert.equal(policy.validRequest('mediaRequest', { method: 'GET', path: '/api/media/list', query: null, body: null, extra: 1 }), false)
+})
+
+test('mediaArtwork takes one opaque id and nothing else', () => {
+  assert.equal(policy.validRequest('mediaArtwork', { mediaId: 'v2.c3JjX2RlZmF1bHQ.signature' }), true)
+  for (const args of [
+    {},
+    { mediaId: '' },
+    { mediaId: 'v'.repeat(513) },
+    { mediaId: 7 },
+    { mediaId: 'v2.a', extra: 1 },
+    { mediaId: 'v2.a', path: '/api/media/artwork/v2.a' },
+  ]) {
+    assert.equal(policy.validRequest('mediaArtwork', args), false, JSON.stringify(args))
+  }
+})
+
+test('main policy confines plaintext http to loopback for every MusicParty origin', () => {
+  const request = origin => policy.validRequest('musicPartyRequest', { input: { origin, path: '/api/desktop/v1/health', method: 'GET', body: null, clientVersion: '0.2.0' } })
+  for (const origin of ['http://127.0.0.1:18081', 'http://localhost:18081', 'http://[::1]:18081', 'https://music.example.com']) assert.equal(request(origin), true, origin)
+  for (const origin of ['http://music.example.com', 'http://192.168.1.20:18081', 'http://LOCALHOST.attacker.example', '127.0.0.1:18081', 'file:///etc/passwd', null]) assert.equal(request(origin), false, String(origin))
+  assert.equal(policy.validRequest('musicPartyRequest', { input: { path: '/api/desktop/v1/health' } }), false)
+  assert.equal(policy.validRequest('musicPartyWsConnect', { input: { origin: 'https://music.example', roomId: 'lounge', clientVersion: '0.2.0' } }), true)
+  assert.equal(policy.validRequest('musicPartyWsConnect', { input: { origin: 'http://192.168.1.20:18081', roomId: 'lounge', clientVersion: '0.2.0' } }), false)
+  assert.equal(policy.validRequest('clearMusicPartySession', { origin: 'https://music.example' }), true)
+  assert.equal(policy.validRequest('clearMusicPartySession', { origin: 'http://10.0.0.5:18081' }), false)
+})

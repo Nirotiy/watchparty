@@ -12,6 +12,8 @@ export interface RoomSummaryRecord extends RoomIdentity {
   visibility: "public" | "private"
   memberCount: number | null
   requiresPassword: boolean
+  /** The room's creator, when the server reports it: management belongs to that account. */
+  creatorPublicId?: string
 }
 
 /** Details are derived from the list summary and the first authoritative WS snapshot. */

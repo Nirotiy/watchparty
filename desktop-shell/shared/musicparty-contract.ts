@@ -20,6 +20,24 @@ export interface MediaResolveResponse {
   music: MusicMetadata
 }
 
+/** 专辑（后端 §14.1 冻结契约，`GET /api/desktop/v1/albums/{platform}` 的 items）。
+    字段实测：artistName, coverUrl, id, name, platform, trackCount。 */
+export interface MusicAlbum {
+  id: string
+  name: string
+  artistName: string
+  coverUrl: string
+  platform: string
+  trackCount: number
+}
+export interface AlbumPage {
+  items: MusicAlbum[]
+  /** >0 是整场总数；===0 表示该平台不提供总数（继续用满页启发式）。 */
+  total: number
+  offset: number
+  limit: number
+}
+
 export interface MusicMetadata {
   id: string
   name: string
@@ -70,4 +88,20 @@ export interface QueuePatchPayload {
   targetQueueId?: string
   position?: string
   status?: string
+}
+
+/** 房间播放历史（后端 handoff §13 冻结契约）：`history.list {offset?, limit?}` → `history.page`。
+    排序 `played_at desc, id desc`；limit 缺省 50 / 封顶 200；翻过末尾返回空数组（不是 null）。 */
+export interface PlaybackHistoryItem {
+  id: string
+  music: MusicMetadata
+  enqueuerPublicId: string | null
+  enqueuerName: string | null
+  playedAt: number
+}
+export interface HistoryPage {
+  roomId: string
+  total: number
+  offset: number
+  items: PlaybackHistoryItem[]
 }

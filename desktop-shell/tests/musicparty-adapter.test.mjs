@@ -9,7 +9,7 @@ function moduleUrl(name) {
     .replace(/from "\.\/(musicparty-contract|retry|shared-room-state)"/g, (_, dependency) => `from "${moduleUrl(dependency)}"`)
   return `data:text/javascript;base64,${Buffer.from(js).toString('base64')}`
 }
-const { MusicPartyAdapter } = await import(moduleUrl('musicparty-adapter'))
+const { MusicPartyAdapter, probeMusicParty } = await import(moduleUrl('musicparty-adapter'))
 
 test('room summaries use the public list fields and respect existing access', async () => {
   const adapter = new MusicPartyAdapter({ origin: 'https://music.example/path', fetchImpl: async url => {
@@ -44,18 +44,179 @@ test('create timeout blocks ambiguous retry until a new connection', async () =>
   await adapter.disconnect()
 })
 
+test('an advertised roomCreate capability creates over HTTP instead of the admin-only socket command', async () => {
+  const requests = []
+  const events = []
+  const { adapter, sockets } = roomCreateSetup(async (url, init) => {
+    requests.push({ path: String(url), init })
+    if (String(url).endsWith('/api/desktop/v1/rooms')) return Response.json({ roomId: 'new', name: 'Test', privateRoom: true, accessGranted: true, onlineCount: 1 })
+    return Response.json({ apiVersion: '2026-01' })
+  })
+  adapter.subscribe(event => events.push(event))
+  await adapter.connect()
+  const created = await adapter.createRoom({ name: ' Test ', isPrivate: true, password: 'secret-pin' })
+  assert.deepEqual(created, { service: 'musicparty', origin: 'https://music.example', roomId: 'new', name: 'Test', visibility: 'private', memberCount: 1, requiresPassword: false })
+  const call = requests.find(request => request.path.endsWith('/api/desktop/v1/rooms'))
+  assert.equal(call.init.method, 'POST')
+  assert.deepEqual(JSON.parse(call.init.body), { name: 'Test', isPrivate: true, password: 'secret-pin' })
+  assert.equal(call.init.headers.get('x-desktop-api-version'), '2026-01')
+  assert.equal(sockets[0].sent.some(event => event.type === 'rooms.create'), false, 'the WS command is admin-gated')
+  assert.equal(events.some(event => event.type === 'error'), false)
+})
+
+test('desktop room creation reports the server reason instead of a generic failure', async () => {
+  for (const [status, code] of [[400, 'invalid-input'], [401, 'unauthorized'], [409, 'name-exists'], [403, 'rejected'], [500, 'rejected']]) {
+    const { adapter } = roomCreateSetup(async url => String(url).endsWith('/api/desktop/v1/rooms')
+      ? new Response(JSON.stringify({ error: { message: 'fixture' } }), { status, headers: { 'content-type': 'application/json' } })
+      : Response.json({ apiVersion: '2026-01' }))
+    await adapter.connect()
+    await assert.rejects(adapter.createRoom({ name: 'Test', isPrivate: false }), { code }, `HTTP ${status}`)
+  }
+  const unreachable = roomCreateSetup(async url => { if (String(url).endsWith('/api/desktop/v1/rooms')) throw new Error('sidecar_unavailable'); return Response.json({ apiVersion: '2026-01' }) })
+  await unreachable.adapter.connect()
+  await assert.rejects(unreachable.adapter.createRoom({ name: 'Test', isPrivate: false }), { code: 'unreachable' })
+  const malformed = roomCreateSetup(async url => String(url).endsWith('/api/desktop/v1/rooms') ? Response.json({ name: 'Test' }) : Response.json({ apiVersion: '2026-01' }))
+  await malformed.adapter.connect()
+  await assert.rejects(malformed.adapter.createRoom({ name: 'Test', isPrivate: false }), { code: 'invalid-response' })
+})
+
+test('ensureProbe caches capabilities without opening a socket', async () => {
+  const paths = []
+  let sockets = 0
+  const adapter = new MusicPartyAdapter({
+    origin: 'https://music.example',
+    fetchImpl: async url => {
+      paths.push(new URL(String(url)).pathname)
+      if (String(url).includes('/capabilities')) return Response.json({ apiVersion: '2026-01', features: { roomCreate: true } })
+      return Response.json({ apiVersion: '2026-01' })
+    },
+    webSocketFactory: () => { sockets += 1; return new Socket() },
+  })
+  assert.equal((await adapter.ensureProbe())?.features.roomCreate, true)
+  assert.equal(adapter.desktopProbe?.features.roomCreate, true)
+  assert.equal(await adapter.ensureProbe(), adapter.desktopProbe, 'the second call must reuse the cached probe')
+  assert.equal(sockets, 0, 'probing the lobby may not connect')
+  assert.deepEqual(paths, ['/api/desktop/v1/health', '/api/desktop/v1/capabilities', '/api/account/me'])
+})
+test('ensureProbe leaves nothing cached when the server is not usable', async () => {
+  const adapter = new MusicPartyAdapter({ origin: 'https://music.example', fetchImpl: async url => String(url).includes('/capabilities')
+    ? Response.json({ apiVersion: '2099-01' }) : Response.json({ apiVersion: '2099-01' }) })
+  assert.equal(await adapter.ensureProbe(), null)
+  assert.equal(adapter.desktopProbe, null)
+})
+
+test('ensureProbe re-reads the account when forced', async () => {
+  let account = null
+  const adapter = new MusicPartyAdapter({ origin: 'https://music.example', fetchImpl: async url => String(url).includes('/capabilities')
+    ? Response.json({ apiVersion: '2026-01', features: { roomCreate: true } })
+    : String(url).includes('/account/me') ? (account ? Response.json(account) : new Response('', { status: 401 })) : Response.json({ apiVersion: '2026-01' }) })
+  assert.equal((await adapter.ensureProbe())?.account, null)
+  account = { publicId: 'u9', displayName: 'Friend' }
+  assert.equal((await adapter.ensureProbe())?.account, null, 'the cached probe must not be re-read silently')
+  assert.equal((await adapter.ensureProbe(true))?.account?.publicId, 'u9')
+})
+test('connecting without a room never opens a socket', async () => {
+  let sockets = 0
+  const events = []
+  const adapter = new MusicPartyAdapter({ origin: 'https://music.example', fetchImpl: async () => Response.json({ apiVersion: '2026-01' }), webSocketFactory: () => { sockets += 1; return new Socket() } })
+  adapter.subscribe(event => events.push(event))
+  await adapter.connect()
+  assert.equal(sockets, 0, 'the server defaults an empty roomId into `lounge`, so silence is the only safe no-room state')
+  assert.deepEqual(events.filter(event => event.type === 'connection').map(event => event.status), ['idle', 'connecting', 'ready'])
+  const seated = new MusicPartyAdapter({ origin: 'https://music.example', roomId: 'lounge', fetchImpl: async () => Response.json({ apiVersion: '2026-01' }), webSocketFactory: () => { sockets += 1; return new Socket() } })
+  await seated.connect()
+  assert.equal(sockets, 1, 'a room is what earns the socket')
+  await seated.disconnect()
+})
+
+test('room management uses PUT and DELETE on the room path and keeps the privacy it found', async () => {
+  const requests = []
+  const adapter = new MusicPartyAdapter({ origin: 'https://music.example', fetchImpl: async (url, init = {}) => {
+    requests.push({ path: new URL(String(url)).pathname, method: init.method, body: init.body })
+    if (init.method === 'DELETE') return new Response(null, { status: 204 })
+    return Response.json({ roomId: 'r1', name: 'Renamed', privateRoom: true, accessGranted: true, creatorPublicId: 'u1', onlineCount: 2 })
+  } })
+  const renamed = await adapter.renameRoom('r1', '  Renamed  ', true)
+  assert.deepEqual(requests[0], { path: '/api/rooms/r1', method: 'PUT', body: '{"name":"Renamed","isPrivate":true,"keepExistingPassword":true}' })
+  assert.equal(renamed.creatorPublicId, 'u1')
+  assert.equal(renamed.requiresPassword, false, 'the creator keeps access to their own private room')
+  await adapter.deleteRoom('r1')
+  assert.equal(requests[1].method, 'DELETE')
+  assert.equal(requests[1].path, '/api/rooms/r1')
+  await assert.rejects(adapter.renameRoom('r1', '   ', false), { code: 'invalid-input' })
+})
+test('room management failures keep the reason the server gave', async () => {
+  for (const [status, code] of [[401, 'unauthorized'], [403, 'forbidden'], [404, 'not-found'], [500, 'rejected']]) {
+    const adapter = new MusicPartyAdapter({ origin: 'https://music.example', fetchImpl: async () => new Response('{}', { status }) })
+    await assert.rejects(adapter.deleteRoom('r1'), { code }, `HTTP ${status}`)
+  }
+  const down = new MusicPartyAdapter({ origin: 'https://music.example', fetchImpl: async () => { throw new Error('sidecar_unavailable') } })
+  await assert.rejects(down.deleteRoom('r1'), { code: 'unreachable' })
+})
+
+function roomCreateSetup(fetchImpl) {
+  return setup(async (url, init) => String(url).includes('/capabilities')
+    ? Response.json({ apiVersion: '2026-01', features: { roomCreate: true } })
+    : fetchImpl(url, init))
+}
+
 test('native HTTP and clear IPC never require renderer credentials or browser fetch', async () => {
   const calls = []
   const adapter = new MusicPartyAdapter({ origin: 'https://music.example', nativeInvoke: async (command, args) => {
     calls.push({ command, args })
-    return { status: 200, body: 'native lyrics' }
+    return { status: 200, body: JSON.stringify({ lyric: 'native lyrics', translatedLyric: 'native 译文' }) }
   } })
-  assert.equal(await adapter.lyrics('netease', 'song'), 'native lyrics')
+  assert.deepEqual(await adapter.lyrics('netease', 'song'), { lyric: 'native lyrics', translatedLyric: 'native 译文', romanizedLyric: '', wordLyric: '', wordTranslatedLyric: '', wordRomanizedLyric: '' })
   assert.deepEqual(calls[0], { command: 'musicPartyRequest', args: { input: {
-    origin: 'https://music.example', path: '/api/desktop/v1/music/netease/song/lyrics', method: 'GET', body: null, clientVersion: '0.2.0',
+    origin: 'https://music.example', path: '/api/desktop/v1/media/netease/song/lyrics', method: 'GET', body: null, clientVersion: '0.2.0',
   } } })
   await adapter.clearSession()
   assert.deepEqual(calls[1], { command: 'clearMusicPartySession', args: { origin: 'https://music.example' } })
+})
+
+test('logout revokes the session and always clears the local credentials', async () => {
+  for (const revoke of [{ status: 401, body: '' }, { status: 500, body: 'upstream unavailable' }]) {
+    const calls = []
+    const events = []
+    const adapter = new MusicPartyAdapter({ origin: 'https://music.example', nativeInvoke: async (command, args) => {
+      calls.push({ command, args })
+      if (command === 'musicPartyRequest') return revoke
+    } })
+    adapter.subscribe(event => events.push(event))
+    await adapter.logout()
+    assert.deepEqual(calls[0], { command: 'musicPartyRequest', args: { input: {
+      origin: 'https://music.example', path: '/api/account/logout', method: 'POST', body: null, clientVersion: '0.2.0',
+    } } })
+    assert.deepEqual(calls.at(-1), { command: 'clearMusicPartySession', args: { origin: 'https://music.example' } })
+    assert.equal(events.some(event => event.type === 'error'), false, 'a failed revoke is not a user-facing error')
+  }
+  const commands = []
+  const unreachable = new MusicPartyAdapter({ origin: 'https://music.example', nativeInvoke: async (command) => {
+    commands.push(command)
+    if (command === 'musicPartyRequest') throw new Error('sidecar_unavailable')
+  } })
+  await unreachable.logout()
+  assert.deepEqual(commands, ['musicPartyRequest', 'clearMusicPartySession'])
+})
+
+test('logout tears down the live native socket for its own origin', async () => {
+  const { adapter, calls } = nativeSetup()
+  await adapter.connect()
+  await adapter.logout()
+  assert.ok(calls.some(call => call.command === 'musicPartyWsDisconnect'))
+  assert.deepEqual(calls.at(-1), { command: 'clearMusicPartySession', args: { origin: 'https://music.example' } })
+})
+
+test('lyric detail failure falls back to the plain-LRC compatibility route', async () => {
+  const paths = []
+  const adapter = new MusicPartyAdapter({ origin: 'https://music.example', nativeInvoke: async (_command, args) => {
+    paths.push(args.input.path)
+    return args.input.path.startsWith('/api/desktop/v1/media/')
+      ? { status: 501, body: 'invalid_musicparty_request' }
+      : { status: 200, body: 'plain lyrics' }
+  } })
+  assert.deepEqual(await adapter.lyrics('netease', 'song'), { lyric: 'plain lyrics', translatedLyric: '', romanizedLyric: '', wordLyric: '', wordTranslatedLyric: '', wordRomanizedLyric: '' })
+  assert.deepEqual(paths, ['/api/desktop/v1/media/netease/song/lyrics', '/api/desktop/v1/music/netease/song/lyrics'])
 })
 const music = { id: 'song', name: 'Song', artists: ['A', 'B'], duration: 210000, platform: 'netease', coverUrl: 'https://cdn.example/cover' }
 const state = { nowPlaying: { music, currentPosition: 12000 }, isPaused: false, stateVersion: 8, queueVersion: 4, playEpoch: 3, serverTimestamp: 1000, queue: [{ queueId: 'q1', music }] }
@@ -369,12 +530,53 @@ test('native stale receive cannot emit into a replacement connection', async () 
   await adapter.connect()
   const oldReceive = pending.shift()
   await adapter.disconnect()
-  await adapter.joinRoom('other')
+  const joined = adapter.joinRoom('other')
+  await until(() => pending.length > 0, 'replacement receive')
+  pending.shift()({ event: JSON.stringify({ type: 'player.state', payload: state }) })
+  await joined
   oldReceive({ event: JSON.stringify({ type: 'chat.message', payload: { id: 'stale', content: 'old room' } }) })
   await new Promise(setImmediate)
   assert.equal(events.some(event => event.id === 'stale'), false)
   await adapter.disconnect()
 })
+
+test('a join commits on the first snapshot and rolls the room back without one', async () => {
+  const { adapter, pending } = nativeSetup()
+  const joined = adapter.joinRoom('ghost', 30)
+  await until(() => pending.length > 0, 'join receive')
+  await assert.rejects(joined, { message: 'room_snapshot_timeout' })
+  assert.equal(adapter.roomId, 'lounge', 'an uncommitted room must not survive for a later switch to re-enter')
+  await adapter.disconnect()
+})
+
+test('a join against an unreachable server reports failure and keeps the previous room', async () => {
+  const adapter = new MusicPartyAdapter({ origin: 'https://music.example', roomId: 'lounge', fetchImpl: async () => { throw new Error('unreachable') }, nativeInvoke: async () => { throw new Error('sidecar_unavailable') } })
+  await assert.rejects(adapter.joinRoom('ghost'), { message: 'room_join_failed' })
+  assert.equal(adapter.roomId, 'lounge')
+})
+
+test('a welcome with no initial snapshot asks the server for one', async () => {
+  const calls = []
+  const adapter = new MusicPartyAdapter({ origin: 'https://music.example', roomId: 'lounge', firstSnapshotNudgeMs: 20, fetchImpl: async () => Response.json({ apiVersion: '2026-01' }), nativeInvoke: async (command, args) => {
+    calls.push({ command, args })
+    if (command === 'musicPartyWsConnect') return { event: JSON.stringify({ type: 'server.hello', payload: { apiVersion: '2026-01', minimumClientVersion: '0.2.0' } }) }
+    // Only the receive hangs: this room never broadcasts on its own.
+    if (command === 'musicPartyWsReceive') return new Promise(() => {})
+    return undefined
+  } })
+  await adapter.connect()
+  await new Promise(resolve => setTimeout(resolve, 80))
+  assert.deepEqual(calls.filter(call => call.command === 'musicPartyWsSend').map(call => JSON.parse(call.args.event).type), ['player.resync'])
+  await adapter.disconnect()
+})
+
+async function until(predicate, label = 'condition', timeoutMs = 2000) {
+  for (let elapsed = 0; elapsed < timeoutMs; elapsed += 10) {
+    if (predicate()) return
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  throw new Error(`unreachable: ${label}`)
+}
 class Socket {
   readyState = 1
   sent = []
@@ -390,14 +592,14 @@ function setup(fetchImpl) {
 }
 test('headers, lyrics path, resolve metadata and player load', async () => {
   const requests = []
-  const { adapter } = setup(async (url, init) => {
+  const { adapter, sockets } = setup(async (url, init) => {
     requests.push({ url: String(url), init })
-    if (String(url).endsWith('/lyrics')) return new Response('lyrics')
+    if (String(url).endsWith('/lyrics')) return String(url).includes('/media/') ? Response.json({ lyric: 'lyrics', translatedLyric: '译文' }) : new Response('lyrics')
     if (String(url).endsWith('/resolve')) return Response.json({ url: 'https://cdn.example/audio', expiresAt: null, contentType: null, resolvedAt: 1710000000000, music })
     return Response.json({ roomId: 'lounge', apiVersion: '2026-01' })
   })
-  assert.equal(await adapter.lyrics('netease', 'a/b'), 'lyrics')
-  assert.equal(requests[0].url, 'https://music.example/api/desktop/v1/music/netease/a%2Fb/lyrics')
+  assert.deepEqual(await adapter.lyrics('netease', 'a/b'), { lyric: 'lyrics', translatedLyric: '译文', romanizedLyric: '', wordLyric: '', wordTranslatedLyric: '', wordRomanizedLyric: '' })
+  assert.equal(requests[0].url, 'https://music.example/api/desktop/v1/media/netease/a%2Fb/lyrics')
   const resolved = await adapter.resolveMedia('netease', 'song')
   assert.deepEqual(resolved.music, music)
   assert.equal(resolved.expiresAt, null)
@@ -405,8 +607,18 @@ test('headers, lyrics path, resolve metadata and player load', async () => {
   await adapter.loadForPlayer({ load: async (item, url) => { loaded = { item, url } } }, { platform: 'netease', sourceId: 'song' })
   assert.equal(loaded.item.durationSeconds, 210)
   assert.equal(loaded.item.artist, 'A, B')
-  await adapter.redeemInvite('invite')
+  const redeemed = adapter.redeemInvite('invite')
+  await until(() => sockets.length > 0, 'invite join socket')
+  sockets.at(-1).receive('player.state', state)
+  await redeemed
   assert.deepEqual(JSON.parse(requests.find(r => r.init.method === 'POST').init.body), { code: 'invite', displayName: '桌面用户' })
+  // 自定义 ID（用户 2026-09-25）：调用方给了名字就用它，空串回落桌面默认。
+  requests.length = 0
+  await adapter.redeemInvite('invite-2', { join: false, displayName: '  小明  ' })
+  assert.deepEqual(JSON.parse(requests.find(r => r.init.method === 'POST').init.body), { code: 'invite-2', displayName: '小明' })
+  requests.length = 0
+  await adapter.redeemInvite('invite-3', { join: false, displayName: '   ' })
+  assert.deepEqual(JSON.parse(requests.find(r => r.init.method === 'POST').init.body), { code: 'invite-3', displayName: '桌面用户' })
   for (const { init } of requests) {
     assert.equal(init.headers.get('X-Desktop-API-Version'), '2026-01')
     assert.equal(init.headers.get('X-Desktop-Client-Version'), '0.2.0')
@@ -421,7 +633,7 @@ test('capabilities providers and search field variants', async () => {
     return Response.json({ items: [{ id: '1', title: 'T', artists: ['A', 'B'], coverUrl: 'https://c/1' }, { songId: '2', name: 'N', artist: 'Solo', picUrl: 'https://c/2' }] })
   })
   assert.deepEqual(await adapter.listPlatforms(), [{ id: 'netease', name: 'netease' }, { id: 'youtube', name: 'youtube' }])
-  const results = await adapter.search('netease', 'x')
+  const results = await adapter.search('netease', 'x', {})
   assert.equal(results[0].artist, 'A, B'); assert.equal(results[0].artworkUrl, 'https://c/1')
   assert.equal(results[1].sourceId, '2'); assert.equal(results[1].artist, 'Solo')
   await adapter.disconnect()
@@ -504,8 +716,8 @@ test('D3 provider matrix and protocol events remain isolated', async () => {
   assert.equal((await adapter.resolveMedia('netease', '101')).url, matrix.netease.url)
   assert.equal((await adapter.resolveMedia('youtube', '202')).url, matrix.youtube.url)
   await assert.rejects(adapter.resolveMedia('bilibili', '303'), error => error.status === 502 && error.code === 'media-failed')
-  assert.equal(await adapter.lyrics('netease', '101'), 'fixture lyrics')
-  assert.equal((await adapter.search('netease', 'fixture'))[0].artworkUrl, 'https://fixture.example/cover')
+  assert.equal((await adapter.lyrics('netease', '101')).lyric, 'fixture lyrics')
+  assert.equal((await adapter.search('netease', 'fixture', {}))[0].artworkUrl, 'https://fixture.example/cover')
   await adapter.connect()
   sockets[0].receive('server.hello', { apiVersion: '2026-01' })
   sockets[0].receive('users.online', { users: [{ publicId: 'u1', name: 'Alice' }] })
@@ -604,5 +816,192 @@ test('unbind during asynchronous focus cannot resume or reapply an obsolete snap
   releaseFocus()
   await new Promise(setImmediate)
   assert.equal(snapshots.length, count)
+  await adapter.disconnect()
+})
+
+function healthyCapabilities(over = {}) {
+  return () => Response.json({ apiVersion: '2026-01', serverVersion: '4.21.3', minimumClientVersion: '0.2.0', providers: { netease: true, youtube: false, bilibili: true }, features: { roomCreate: true, lyricsWordLevel: true, chat: false }, ...over })
+}
+function probeTransport(capabilities, health = () => Response.json({ status: 'ok', apiVersion: '2026-01' }), account = health, readiness = () => Response.json({ status: 'ready' })) {
+  const urls = []
+  const deliver = value => {
+    const resolved = typeof value === 'function' ? value() : value
+    return resolved instanceof Error ? Promise.reject(resolved) : resolved
+  }
+  const fetchImpl = async (url, init) => {
+    urls.push({ url: String(url), headers: init.headers })
+    const path = String(url)
+    if (path.includes('/capabilities')) return deliver(capabilities)
+    if (path.endsWith('/api/account/me')) return deliver(account)
+    if (path.endsWith('/api/desktop/v1/readiness')) return deliver(readiness)
+    return deliver(health)
+  }
+  return { urls, fetchImpl }
+}
+
+test('probe reports the advertised version, providers and features without connecting', async () => {
+  const { urls, fetchImpl } = probeTransport(healthyCapabilities())
+  const probe = await probeMusicParty({ origin: 'https://music.example/base', fetchImpl })
+  assert.equal(probe.status, 'ok')
+  assert.equal(probe.apiVersion, '2026-01')
+  assert.equal(probe.serverVersion, '4.21.3')
+  assert.deepEqual(probe.providers, ['netease', 'bilibili'])
+  assert.deepEqual(probe.features, { roomCreate: true, lyricsWordLevel: true, chat: false })
+  assert.equal(probe.account, null)
+  assert.deepEqual(urls.map(entry => entry.url), ['https://music.example/api/desktop/v1/health', 'https://music.example/api/desktop/v1/capabilities', 'https://music.example/api/account/me'])
+  for (const { headers } of urls) {
+    assert.equal(headers.get('X-Desktop-API-Version'), '2026-01')
+    assert.equal(headers.get('X-Desktop-Client-Version'), '0.2.0')
+    assert.equal(headers.get('Cookie'), null)
+  }
+})
+
+test('probe names both versions when the server speaks a different desktop api', async () => {
+  const { urls, fetchImpl } = probeTransport(healthyCapabilities({ apiVersion: '2099-01' }))
+  const probe = await probeMusicParty({ origin: 'https://music.example', fetchImpl })
+  assert.equal(probe.status, 'incompatible')
+  assert.equal(probe.apiVersion, '2099-01')
+  assert.equal(probe.expectedApiVersion, '2026-01')
+  assert.match(probe.message, /2099-01/)
+  assert.match(probe.message, /2026-01/)
+  assert.equal(urls.length, 2)
+})
+
+test('probe rejects a client below the advertised minimum and accepts the exact version', async () => {
+  const low = await probeMusicParty({ origin: 'https://music.example', ...probeTransport(healthyCapabilities({ minimumClientVersion: '9.9.9' })) })
+  assert.equal(low.status, 'incompatible')
+  assert.match(low.message, /9\.9\.9/)
+  assert.equal(low.minimumClientVersion, '9.9.9')
+  const exact = await probeMusicParty({ origin: 'https://music.example', clientVersion: '9.9.9', ...probeTransport(healthyCapabilities({ minimumClientVersion: '9.9.9' })) })
+  assert.equal(exact.status, 'ok')
+})
+
+test('a 426 body is diagnosed as a version gap, not an unreachable service', async () => {
+  const refused = () => Response.json({ code: 'version-incompatible', apiVersion: '2027-01', minimumClientVersion: '0.3.0' }, { status: 426 })
+  const probe = await probeMusicParty({ origin: 'https://music.example', ...probeTransport(refused, refused) })
+  assert.equal(probe.status, 'incompatible')
+  assert.equal(probe.apiVersion, '2027-01')
+  assert.equal(probe.minimumClientVersion, '0.3.0')
+  assert.match(probe.message, /2027-01/)
+  assert.match(probe.message, /0\.3\.0/)
+})
+
+test('probe separates an unreachable host from a server without desktop capabilities', async () => {
+  const down = await probeMusicParty({ origin: 'https://music.example', ...probeTransport(null, new Error('offline')) })
+  assert.equal(down.status, 'unreachable')
+  assert.equal(down.message, 'MusicParty 服务不可用，请检查服务地址与网络')
+  const missing = await probeMusicParty({ origin: 'https://music.example', ...probeTransport(() => new Response('', { status: 404 })) })
+  assert.equal(missing.status, 'incompatible')
+  assert.match(missing.message, /能力/)
+  const silent = await probeMusicParty({ origin: 'https://music.example', ...probeTransport(() => Response.json({ providers: ['netease'] })) })
+  assert.equal(silent.status, 'incompatible')
+  assert.match(silent.message, /未声明桌面 API 版本/)
+})
+
+test('probe uses the native transport and never asks the renderer for credentials', async () => {
+  const calls = []
+  const probe = await probeMusicParty({ origin: 'https://music.example', nativeInvoke: async (command, args) => {
+    calls.push({ command, args })
+    return { status: 200, body: JSON.stringify(args.input.path.endsWith('/capabilities') ? { apiVersion: '2026-01', providers: { netease: true }, features: { roomCreate: true } } : { status: 'ok', apiVersion: '2026-01' }) }
+  } })
+  assert.equal(probe.status, 'ok')
+  assert.deepEqual(probe.providers, ['netease'])
+  assert.deepEqual(calls.map(call => call.args.input.path), ['/api/desktop/v1/health', '/api/desktop/v1/capabilities', '/api/account/me'])
+  assert.equal(calls[0].command, 'musicPartyRequest')
+  assert.equal(calls[0].args.input.method, 'GET')
+  assert.equal(calls[0].args.input.body, null)
+})
+
+test('probe names the signed-in account and treats an empty jar as a normal state', async () => {
+  const calls = []
+  const probe = await probeMusicParty({ origin: 'https://music.example', nativeInvoke: async (_command, args) => {
+    const path = args.input.path
+    calls.push({ path, method: args.input.method, headers: 'Cookie' in args.input })
+    if (path.endsWith('/capabilities')) return { status: 200, body: JSON.stringify({ apiVersion: '2026-01' }) }
+    if (path === '/api/account/me') return { status: 200, body: JSON.stringify({ publicId: 'u-1', username: 'lounge', displayName: '大厅账号', role: 'USER', guest: false }) }
+    return { status: 200, body: JSON.stringify({ status: 'ok', apiVersion: '2026-01' }) }
+  } })
+  assert.deepEqual(probe.account, { publicId: 'u-1', displayName: '大厅账号', isAdmin: false, isGuest: false })
+  assert.equal(probe.message, 'Linkle 服务可用，当前账号：大厅账号')
+  assert.deepEqual(calls.find(call => call.path === '/api/account/me'), { path: '/api/account/me', method: 'GET', headers: false })
+  // /api/account/me returns the session, so the role travels with it: admins get isAdmin true.
+  const admin = await probeMusicParty({ origin: 'https://music.example', nativeInvoke: async (_command, args) => {
+    const path = args.input.path
+    if (path.endsWith('/capabilities')) return { status: 200, body: JSON.stringify({ apiVersion: '2026-01' }) }
+    if (path === '/api/account/me') return { status: 200, body: JSON.stringify({ publicId: 'u-2', displayName: '管理员', role: 'PLATFORM_ADMIN' }) }
+    return { status: 200, body: JSON.stringify({ status: 'ok', apiVersion: '2026-01' }) }
+  } })
+  assert.equal(admin.account?.isAdmin, true)
+  const guestProbe = await probeMusicParty({ origin: 'https://music.example', nativeInvoke: async (_command, args) => {
+    const path = args.input.path
+    if (path.endsWith('/capabilities')) return { status: 200, body: JSON.stringify({ apiVersion: '2026-01' }) }
+    if (path === '/api/account/me') return { status: 200, body: JSON.stringify({ publicId: 'u-3', username: 'guest1', role: 'GUEST', guest: true }) }
+    return { status: 200, body: JSON.stringify({ status: 'ok', apiVersion: '2026-01' }) }
+  } })
+  assert.deepEqual(guestProbe.account, { publicId: 'u-3', displayName: 'guest1', isAdmin: false, isGuest: true })
+  const signedOut = await probeMusicParty({ origin: 'https://music.example', ...probeTransport(healthyCapabilities(), undefined, () => Response.json({ message: 'Unknown session token' }, { status: 401 })) })
+  assert.equal(signedOut.status, 'ok')
+  assert.equal(signedOut.account, null)
+  assert.match(signedOut.message, /未登录/)
+})
+
+test('readiness is opt-in and a failed probe is missing information, not a degraded server', async () => {
+  const advertised = healthyCapabilities({ features: { roomCreate: true, readiness: true } })
+  const live = () => Response.json({
+    status: 'degraded', service: 'musicparty', readinessVersion: 1,
+    components: { core: { status: 'up' }, neteaseApi: { status: 'down', code: 'NETEASE_UNREACHABLE', latencyMs: 12 } },
+    diagnostics: [{ severity: 'error', code: 'NETEASE_URL_NOT_CONFIGURED', message: '部署者没配 NETEASE_API_URL' }],
+    config: { neteaseApi: { url: 'missing' } },
+  })
+  const asked = probeTransport(advertised, undefined, undefined, live)
+  const probe = await probeMusicParty({ origin: 'https://music.example', fetchImpl: asked.fetchImpl }, { readiness: true })
+  assert.equal(probe.status, 'ok')
+  assert.deepEqual(probe.readiness, {
+    status: 'degraded', mediaSource: 'down', mediaSourceCode: 'NETEASE_UNREACHABLE', diagnosticCodes: ['NETEASE_URL_NOT_CONFIGURED'],
+  })
+  assert.ok(asked.urls.some(entry => entry.url.endsWith('/api/desktop/v1/readiness')))
+  assert.ok(!JSON.stringify(probe.readiness).includes('部署者没配'), 'localized message must not survive the parse')
+
+  const skipped = probeTransport(advertised)
+  const plain = await probeMusicParty({ origin: 'https://music.example', fetchImpl: skipped.fetchImpl })
+  assert.equal(plain.readiness, undefined)
+  assert.ok(!skipped.urls.some(entry => entry.url.endsWith('/readiness')), 'callers that did not opt in must not pay for the round trip')
+
+  const old = probeTransport(healthyCapabilities())
+  const absent = await probeMusicParty({ origin: 'https://music.example', fetchImpl: old.fetchImpl }, { readiness: true })
+  assert.equal(absent.readiness, null)
+  assert.ok(!old.urls.some(entry => entry.url.endsWith('/readiness')), 'features.readiness !== true never hits the endpoint')
+
+  const broken = probeTransport(advertised, undefined, undefined, () => new Response('not json', { status: 200 }))
+  assert.equal((await probeMusicParty({ origin: 'https://music.example', fetchImpl: broken.fetchImpl }, { readiness: true })).readiness, null)
+  const down = probeTransport(advertised, undefined, undefined, () => new Response('', { status: 503 }))
+  assert.equal((await probeMusicParty({ origin: 'https://music.example', fetchImpl: down.fetchImpl }, { readiness: true })).readiness, null)
+  const timeout = probeTransport(advertised, undefined, undefined, new Error('timed out'))
+  const timed = await probeMusicParty({ origin: 'https://music.example', fetchImpl: timeout.fetchImpl }, { readiness: true })
+  assert.equal(timed.status, 'ok')
+  assert.equal(timed.readiness, null)
+})
+
+test('connect stops at an incompatible server, keeps the diagnosis and caches a usable probe', async () => {
+  const mismatch = setup(async url => String(url).includes('/capabilities') ? healthyCapabilities({ apiVersion: '2099-01' })() : Response.json({ status: 'ok', apiVersion: '2099-01' }))
+  await mismatch.adapter.connect()
+  assert.equal(mismatch.sockets.length, 0)
+  assert.equal(mismatch.events.at(-1).status, 'failed')
+  assert.match(mismatch.events.at(-1).message, /2099-01/)
+  assert.equal(mismatch.adapter.desktopProbe, null)
+  const ok = setup()
+  await ok.adapter.connect()
+  assert.equal(ok.adapter.desktopProbe.status, 'ok')
+  assert.equal(ok.adapter.desktopProbe.apiVersion, '2026-01')
+  await ok.adapter.disconnect()
+})
+
+test('a mismatched server hello names the version the server runs', async () => {
+  const { adapter, sockets, events } = setup()
+  await adapter.connect()
+  sockets[0].onopen()
+  sockets[0].receive('server.hello', { apiVersion: '2099-01', minimumClientVersion: '0.9.0' })
+  assert.match(events.find(event => event.code === 'version-incompatible').message, /2099-01/)
+  assert.match(events.at(-1).message, /0\.9\.0/)
   await adapter.disconnect()
 })

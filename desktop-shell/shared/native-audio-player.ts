@@ -65,7 +65,11 @@ export class NativeAudioPlayer implements PlayerAdapter {
     this.pending = result.then(() => undefined).catch(() => undefined)
     return (await result).volume
   }
-  async setAudioFocus(active: boolean): Promise<void> { await this.command({ action: "focus", active }) }
+  async setAudioFocus(active: boolean): Promise<void> {
+    // An empty room has no native player to focus. bindPlayer requests focus again after load.
+    if (active && !this.loaded) return
+    await this.command({ action: "focus", active })
+  }
   async dispose(): Promise<void> {
     if (this.disposed) return
     ++this.generation

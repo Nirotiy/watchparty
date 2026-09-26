@@ -7,7 +7,7 @@ import {
 import { Slider as WinUiSlider } from "@/components/ui/slider"
 import {
   CheckmarkCircleRegular, DeleteRegular, GlobeRegular,
-  PlayCircleRegular, SaveRegular, SettingsRegular, ShieldRegular, WarningRegular,
+  PlayCircleRegular, PulseRegular, SaveRegular, SettingsRegular, ShieldRegular, WarningRegular,
 } from "@fluentui/react-icons"
 import type { DesktopUiState } from "@/lib/contracts"
 import { useShellToast } from "@/components/shell-toast"
@@ -17,6 +17,9 @@ import {
   type AudioOutputDevice,
   type DesktopSettingsStatus, type OriginTrustRecord, type PlayerPreferences,
 } from "@/lib/ipc"
+import { probeMusicParty, type MusicPartyProbe } from "../../shared/musicparty-adapter"
+import { invoke } from "../../shared/desktop-runtime"
+import { musicPartyOriginError } from "../../shared/local-schema"
 
 type Theme = "dark" | "light"
 type SettingsSection = "general" | "network" | "playback" | "security"
@@ -141,7 +144,7 @@ function PlaybackPanel({ state }: { state: DesktopUiState | null }) {
     setBusy(true)
     try {
       const current = await getDesktopSettings()
-      const updated = await updateDesktopSettings({ backendOrigin: current.backendOrigin, nickname: current.nickname, theme: current.theme, windowMaterial: current.windowMaterial, playerPreferences: preferences })
+      const updated = await updateDesktopSettings({ backendOrigin: current.backendOrigin, nickname: current.nickname, theme: current.theme, windowMaterial: current.windowMaterial, playerPreferences: preferences, allowRemoteHttp: current.allowRemoteHttp })
       setPreferences(updated.playerPreferences); setFailures(updated.playerPreferenceFailures ?? [])
       const partiallyApplied = (updated.playerPreferenceFailures ?? []).length > 0
       setMessage(partiallyApplied ? "已保存，部分即时项未能应用到当前播放器" : "播放设置已保存", partiallyApplied ? "warning" : "success")
@@ -203,7 +206,7 @@ function NumberSlider({ value, min, max, step, onChange }: { value: number; min:
 }
 
 function VolumeControl({ value, onChange }: { value: number; onChange: (value: number) => void }) {
-  return <div className="fluent-settings-volume" title="双击恢复 100%" onDoubleClick={() => onChange(100)}>
+  return <div className="fluent-settings-volume" title="双击恢复 30%" onDoubleClick={() => onChange(30)}>
     <WinUiSlider value={[value]} min={0} max={100} size="compact" aria-label="默认音量" onValueChange={([next]) => onChange(next ?? value)} />
     <Text size={200}>{value}%</Text>
   </div>
@@ -219,14 +222,14 @@ function NetworkPanel({ state }: { state: DesktopUiState | null }) {
   async function save() {
     if (addressError) return
     setBusy(true)
-    try { const current = await getDesktopSettings(); const updated = await updateDesktopSettings({ backendOrigin: origin.trim() || null, nickname: current.nickname, theme: current.theme, windowMaterial: current.windowMaterial, playerPreferences: current.playerPreferences }); setSettings(updated); setOrigin(updated.backendOrigin ?? ""); setMessage(updated.backendOrigin !== current.backendOrigin ? "站点已更新，请验证连接后重新加入房间" : "服务器地址已保存", "success") }
+    try { const current = await getDesktopSettings(); const updated = await updateDesktopSettings({ backendOrigin: origin.trim() || null, nickname: current.nickname, theme: current.theme, windowMaterial: current.windowMaterial, playerPreferences: current.playerPreferences, allowRemoteHttp: current.allowRemoteHttp }); setSettings(updated); setOrigin(updated.backendOrigin ?? ""); setMessage(updated.backendOrigin !== current.backendOrigin ? "站点已更新，请验证连接后重新加入房间" : "服务器地址已保存", "success") }
     catch (error) { setMessage(errorMessage(error, "设置保存失败"), "error") } finally { setBusy(false) }
   }
   async function verify() {
     if (addressError || backendAddressError(settings?.backendOrigin ?? "")) return
     setBusy(true); setMessage("正在验证已保存的服务器地址…")
     try { await verifyBackend(); setMessage("服务器连接正常，可以返回 Banguru 加入房间。", "success") }
-    catch { setMessage("无法验证连接。请检查保存的地址和服务器是否已启动；本机后端应使用 18082，不是用户管理网页的 18083。若服务器要求账号或自定义证书，请检查“安全与高级”中的对应设置。", "error") }
+    catch { setMessage("无法验证连接。请检查保存的地址和服务器是否已启动。若服务器要求账号或自定义证书，请检查“安全与高级”中的对应设置。", "error") }
     finally { setBusy(false) }
   }
   const hasUnsavedAddress = origin.trim() !== (settings?.backendOrigin ?? "")
@@ -234,9 +237,9 @@ function NetworkPanel({ state }: { state: DesktopUiState | null }) {
     <SettingsHeading title="连接" detail="先保存 Banguru 服务器地址，再验证连接。Linkle 的服务器在 Linkle 大厅中选择。" />
     <div className="fluent-settings-group"><div className="fluent-settings-block">
       <Field label="1. Banguru 服务器地址" hint="远程服务器使用 HTTPS；本机服务器可使用 HTTP。" validationState={addressError ? "error" : "none"} validationMessage={addressError}>
-        <Input value={origin} placeholder="http://127.0.0.1:18082" disabled={busy || !settings} onChange={event => { setOrigin(event.target.value); setMessage("") }} />
+      <Input value={origin} placeholder="http://主机:8080" disabled={busy || !settings} onChange={event => { setOrigin(event.target.value); setMessage("") }} />
       </Field>
-      <Text size={200}>在这台电脑上运行项目时，18082 是 Banguru 后端端口。18083 是用户管理网页，不能填在这里。示例地址不会自动保存。</Text>
+      <Text size={200}>填写 WatchParty 服务地址。自部署后端默认监听 8080；远程服务器请使用 HTTPS。</Text>
       <Text size={200}>更换或清空地址会结束当前 Banguru 房间会话。留空保存会移除服务器地址。</Text>
       <Button appearance="primary" icon={<SaveRegular />} disabled={busy || !settings || Boolean(addressError)} onClick={() => void save()}>保存地址</Button>
     </div><div className="fluent-settings-block">
@@ -255,13 +258,53 @@ function SecurityPanel({ musicPartyOrigin, onLogout }: { musicPartyOrigin: strin
   const [records, setRecords] = useState<OriginTrustRecord[]>([])
   const { message, intent, setMessage } = useSettingsMessage()
   const [busy, setBusy] = useState(false)
+  const [probe, setProbe] = useState<MusicPartyProbe | null>(null)
+  const [probing, setProbing] = useState(false)
+  const [settings, setSettings] = useState<DesktopSettingsStatus | null>(null)
+  const [allowRemoteHttp, setAllowRemoteHttp] = useState(false)
+  useEffect(() => { void getDesktopSettings().then(value => { setSettings(value); setAllowRemoteHttp(value.allowRemoteHttp) }).catch(() => {}) }, [])
+  async function saveRemoteHttp(next: boolean) {
+    const current = await getDesktopSettings()
+    const updated = await updateDesktopSettings({ backendOrigin: current.backendOrigin, nickname: current.nickname, theme: current.theme, windowMaterial: current.windowMaterial, playerPreferences: current.playerPreferences, allowRemoteHttp: next })
+    setSettings(updated); setAllowRemoteHttp(updated.allowRemoteHttp); setMessage(next ? "已允许远程 HTTP，请仅用于受控测试网络" : "已关闭远程 HTTP")
+  }
   useEffect(() => { void listOriginTrust().then(setRecords).catch(() => setMessage("TLS 信任管理暂不可用", "error")) }, [])
   async function run(action: () => Promise<unknown>, ok: string) { setBusy(true); try { await action(); setMessage(ok, "success") } catch (error) { setMessage(errorMessage(error, "该原生能力暂不可用，请更新桌面端后重试"), "error") } finally { setBusy(false) } }
   async function saveTrust() {
     await run(() => importOriginTrust({ origin, pem }).then(record => { setRecords(value => [...value.filter(item => item.origin !== record.origin), record]); setPem("") }), "已保存此服务器的证书信任，请重新尝试连接")
   }
+  // Read-only probe: health / capabilities / account through the native channel. No WS,
+  // no room traffic, and nothing is persisted — the renderer has no direct network.
+  const originProblem = musicPartyOriginError(musicPartyOrigin)
+  async function checkServer() {
+    setProbing(true)
+    try {
+      setProbe(await probeMusicParty({ origin: musicPartyOrigin, nativeInvoke: invoke }))
+      setMessage("")
+    } catch (error) { setProbe(null); setMessage(errorMessage(error, "无法完成服务器探测"), "error") }
+    finally { setProbing(false) }
+  }
   return <>
     <SettingsHeading title="安全与高级" detail="管理站点登录、自定义证书和 Linkle 登录会话。" />
+    <div className="fluent-settings-group"><div className="fluent-settings-block">
+      <Switch checked={allowRemoteHttp} disabled={!settings || busy} onChange={(_, data) => void saveRemoteHttp(data.checked)} label="允许远程 HTTP" />
+      <Text size={200}>默认关闭。开启后允许向非回环 HTTP 地址发送站点请求，可能明文传输凭据；仅用于受控测试网络。</Text>
+    </div></div>
+    <div className="fluent-settings-group"><div className="fluent-settings-block">
+      <Text weight="semibold">检查这台服务器</Text>
+      <Text size={200}>对当前保存的 Linkle 服务器做一次只读检查：健康状态、能力清单和当前登录账号。不会加入房间，也不会影响正在播放的房间。</Text>
+      <Text size={200}>{!musicPartyOrigin ? "还没有保存 Linkle 服务器地址，先在 Linkle 大厅选择服务器。" : originProblem ?? `检查目标：${musicPartyOrigin}`}</Text>
+      <Button icon={<PulseRegular />} disabled={busy || probing || !musicPartyOrigin || Boolean(originProblem)} onClick={() => void checkServer()}>{probing ? "正在检查" : "检查服务器"}</Button>
+      {probe ? <div className="fluent-settings-probe" role="status">
+        <Text size={200}>状态：{probe.status === "ok" ? "可用" : probe.status === "incompatible" ? "版本不兼容" : "无法连接"} · {probe.message}</Text>
+        <Text size={200}>API 版本：{probe.apiVersion ?? "未知"}（客户端期望 {probe.expectedApiVersion}）</Text>
+        <Text size={200}>服务版本：{probe.serverVersion ?? "未提供"}</Text>
+        <Text size={200}>平台：{probe.providers.length ? probe.providers.join("、") : "无"}</Text>
+        <Text size={200}>能力：{Object.entries(probe.features).length ? Object.entries(probe.features).map(([id, enabled]) => `${id} ${enabled ? "已开启" : "未开启"}`).join("；") : "无"}</Text>
+        <Text size={200}>当前账号：{probe.account ? probe.account.displayName || probe.account.publicId : "未登录"}</Text>
+      </div> : null}
+      <Text size={200}>检查结果只显示在这里，不会保存到本机设置。</Text>
+    </div></div>
     <Accordion collapsible multiple>
       <AccordionItem value="credentials"><AccordionHeader>Banguru 站点账号和密码</AccordionHeader><AccordionPanel><CredentialsPanel /></AccordionPanel></AccordionItem>
       <AccordionItem value="linkle"><AccordionHeader>Linkle 登录会话</AccordionHeader><AccordionPanel>

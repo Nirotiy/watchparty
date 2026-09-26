@@ -37,6 +37,7 @@ export function useDesktopSession() {
   const [launchRoomId, setLaunchRoomId] = useState<string | null>(null)
   const [status, setStatus] = useState<StatusMessage>({ text: "等待网页交接", tone: "idle" })
   const [starting, setStarting] = useState(false)
+  const [readyForRestore, setReadyForRestore] = useState(false)
   const lobbySwitch = useRef<ReturnType<typeof createLobbySwitchTransaction> | null>(null)
   const lobbyOptions = useRef<Omit<LobbySwitchOptions, "watch"> | null>(null)
 
@@ -108,11 +109,12 @@ export function useDesktopSession() {
         unlisteners.push(...subscriptions)
         // Replay any deep link that fired before these listeners registered.
         try {
-          await restoreDesktopSession()
           const launch = await currentDesktopLaunch()
           if (launch && !disposed) applyLaunch(launch.roomId)
         } catch (error: unknown) {
           if (!disposed) setStatus({ text: errorMessage(error, "无法读取启动信息"), tone: "error" })
+        } finally {
+          if (!disposed) setReadyForRestore(true)
         }
       })
       .catch((error: unknown) => {
@@ -124,6 +126,15 @@ export function useDesktopSession() {
       unlisteners.forEach((unsubscribe) => unsubscribe())
     }
   }, [runtimeAvailable])
+
+  const restore = useCallback(async () => {
+    try {
+      return await restoreDesktopSession()
+    } catch (error) {
+      setStatus({ text: errorMessage(error, "无法恢复上次会话"), tone: "error" })
+      return false
+    }
+  }, [])
 
   const start = useCallback(async (ticket: string) => {
     if (!runtimeAvailable) {
@@ -167,7 +178,7 @@ export function useDesktopSession() {
       return true
     } catch (error) {
       setStatus({ text: errorMessage(error, "无法创建房间"), tone: "error" })
-      return false
+      throw error
     } finally { setStarting(false) }
   }, [])
 
@@ -179,7 +190,7 @@ export function useDesktopSession() {
       return true
     } catch (error) {
       setStatus({ text: errorMessage(error, "无法加入房间"), tone: "error" })
-      return false
+      throw error
     } finally { setStarting(false) }
   }, [])
 
@@ -195,5 +206,5 @@ export function useDesktopSession() {
     }
   }, [])
 
-  return { accessRoom, command, createRoom, launchRoomId, setStatus, start, starting, state, status, stop, switchTo }
+  return { accessRoom, command, createRoom, launchRoomId, readyForRestore, restore, setStatus, start, starting, state, status, stop, switchTo }
 }

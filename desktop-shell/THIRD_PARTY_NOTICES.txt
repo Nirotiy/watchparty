@@ -5,3 +5,11 @@ License: Apache License 2.0
 The React desktop shell bundles a small SVG sprite derived from the Material
 Symbols Outlined glyphs. Material Symbols are distributed under the Apache
 License 2.0.
+
+kawarp (@kawarp/core)
+Source: https://github.com/better-lyrics/kawarp
+License: MIT (see LICENSES/MIT-kawarp.txt)
+
+The immersive listening view renders the album cover as an animated background
+with this library (Kawase blur + domain warping). It is MIT licensed and used
+unmodified.

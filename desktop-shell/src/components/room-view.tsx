@@ -16,6 +16,7 @@ interface RoomViewProps {
   roomId: string | null
   drawer: Drawer
   command: (command: DesktopCommand) => Promise<boolean>
+  mediaQueueAvailable: boolean
   fullscreen: boolean
   statusText: string
   onFullscreenChange: (fullscreen: boolean) => void
@@ -107,6 +108,7 @@ export function RoomView({
   roomId,
   drawer,
   command,
+  mediaQueueAvailable,
   fullscreen,
   statusText,
   onFullscreenChange,
@@ -177,7 +179,7 @@ export function RoomView({
   const audioTrack = player.audioTracks.find((track) => track.selected)
   const showControls = controlsPinned || controlsVisible
   const expectedCurrentPlaylistItemId = room?.currentPlaylistItemId ?? null
-  const canAdvance = sharedEnabled && Boolean(room?.playlist.length)
+  const canAdvance = mediaQueueAvailable && sharedEnabled && Boolean(room?.playlist.length)
   const overlayRight = drawer ? "min(340px, 42vw)" : "0px"
 
   const overlayClass = cn(
@@ -193,7 +195,7 @@ export function RoomView({
 
   return (
     <section
-      className="media-scrim relative h-screen min-w-[640px] overflow-hidden bg-transparent"
+      className="media-scrim relative w-full min-w-0 overflow-hidden bg-transparent"
       onPointerMove={revealControls}
       onPointerDown={revealControls}
     >
@@ -224,7 +226,7 @@ export function RoomView({
           </div>
         </div>
         <div className="absolute right-4 top-2.5 flex items-center gap-1">
-          <IconControl icon="queue" label={`播放队列，${room?.playlist.length ?? 0} 项`} active={drawer === "queue"} onClick={() => onDrawerChange("queue")} />
+          <IconControl icon="queue" label={`播放队列，${room?.playlist.length ?? 0} 项`} active={drawer === "queue"} disabled={!mediaQueueAvailable} onClick={() => onDrawerChange("queue")} />
           <IconControl icon="group" label={`在线成员，${state.members.length} 人`} active={drawer === "members"} onClick={() => onDrawerChange("members")} />
         </div>
       </header>
@@ -254,6 +256,7 @@ export function RoomView({
           </SharedControl>
           <output className="media-time w-11 shrink-0">{formatTime(position)}</output>
           <Slider
+            className="min-w-0 flex-1"
             aria-label="播放进度"
             min={0}
             max={Math.max(duration, 1)}
@@ -273,31 +276,32 @@ export function RoomView({
           <output className="media-time w-11 shrink-0 text-right">{formatTime(duration)}</output>
         </div>
 
-        <div className="flex items-center gap-1.5">
-          <IconControl
-            icon="volume-up"
-            label={volume > 0 ? "静音" : "恢复音量"}
-            disabled={!localEnabled}
-            onClick={() => void command({ type: "volume", volume: volume > 0 ? 0 : 100 })}
-          />
-          <Slider
-            aria-label="音量"
-            size="compact"
-            className="mr-2 w-[76px]"
-            min={0}
-            max={100}
-            step={1}
-            value={[volume]}
-            disabled={!localEnabled}
-            onValueChange={([value]) => {
-              setAdjustingVolume(true)
-              setVolume(value ?? 0)
-            }}
-            onValueCommit={([value]) => {
-              setAdjustingVolume(false)
-              if (value !== undefined) void command({ type: "volume", volume: value })
-            }}
-          />
+        <div className="media-control-row">
+          <div className="media-control-group">
+            <IconControl
+              icon="volume-up"
+              label={volume > 0 ? "静音" : "恢复音量"}
+              disabled={!localEnabled}
+              onClick={() => void command({ type: "volume", volume: volume > 0 ? 0 : 100 })}
+            />
+            <Slider
+              aria-label="音量"
+              size="compact"
+              className="mr-2 w-[76px]"
+              min={0}
+              max={100}
+              step={1}
+              value={[volume]}
+              disabled={!localEnabled}
+              onValueChange={([value]) => {
+                setAdjustingVolume(true)
+                setVolume(value ?? 0)
+              }}
+              onValueCommit={([value]) => {
+                setAdjustingVolume(false)
+                if (value !== undefined) void command({ type: "volume", volume: value })
+              }}
+            />
 
           <span className="media-divider" aria-hidden="true" />
 
@@ -344,21 +348,22 @@ export function RoomView({
               {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => <SelectItem key={rate} value={String(rate)}>{rate.toFixed(2)}x</SelectItem>)}
             </SelectContent>
           </Select>
-
-          <span className="flex-1" />
-          <IconControl
-            icon={fullscreen ? "fullscreen-exit" : "fullscreen"}
-            label={fullscreen ? "退出全屏" : "全屏"}
-            disabled={!localEnabled}
-            onClick={() => {
-              const next = !fullscreen
-              void command({ type: "fullscreen", enabled: next }).then((ok) => {
-                if (ok) onFullscreenChange(next)
-              })
-            }}
-          />
-          <IconControl icon="add" label="添加媒体" onClick={onOpenMedia} />
-          <IconControl icon="logout" label="离开房间" onClick={onLeave} />
+          </div>
+          <div className="media-control-group media-control-group-end">
+            <IconControl
+              icon={fullscreen ? "fullscreen-exit" : "fullscreen"}
+              label={fullscreen ? "退出全屏" : "全屏"}
+              disabled={!localEnabled}
+              onClick={() => {
+                const next = !fullscreen
+                void command({ type: "fullscreen", enabled: next }).then((ok) => {
+                  if (ok) onFullscreenChange(next)
+                })
+              }}
+            />
+            <IconControl icon="add" label="添加媒体" onClick={onOpenMedia} />
+            <IconControl icon="logout" label="离开房间" onClick={onLeave} />
+          </div>
         </div>
       </footer>
 

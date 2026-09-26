@@ -56,7 +56,7 @@ export interface SharedRoomState {
   clockSamples: ClockSample[]
 }
 
-export type SharedCommandKind = "play" | "pause" | "seek" | "next" | "previous" | "shuffle" | "like"
+export type SharedCommandKind = "play" | "pause" | "seek" | "next" | "previous" | "shuffle" | "like" | "unlike"
 
 export interface RoomSummary {
   id: string

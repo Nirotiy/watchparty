@@ -7,9 +7,10 @@ interface SessionGateProps {
   roomId: string | null
   starting: boolean
   onStart: (ticket: string) => Promise<boolean>
+  autoFocus?: boolean
 }
 
-export function SessionGate({ roomId, starting, onStart }: SessionGateProps) {
+export function SessionGate({ roomId, starting, onStart, autoFocus = true }: SessionGateProps) {
   const [ticket, setTicket] = useState("")
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -34,7 +35,7 @@ export function SessionGate({ roomId, starting, onStart }: SessionGateProps) {
             maxLength={4096}
             autoComplete="off"
             spellCheck={false}
-            autoFocus
+            autoFocus={autoFocus}
             required
             placeholder={roomId ? `房间 /${roomId} 的一次性交接码` : "粘贴一次性交接码…"}
             className="min-w-0 flex-1 basis-64 font-mono text-xs"

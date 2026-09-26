@@ -84,3 +84,17 @@ test('load failures propagate, retry works, and disposal is terminal and idempot
   await assert.rejects(player.resume(), /player_disposed/)
   assert.deepEqual(calls, ['load', 'load', 'focus', 'dispose'])
 })
+
+test('empty-room focus waits until a track is loaded', async () => {
+  const calls = []
+  const player = new NativeAudioPlayer(async (_, args) => {
+    const action = args.input.command.action
+    if (action === 'focus' && !calls.includes('load')) throw new Error('musicparty_player_not_active')
+    calls.push(action)
+  })
+  await player.setAudioFocus(true)
+  assert.deepEqual(calls, [])
+  await player.load(item, 'https://music.example/song')
+  await player.setAudioFocus(true)
+  assert.deepEqual(calls, ['load', 'focus'])
+})
