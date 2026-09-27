@@ -349,3 +349,54 @@ test("the editing endpoints refuse malformed input without touching the card", a
     await backend.close();
   }
 });
+
+test("a re-scan never rewrites a confirmed binding, even when its file set grows", () => {
+  const { store } = openStore();
+  try {
+    store.upsertScan("lib_anime", "tv", [
+      {
+        itemKey: "/Show",
+        query: "Show",
+        queries: ["Show"],
+        rawName: "Show",
+        files: [{ mediaId: "e1", name: "Show - 01.mkv", season: null, episode: 1, relativePath: "/Show/Show - 01.mkv" }],
+      },
+      {
+        itemKey: "/Show/SPs",
+        query: "Show SPs",
+        queries: ["Show SPs"],
+        rawName: "SPs",
+        files: [{ mediaId: "s1", name: "Show [SP01].mkv", season: null, episode: null, relativePath: "/Show/SPs/Show [SP01].mkv" }],
+      },
+    ]);
+    const cards = store.listPending("lib_anime");
+    const show = cards.find((card) => card.itemKey === "/Show");
+    const sps = cards.find((card) => card.itemKey === "/Show/SPs");
+    assert.ok(show && sps);
+    store.applyMatch(show, "confirmed", { externalDb: "bangumi", externalId: "411187", title: "电台节目", originalTitle: null, year: 2021, overview: null, imageUrl: null, episodes: null, score: 1 }, []);
+
+    // Second scan with a different grouper: /Show now swallows the SPs folder, and
+    // /Show/SPs is gone. The confirmation must survive untouched.
+    store.upsertScan("lib_anime", "tv", [
+      {
+        itemKey: "/Show",
+        query: "ODDTAXI",
+        queries: ["ODDTAXI"],
+        rawName: "Show",
+        files: [
+          { mediaId: "e1", name: "Show - 01.mkv", season: null, episode: 1, relativePath: "/Show/Show - 01.mkv" },
+          { mediaId: "s1", name: "Show [SP01].mkv", season: null, episode: null, relativePath: "/Show/SPs/Show [SP01].mkv" },
+        ],
+      },
+    ]);
+    const after = store.getDetail(show.id);
+    assert.equal(after?.status, "confirmed", "a scan must not demote a human answer");
+    assert.equal(after?.externalId, "411187", "nor re-point it at another subject");
+    assert.equal(after?.title, "电台节目");
+    assert.equal(after?.children.length, 2, "the files still merge onto the card");
+    assert.equal(store.getDetail(sps.id), undefined, "the swallowed card is cleaned up");
+    assert.deepEqual(store.listPending("lib_anime"), [], "and nothing re-enters the queue");
+  } finally {
+    store.close();
+  }
+});
