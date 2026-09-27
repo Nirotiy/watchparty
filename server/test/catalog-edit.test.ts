@@ -531,3 +531,21 @@ test("an auto-confirmed card whose folder disappeared is dropped; a human one is
   run("manual");
 });
 
+
+test("merging never launders a human answer into an automatable one", () => {
+  const { store } = openStore();
+  try {
+    store.upsertScan("lib_tv", "tv", [group("/Clarks/S1", "克拉克森 S1", ["a1", "a2"]), group("/Clarks/S2", "克拉克森 S2", ["b1"])]);
+    const [bigger, smaller] = store.listPending("lib_tv");
+    const chosen = { externalDb: "tmdb" as const, externalId: "117648", title: "克拉克森的农场", originalTitle: null, year: 2021, overview: null, imageUrl: null, episodes: null, score: 1 };
+    store.applyMatch(bigger, "confirmed", chosen, [chosen]); // 机器挑的（文件多，当载体）
+    store.applyMatch(smaller, "confirmed", chosen, [chosen]);
+    store.confirm(smaller.id, store.getDetail(smaller.id)!.candidates[0].id); // 这张是人点的
+
+    const merged = store.mergeItems(bigger.id, [smaller.id]);
+    assert.equal(merged?.confirmedBy, "manual", "载体是 auto、被并的是人工 ⇒ 结果必须仍是人工");
+    assert.deepEqual(store.listPending("lib_tv"), []);
+  } finally {
+    store.close();
+  }
+});

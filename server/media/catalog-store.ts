@@ -381,6 +381,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       db.exec("BEGIN");
       try {
         const keepConfirmed = text(keep, "status") === "confirmed";
+        let keepSource = text(keep, "confirmed_by") || null;
         const keepPoster = db.prepare("SELECT cache_path FROM poster_files WHERE item_id = ?").get(keepId) as { cache_path?: string } | undefined;
         let posterTaken = Boolean(keepPoster);
         for (const drop of drops) {
@@ -420,7 +421,14 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
              SELECT ?, ?, external_db, external_id FROM catalog_rejections WHERE library_id = ? AND item_key = ?`,
           ).run(libraryId, keepKey, libraryId, text(drop, "item_key"));
           db.prepare("DELETE FROM catalog_rejections WHERE library_id = ? AND item_key = ?").run(libraryId, text(drop, "item_key"));
+          // Merging must not launder a human answer into an automatable one:
+          // `auto` is the only source the re-scan and re-cluster may rewrite.
+          const dropSource = text(drop, "confirmed_by") || "unknown";
+          if (text(drop, "status") === "confirmed" && keepSource === "auto" && dropSource !== "auto") keepSource = dropSource;
           db.prepare("DELETE FROM catalog_items WHERE id = ?").run(dropId);
+        }
+        if (keepSource && keepSource !== (text(keep, "confirmed_by") || null)) {
+          db.prepare("UPDATE catalog_items SET confirmed_by = ? WHERE id = ?").run(keepSource, keepId);
         }
         db.prepare("UPDATE catalog_items SET updated_at = ? WHERE id = ?").run(now(), keepId);
         resequence(keepId);
