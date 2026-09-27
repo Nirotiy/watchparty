@@ -72,9 +72,30 @@ export function parseEpisode(name: string): { season: number | null; episode: nu
   return { season: Number(match[1]), episode: Number(match[2]) };
 }
 
+const CN_DIGIT: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+
+/** `12`、`三`、`十二`、`二十` → number; anything else null. Shared with the installment guardrail. */
+export function cnNumber(value: string): number | null {
+  if (/^\d{1,2}$/.test(value)) return Number(value);
+  if (value === "十") return 10;
+  if (value.startsWith("十")) return 10 + (CN_DIGIT[value[1]] ?? 0);
+  if (value.endsWith("十")) return (CN_DIGIT[value[0]] ?? 0) * 10;
+  return CN_DIGIT[value] ?? null;
+}
+
+/**
+ * Season a folder name announces. Latin form is exact (`Season 01`, `S2`); the
+ * Chinese one only has to *start* with `第N季`/`第N期`, because these folders are
+ * written with a trailing note (`第三季 包含字幕和弹幕文件`, `第四季 全集 …`) and
+ * the whole season otherwise collapses into one card per folder.
+ * `第N话` is deliberately not a season - it is one episode in its own folder.
+ */
 export function seasonFromName(name: string): number | null {
-  const match = name.match(/^(?:season\s*|s)(\d{1,2})$/i);
-  return match?.[1] ? Number(match[1]) : null;
+  const trimmed = name.trim();
+  const latin = /^(?:season\s*|s)(\d{1,2})$/i.exec(trimmed);
+  if (latin?.[1]) return Number(latin[1]);
+  const chinese = /^第\s*([0-9一二三四五六七八九十]{1,3})\s*[季期]/.exec(trimmed);
+  return chinese?.[1] ? cnNumber(chinese[1]) : null;
 }
 
 const CJK = /[㐀-䶿一-鿿぀-ヿ가-힯]/;
@@ -392,7 +413,17 @@ export function chunkList(value: string): string[] {
  * `[DBD-Raws][Panty & Stocking with Garterbelt][Explosion][01]...`), and the first
  * bracket is the subtitle group, not the title.
  */
-export function titleCandidates(names: string[], segmentName = "", limit = 3): string[] {
+export type TitleCandidate = { query: string; authoritative: boolean };
+
+/**
+ * Same guesses as `titleCandidates`, but keeping whether a guess is a title or a
+ * lone file's episode name. `authoritative` means the string is either what most
+ * files of the group agree on, or spelled in the directory; a guess only one file
+ * carries (`荒原` from `S03E01 荒原.mp4`) is an episode title, and an episode title
+ * must never auto-confirm a card - that is how 克拉克森的农场's season folder got
+ * bound to a different show called 荒原.
+ */
+export function titleCandidateDetails(names: string[], segmentName = "", limit = 3): TitleCandidate[] {
   const observations = names.map((name) => chunkList(name)).filter((chunks) => chunks.length > 0);
   const dirChunks = chunkList(segmentName);
   if (dirChunks.length > 0) observations.push(dirChunks); // the directory is one more sample
@@ -420,7 +451,7 @@ export function titleCandidates(names: string[], segmentName = "", limit = 3): s
   // part marker, and normalizeChunk has already removed the marker.
   const shared = [...frequency.values()].filter((entry) => entry.count / total >= 0.5);
   const pool = shared.length > 0 ? shared : [...frequency.values()];
-  return pool
+  const ranked = pool
     .map((entry) => {
       let rank = entry.count / total;
       if (dirTitles.has(entry.query)) rank += 0.25; // also spelled in the directory
@@ -430,11 +461,20 @@ export function titleCandidates(names: string[], segmentName = "", limit = 3): s
       // subtitle (`（⁕不是不可能？）`) sitting inside it; the longer observation is
       // the one that names the work.
       rank += Math.min(entry.query.length, 24) / 100;
-      return { ...entry, rank };
+      return {
+        query: entry.query,
+        authoritative: entry.count / total >= 0.5 || dirTitles.has(entry.query),
+        firstIndex: entry.firstIndex,
+        rank,
+      };
     })
     .sort((left, right) => right.rank - left.rank || left.firstIndex - right.firstIndex)
-    .slice(0, limit)
-    .map((entry) => entry.query);
+    .slice(0, limit);
+  return ranked.map(({ query, authoritative }) => ({ query, authoritative }));
+}
+
+export function titleCandidates(names: string[], segmentName = "", limit = 3): string[] {
+  return titleCandidateDetails(names, segmentName, limit).map((candidate) => candidate.query);
 }
 
 function isExtraDirectory(name: string): boolean {

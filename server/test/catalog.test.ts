@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { createBackend, type Backend } from "../app.ts";
 import { loadConfig } from "../config.ts";
-import { cleanTitle, episodeSubtitle, groupScanFiles, scoreTitles, titleCandidates, yearFrom } from "../media/catalog-names.ts";
+import { cleanTitle, episodeSubtitle, groupScanFiles, scoreTitles, titleCandidateDetails, titleCandidates, yearFrom } from "../media/catalog-names.ts";
 import { chooseMatch, createBangumiClient, rankHits, type MetadataHit, type MetadataSearcher } from "../media/catalog-metadata.ts";
 import { openCatalogStore } from "../media/catalog-store.ts";
 import { createCatalogWorker } from "../media/catalog-worker.ts";
@@ -517,4 +517,49 @@ test("episode-name folders roll up and still count as episodes", () => {
   assert.equal(groups.length, 1);
   assert.equal(groups[0]?.itemKey, "/作品");
   assert.equal(episodeSubtitle(groups[0]?.files ?? []), "3 集");
+});
+
+test("a season folder carrying a trailing note still rolls up into the work", () => {
+  // `第三季 包含字幕和弹幕文件` escaped the old exact-match season rule, so each
+  // season became its own card and the work name never entered the candidates.
+  const groups = groupScanFiles([
+    { relativePath: "/克拉克森的农场/第三季 包含字幕和弹幕文件/S03E01 荒原.mp4", name: "S03E01 荒原.mp4", mediaId: "a" },
+    { relativePath: "/克拉克森的农场/第三季 包含字幕和弹幕文件/S03E02 围栏.mp4", name: "S03E02 围栏.mp4", mediaId: "b" },
+  ]);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0]?.itemKey, "/克拉克森的农场");
+  assert.equal(groups[0]?.query, "克拉克森的农场");
+  assert.equal(episodeSubtitle(groups[0]?.files ?? []), "S3 · 2 集");
+});
+
+test("a title only one file carries is not an authoritative guess", () => {
+  const details = titleCandidateDetails(["S03E01 荒原.mp4", "S03E02 围栏.mp4"], "克拉克森的农场");
+  assert.equal(details[0]?.query, "克拉克森的农场");
+  assert.equal(details[0]?.authoritative, true, "the directory names the work, so files may disagree");
+  assert.equal(details.some((entry) => entry.query === "荒原" && entry.authoritative), false);
+});
+
+test("an episode title that is also another show's name cannot auto-confirm the card", async () => {
+  // This is how `/克拉克森的农场/第三季 …` got bound to 荒原 (tmdb:47450): the
+  // folder gave up no title, so a single file's episode name was searched verbatim.
+  const calls: string[] = [];
+  const { catalog, worker, close } = openWorker({
+    libraries: [library("lib_tv", "tv")],
+    files: {
+      lib_tv: [
+        { relativePath: "/Show/Season3 notes/S03E01 荒原.mp4", name: "S03E01 荒原.mp4", mediaId: "a" },
+        { relativePath: "/Show/Season3 notes/S03E02 围栏.mp4", name: "S03E02 围栏.mp4", mediaId: "b" },
+      ],
+    },
+    bangumi: searcher("bangumi", calls, () => []),
+    tmdb: searcher("tmdb", calls, (query) => (query === "荒原" ? [hit("tmdb", "47450", "荒原")] : [])),
+  });
+  try {
+    await worker.start("lib_tv");
+    const cards = catalog.listCards("lib_tv", undefined, undefined).items;
+    assert.equal(cards[0]?.status, "candidate", "an episode-name match must stay reviewable");
+    assert.equal(calls.some((call) => call.endsWith("荒原")), true, "the guess should still have been searched");
+  } finally {
+    close();
+  }
 });

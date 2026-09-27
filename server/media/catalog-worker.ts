@@ -1,4 +1,4 @@
-import { groupScanFiles, titleCandidates, yearFrom, type ScanFile } from "./catalog-names.ts";
+import { groupScanFiles, titleCandidateDetails, yearFrom, type ScanFile, type TitleCandidate } from "./catalog-names.ts";
 import { chooseMatch, MetadataUnavailable, rankHits, type MetadataSearcher } from "./catalog-metadata.ts";
 import type { CatalogStore, PendingItem, ScrapeJob } from "./catalog-store.ts";
 import type { StoredLibrary } from "./library-store.ts";
@@ -80,24 +80,28 @@ export function createCatalogWorker(options: {
     const rejected = options.catalog.rejectionKeys(item.libraryId, item.itemKey);
     let best: { status: "candidate" | "unmatched"; candidates: ReturnType<typeof rankHits> } = { status: "unmatched", candidates: [] };
     let bestScore = -1;
-    for (const [index, query] of queries.entries()) {
+    for (const [index, guess] of queries.entries()) {
       if (index > 0 && options.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, options.delayMs));
-      const hits = await searcher.search(query, searchKind);
-      const ranked = rankHits(query, hits, yearFrom(item.rawName), item.fileCount || null).filter(
+      const hits = await searcher.search(guess.query, searchKind);
+      const ranked = rankHits(guess.query, hits, yearFrom(item.rawName), item.fileCount || null).filter(
         (hit) => !rejected.has(`${hit.externalDb}:${hit.externalId}`),
       );
       // Early stop: a confirmed match costs no further request, and a strong
       // candidate list means the query was understood even if nobody chose it.
       const choice = chooseMatch(ranked);
-      if (choice.status === "confirmed") {
-        options.catalog.applyMatch(item, choice.status, choice.chosen, choice.candidates);
-        if (choice.chosen?.imageUrl) await cachePoster(item.id, choice.chosen.imageUrl);
+      // An episode title that happens to be another show's name must not bind the
+      // card: `S03E01 荒原.mp4` confirmed 克拉克森的农场's folder as 荒原 (2015).
+      // It still goes to the human as a candidate, which is the useful outcome.
+      const confirmed = choice.status === "confirmed" && guess.authoritative;
+      if (confirmed && choice.chosen) {
+        options.catalog.applyMatch(item, "confirmed", choice.chosen, choice.candidates);
+        if (choice.chosen.imageUrl) await cachePoster(item.id, choice.chosen.imageUrl);
         options.catalog.bumpJob(item.libraryId, true);
         return;
       }
       const topScore = ranked[0]?.score ?? -1;
       if (ranked.length > 0 && topScore > bestScore) {
-        best = { status: "candidate", candidates: ranked };
+        best = { status: "candidate", candidates: choice.status === "confirmed" ? choice.candidates : ranked };
         bestScore = topScore;
       }
       if (topScore >= 0.75) break;
@@ -107,11 +111,17 @@ export function createCatalogWorker(options: {
   }
 
   /** Ordered, de-duplicated title guesses for one pending item (max 3 requests). */
-  function candidateQueries(item: PendingItem): string[] {
+  function candidateQueries(item: PendingItem): TitleCandidate[] {
     const segment = item.itemKey.split("/").filter(Boolean).pop() ?? item.rawName;
-    const guesses = titleCandidates(item.fileNames, segment).slice(0, 3);
-    if (guesses.length === 0 && item.query) guesses.push(item.query);
-    return [...new Set(guesses.map((guess) => guess.trim()).filter(Boolean))];
+    const guesses = titleCandidateDetails(item.fileNames, segment).slice(0, 3);
+    if (guesses.length === 0 && item.query) guesses.push({ query: item.query, authoritative: true });
+    const seen = new Set<string>();
+    return guesses.filter((guess) => {
+      const query = guess.query.trim();
+      if (!query || seen.has(query)) return false;
+      seen.add(query);
+      return true;
+    });
   }
 
   async function cachePoster(itemId: string, imageUrl: string): Promise<void> {

@@ -1,4 +1,4 @@
-import { scoreTitles } from "./catalog-names.ts";
+import { cnNumber, scoreTitles } from "./catalog-names.ts";
 
 export type MetadataDb = "bangumi" | "tmdb";
 
@@ -42,16 +42,6 @@ const CANDIDATE_SCORE = 0.5;
 const VARIANT_CAP = 0.84;
 const POSTER_CAP_BYTES = 2 * 1024 * 1024;
 const POSTER_HOSTS = new Set(["lain.bgm.tv", "image.tmdb.org"]);
-const CN_DIGIT: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
-
-function cnNumber(value: string): number | null {
-  if (/^\d{1,2}$/.test(value)) return Number(value);
-  if (value === "十") return 10;
-  if (value.startsWith("十")) return 10 + (CN_DIGIT[value[1]] ?? 0);
-  if (value.endsWith("十")) return (CN_DIGIT[value[0]] ?? 0) * 10;
-  return CN_DIGIT[value] ?? null;
-}
-
 /**
  * Which installment a name points at. `机动战士高达0079剧场版三部曲合集` scores
  * 0.900 against Bangumi's `机动战士高达` and used to confirm on its own - but the
