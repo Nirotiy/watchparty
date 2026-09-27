@@ -138,6 +138,48 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
     }
   });
 
+  app.post("/api/media/catalog/:id/unconfirm", (req, res) => {
+    try {
+      res.json(library.catalogUnconfirm(paramId(req)));
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
+
+  app.post("/api/media/catalog/:id/rebind", async (req, res) => {
+    try {
+      res.json(await library.catalogRebind(paramId(req), req.body));
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
+
+  app.post("/api/media/catalog/merge", (req, res) => {
+    try {
+      res.json(library.catalogMerge(req.body));
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
+
+  app.post("/api/media/catalog/:id/split", (req, res) => {
+    try {
+      res.json(library.catalogSplit(paramId(req), req.body));
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
+
+  // Manual re-binding needs a way to look the subject up first; the scrape only
+  // ever shows what it guessed. Read-only, one vendor round trip.
+  app.get("/api/media/bangumi/search", async (req, res) => {
+    try {
+      res.json({ items: await library.vendorSearch({ q: req.query.q }) });
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
+
   app.get("/api/media/posters/:id", (req, res) => {
     const image = library.catalogPoster(paramId(req));
     if (!image) {
@@ -163,6 +205,24 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
     if (!requireAdmin(library, req, res)) return;
     try {
       res.json(library.adminScrapeStatus(paramId(req)));
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
+
+  app.post("/api/admin/media-libraries/:id/scan", async (req, res) => {
+    if (!requireAdmin(library, req, res)) return;
+    try {
+      res.json({ libraryId: paramId(req), ...(await library.catalogRefreshScan(paramId(req))) });
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
+
+  app.get("/api/admin/media-libraries/:id/scan", (req, res) => {
+    if (!requireAdmin(library, req, res)) return;
+    try {
+      res.json({ libraryId: paramId(req), ...library.catalogScan(paramId(req)) });
     } catch (error) {
       sendFailure(res, error);
     }

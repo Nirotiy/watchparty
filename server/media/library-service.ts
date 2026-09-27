@@ -13,7 +13,7 @@ import {
 } from "./library-browser.ts";
 import { isVideoFileName, type ScanFile } from "./catalog-names.ts";
 import { createBangumiClient, createTmdbClient, fetchPosterBytes, type MetadataSearcher } from "./catalog-metadata.ts";
-import { openCatalogStore, type CatalogCard, type CatalogDetail } from "./catalog-store.ts";
+import { openCatalogStore, type CatalogCard, type CatalogDetail, type ManualBinding } from "./catalog-store.ts";
 import { createCatalogWorker } from "./catalog-worker.ts";
 import {
   isLibraryKind,
@@ -73,6 +73,15 @@ export type LibraryService = {
   catalogDetail(id: string): CatalogDetail;
   catalogConfirm(id: string, body: unknown): Promise<CatalogDetail>;
   catalogReject(id: string, body: unknown): CatalogDetail;
+  catalogUnconfirm(id: string): CatalogDetail;
+  catalogRebind(id: string, body: unknown): Promise<CatalogDetail>;
+  catalogMerge(body: unknown): CatalogDetail;
+  catalogSplit(id: string, body: unknown): CatalogDetail[];
+  /** 人工挑条目用的vendor搜索（卡片改绑时先搜后绑）。 */
+  vendorSearch(body: unknown): Promise<Array<{ externalDb: string; externalId: string; title: string; originalTitle: string | null; year: number | null; episodes: number | null; imageUrl: string | null }>>;
+  catalogScan(id: string): { files: number; enumeratedAt: string | null };
+  /** 只枚举并刷新快照，不分组、不刮削、不动任何卡。 */
+  catalogRefreshScan(id: string): Promise<{ files: number; enumeratedAt: string | null }>;
   catalogPoster(id: string): { contentType: string; bytes: Buffer } | undefined;
   adminScrape(libraryId: string): Promise<{ libraryId: string; status: string; total: number; scanned: number; matched: number; lastError: string | null }>;
   adminScrapeStatus(libraryId: string): { libraryId: string; status: string; total: number; scanned: number; matched: number; lastError: string | null };
@@ -161,9 +170,10 @@ export function createLibraryService(options: {
   }
 
   const catalog = openCatalogStore(options.catalogDbPath ?? defaultCatalogDbPath(cfg), options.posterDir ?? defaultPosterDir(cfg));
+  const bangumiSearcher = options.bangumi ?? createBangumiClient();
   const worker = createCatalogWorker({
     catalog,
-    bangumi: options.bangumi ?? createBangumiClient(),
+    bangumi: bangumiSearcher,
     tmdb: options.tmdb ?? createTmdbClient(),
     fetchPoster: options.fetchPoster ?? ((url) => fetchPosterBytes(url)),
     listFiles: (library) => collectLibraryFiles(library),
@@ -418,6 +428,66 @@ export function createLibraryService(options: {
       if (!detail) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
       return detail;
     },
+    catalogUnconfirm(id) {
+      const detail = catalog.unconfirm(id);
+      if (!detail) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      return detail;
+    },
+    async catalogRebind(id, body) {
+      const choice = manualBindingFrom(body);
+      const saved = catalog.rebind(id, choice);
+      if (!saved) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      if (saved.imageUrl) await worker.cachePoster(id, saved.imageUrl);
+      const detail = catalog.getDetail(id);
+      if (!detail) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      return detail;
+    },
+    catalogMerge(body) {
+      const record = asRecord(body);
+      const keepId = typeof record?.keepId === "string" ? record.keepId : "";
+      const dropIds = Array.isArray(record?.dropIds) ? record.dropIds.filter((id): id is string => typeof id === "string" && Boolean(id)) : [];
+      if (!keepId || dropIds.length === 0) throw new LibraryRequestError(400, "INVALID_REQUEST");
+      const detail = catalog.mergeItems(keepId, dropIds.filter((id) => id !== keepId).slice(0, 20));
+      if (!detail) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      return detail;
+    },
+    catalogSplit(id, body) {
+      const record = asRecord(body);
+      const raw = record?.groups;
+      if (!Array.isArray(raw) || raw.length < 2 || raw.length > 24) throw new LibraryRequestError(400, "INVALID_REQUEST");
+      const groups = raw.map((group) => {
+        if (!Array.isArray(group) || group.length === 0) throw new LibraryRequestError(400, "INVALID_REQUEST");
+        return group.filter((mediaId): mediaId is string => typeof mediaId === "string" && Boolean(mediaId)).slice(0, 500);
+      });
+      const details = catalog.splitItem(id, groups);
+      if (!details) throw new LibraryRequestError(400, "INVALID_REQUEST");
+      return details;
+    },
+    async vendorSearch(body) {
+      const record = asRecord(body);
+      const query = typeof record?.q === "string" ? record.q.trim() : "";
+      if (query.length < 2 || query.length > 80) throw new LibraryRequestError(400, "INVALID_REQUEST");
+      const hits = await bangumiSearcher.search(query, "anime");
+      return hits.slice(0, 12).map((hit) => ({
+        externalDb: hit.externalDb,
+        externalId: hit.externalId,
+        title: hit.title,
+        originalTitle: hit.originalTitle,
+        year: hit.year,
+        episodes: hit.episodes,
+        imageUrl: hit.imageUrl,
+      }));
+    },
+    catalogScan(id) {
+      return catalog.scanInfo(id);
+    },
+    async catalogRefreshScan(id) {
+      const library = store.getLibrary(id);
+      if (!library) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      const files = library.kind === "other" ? [] : await collectLibraryFiles(library);
+      catalog.writeScan(id, files);
+      return catalog.scanInfo(id);
+    },
     catalogPoster(id) {
       return catalog.readPoster(id);
     },
@@ -487,6 +557,32 @@ function candidateIdFrom(body: unknown): string {
   const candidateId = record?.candidateId;
   if (typeof candidateId !== "string" || !candidateId) throw new LibraryRequestError(400, "INVALID_REQUEST");
   return candidateId;
+}
+
+/**
+ * A binding a person typed/picked by hand. The vendor id is the only thing that
+ * has to be trustworthy, so it is constrained to digits even though the column is
+ * free text; `title` is what the card will show verbatim.
+ */
+function manualBindingFrom(body: unknown): ManualBinding {
+  const record = asRecord(body);
+  const externalDb = record?.externalDb;
+  const externalId = typeof record?.externalId === "string" ? record.externalId.trim() : "";
+  const title = typeof record?.title === "string" ? record.title.trim() : "";
+  if (externalDb !== "bangumi" && externalDb !== "tmdb") throw new LibraryRequestError(400, "INVALID_REQUEST");
+  if (!/^\d{1,12}$/.test(externalId)) throw new LibraryRequestError(400, "INVALID_REQUEST");
+  if (!title || title.length > 160) throw new LibraryRequestError(400, "INVALID_REQUEST");
+  const year = typeof record?.year === "number" && record.year >= 1900 && record.year <= 2100 ? Math.trunc(record.year) : null;
+  const text = (value: unknown, max: number) => (typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null);
+  return {
+    externalDb,
+    externalId,
+    title,
+    originalTitle: text(record?.originalTitle, 160),
+    year,
+    overview: text(record?.overview, 2000),
+    imageUrl: text(record?.imageUrl, 500),
+  };
 }
 
 function seedIfEmpty(store: LibraryStore, cfg: AppConfig): void {

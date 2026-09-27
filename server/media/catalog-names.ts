@@ -12,6 +12,13 @@ export type CatalogGroupFile = {
   season: number | null;
   episode: number | null;
   /**
+   * Library-relative path. Identity has to be the path rather than `mediaId`:
+   * `mediaId` is an HMAC under `WATCHPARTY_MEDIA_ID_KEY`, which is unset on this
+   * machine (`readiness.config.mediaIdKey.mode = "ephemeral"`), so every process
+   * mints different ids for the same file and any cross-process comparison fails.
+   */
+  relativePath?: string;
+  /**
    * True when the file was pulled up out of a specials/OVA/disc folder into the
    * work card. It is playable from that card, but it is not an episode, so the
    * 「N 集」 count skips it - otherwise a 12-episode series with 67 CM clips in
@@ -190,7 +197,7 @@ export function groupScanFiles(files: ScanFile[]): CatalogGroup[] {
           query: queries[0] ?? cleanTitle(file.name),
           queries: queries.length > 0 ? queries : [cleanTitle(file.name)],
           rawName: file.name,
-          files: [{ mediaId: file.mediaId, name: file.name, season: file.season, episode: file.episode }],
+          files: [{ mediaId: file.mediaId, name: file.name, season: file.season, episode: file.episode, relativePath: file.relativePath }],
         });
       }
       continue;

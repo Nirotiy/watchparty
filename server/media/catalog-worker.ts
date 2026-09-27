@@ -42,6 +42,10 @@ export function createCatalogWorker(options: {
       const job = options.catalog.getJob(libraryId);
       if (reset || !job?.enumerated) {
         const files = library.kind === "other" ? [] : await options.listFiles(library);
+        // The enumeration is the expensive, rate-limited part. Keeping it means a
+        // grouping change can be reviewed offline against the real tree instead of
+        // re-scraping the network and rewriting people's answers.
+        options.catalog.writeScan(libraryId, files);
         const groups = groupScanFiles(files).filter((group) => group.query);
         options.catalog.upsertScan(libraryId, library.kind, groups);
       }
