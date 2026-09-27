@@ -163,25 +163,21 @@ export function groupScanFiles(files: ScanFile[]): CatalogGroup[] {
     list.push(file);
     byDir.set(dir, list);
   }
-  const rolled = new Map<string, Array<CatalogGroupFile & { relativePath: string }>>();
+  const rolled = new Map<string, CatalogGroupFile[]>();
   for (const [dir, list] of byDir) {
     const base = dir === "/" ? "" : path.posix.basename(dir);
     if (base && isExtraDirectory(base)) continue;
     const seasonFolder = base ? seasonFromName(base) : null;
     const key = workKeyOf(dir, seasonFolder !== null);
-    // Rolled up out of a bonus folder (SPs/OVA/disc), not merely a season or
-    // episode folder: those still count as episodes.
-    const bonus = key !== dir && base !== "" && isBonusDirectory(base);
     const bucket = rolled.get(key) ?? [];
     for (const file of list) {
       const parsed = parseEpisode(file.name);
       bucket.push({
-        relativePath: file.relativePath,
         mediaId: file.mediaId,
         name: file.name,
         season: parsed.season ?? seasonFolder,
         episode: parsed.episode,
-        bonus,
+        relativePath: file.relativePath,
       });
     }
     rolled.set(key, bucket);
@@ -191,9 +187,9 @@ export function groupScanFiles(files: ScanFile[]): CatalogGroup[] {
     const filesInOrder = [...bucket].sort(compareFiles);
     if (key === "/") {
       for (const file of filesInOrder) {
-        const queries = titleCandidates([file.name], path.posix.basename(file.relativePath));
+        const queries = titleCandidates([file.name], path.posix.basename(file.relativePath ?? file.name));
         groups.push({
-          itemKey: file.relativePath,
+          itemKey: file.relativePath ?? file.name,
           query: queries[0] ?? cleanTitle(file.name),
           queries: queries.length > 0 ? queries : [cleanTitle(file.name)],
           rawName: file.name,
@@ -227,8 +223,15 @@ export function groupScanFiles(files: ScanFile[]): CatalogGroup[] {
  * its commentary discs - returns null so the sub-line disappears entirely, which
  * both clients render as "no count" rather than a wrong one.
  */
+/** A file sits in a bonus folder when the directory it came from is SPs/OVA/disc. */
+function inBonusFolder(file: CatalogGroupFile): boolean {
+  if (!file.relativePath) return false;
+  const dir = file.relativePath.replace(/\/[^/]*$/, "");
+  return isBonusDirectory(dir.split("/").pop() ?? "");
+}
+
 export function episodeSubtitle(files: CatalogGroupFile[]): string | null {
-  const episodes = files.filter((file) => !file.bonus);
+  const episodes = files.filter((file) => !inBonusFolder(file));
   if (episodes.length <= 1) return null;
   const seasons = new Set(episodes.map((file) => file.season).filter((season): season is number => season !== null));
   const prefix = seasons.size === 1 ? `S${[...seasons][0]} · ` : "";

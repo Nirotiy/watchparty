@@ -57,6 +57,10 @@ export function createCatalogWorker(options: {
         looked += 1;
         if (options.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, options.delayMs));
       }
+      // Second pass over the answers: cards the scrape confirmed onto the *same*
+      // subject are one work, whatever folders it arrived in. Human decisions are
+      // skipped inside this call, so a re-scan can never swallow someone's pick.
+      options.catalog.reclusterBySubject(libraryId);
       options.catalog.finishJob(libraryId);
     } catch (error) {
       options.catalog.failJob(libraryId, error instanceof MetadataUnavailable ? "CATALOG_UNAVAILABLE" : "OPENLIST_UNAVAILABLE");

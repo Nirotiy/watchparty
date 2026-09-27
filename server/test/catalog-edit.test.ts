@@ -18,13 +18,17 @@ import type { OpenlistClient } from "../media/openlist.ts";
  * grouping be re-run offline instead of by re-scraping the network.
  */
 
-function group(itemKey: string, query: string, mediaIds: string[]): CatalogGroup {
+/** `dirs` says where the files really sit, which can differ from the card's key after a roll-up. */
+function group(itemKey: string, query: string, mediaIds: string[], dirs?: Record<string, string>): CatalogGroup {
   return {
     itemKey,
     query,
     queries: [query],
     rawName: itemKey.split("/").filter(Boolean).pop() ?? itemKey,
-    files: mediaIds.map((mediaId) => ({ mediaId, name: `${mediaId}.mkv`, season: null, episode: null })),
+    files: mediaIds.map((mediaId) => {
+      const dir = dirs?.[mediaId] ?? itemKey;
+      return { mediaId, name: `${mediaId}.mkv`, season: null, episode: null, relativePath: `${dir}/${mediaId}.mkv` };
+    }),
   };
 }
 
@@ -99,6 +103,7 @@ test("merge moves files onto the kept card and carries the confirmation with the
   const { store } = openStore();
   try {
     store.upsertScan("lib_anime", "tv", [group("/Uha/SPs", "Oddtaxi SPs", ["s1", "s2"]), group("/Uha", "ODDTAXI", ["o1", "o2"])]);
+    // 合并后这张卡有 4 个文件，但其中两个来自 SPs 目录 ⇒ 集数仍是 2
     const [spCard, showCard] = store.listPending("lib_anime");
     assert.ok(spCard && showCard);
     // The confirmed card is the one being swallowed, so the binding must travel.
@@ -108,7 +113,7 @@ test("merge moves files onto the kept card and carries the confirmation with the
     assert.equal(merged?.status, "confirmed", "merging into an unconfirmed card must not drop the confirmation");
     assert.equal(merged?.title, "奇巧计程车");
     assert.deepEqual(merged?.children.map((child) => child.mediaId).sort(), ["o1", "o2", "s1", "s2"]);
-    assert.equal(merged?.subtitle, "4 集");
+    assert.equal(merged?.subtitle, "2 集", "the SPs files stay playable from the card but are not episodes");
     assert.equal(store.getDetail(spCard.id), undefined, "the swallowed card is gone, not left as a husk");
   } finally {
     store.close();
@@ -147,14 +152,19 @@ test("split hands each group its own card and only the new ones wait for lookup"
 test("a scan finds a corrected card by its files, not by the folder it came from", () => {
   const { store } = openStore();
   try {
-    store.upsertScan("lib_tv", "tv", [group("/Clarks/Season 3", "荒原", ["c1", "c2"]), group("/Clarks/Season 1", "Clarks Farm S1", ["c3", "c4"])]);
+    const inSeason = (mediaId: string, season: number) => ({ [mediaId]: `/Clarks/Season ${season}` });
+    store.upsertScan("lib_tv", "tv", [
+      group("/Clarks/Season 3", "荒原", ["c1", "c2"]),
+      group("/Clarks/Season 1", "Clarks Farm S1", ["c3", "c4"]),
+    ]);
     const cards = store.listPending("lib_tv");
     const merged = store.mergeItems(cards[1].id, [cards[0].id]);
     assert.equal(merged?.children.length, 4);
 
     // Next scan: the grouper produces its own keys again. The merged card must be
     // recognised by its file set instead of being deleted and re-created as two.
-    store.upsertScan("lib_tv", "tv", [group("/Clarks", "克拉克森的农场", ["c1", "c2", "c3", "c4"])]);
+    // 下一次扫描把四季归并到作品目录：分组键变了，文件路径没变
+    store.upsertScan("lib_tv", "tv", [group("/Clarks", "克拉克森的农场", ["c1", "c2", "c3", "c4"], { c1: "/Clarks/Season 3", c2: "/Clarks/Season 3", c3: "/Clarks/Season 1", c4: "/Clarks/Season 1" })]);
     const after = store.listCards("lib_tv", undefined, undefined).items;
     assert.equal(after.length, 1, "one card, not three");
     assert.equal(after[0]?.id, merged?.id, "same card identity: the human's work survived");
@@ -396,6 +406,87 @@ test("a re-scan never rewrites a confirmed binding, even when its file set grows
     assert.equal(after?.children.length, 2, "the files still merge onto the card");
     assert.equal(store.getDetail(sps.id), undefined, "the swallowed card is cleaned up");
     assert.deepEqual(store.listPending("lib_anime"), [], "and nothing re-enters the queue");
+  } finally {
+    store.close();
+  }
+});
+
+test("confirmed_by records who decided, and only the machine's own answers are re-clusterable", () => {
+  const { store } = openStore();
+  try {
+    store.upsertScan("lib_anime", "tv", [group("/A", "Show A", ["a1"]), group("/B", "Show B", ["b1"])]);
+    const cards = store.listPending("lib_anime");
+    const hit = (id: string) => ({ externalDb: "bangumi" as const, externalId: id, title: "X", originalTitle: null, year: null, overview: null, imageUrl: null, episodes: null, score: 1 });
+    store.applyMatch(cards[0], "confirmed", hit("777"), []);
+    assert.equal(store.getDetail(cards[0].id)?.confirmedBy, "auto");
+    store.applyMatch(cards[1], "candidate", null, [hit("777")]);
+    store.confirm(cards[1].id, store.getDetail(cards[1].id)!.candidates[0].id);
+    assert.equal(store.getDetail(cards[1].id)?.confirmedBy, "manual");
+    store.rebind(cards[1].id, { externalDb: "bangumi", externalId: "777", title: "X" });
+    assert.equal(store.getDetail(cards[1].id)?.confirmedBy, "rebind");
+    store.unconfirm(cards[1].id);
+    assert.equal(store.getDetail(cards[1].id)?.confirmedBy, null);
+  } finally {
+    store.close();
+  }
+});
+
+test("two cards the scrape confirmed onto one subject become one card again", () => {
+  const { store } = openStore();
+  try {
+    store.upsertScan("lib_tv", "tv", [group("/Zeta", "泽塔奥特曼", ["t1", "t2", "t3"]), group("/Zeta/SPs", "泽塔奥特曼 访谈", ["i1", "i2"])]);
+    const cards = store.listPending("lib_tv");
+    const hit = (title: string) => ({ externalDb: "tmdb" as const, externalId: "101005", title, originalTitle: null, year: 2020, overview: null, imageUrl: null, episodes: null, score: 1 });
+    store.applyMatch(cards[0], "confirmed", hit("泽塔奥特曼"), []);
+    store.applyMatch(cards[1], "confirmed", hit("泽塔奥特曼"), []);
+    assert.equal(store.reclusterBySubject("lib_tv").merged, 1);
+    const kept = store.getDetail(cards[0].id);
+    assert.equal(kept?.children.length, 5, "the fullest card survives and holds every file");
+    assert.equal(kept?.subtitle, "3 集", "bonus folders merged in still do not count as episodes");
+    assert.equal(kept?.confirmedBy, "auto");
+    assert.equal(store.getDetail(cards[1].id), undefined);
+    assert.deepEqual(store.listPending("lib_tv"), []);
+  } finally {
+    store.close();
+  }
+});
+
+test("a group containing one human decision is left exactly as it was", () => {
+  const { store } = openStore();
+  try {
+    store.upsertScan("lib_tv", "tv", [group("/Zeta", "泽塔奥特曼", ["t1"]), group("/Zeta/人物访谈", "访谈", ["i1"]), group("/Zeta/广播剧", "广播剧", ["r1"])]);
+    const cards = store.listPending("lib_tv");
+    const hit = { externalDb: "tmdb" as const, externalId: "101005", title: "泽塔奥特曼", originalTitle: null, year: 2020, overview: null, imageUrl: null, episodes: null, score: 1 };
+    for (const card of cards) store.applyMatch(card, "confirmed", hit, [hit]);
+    // The user picks the radio card by hand: that answer is now protected.
+    store.confirm(cards[2].id, store.getDetail(cards[2].id)!.candidates[0].id);
+    const result = store.reclusterBySubject("lib_tv");
+    assert.equal(result.merged, 0);
+    assert.equal(result.protectedGroups, 1);
+    for (const card of cards) assert.ok(store.getDetail(card.id), `card ${card.itemKey} must still exist`);
+  } finally {
+    store.close();
+  }
+});
+
+test("children say which subfolder they came from, so seasons survive in one card", () => {
+  const { store } = openStore();
+  try {
+    store.upsertScan("lib_tv", "tv", [
+      {
+        itemKey: "/Clarksons Farm",
+        query: "克拉克森的农场",
+        queries: ["克拉克森的农场"],
+        rawName: "Clarksons Farm",
+        files: [
+          { mediaId: "s1", name: "S01E01 拖拉机.mp4", season: 1, episode: 1, relativePath: "/Clarksons Farm/第一季 包含字幕和弹幕文件/S01E01 拖拉机.mp4" },
+          { mediaId: "s3", name: "S03E01 荒原.mp4", season: 3, episode: 1, relativePath: "/Clarksons Farm/第三季 包含字幕和弹幕文件/S03E01 荒原.mp4" },
+        ],
+      },
+    ]);
+    const detail = store.getDetail(store.listPending("lib_tv")[0].id)!;
+    assert.equal(detail.children[0]?.relDir, "/Clarksons Farm/第一季 包含字幕和弹幕文件");
+    assert.notEqual(detail.children[0]?.relDir, detail.children[1]?.relDir, "the two seasons stay tellable apart without guessing episode numbers");
   } finally {
     store.close();
   }

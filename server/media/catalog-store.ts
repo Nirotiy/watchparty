@@ -47,7 +47,11 @@ export type CatalogCard = {
   subtitle: string | null;
 };
 
+/** `auto` = 刮削自己确认的；其余都是人的决定，自动流程一律不许改。 */
+export type ConfirmedBy = "auto" | "manual" | "rebind" | "unknown";
+
 export type CatalogDetail = CatalogCard & {
+  confirmedBy: ConfirmedBy | null;
   originalTitle: string | null;
   overview: string | null;
   /**
@@ -63,6 +67,8 @@ export type CatalogDetail = CatalogCard & {
     name: string;
     season: number | null;
     episode: number | null;
+    /** Library-relative folder the file actually sits in (`第二季`, `SPs`, `爆炸`). */
+    relDir: string | null;
     /**
      * Computed from the file name, same rule the browser listing uses, so a
      * catalog card can tell "this episode needs MPV" without a second request.
@@ -111,6 +117,8 @@ export type CatalogStore = {
   mergeItems(keepId: string, dropIds: string[]): CatalogDetail | undefined;
   /** 一张卡按文件拆成多张：首组留在原卡，其余新建待判定卡。 */
   splitItem(itemId: string, groups: string[][]): CatalogDetail[] | undefined;
+  /** 只合并「全部由刮削自行确认」的同条目卡；含人工决定的一组整组跳过。 */
+  reclusterBySubject(libraryId: string): { merged: number; protectedGroups: number };
   /** 快照：一次枚举的完整文件列表，供离线分类反复跑。 */
   writeScan(libraryId: string, files: ScanFile[]): number;
   readScan(libraryId: string): ScanFile[];
@@ -222,9 +230,12 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
    * the first scan after the column exists would find no identity for the cards
    * people had already confirmed and duplicate them.
    */
+  function columnExists(table: string, column: string): boolean {
+    return (db.prepare(`PRAGMA table_info(${table})`).all() as Array<Record<string, unknown>>).some((row) => text(row, "name") === column);
+  }
+
   function ensureChildPathsColumn(): void {
-    const columns = (db.prepare("PRAGMA table_info(catalog_children)").all() as Array<Record<string, unknown>>).map((row) => text(row, "name"));
-    if (columns.includes("rel_path")) return;
+    if (columnExists("catalog_children", "rel_path")) return;
     db.exec("ALTER TABLE catalog_children ADD COLUMN rel_path TEXT");
     const rows = db.prepare("SELECT c.id AS id, c.name AS name, i.item_key AS key FROM catalog_children c JOIN catalog_items i ON i.id = c.item_id WHERE c.rel_path IS NULL").all() as Array<Record<string, unknown>>;
     const update = db.prepare("UPDATE catalog_children SET rel_path = ? WHERE id = ?");
@@ -236,6 +247,18 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
   }
 
   ensureChildPathsColumn();
+
+  /**
+   * Who decided a binding. Without this the wall cannot tell its own guesses from
+   * the user's answers, and one wrong auto-confirm is then indistinguishable from a
+   * deliberate pick - which is exactly how a re-scan could legitimately replace
+   * three cards that looked hand-made. Existing confirmed rows get `unknown`
+   * rather than a flattering guess: unknown is protected like `manual`.
+   */
+  if (!columnExists("catalog_items", "confirmed_by")) {
+    db.exec("ALTER TABLE catalog_items ADD COLUMN confirmed_by TEXT");
+    db.exec("UPDATE catalog_items SET confirmed_by = 'unknown' WHERE status = 'confirmed'");
+  }
 
   function now(): string {
     return new Date().toISOString();
@@ -285,7 +308,8 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     }));
   }
 
-  /** Renumber the order and recompute the sub-line after a manual merge/split. */
+  /** Renumber, then recompute the sub-line: `rel_path` records which folder each
+   * file came from, so the bonus-vs-episode distinction survives a merge or split. */
   function resequence(itemId: string): void {
     const ids = (db.prepare("SELECT id FROM catalog_children WHERE item_id = ? ORDER BY sort_index, name").all(itemId) as Array<Record<string, unknown>>).map((row) => text(row, "id"));
     const update = db.prepare("UPDATE catalog_children SET sort_index = ? WHERE id = ?");
@@ -308,10 +332,15 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       name: child.name,
       season: child.season,
       episode: child.episode,
+      // The folder the file really sits in. Seasons of one show often arrive as
+      // sibling folders with no SxxEyy in the names, so this - not a guessed
+      // episode number - is what lets the right-hand column say 第二季 vs SPs.
+      relDir: child.relativePath ? child.relativePath.replace(/\/[^/]*$/, "") : null,
       compatibility: compatibilityOf(false, extensionOf(child.name)),
     }));
     return {
       ...cardOf(row),
+      confirmedBy: (text(row, "confirmed_by") || null) as ConfirmedBy | null,
       originalTitle: text(row, "original_title") || null,
       overview: text(row, "overview") || null,
       externalDb: text(row, "external_db") || null,
@@ -334,6 +363,70 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       posterUrl: poster ? `/api/media/posters/${id}` : null,
       subtitle: text(row, "subtitle") || null,
     };
+  }
+
+  function mergeInto(keepId: string, dropIds: string[]): CatalogDetail | undefined {
+      const keep = itemById.get(keepId) as Record<string, unknown> | undefined;
+      if (!keep) return undefined;
+      const libraryId = text(keep, "library_id");
+      const keepKey = text(keep, "item_key");
+      const drops = dropIds
+        .filter((id) => id && id !== keepId)
+        .map((id) => itemById.get(id) as Record<string, unknown> | undefined)
+        .filter((row): row is Record<string, unknown> => Boolean(row) && text(row as Record<string, unknown>, "library_id") === libraryId);
+      if (drops.length === 0) return readDetail(keepId);
+      db.exec("BEGIN");
+      try {
+        const keepConfirmed = text(keep, "status") === "confirmed";
+        const keepPoster = db.prepare("SELECT cache_path FROM poster_files WHERE item_id = ?").get(keepId) as { cache_path?: string } | undefined;
+        let posterTaken = Boolean(keepPoster);
+        for (const drop of drops) {
+          const dropId = text(drop, "id");
+          // A human merging an unconfirmed card onto a confirmed one must not lose
+          // the confirmation, whichever card they clicked from.
+          if (!keepConfirmed && text(drop, "status") === "confirmed") {
+            db.prepare(
+              `UPDATE catalog_items
+               SET title = ?, original_title = ?, year = ?, overview = ?, external_db = ?, external_id = ?,
+                   status = 'confirmed', lookup_state = 'done', confirmed_by = ?
+               WHERE id = ?`,
+            ).run(text(drop, "title"), text(drop, "original_title") || null, intOrNull(drop, "year"), text(drop, "overview") || null, text(drop, "external_db"), text(drop, "external_id"), text(drop, "confirmed_by") || "unknown", keepId);
+          }
+          db.prepare("UPDATE catalog_children SET item_id = ? WHERE item_id = ?").run(keepId, dropId);
+          const carried = db.prepare("SELECT external_db, external_id FROM catalog_candidates WHERE item_id = ?").all(dropId) as Array<Record<string, unknown>>;
+          const clash = db.prepare("SELECT 1 hit FROM catalog_candidates WHERE item_id = ? AND external_db = ? AND external_id = ?");
+          const adopt = db.prepare("UPDATE catalog_candidates SET item_id = ? WHERE item_id = ? AND external_db = ? AND external_id = ?");
+          for (const candidate of carried) {
+            if (!clash.get(keepId, text(candidate, "external_db"), text(candidate, "external_id"))) {
+              adopt.run(keepId, dropId, text(candidate, "external_db"), text(candidate, "external_id"));
+            }
+          }
+          db.prepare("DELETE FROM catalog_candidates WHERE item_id = ?").run(dropId);
+          const dropPoster = db.prepare("SELECT cache_path FROM poster_files WHERE item_id = ?").get(dropId) as { cache_path?: string } | undefined;
+          if (dropPoster) {
+            if (!posterTaken) {
+              db.prepare("UPDATE poster_files SET item_id = ? WHERE item_id = ?").run(keepId, dropId);
+              posterTaken = true;
+            } else {
+              db.prepare("DELETE FROM poster_files WHERE item_id = ?").run(dropId);
+              if (dropPoster.cache_path && dropPoster.cache_path !== keepPoster?.cache_path) fs.rmSync(dropPoster.cache_path, { force: true });
+            }
+          }
+          db.prepare(
+            `INSERT OR IGNORE INTO catalog_rejections (library_id, item_key, external_db, external_id)
+             SELECT ?, ?, external_db, external_id FROM catalog_rejections WHERE library_id = ? AND item_key = ?`,
+          ).run(libraryId, keepKey, libraryId, text(drop, "item_key"));
+          db.prepare("DELETE FROM catalog_rejections WHERE library_id = ? AND item_key = ?").run(libraryId, text(drop, "item_key"));
+          db.prepare("DELETE FROM catalog_items WHERE id = ?").run(dropId);
+        }
+        db.prepare("UPDATE catalog_items SET updated_at = ? WHERE id = ?").run(now(), keepId);
+        resequence(keepId);
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+      return readDetail(keepId);
   }
 
   return {
@@ -486,7 +579,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         db.prepare(
           `UPDATE catalog_items
            SET title = ?, original_title = ?, year = ?, overview = ?, external_db = ?, external_id = ?,
-               status = ?, lookup_state = 'done', updated_at = ?
+               status = ?, lookup_state = 'done', confirmed_by = ?, updated_at = ?
            WHERE id = ?`,
         ).run(
           picked?.title ?? item.query,
@@ -496,6 +589,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
           picked?.externalDb ?? null,
           picked?.externalId ?? null,
           status,
+          picked ? "auto" : null,
           now(),
           item.id,
         );
@@ -511,7 +605,14 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       ).run(matched ? 1 : 0, now(), libraryId);
     },
     finishJob(libraryId) {
-      db.prepare("UPDATE scrape_jobs SET status = 'done', enumerated = 1, last_error = NULL, updated_at = ? WHERE library_id = ?").run(now(), libraryId);
+      // Recompute from the rows instead of trusting the increments: a recluster
+      // after the lookups merges cards away, and a drifting counter on the wall is
+      // worse than a slightly later one.
+      const rows = itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>;
+      const confirmed = rows.filter((row) => text(row, "status") === "confirmed").length;
+      db.prepare(
+        "UPDATE scrape_jobs SET status = 'done', total = ?, scanned = ?, matched = ?, enumerated = 1, last_error = NULL, updated_at = ? WHERE library_id = ?",
+      ).run(rows.length, rows.length, confirmed, now(), libraryId);
     },
     failJob(libraryId, code) {
       const existing = jobStmt.get(libraryId) as Record<string, unknown> | undefined;
@@ -555,7 +656,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       db.prepare(
         `UPDATE catalog_items
          SET title = ?, original_title = ?, year = ?, overview = ?, external_db = ?, external_id = ?,
-             status = 'confirmed', lookup_state = 'done', updated_at = ?
+             status = 'confirmed', lookup_state = 'done', confirmed_by = 'manual', updated_at = ?
          WHERE id = ?`,
       ).run(
         text(candidate, "title"),
@@ -598,7 +699,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       db.prepare(
         `UPDATE catalog_items
          SET status = 'unmatched', external_db = NULL, external_id = NULL, original_title = NULL, year = NULL,
-             overview = NULL, title = query, lookup_state = 'pending', updated_at = ?
+             overview = NULL, title = query, lookup_state = 'pending', confirmed_by = NULL, updated_at = ?
          WHERE id = ?`,
       ).run(now(), itemId);
       return readDetail(itemId);
@@ -609,7 +710,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       db.prepare(
         `UPDATE catalog_items
          SET title = ?, original_title = ?, year = ?, overview = ?, external_db = ?, external_id = ?,
-             status = 'confirmed', lookup_state = 'done', updated_at = ?
+             status = 'confirmed', lookup_state = 'done', confirmed_by = 'rebind', updated_at = ?
          WHERE id = ?`,
       ).run(
         choice.title,
@@ -624,67 +725,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       return { imageUrl: choice.imageUrl ?? null };
     },
     mergeItems(keepId, dropIds) {
-      const keep = itemById.get(keepId) as Record<string, unknown> | undefined;
-      if (!keep) return undefined;
-      const libraryId = text(keep, "library_id");
-      const keepKey = text(keep, "item_key");
-      const drops = dropIds
-        .filter((id) => id && id !== keepId)
-        .map((id) => itemById.get(id) as Record<string, unknown> | undefined)
-        .filter((row): row is Record<string, unknown> => Boolean(row) && text(row as Record<string, unknown>, "library_id") === libraryId);
-      if (drops.length === 0) return readDetail(keepId);
-      db.exec("BEGIN");
-      try {
-        const keepConfirmed = text(keep, "status") === "confirmed";
-        const keepPoster = db.prepare("SELECT cache_path FROM poster_files WHERE item_id = ?").get(keepId) as { cache_path?: string } | undefined;
-        let posterTaken = Boolean(keepPoster);
-        for (const drop of drops) {
-          const dropId = text(drop, "id");
-          // A human merging an unconfirmed card onto a confirmed one must not lose
-          // the confirmation, whichever card they clicked from.
-          if (!keepConfirmed && text(drop, "status") === "confirmed") {
-            db.prepare(
-              `UPDATE catalog_items
-               SET title = ?, original_title = ?, year = ?, overview = ?, external_db = ?, external_id = ?,
-                   status = 'confirmed', lookup_state = 'done'
-               WHERE id = ?`,
-            ).run(text(drop, "title"), text(drop, "original_title") || null, intOrNull(drop, "year"), text(drop, "overview") || null, text(drop, "external_db"), text(drop, "external_id"), keepId);
-          }
-          db.prepare("UPDATE catalog_children SET item_id = ? WHERE item_id = ?").run(keepId, dropId);
-          const carried = db.prepare("SELECT external_db, external_id FROM catalog_candidates WHERE item_id = ?").all(dropId) as Array<Record<string, unknown>>;
-          const clash = db.prepare("SELECT 1 hit FROM catalog_candidates WHERE item_id = ? AND external_db = ? AND external_id = ?");
-          const adopt = db.prepare("UPDATE catalog_candidates SET item_id = ? WHERE item_id = ? AND external_db = ? AND external_id = ?");
-          for (const candidate of carried) {
-            if (!clash.get(keepId, text(candidate, "external_db"), text(candidate, "external_id"))) {
-              adopt.run(keepId, dropId, text(candidate, "external_db"), text(candidate, "external_id"));
-            }
-          }
-          db.prepare("DELETE FROM catalog_candidates WHERE item_id = ?").run(dropId);
-          const dropPoster = db.prepare("SELECT cache_path FROM poster_files WHERE item_id = ?").get(dropId) as { cache_path?: string } | undefined;
-          if (dropPoster) {
-            if (!posterTaken) {
-              db.prepare("UPDATE poster_files SET item_id = ? WHERE item_id = ?").run(keepId, dropId);
-              posterTaken = true;
-            } else {
-              db.prepare("DELETE FROM poster_files WHERE item_id = ?").run(dropId);
-              if (dropPoster.cache_path && dropPoster.cache_path !== keepPoster?.cache_path) fs.rmSync(dropPoster.cache_path, { force: true });
-            }
-          }
-          db.prepare(
-            `INSERT OR IGNORE INTO catalog_rejections (library_id, item_key, external_db, external_id)
-             SELECT ?, ?, external_db, external_id FROM catalog_rejections WHERE library_id = ? AND item_key = ?`,
-          ).run(libraryId, keepKey, libraryId, text(drop, "item_key"));
-          db.prepare("DELETE FROM catalog_rejections WHERE library_id = ? AND item_key = ?").run(libraryId, text(drop, "item_key"));
-          db.prepare("DELETE FROM catalog_items WHERE id = ?").run(dropId);
-        }
-        db.prepare("UPDATE catalog_items SET updated_at = ? WHERE id = ?").run(now(), keepId);
-        resequence(keepId);
-        db.exec("COMMIT");
-      } catch (error) {
-        db.exec("ROLLBACK");
-        throw error;
-      }
-      return readDetail(keepId);
+      return mergeInto(keepId, dropIds);
     },
     splitItem(itemId, groups) {
       const item = itemById.get(itemId) as Record<string, unknown> | undefined;
@@ -719,7 +760,6 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
           for (const mediaId of batch) move.run(id, itemId, mediaId);
           created.push(id);
         }
-        db.prepare("UPDATE catalog_items SET updated_at = ? WHERE id = ?").run(now(), itemId);
         resequence(itemId);
         for (const id of created) resequence(id);
         db.exec("COMMIT");
@@ -753,6 +793,39 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     scanInfo(libraryId) {
       const row = db.prepare("SELECT COUNT(*) files, MAX(enumerated_at) at FROM catalog_scan WHERE library_id = ?").get(libraryId) as { files: number; at: string | null };
       return { files: row.files, enumeratedAt: row.at ?? null };
+    },
+    reclusterBySubject(libraryId) {
+      const bound = db
+        .prepare(
+          `SELECT id, external_db, external_id, confirmed_by,
+                  (SELECT COUNT(*) FROM catalog_children c WHERE c.item_id = i.id) files
+           FROM catalog_items i
+           WHERE library_id = ? AND status = 'confirmed' AND external_id IS NOT NULL
+           ORDER BY files DESC`,
+        )
+        .all(libraryId) as Array<Record<string, unknown>>;
+      const bySubject = new Map<string, string[]>();
+      const sources = new Map<string, string>();
+      for (const row of bound) {
+        const subject = `${text(row, "external_db")}:${text(row, "external_id")}`;
+        bySubject.set(subject, [...(bySubject.get(subject) ?? []), text(row, "id")]);
+        sources.set(text(row, "id"), text(row, "confirmed_by") || "unknown");
+      }
+      let merged = 0;
+      let protectedGroups = 0;
+      for (const [, ids] of bySubject) {
+        if (ids.length < 2) continue;
+        // One human decision in the group is enough to stop: the folders may be
+        // separate on purpose, and the wall must not second-guess a person.
+        if (ids.some((id) => sources.get(id) !== "auto")) {
+          protectedGroups += 1;
+          continue;
+        }
+        // `files DESC` above makes the first id the fullest card, so the card that
+        // survives is the one with the most episodes on it.
+        if (mergeInto(ids[0], ids.slice(1))) merged += 1;
+      }
+      return { merged, protectedGroups };
     },
     writePoster(itemId, contentType, bytes) {
       const cachePath = path.join(posterDir, itemId);
