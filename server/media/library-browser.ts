@@ -16,6 +16,7 @@ import type {
 const PAGE_SIZE = 100;
 const MAX_DIRECTORY_ENTRIES = 2000;
 const SUBTITLE_CAP_BYTES = 5 * 1024 * 1024;
+const STRM_CAP_BYTES = 16 * 1024;
 const SUBTITLE_EXTENSIONS = new Set(["ass", "ssa", "srt", "vtt"]);
 const NATIVE_VIDEO_EXTENSIONS = new Set(["mp4", "webm", "m3u8", "mov", "m4v", "ogv"]);
 const TRANSCODE_VIDEO_EXTENSIONS = new Set(["avi", "flv", "ts", "mpeg", "mpg"]);
@@ -191,9 +192,25 @@ export function createLibraryBrowser(
     };
   }
 
+  /** Read a `.strm` through its own download link and return the stream it names. */
+  async function strmTarget(mediaPath: string): Promise<{ url: string } | null> {
+    const pointer = await client.getDownloadInfo(mediaPath);
+    if (!pointer?.url) return null;
+    const fetched = await client.fetchOriginText(pointer.url, STRM_CAP_BYTES);
+    if (!fetched || fetched.status !== 200 || !fetched.text) return null;
+    const parsed = parseStrmTarget(fetched.text);
+    return parsed && "url" in parsed ? { url: parsed.url } : null;
+  }
+
   async function resolve(mediaId: string): Promise<ResolvedMedia | null | undefined> {
     const mediaPath = ownedPath(mediaId);
     if (!mediaPath || !isVideoPath(mediaPath)) return undefined;
+    if (extensionOf(mediaPath) === "strm") {
+      const target = await strmTarget(mediaPath);
+      if (!target) return null;
+      const mime = mimeTypeFor(target.url.split("?")[0]);
+      return { url: target.url, ...(mime ? { mime } : {}), requiresCustomHeaders: false };
+    }
     const download = await client.getDownloadInfo(mediaPath);
     if (!download?.url) return null;
     const url = rewriteToPublicBase(download.url, internalBaseUrl, publicBaseUrl);
@@ -210,6 +227,12 @@ export function createLibraryBrowser(
   async function resolveMpv(mediaId: string): Promise<ResolvedMpvMedia | null | undefined> {
     const mediaPath = ownedPath(mediaId);
     if (!mediaPath || !isVideoPath(mediaPath)) return undefined;
+    if (extensionOf(mediaPath) === "strm") {
+      // The pointer already is the final stream, so there is no separate
+      // "direct link vs redirect" distinction to make for MPV.
+      const target = await strmTarget(mediaPath);
+      return target ? { directUrl: target.url, fallbackUrl: target.url, headers: {} } : null;
+    }
     const download = await client.getDownloadInfo(mediaPath);
     const fallback = download?.url ? rewriteToPublicBase(download.url, internalBaseUrl, publicBaseUrl) : null;
     if (!fallback) return null;
@@ -464,6 +487,14 @@ function toItem(library: StoredLibrary, entry: OpenlistEntry, encode: (mediaPath
 }
 
 export function compatibilityOf(isDir: boolean, extension: string): MediaCompatibility {
+  if (extension === "strm") {
+    // A pointer: what actually plays is whatever the single line inside names.
+    return {
+      browser: "maybe",
+      desktop: "supported",
+      browserReason: "STRM 指向的外链能否在浏览器直接播放取决于其编码与跨域策略，桌面端 MPV 可播",
+    };
+  }
   if (isDir || NATIVE_VIDEO_EXTENSIONS.has(extension)) return { browser: "supported", desktop: "supported" };
   if (extension === "mkv") {
     return {
@@ -525,7 +556,37 @@ function mimeTypeFor(name: string): string | undefined {
 
 function isVideoPath(mediaPath: string): boolean {
   const extension = extensionOf(mediaPath);
-  return NATIVE_VIDEO_EXTENSIONS.has(extension) || extension === "mkv" || TRANSCODE_VIDEO_EXTENSIONS.has(extension);
+  return extension === "strm" || NATIVE_VIDEO_EXTENSIONS.has(extension) || extension === "mkv" || TRANSCODE_VIDEO_EXTENSIONS.has(extension);
+}
+
+/**
+ * A `.strm` is a text file holding one line: either a stream URL or a local/UNC
+ * path (Emby and Jellyfin index these exactly like native media, so the naming and
+ * folder layout of a `.strm` tree is what the scraper reads - not the release
+ * group's file name).
+ *
+ * Only `http(s)` targets are playable through this stack: the server never touches
+ * the local filesystem, so a path like `F:\Movies\x.mp4` or `\\NAS\…` is reported
+ * as unsupported instead of being silently fetched. The inner URL is handed to the
+ * client to play and is never dereferenced here, so a library file cannot make this
+ * server request an arbitrary host.
+ */
+export function parseStrmTarget(content: string): { url: string } | { unsupported: string } | null {
+  // Generators that wrap the target in an HLS playlist header (`#EXTM3U`) are still
+  // pointing at one stream, so directives are skipped rather than treated as the body.
+  const line = content
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .find((value) => value.length > 0 && !value.startsWith("#"));
+  if (!line) return null;
+  let url: URL;
+  try {
+    url = new URL(line);
+  } catch {
+    return { unsupported: line };
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return { unsupported: line };
+  return { url: line };
 }
 
 function isSubtitlePath(mediaPath: string): boolean {

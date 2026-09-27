@@ -3,7 +3,7 @@
 // 会被认出来而不是被当成新卡。不写库、不打网络。
 // 跑法：node --experimental-strip-types dev/catalog-classify.mjs [lib_anime|lib_film|lib_tv]
 import { DatabaseSync } from "node:sqlite";
-import { episodeSubtitle, groupScanFiles } from "../server/media/catalog-names.ts";
+import { episodeSubtitle, groupScanFiles, isVideoFileName } from "../server/media/catalog-names.ts";
 
 const db = new DatabaseSync("data/watchparty-catalog.sqlite", { readOnly: true });
 const libraries = process.argv.slice(2).length > 0 ? process.argv.slice(2) : db.prepare("SELECT DISTINCT library_id id FROM catalog_scan").all().map((row) => row.id);
@@ -23,7 +23,7 @@ for (const libraryId of libraries) {
   const pathOf = (row) => {
     const key = itemByKey.get(row.item_id)?.item_key ?? "";
     if (row.rel_path) return row.rel_path;
-    return /\.(mp4|mkv|webm|m4v|mov|avi|ts|m2ts|flv|wmv)$/i.test(key) ? key : `${key}/${row.name}`;
+    return isVideoFileName(key) ? key : `${key}/${row.name}`;
   };
   const childRows = db
     .prepare(`SELECT c.item_id AS item_id, c.name AS name, c.media_id AS media_id${hasRelPath ? ", c.rel_path AS rel_path" : ""} FROM catalog_children c JOIN catalog_items i ON i.id = c.item_id WHERE i.library_id = ?`)

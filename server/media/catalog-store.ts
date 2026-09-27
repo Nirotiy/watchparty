@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { episodeSubtitle, titleCandidates, type CatalogGroup, type CatalogGroupFile, type ScanFile } from "./catalog-names.ts";
+import { episodeSubtitle, isVideoFileName, titleCandidates, type CatalogGroup, type CatalogGroupFile, type ScanFile } from "./catalog-names.ts";
 import { compatibilityOf, extensionOf } from "./library-browser.ts";
 import type { MediaCompatibility } from "./watchparty-media.ts";
 import type { MetadataDb, RankedHit } from "./catalog-metadata.ts";
@@ -243,7 +243,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     const update = db.prepare("UPDATE catalog_children SET rel_path = ? WHERE id = ?");
     for (const row of rows) {
       const key = text(row, "key");
-      const isLooseFile = /\.(mp4|mkv|webm|m4v|mov|avi|ts|m2ts|flv|wmv)$/i.test(key);
+      const isLooseFile = isVideoFileName(key);
       update.run(isLooseFile ? key : `${key}/${text(row, "name")}`, text(row, "id"));
     }
   }

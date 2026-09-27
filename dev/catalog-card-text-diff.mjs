@@ -5,7 +5,7 @@
 // 不碰 title/query），所以已确认卡片的文案**不会**因重扫而变。
 // 跑法：node --experimental-strip-types dev/catalog-card-text-diff.mjs
 import { DatabaseSync } from "node:sqlite";
-import { episodeSubtitle, groupScanFiles } from "../server/media/catalog-names.ts";
+import { episodeSubtitle, groupScanFiles, isVideoFileName } from "../server/media/catalog-names.ts";
 
 const db = new DatabaseSync("data/watchparty-catalog.sqlite", { readOnly: true });
 const rows = db
@@ -32,7 +32,7 @@ for (const row of rows) {
   if (row.media_id) {
     entry.mediaIds.add(row.media_id);
     // 库根目录下的散文件：item_key 本身就是文件路径（groupScanFiles 的 "/" 分支）
-    const loose = /\.(mp4|mkv|webm|m4v|mov|avi|ts|m2ts|flv|wmv)$/i.test(row.item_key);
+    const loose = isVideoFileName(row.item_key);
     files.push({ relativePath: loose ? row.item_key : `${row.item_key}/${row.name}`, name: row.name, mediaId: row.media_id });
   }
   oldByKey.set(row.item_key, entry);

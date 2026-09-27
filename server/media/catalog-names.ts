@@ -41,7 +41,10 @@ export type CatalogGroup = {
   files: CatalogGroupFile[];
 };
 
-const VIDEO_EXTENSIONS = new Set(["mp4", "mkv", "webm", "m4v", "mov", "avi", "ts", "m2ts", "flv", "wmv"]);
+// `strm` is included because a pointer file stands in for the media it names: the
+// library tree (folder layout + file name) is what carries the title and season, so
+// grouping them with videos is what makes an strm library scrapable at all.
+const VIDEO_EXTENSIONS = new Set(["mp4", "mkv", "webm", "m4v", "mov", "avi", "ts", "m2ts", "flv", "wmv", "strm"]);
 const TECHNICAL = /1080|720|2160|4k|bdrip|web-?dl|bluray|hevc|x26[45]|aac|flac|\bmkv\b|avc|10bit|8bit|全集|特典|特别篇|导演/i;
 
 export function isVideoFileName(name: string): boolean {

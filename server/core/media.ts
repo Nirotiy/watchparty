@@ -2,7 +2,9 @@ import { isValidUUID, type MediaSource } from "./protocol.ts";
 
 const HTTPS = /^https:\/\//i;
 const YOUTUBE_ID = /^[a-zA-Z0-9_-]{11}$/;
-const CONTAINERS = new Set(["mp4", "webm", "mkv", "mov", "m4v", "ogv", "m3u8"]);
+// `strm` is a one-line pointer, not a container: the peer resolves it server-side and
+// plays whatever URL comes back, so the id still identifies the library file.
+const CONTAINERS = new Set(["mp4", "webm", "mkv", "mov", "m4v", "ogv", "m3u8", "strm"]);
 
 export function validateMediaSource(value: unknown): MediaSource | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;

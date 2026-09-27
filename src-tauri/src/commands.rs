@@ -16,7 +16,9 @@ fn validate_pasted_media(media: &MediaSource) -> Result<(), String> {
                 || title.trim().is_empty()
                 || !matches!(
                     container.to_lowercase().as_str(),
-                    "mp4" | "webm" | "mkv" | "mov" | "m4v" | "ogv" | "m3u8"
+                    // `strm` is a one-line pointer the server resolves to the real
+                    // stream URL, so MPV still receives an ordinary http(s) source.
+                    "mp4" | "webm" | "mkv" | "mov" | "m4v" | "ogv" | "m3u8" | "strm"
                 )
             {
                 Err("unsupported OpenList media entry".into())
@@ -186,6 +188,13 @@ mod tests {
             media: openlist.clone()
         })
         .is_ok());
+        let pointer = MediaSource::Openlist {
+            media_id: "signed-id".into(),
+            title: "Episode 1.strm".into(),
+            container: "strm".into(),
+            display_path: None,
+        };
+        assert!(validate_command(&DesktopCommand::PlaylistAdd { media: pointer }).is_ok());
         let https_media = MediaSource::Http {
             url: "https://example.com/video.mp4".into(),
             title: None,
