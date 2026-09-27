@@ -63,20 +63,54 @@ export function seasonFromName(name: string): number | null {
   return match?.[1] ? Number(match[1]) : null;
 }
 
+const CJK = /[㐀-䶿一-鿿぀-ヿ가-힯]/;
+
+/**
+ * Splits a title into comparison tokens. Latin/digit runs become words; CJK
+ * runs become overlapping bigrams, because a Chinese or Japanese title has no
+ * spaces and treating it as one token collapses similarity scoring to a
+ * whole-string containment test (that is what forced manual review).
+ */
+export function tokenizeTitle(value: string): string[] {
+  const normalized = normalizeTitle(value);
+  if (!normalized) return [];
+  const tokens: string[] = [];
+  for (const part of normalized.split(" ")) {
+    if (!part) continue;
+    if (!CJK.test(part)) {
+      tokens.push(part);
+      continue;
+    }
+    const chars = [...part].filter((char) => CJK.test(char));
+    if (chars.length === 1) tokens.push(chars[0]);
+    for (let index = 0; index + 1 < chars.length; index += 1) tokens.push(chars[index] + chars[index + 1]);
+  }
+  return tokens;
+}
+
 export function scoreTitles(query: string, title: string): number {
   const left = normalizeTitle(query);
   const right = normalizeTitle(title);
   if (!left || !right) return 0;
   if (left === right) return 1;
+  // Containment is its own signal (release names pad the official title with
+  // year or group tags) and must survive the token comparison below: taking
+  // only the bigram Dice would drop `[LoliHouse] The Ghost in the Shell` vs
+  // `攻殻機動隊 THE GHOST IN THE SHELL` from 0.9 to 0.67, i.e. confirmed → candidate.
   const shorter = Math.min(left.length, right.length);
   const longer = Math.max(left.length, right.length);
-  if ((left.includes(right) || right.includes(left)) && shorter >= 4 && shorter / longer >= 0.45) return 0.9;
-  const leftTokens = new Set(left.split(" ").filter(Boolean));
-  const rightTokens = new Set(right.split(" ").filter(Boolean));
-  if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
+  const contained =
+    (left.includes(right) || right.includes(left)) && shorter >= 4 && shorter / longer >= 0.45 ? 0.9 : 0;
+  return Math.max(contained, dice(tokenizeTitle(query), tokenizeTitle(title)));
+}
+
+function dice(left: string[], right: string[]): number {
+  if (left.length === 0 || right.length === 0) return 0;
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
   let shared = 0;
-  for (const token of leftTokens) if (rightTokens.has(token)) shared += 1;
-  return (2 * shared) / (leftTokens.size + rightTokens.size);
+  for (const token of leftSet) if (rightSet.has(token)) shared += 1;
+  return (2 * shared) / (leftSet.size + rightSet.size);
 }
 
 export function groupScanFiles(files: ScanFile[]): CatalogGroup[] {

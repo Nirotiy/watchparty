@@ -11,6 +11,13 @@ export type MetadataHit = {
   overview: string | null;
   imageUrl: string | null;
   episodes: number | null;
+  /**
+   * Alternative names the release files may actually use (romaji, CN
+   * simplified, group translations). Bangumi ships these in the search
+   * response's infobox, so collecting them costs no extra request - and 75% of
+   * live hits carry at least one, which is where the unmatched titles hide.
+   */
+  aliases?: string[];
 };
 
 export type RankedHit = MetadataHit & { score: number };
@@ -39,6 +46,9 @@ export function rankHits(query: string, hits: MetadataHit[], hintYear: number | 
   return hits
     .map((hit, index) => {
       let score = Math.max(scoreTitles(query, hit.title), hit.originalTitle ? scoreTitles(query, hit.originalTitle) : 0);
+      // An alias hit is as good as a title hit: release groups name folders after
+      // whatever the community calls the show, which is often neither field.
+      for (const alias of hit.aliases ?? []) score = Math.max(score, scoreTitles(query, alias));
       if (hintYear !== null && hit.year !== null) {
         if (hit.year === hintYear) score += 0.05;
         else if (Math.abs(hit.year - hintYear) > 1) score -= 0.1;
@@ -182,6 +192,43 @@ async function bangumiSubjects(fetchImpl: typeof fetch, keyword: string, type: n
   }
   return hits;
 }
+/** Bangumi infobox entries that carry an alternative title, slash-separated. */
+function bangumiAliases(infobox: unknown, known: Array<string | null>): string[] {
+  if (!Array.isArray(infobox)) return [];
+  const aliases: string[] = [];
+  for (const entry of infobox) {
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as Record<string, unknown>;
+    if (typeof row.key !== "string" || !/别名|中文名|原名|日文名|英文名|简体中文|正體中文/.test(row.key)) continue;
+    const values = Array.isArray(row.value)
+      ? row.value.map((item) => (item && typeof item === "object" ? (item as Record<string, unknown>).v : item))
+      : [row.value];
+    for (const value of values) {
+      if (typeof value !== "string") continue;
+      for (const part of value.split("/")) {
+        const alias = part.trim();
+        if (alias) aliases.push(alias);
+      }
+    }
+  }
+  return [...new Set(aliases)].filter((alias) => !known.includes(alias));
+}
+
+function infoboxNumber(infobox: unknown, key: string): number | null {
+  if (!Array.isArray(infobox)) return null;
+  for (const entry of infobox) {
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as Record<string, unknown>;
+    if (row.key !== key) continue;
+    const raw = Array.isArray(row.value) ? String(row.value[0] ?? "") : String(row.value ?? "");
+    const digits = /(\d+)/.exec(raw);
+    if (!digits) return null;
+    const value = Number(digits[1]);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+  return null;
+}
+
 function bangumiHit(value: unknown): MetadataHit | undefined {
   if (!value || typeof value !== "object") return undefined;
   const row = value as Record<string, unknown>;
@@ -192,6 +239,8 @@ function bangumiHit(value: unknown): MetadataHit | undefined {
   if (!id || !title) return undefined;
   const images = row.images && typeof row.images === "object" ? (row.images as Record<string, unknown>) : undefined;
   const image = typeof images?.common === "string" ? images.common : typeof images?.large === "string" ? images.large : null;
+  const eps = typeof row.eps === "number" && row.eps > 0 ? row.eps : null;
+  const total = typeof row.total_episodes === "number" && row.total_episodes > 0 ? row.total_episodes : null;
   return {
     externalDb: "bangumi",
     externalId: id,
@@ -200,7 +249,10 @@ function bangumiHit(value: unknown): MetadataHit | undefined {
     year: yearOf(typeof row.date === "string" ? row.date : ""),
     overview: typeof row.summary === "string" && row.summary.trim() ? row.summary.trim() : null,
     imageUrl: image,
-    episodes: typeof row.eps === "number" && row.eps > 0 ? row.eps : null,
+    // eps is the aired-count the API reports for the season; total_episodes and
+    // the infobox 话数 only exist for some entries, so they are fallbacks.
+    episodes: eps ?? total ?? infoboxNumber(row.infobox, "话数"),
+    aliases: bangumiAliases(row.infobox, [title, name, nameCn]),
   };
 }
 
