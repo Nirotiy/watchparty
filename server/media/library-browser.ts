@@ -463,7 +463,7 @@ function toItem(library: StoredLibrary, entry: OpenlistEntry, encode: (mediaPath
   };
 }
 
-function compatibilityOf(isDir: boolean, extension: string): MediaCompatibility {
+export function compatibilityOf(isDir: boolean, extension: string): MediaCompatibility {
   if (isDir || NATIVE_VIDEO_EXTENSIONS.has(extension)) return { browser: "supported", desktop: "supported" };
   if (extension === "mkv") {
     return {
@@ -507,7 +507,7 @@ function breadcrumbsOf(libraryName: string, relativePath: string): Array<{ name:
   return crumbs;
 }
 
-function extensionOf(name: string): string {
+export function extensionOf(name: string): string {
   const index = name.lastIndexOf(".");
   return index > 0 ? name.slice(index + 1).toLowerCase() : "";
 }

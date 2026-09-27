@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { createBackend, type Backend } from "../app.ts";
 import { loadConfig } from "../config.ts";
-import { cleanTitle, episodeSubtitle, groupScanFiles, scoreTitles } from "../media/catalog-names.ts";
+import { cleanTitle, episodeSubtitle, groupScanFiles, scoreTitles, titleCandidates, yearFrom } from "../media/catalog-names.ts";
 import { chooseMatch, createBangumiClient, rankHits, type MetadataHit, type MetadataSearcher } from "../media/catalog-metadata.ts";
 import { openCatalogStore } from "../media/catalog-store.ts";
 import { createCatalogWorker } from "../media/catalog-worker.ts";
@@ -25,6 +25,81 @@ test("release-group titles collapse to the searchable name", () => {
     cleanTitle("[Dynamis One] Fuuto Tantei Movie Kamen Rider Skull no Shouzou (CR 1920x1080 AVC AAC MKV) [C8329ACF].mkv"),
     "Fuuto Tantei Movie Kamen Rider Skull no Shouzou",
   );
+});
+
+test("the subtitle group is never the search query", () => {
+  const names = [
+    "[TxxZ&POPGO&MGRT][Cowboy_Bebop][01][1080p][x264_ac3].mkv",
+    "[TxxZ&POPGO&MGRT][Cowboy_Bebop][02][1080p][x264_ac3].mkv",
+    "[TxxZ&POPGO&MGRT][Cowboy_Bebop][03][1080p][x264_ac3].mkv",
+  ];
+  assert.deepEqual(titleCandidates(names, "[TxxZ&POPGO&MGRT][Cowboy_Bebop][BDRip][1080p]").slice(0, 1), [
+    "Cowboy Bebop",
+  ]);
+  // The group name still has to stay reachable as a last resort, but behind the title.
+  assert.equal(titleCandidates(["[Airota][Made in Abyss][01][1080p].mkv", "[Airota][Made in Abyss][02][1080p].mkv"], "[Airota][Made in Abyss][BDRip]")[0], "Made in Abyss");
+});
+
+test("a title containing & is not mistaken for a group collab", () => {
+  // `&` alone used to mean "collab", which threw away the only chunk that named
+  // this show: the folder is an episode-name directory (`爆炸`) and every one of
+  // its files carries the work title in the second bracket.
+  const names = [
+    "[DBD-Raws][Panty & Stocking with Garterbelt][Explosion][01][1080P][BDRip][HEVC-10bit][FLAC].mkv",
+    "[DBD-Raws][Panty & Stocking with Garterbelt][Explosion][02][1080P][BDRip][HEVC-10bit][FLAC].mkv",
+  ];
+  assert.equal(titleCandidates(names, "爆炸")[0], "Panty & Stocking with Garterbelt");
+  // Collabs of handles still read as groups.
+  assert.equal(titleCandidates(["[Nekomoe keitai&VCB-Studio] ODDTAXI [01][Ma10p_1080p].mkv"], "[Nekomoe keitai&VCB-Studio] ODDTAXI [Ma10p_1080p]")[0], "ODDTAXI");
+});
+
+test("encode and subtitle-config tags are dropped from candidates", () => {
+  const names = [
+    "[云光字幕组]摇曳露营△ 第三季 Yuru Camp Season 3 [01][简体双语][1080p]招募翻译.mp4",
+    "[云光字幕组]摇曳露营△ 第三季 Yuru Camp Season 3 [02][简体双语][1080p]招募翻译.mp4",
+  ];
+  const [first] = titleCandidates(names, "[云光字幕组]摇曳露营△ 第三季 Yuru Camp Season 3 [合集][简体双语][1080p]招募翻译");
+  assert.ok(first.includes("摇曳露营"), `expected the work title, got "${first}"`);
+  assert.ok(!/简体|招募|1080|合集/.test(first), `tags leaked into the query: "${first}"`);
+  // Composite tags survive a whole-chunk test but not a per-token one.
+  assert.deepEqual(titleCandidates(["[POPGO][Ghost in the Shell][01][1080P][x264_FLACx2_AC3x1][chs_jpn][D4C0C6B6].mkv"], "[POPGO][Ghost_in_the_Shell][BDRIP][1080P]")[0], "Ghost in the Shell");
+});
+
+test("per-file episode titles do not outrank the folder title", () => {
+  const names = ["FLCL 01 Fooly Cooly.mkv", "FLCL 02 Fire Starter.mkv", "FLCL 03 Marquis de Carabas.mkv"];
+  assert.equal(titleCandidates(names, "特别的她 FLCL(2000)[BDrip][1920x1080][OVA6]加刘景长压制")[0], "特别的她 FLCL");
+});
+
+test("dot-separated names lose their release bookkeeping, keep the season", () => {
+  const names = [
+    "01 昭和元禄落语心中 第一季.EP01.1080p.BluRay.x264.FLAC.CHS-LxyLab.mkv",
+    "02 昭和元禄落语心中 第一季.EP02.1080p.BluRay.x264.FLAC.CHS-LxyLab.mkv",
+  ];
+  const [first] = titleCandidates(names, "昭和元禄落语心中.2016.全两季.1080p.BluRay.x264.FLAC.CHS-LxyLab");
+  assert.ok(first.startsWith("昭和元禄落语心中 第一季"), `got "${first}"`);
+  assert.ok(!/EP0|1080|BluRay|2016/.test(first), `tags leaked into the query: "${first}"`);
+});
+
+test("specials roll up into the work instead of becoming a second item", () => {
+  const groups = groupScanFiles([
+    { relativePath: "/[VCB-Studio] MAWARU PENGUINDRUM [Ma10p_1080p]/[VCB-Studio] MAWARU PENGUINDRUM [01][Ma10p_1080p].mkv", name: "[VCB-Studio] MAWARU PENGUINDRUM [01][Ma10p_1080p].mkv", mediaId: "a" },
+    { relativePath: "/[VCB-Studio] MAWARU PENGUINDRUM [Ma10p_1080p]/SPs/[VCB-Studio] MAWARU PENGUINDRUM [SP01][Ma10p_1080p].mkv", name: "[VCB-Studio] MAWARU PENGUINDRUM [SP01][Ma10p_1080p].mkv", mediaId: "b" },
+  ]);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0]?.itemKey, "/[VCB-Studio] MAWARU PENGUINDRUM [Ma10p_1080p]");
+  assert.equal(groups[0]?.query, "MAWARU PENGUINDRUM");
+  assert.equal(groups[0]?.files.length, 2, "the special must stay attached to the series");
+});
+
+test("a nested work directory stays its own item", () => {
+  // 《第三飞行少女队》 is a separate Bangumi subject filed inside the SHIROBAKO
+  // tree, so upward merging may never be unconditional.
+  const groups = groupScanFiles([
+    { relativePath: "/[VCB-Studio] SHIROBAKO [Ma10p_1080p]/[VCB-Studio] SHIROBAKO [01][Ma10p_1080p].mkv", name: "[VCB-Studio] SHIROBAKO [01][Ma10p_1080p].mkv", mediaId: "a" },
+    { relativePath: "/[VCB-Studio] SHIROBAKO [Ma10p_1080p]/[VCB-Studio] Daisan Hikou Shoujotai [Ma10p_1080p]/[VCB-Studio] Daisan Hikou Shoujotai [Ma10p_1080p].mkv", name: "[VCB-Studio] Daisan Hikou Shoujotai [Ma10p_1080p].mkv", mediaId: "b" },
+  ]);
+  assert.equal(groups.length, 2);
+  assert.deepEqual(groups.map((group) => group.query).sort(), ["Daisan Hikou Shoujotai", "SHIROBAKO"]);
 });
 
 test("season folders roll up to one series and episodes stay ordered", () => {
@@ -364,3 +439,82 @@ function fakeLibrary(root: string): OpenlistClient {
 function baseUrl(backend: Backend): string {
   return `http://127.0.0.1:${backend.port}`;
 }
+
+test("a dot-separated movie release name reduces to the title", () => {
+  // The Films wall was empty because a scene name has no spaces, so the
+  // "single token with a hyphen" group shape classified the whole string as a
+  // subtitle group and dropped every candidate (frontend title-cleaning ask).
+  const raw = "Wicked.2024.Hybrid.2160p.WEB-DL.DV.HDR.DDP5.1.H265-AOC.mkv";
+  assert.deepEqual(titleCandidates([raw], raw.slice(0, -4)), ["Wicked"]);
+  assert.equal(yearFrom(raw), 2024);
+});
+
+test("catalog detail children carry the same compatibility verdict as the browser listing", () => {
+  const posterDir = fs.mkdtempSync(path.join(os.tmpdir(), "wp-posters-"));
+  const store = openCatalogStore(":memory:", posterDir);
+  try {
+    store.upsertScan("lib_anime", "tv", [
+      {
+        itemKey: "/Show",
+        query: "Show",
+        queries: ["Show"],
+        rawName: "Show",
+        files: [
+          { mediaId: "v2.a", name: "Show 01.mkv", season: null, episode: 1 },
+          { mediaId: "v2.b", name: "Show 02.mp4", season: null, episode: 2 },
+        ],
+      },
+    ]);
+    const [pending] = store.listPending("lib_anime");
+    assert.ok(pending);
+    const detail = store.getDetail(pending.id)!;
+    const [mkv, mp4] = detail.children;
+    assert.equal(mkv.compatibility.browser, "unsupported");
+    assert.equal(mkv.compatibility.desktop, "supported");
+    assert.ok(mkv.compatibility.browserReason, "MKV must say why the browser refuses it");
+    assert.deepEqual(
+      [mp4.compatibility.browser, mp4.compatibility.desktop],
+      ["supported", "supported"],
+    );
+  } finally {
+    store.close();
+  }
+});
+
+test("rolled-up bonus files stay on the card but are not counted as episodes", () => {
+  // Frontend decision B (2026-09-27): `12 集` plus a `SPs` folder of 67 CM/Audio
+  // Drama clips must not announce itself as 79 集, while the clips stay playable.
+  const groups = groupScanFiles([
+    ...[1, 2, 3, 4].map((n) => ({
+      relativePath: `/[VCB] Revue Starlight/Revue Starlight [0${n}][Ma10p].mkv`,
+      name: `Revue Starlight [0${n}][Ma10p].mkv`,
+      mediaId: `ep${n}`,
+    })),
+    { relativePath: "/[VCB] Revue Starlight/SPs/Revue Starlight [CM01][Ma10p].mkv", name: "Revue Starlight [CM01][Ma10p].mkv", mediaId: "cm1" },
+    { relativePath: "/[VCB] Revue Starlight/SPs/Revue Starlight [Audio Drama 01.3][Ma10p].mkv", name: "Revue Starlight [Audio Drama 01.3][Ma10p].mkv", mediaId: "ad1" },
+  ]);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0]?.files.length, 6, "the bonus files stay attached to the card");
+  assert.equal(episodeSubtitle(groups[0]?.files ?? []), "4 集");
+});
+
+test("a film with only bonus extras shows no count instead of a wrong one", () => {
+  const groups = groupScanFiles([
+    { relativePath: "/Gekijouban SHIROBAKO/Gekijouban SHIROBAKO [Ma10p].mkv", name: "Gekijouban SHIROBAKO [Ma10p].mkv", mediaId: "movie" },
+    { relativePath: "/Gekijouban SHIROBAKO/SPs/SHIROBAKO [Cast Commentary 01].mkv", name: "SHIROBAKO [Cast Commentary 01].mkv", mediaId: "cc1" },
+  ]);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0]?.files.length, 2);
+  assert.equal(episodeSubtitle(groups[0]?.files ?? []), null, "sub-line must disappear, not read 0 集 or 2 集");
+});
+
+test("episode-name folders roll up and still count as episodes", () => {
+  const groups = groupScanFiles([
+    { relativePath: "/作品/第01话/作品 - 01.mkv", name: "作品 - 01.mkv", mediaId: "a" },
+    { relativePath: "/作品/第02话/作品 - 02.mkv", name: "作品 - 02.mkv", mediaId: "b" },
+    { relativePath: "/作品/第03话/作品 - 03.mkv", name: "作品 - 03.mkv", mediaId: "c" },
+  ]);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0]?.itemKey, "/作品");
+  assert.equal(episodeSubtitle(groups[0]?.files ?? []), "3 集");
+});

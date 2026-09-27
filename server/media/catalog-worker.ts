@@ -1,4 +1,4 @@
-import { groupScanFiles, yearFrom, type ScanFile } from "./catalog-names.ts";
+import { groupScanFiles, titleCandidates, yearFrom, type ScanFile } from "./catalog-names.ts";
 import { chooseMatch, MetadataUnavailable, rankHits, type MetadataSearcher } from "./catalog-metadata.ts";
 import type { CatalogStore, PendingItem, ScrapeJob } from "./catalog-store.ts";
 import type { StoredLibrary } from "./library-store.ts";
@@ -60,22 +60,58 @@ export function createCatalogWorker(options: {
   }
 
   async function lookup(item: PendingItem): Promise<void> {
-    if (!item.query || item.kind === "other") {
+    if (item.kind === "other") {
+      options.catalog.applyMatch(item, "unmatched", null, []);
+      options.catalog.bumpJob(item.libraryId, false);
+      return;
+    }
+    // One guess per folder is not a guess: the work title may sit in the file
+    // names, in a bracket behind the subtitle group, or in the folder itself.
+    // Candidates are rebuilt here instead of read from the row, so a parse fix
+    // takes effect without a re-scan.
+    const queries = candidateQueries(item);
+    if (queries.length === 0) {
       options.catalog.applyMatch(item, "unmatched", null, []);
       options.catalog.bumpJob(item.libraryId, false);
       return;
     }
     const searchKind = item.kind === "tv" ? "tv" : item.kind === "movie" ? "movie" : "anime";
     const searcher = item.kind === "anime" ? options.bangumi : options.tmdb;
-    const hits = await searcher.search(item.query, searchKind);
     const rejected = options.catalog.rejectionKeys(item.libraryId, item.itemKey);
-    const ranked = rankHits(item.query, hits, yearFrom(item.rawName), item.fileCount || null).filter(
-      (hit) => !rejected.has(`${hit.externalDb}:${hit.externalId}`),
-    );
-    const choice = chooseMatch(ranked);
-    options.catalog.applyMatch(item, choice.status, choice.chosen, choice.candidates);
-    if (choice.status === "confirmed" && choice.chosen?.imageUrl) await cachePoster(item.id, choice.chosen.imageUrl);
-    options.catalog.bumpJob(item.libraryId, choice.status === "confirmed");
+    let best: { status: "candidate" | "unmatched"; candidates: ReturnType<typeof rankHits> } = { status: "unmatched", candidates: [] };
+    let bestScore = -1;
+    for (const [index, query] of queries.entries()) {
+      if (index > 0 && options.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, options.delayMs));
+      const hits = await searcher.search(query, searchKind);
+      const ranked = rankHits(query, hits, yearFrom(item.rawName), item.fileCount || null).filter(
+        (hit) => !rejected.has(`${hit.externalDb}:${hit.externalId}`),
+      );
+      // Early stop: a confirmed match costs no further request, and a strong
+      // candidate list means the query was understood even if nobody chose it.
+      const choice = chooseMatch(ranked);
+      if (choice.status === "confirmed") {
+        options.catalog.applyMatch(item, choice.status, choice.chosen, choice.candidates);
+        if (choice.chosen?.imageUrl) await cachePoster(item.id, choice.chosen.imageUrl);
+        options.catalog.bumpJob(item.libraryId, true);
+        return;
+      }
+      const topScore = ranked[0]?.score ?? -1;
+      if (ranked.length > 0 && topScore > bestScore) {
+        best = { status: "candidate", candidates: ranked };
+        bestScore = topScore;
+      }
+      if (topScore >= 0.75) break;
+    }
+    options.catalog.applyMatch(item, best.status, null, best.candidates);
+    options.catalog.bumpJob(item.libraryId, false);
+  }
+
+  /** Ordered, de-duplicated title guesses for one pending item (max 3 requests). */
+  function candidateQueries(item: PendingItem): string[] {
+    const segment = item.itemKey.split("/").filter(Boolean).pop() ?? item.rawName;
+    const guesses = titleCandidates(item.fileNames, segment).slice(0, 3);
+    if (guesses.length === 0 && item.query) guesses.push(item.query);
+    return [...new Set(guesses.map((guess) => guess.trim()).filter(Boolean))];
   }
 
   async function cachePoster(itemId: string, imageUrl: string): Promise<void> {

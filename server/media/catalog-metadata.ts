@@ -38,17 +38,59 @@ export class MetadataUnavailable extends Error {
 const AUTO_SCORE = 0.86;
 const AUTO_GAP = 0.08;
 const CANDIDATE_SCORE = 0.5;
+/** Below AUTO_SCORE on purpose: an installment mismatch must stay reviewable. */
+const VARIANT_CAP = 0.84;
 const POSTER_CAP_BYTES = 2 * 1024 * 1024;
 const POSTER_HOSTS = new Set(["lain.bgm.tv", "image.tmdb.org"]);
+const CN_DIGIT: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+
+function cnNumber(value: string): number | null {
+  if (/^\d{1,2}$/.test(value)) return Number(value);
+  if (value === "十") return 10;
+  if (value.startsWith("十")) return 10 + (CN_DIGIT[value[1]] ?? 0);
+  if (value.endsWith("十")) return (CN_DIGIT[value[0]] ?? 0) * 10;
+  return CN_DIGIT[value] ?? null;
+}
+
+/**
+ * Which installment a name points at. `机动战士高达0079剧场版三部曲合集` scores
+ * 0.900 against Bangumi's `机动战士高达` and used to confirm on its own - but the
+ * folder is a trilogy collection and no such subject exists, so a person has to
+ * choose. Token similarity cannot see that: the two titles differ only by the
+ * qualifiers. So both sides are reduced to a set of installment keys and a
+ * qualifier the folder claims but the record never mentions caps the pair.
+ */
+export function variantKeys(value: string): Set<string> {
+  // Bangumi writes Japanese season numbers full-width (`街角魔族 ２丁目`).
+  const text = value.replace(/[０-９]/g, (char) => String(char.charCodeAt(0) - 0xff10));
+  const keys = new Set<string>();
+  if (/(?:剧场版|劇場版|映画|gekijouban|the movie|\bmovie\b)/i.test(text)) keys.add("movie");
+  if (/\bova\b|ova\d/i.test(text)) keys.add("ova");
+  if (/(?:特别篇|特別篇|\bsp\b|\bsps\b|special)/i.test(text)) keys.add("special");
+  if (/(?:合集|全集|三部曲|套装|box|collection|complete|trilogy)/i.test(text)) keys.add("collection");
+  const season = text.match(
+    /(?:第\s*([0-9一二三四五六七八九十]{1,3})\s*(?:季|期|章|丁目)|(?:season|第)\s*(\d{1,2})(?:期|季|丁目)?|\bs(\d{1,2})\b|([0-9]{1,2})(?:st|nd|rd|th)|(\d{1,2})[\s-]*(?:期|季|丁目|choume|chome|ku|kou))/i,
+  );
+  const raw = season?.[1] ?? season?.[2] ?? season?.[3] ?? season?.[4] ?? season?.[5] ?? "";
+  const number = raw ? cnNumber(raw) : null;
+  if (number !== null && number > 0 && number <= 99) keys.add(`season:${number}`);
+  return keys;
+}
 
 export function rankHits(query: string, hits: MetadataHit[], hintYear: number | null, hintFiles: number | null = null): RankedHit[] {
   const specific = query.trim().length >= 8;
+  const wanted = variantKeys(query);
   return hits
     .map((hit, index) => {
       let score = Math.max(scoreTitles(query, hit.title), hit.originalTitle ? scoreTitles(query, hit.originalTitle) : 0);
       // An alias hit is as good as a title hit: release groups name folders after
       // whatever the community calls the show, which is often neither field.
-      for (const alias of hit.aliases ?? []) score = Math.max(score, scoreTitles(query, alias));
+      const offered = new Set<string>(variantKeys(hit.title));
+      for (const alias of hit.aliases ?? []) {
+        score = Math.max(score, scoreTitles(query, alias));
+        for (const key of variantKeys(alias)) offered.add(key);
+      }
+      if (hit.originalTitle) for (const key of variantKeys(hit.originalTitle)) offered.add(key);
       if (hintYear !== null && hit.year !== null) {
         if (hit.year === hintYear) score += 0.05;
         else if (Math.abs(hit.year - hintYear) > 1) score -= 0.1;
@@ -61,6 +103,9 @@ export function rankHits(query: string, hits: MetadataHit[], hintYear: number | 
         const floor = index === 0 ? 0.62 : index < 3 ? 0.55 : 0;
         score = Math.max(score, floor);
       }
+      // Only the folder's own claims are enforced: a subject record may list
+      // several seasons in its aliases without that making it a wrong answer.
+      for (const key of wanted) if (!offered.has(key)) score = Math.min(score, VARIANT_CAP);
       score = Math.max(0, Math.min(1, score));
       return { ...hit, score: Math.round(score * 1000) / 1000 };
     })

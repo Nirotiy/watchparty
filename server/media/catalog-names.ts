@@ -11,11 +11,25 @@ export type CatalogGroupFile = {
   name: string;
   season: number | null;
   episode: number | null;
+  /**
+   * True when the file was pulled up out of a specials/OVA/disc folder into the
+   * work card. It is playable from that card, but it is not an episode, so the
+   * 「N 集」 count skips it - otherwise a 12-episode series with 67 CM clips in
+   * `SPs/` would announce itself as 79 集.
+   */
+  bonus?: boolean;
 };
 
 export type CatalogGroup = {
   itemKey: string;
   query: string;
+  /**
+   * Ordered title guesses, best first (max 3). One path segment is not enough
+   * to know the title - release groups put it in the file name, or in a bracket
+   * after the subtitle group - so the lookup stage tries these in order and
+   * stops at the first confirmed match instead of guessing once.
+   */
+  queries: string[];
   rawName: string;
   files: CatalogGroupFile[];
 };
@@ -43,7 +57,7 @@ export function cleanTitle(name: string): string {
     });
   const title = stripReleaseTags(remainder);
   if (title) return title;
-  const picked = chunks.find((chunk) => !isJunkChunk(chunk));
+  const picked = chunks.find((chunk) => !junkChunk(chunk));
   return picked ? stripReleaseTags(picked) : "";
 }
 
@@ -126,7 +140,10 @@ export function groupScanFiles(files: ScanFile[]): CatalogGroup[] {
     const base = dir === "/" ? "" : path.posix.basename(dir);
     if (base && isExtraDirectory(base)) continue;
     const seasonFolder = base ? seasonFromName(base) : null;
-    const key = seasonFolder !== null && dir !== "/" ? parentOf(dir) : dir;
+    const key = workKeyOf(dir, seasonFolder !== null);
+    // Rolled up out of a bonus folder (SPs/OVA/disc), not merely a season or
+    // episode folder: those still count as episodes.
+    const bonus = key !== dir && base !== "" && isBonusDirectory(base);
     const bucket = rolled.get(key) ?? [];
     for (const file of list) {
       const parsed = parseEpisode(file.name);
@@ -136,6 +153,7 @@ export function groupScanFiles(files: ScanFile[]): CatalogGroup[] {
         name: file.name,
         season: parsed.season ?? seasonFolder,
         episode: parsed.episode,
+        bonus,
       });
     }
     rolled.set(key, bucket);
@@ -145,9 +163,11 @@ export function groupScanFiles(files: ScanFile[]): CatalogGroup[] {
     const filesInOrder = [...bucket].sort(compareFiles);
     if (key === "/") {
       for (const file of filesInOrder) {
+        const queries = titleCandidates([file.name], path.posix.basename(file.relativePath));
         groups.push({
           itemKey: file.relativePath,
-          query: cleanTitle(file.name),
+          query: queries[0] ?? cleanTitle(file.name),
+          queries: queries.length > 0 ? queries : [cleanTitle(file.name)],
           rawName: file.name,
           files: [{ mediaId: file.mediaId, name: file.name, season: file.season, episode: file.episode }],
         });
@@ -155,9 +175,11 @@ export function groupScanFiles(files: ScanFile[]): CatalogGroup[] {
       continue;
     }
     const rawName = path.posix.basename(key);
+    const queries = titleCandidates(filesInOrder.map((file) => file.name), rawName);
     groups.push({
       itemKey: key,
-      query: cleanTitle(rawName),
+      query: queries[0] ?? cleanTitle(rawName),
+      queries: queries.length > 0 ? queries : [cleanTitle(rawName)],
       rawName,
       files: filesInOrder,
     });
@@ -170,12 +192,19 @@ export function groupScanFiles(files: ScanFile[]): CatalogGroup[] {
  * contract from parsing this text, so the wording belongs to the backend.
  * Shape is load-bearing (optional `S<n> · ` prefix, then a count) — the card
  * sub-line truncates near 20 characters.
+ *
+ * Counts episodes, not files (frontend decision B, 2026-09-27): bonus folders roll
+ * into the work card so their files stay playable from it, but `12 集 + 67 SP` must
+ * not read as `79 集`. A work with fewer than two episodes of its own - a film plus
+ * its commentary discs - returns null so the sub-line disappears entirely, which
+ * both clients render as "no count" rather than a wrong one.
  */
 export function episodeSubtitle(files: CatalogGroupFile[]): string | null {
-  if (files.length <= 1) return null;
-  const seasons = new Set(files.map((file) => file.season).filter((season): season is number => season !== null));
+  const episodes = files.filter((file) => !file.bonus);
+  if (episodes.length <= 1) return null;
+  const seasons = new Set(episodes.map((file) => file.season).filter((season): season is number => season !== null));
   const prefix = seasons.size === 1 ? `S${[...seasons][0]} · ` : "";
-  return `${prefix}${files.length} 集`;
+  return `${prefix}${episodes.length} 集`;
 }
 
 function parentOf(relativePath: string): string {
@@ -202,17 +231,255 @@ function stripReleaseTags(value: string): string {
     .trim();
 }
 
-function isJunkChunk(chunk: string): boolean {
-  const trimmed = chunk.trim();
-  if (!trimmed) return true;
-  if (TECHNICAL.test(trimmed)) return true;
-  if (/^[0-9A-F]{6,}$/i.test(trimmed)) return true;
-  if (/raws?$/i.test(trimmed) || /lolihouse|dynamis/i.test(trimmed)) return true;
+/**
+ * Technical/promotional tags. Matched per token because real chunks are composites:
+ * `Ma10p_1080p` survived a whole-chunk test and ended up ranked above the actual
+ * title, wasting a lookup and leaving `[VCB-Studio] SHIROBAKO .../SPs` unresolved.
+ */
+const TECHNICAL_STEMS = [
+  "1080p", "1080", "1080i", "720p", "480p", "2160p", "2160", "1920", "4k", "8k", "uhd", "bdrip", "bd-rip", "webrip",
+  "web-dl", "webdl", "hdtv", "x264", "x265", "hevc", "h264", "h265", "avc", "10bit", "8bit", "hi10p", "ma10p",
+  "flac", "aac", "m4a", "opus", "ac3", "eac3", "dts", "dts-hd", "truehd", "atmos", "ddp", "dd", "hdr", "hdr10",
+  "sdr", "dv", "dolby", "vision", "mkv", "mp4", "ts", "ass", "srt", "vtt", "pcm", "dvd", "sacd", "cd", "dl",
+  "bluray", "blu-ray", "bdmux", "dvdrip", "av1", "avc1", "hybrid", "dovi", "remux", "uncensored", "complete", "full", "audio", "chs", "cht", "jpn", "eng", "chn", "kor", "yue", "gb", "big5",
+  "chs-jpn", "jpn-chs", "chs-cht", "chscht", "dayuan",
+];
+/**
+ * Subtitle-config and promotional chunks. `招募翻译`/`压制` are release-notice
+ * filler, `简体双语`/`日英双语`/`简繁外挂` are subtitle tracks - both appear in
+ * every file of a group, so a missing entry here outranks the real title.
+ */
+const TECHNICAL_PHRASES =
+  /^(?:[简繁]体?(?:双语|内嵌|外挂|中字)?|[简繁]繁(?:双语|内嵌|外挂)?|(?:日英|中英|中日|国日|粤日)双语?|双语字幕|单语字幕|内嵌字幕|外挂字幕|全集|合集|特典|特别篇|导演剪辑版?|招募翻译|翻译|压制|校对|时间轴|轴|扫雷|发布|timeshift|nced|ncop|op|ed|pv|menu|cast commentary|making|trailer|cm\d*)$/;
+
+/** Technical tags are matched loosely: `ASSx2`, `flacx2`, `1080P` all mean the same thing. */
+function isTechnicalToken(token: string): boolean {
+  const normalized = token.toLowerCase().replace(/[._]/g, "-").replace(/-$/, "");
+  if (!normalized) return true;
+  if (/^\d+[pP]?$/.test(normalized)) return true;
+  const stripped = normalized.replace(/(?:x\d+)+$/, "");
+  if (TECHNICAL_STEMS.includes(normalized) || TECHNICAL_STEMS.includes(stripped)) return true;
+  // `DDP5.1` is one tag with a channel count bolted on, so the alphabetic prefix
+  // decides (`ddp` is a stem, `ddp5` on its own was leaking into the query).
+  const alpha = normalized.replace(/\d+$/, "");
+  if (alpha.length >= 2 && TECHNICAL_STEMS.includes(alpha)) return true;
+  if (TECHNICAL_PHRASES.test(normalized) || TECHNICAL_PHRASES.test(stripped)) return true;
+  // Hyphenated composites (`HEVC-10bit`) are two tags glued together, but the
+  // same shape also carries season qualifiers (`2-Choume`), so the token only
+  // counts as technical when every part does.
+  if (normalized.includes("-")) {
+    const parts = normalized.split("-").filter(Boolean);
+    if (parts.length > 1 && parts.every((part) => isTechnicalToken(part))) return true;
+  }
+  if (/(?:bdrip|bluray|webrip|hevc|x26[45]|flac|aac|1080|2160)/.test(normalized) && normalized.length <= 12) return true;
+  // Pixel-format tags (`yuv420p10`) never appear alone, only inside a composite
+  // like `HEVC-yuv420p10`, which the part-wise check above then resolves.
+  if (/yuv\d*/.test(normalized)) return true;
   return false;
 }
 
+/**
+ * Group handles mention a studio/subbing/encoding identity anywhere in the chunk,
+ * so `Studio GreenTea&LoliHouse` reads as a group even though neither `&` part is
+ * a single token. Anchored forms (`raws?`, `subs?`) stay anchored so titles that
+ * merely contain those letters survive.
+ */
+const GROUP_WORD = /(?:studio|committee|ous?group|字幕组|字幕社|汉化|压制组|工作组|raws?$|fansubs?$|subs?$)/i;
+
+/**
+ * Release-group shapes. Deliberately only shapes, never names: the group list is
+ * open-ended, so blacklisting `Airota` today just means `TxxZ&POPGO&MGRT` tomorrow.
+ * `&` means a group collab only when the joined parts look like handles - every
+ * part single-token, or one part carrying a group word - because
+ * `Panty & Stocking with Garterbelt` is the work title and all 48 of its files
+ * say so. A lone `-` only counts inside a single token, otherwise real titles
+ * written `作品 - Romaji` would be discarded.
+ */
+function isGroupChunk(chunk: string): boolean {
+  const trimmed = chunk.trim();
+  if (!trimmed) return false;
+  if (GROUP_WORD.test(trimmed)) return true;
+  if (/[&＆]/.test(trimmed)) {
+    const parts = trimmed.split(/[&＆]/).map((part) => part.trim()).filter(Boolean);
+    if (parts.every((part) => !/\s/.test(part))) return true;
+    // The named-prefix shape already in the list applies to each collab part, so
+    // `[Nekomoe kissaten&LoliHouse]` is a group without the rule learning a name.
+    if (parts.some((part) => /^(?:lolihouse|dynamis)\b/i.test(part))) return true;
+  }
+  if (!/\s/.test(trimmed) && /-/.test(trimmed)) return !isSceneName(trimmed);
+  return /^(?:lolihouse|dynamis)\b/i.test(trimmed);
+}
+
+/** Translator/promotion credits glued to a CJK run: `加刘景长压制`, `某某校轴`. */
+function isPromoToken(token: string): boolean {
+  return /^[\u4e00-\u9fff]{2,12}(?:压制|翻译|校对|校轴|时间轴|轴|扫雷|发布)$/.test(token);
+}
+
+/**
+ * Scene release names: `Wicked.2024.Hybrid.2160p.WEB-DL.DV.HDR.DDP5.1.H265-AOC`.
+ * They contain no spaces, so the "single token with a hyphen" group shape used to
+ * classify the entire string as a subtitle group and drop it - which is why the
+ * Films wall stayed empty (the frontend's title-cleaning ask).
+ */
+function isSceneName(chunk: string): boolean {
+  return !/\s/.test(chunk) && (chunk.match(/\./g) ?? []).length >= 2;
+}
+
+function junkChunk(chunk: string): boolean {
+  const trimmed = chunk.trim();
+  if (!trimmed) return true;
+  if (/^[0-9A-F]{6,}$/i.test(trimmed)) return true;
+  if (/^(?:19|20)\d{2}$/.test(trimmed)) return true;
+  if (isGroupChunk(trimmed)) return true;
+  return normalizeChunk(trimmed).length === 0;
+}
+
+/**
+ * A chunk with its release bookkeeping removed: `01 昭和元禄落语心中 第一季.EP01.1080p.…`
+ * becomes `昭和元禄落语心中 第一季`. Dot-separated names carry no brackets at all, so
+ * without this per-token filter each of the 25 files contributes a unique string,
+ * and the one observation that is shared by none wins over the one shared by all.
+ */
+function normalizeChunk(chunk: string): string {
+  let head = chunk.replace(/\.[a-z0-9]{2,5}$/i, "");
+  // Scene convention: everything after the last hyphen is the release group.
+  if (isSceneName(head)) head = head.replace(/-[^-.]*$/, "");
+  const tokens = head.split(/[\s_./·]+/).filter(Boolean);
+  const kept: string[] = [];
+  for (const token of tokens) {
+    if (/^\d{1,3}$/.test(token)) continue;
+    if (/^\d{1,3}v\d+[a-z]?$/i.test(token)) continue;
+    if (/^(?:19|20)\d{2}$/.test(token)) continue;
+    if (/^(?:ep|episode|#)\d{1,3}$/i.test(token)) continue;
+    if (/^s\d{1,2}e\d{1,3}$/i.test(token)) continue;
+    if (/^(?:ova|sp)\d{1,3}$/i.test(token)) continue;
+    if (/^v\d+$/i.test(token)) continue;
+    if (/^(?:short|drama|anime|theatrical)$/i.test(token)) continue;
+    if (isPromoToken(token)) continue;
+    if (isTechnicalToken(token)) continue;
+    kept.push(token);
+  }
+  return kept.join(" ").trim();
+}
+
+/** Bracket chunks plus the text outside them; full-width brackets included. */
+export function chunkList(value: string): string[] {
+  const withoutExt = value.replace(/\.[a-z0-9]{2,5}$/i, "");
+  const halfWidth = withoutExt
+    .replace(/[［【「『]/g, "[")
+    .replace(/[］」』】]/g, "]")
+    .replace(/[（(]/g, "(")
+    .replace(/[）)]/g, ")");
+  const chunks: string[] = [];
+  const remainder = halfWidth
+    .replace(/\[([^\]]*)\]/g, (_all, inner: string) => {
+      chunks.push(inner.trim());
+      return " ";
+    })
+    .replace(/\(([^)]*)\)/g, (_all, inner: string) => {
+      chunks.push(inner.trim());
+      return " ";
+    });
+  const outside = remainder.replace(/\s+/g, " ").trim();
+  if (outside) chunks.push(outside);
+  return chunks.filter(Boolean);
+}
+
+/**
+ * Title candidates for one path segment or file name, best first. The work title
+ * is the chunk shared by most files of the group - the directory may hold nothing
+ * but an episode name (`.../爆炸/` whose files all read
+ * `[DBD-Raws][Panty & Stocking with Garterbelt][Explosion][01]...`), and the first
+ * bracket is the subtitle group, not the title.
+ */
+export function titleCandidates(names: string[], segmentName = "", limit = 3): string[] {
+  const observations = names.map((name) => chunkList(name)).filter((chunks) => chunks.length > 0);
+  const dirChunks = chunkList(segmentName);
+  if (dirChunks.length > 0) observations.push(dirChunks); // the directory is one more sample
+  if (observations.length === 0) return [];
+  const total = observations.length;
+  const frequency = new Map<string, { query: string; count: number; firstIndex: number }>();
+  for (const chunks of observations) {
+    const seenInFile = new Set<string>();
+    chunks.forEach((chunk, chunkIndex) => {
+      if (junkChunk(chunk)) return;
+      const query = normalizeChunk(chunk);
+      if (query.length < 2 || seenInFile.has(query)) return;
+      seenInFile.add(query);
+      const entry = frequency.get(query) ?? { query, count: 0, firstIndex: chunkIndex };
+      entry.count += 1;
+      entry.firstIndex = Math.min(entry.firstIndex, chunkIndex);
+      frequency.set(query, entry);
+    });
+  }
+  const dirTitles = new Set(dirChunks.map((chunk) => normalizeChunk(chunk)));
+  // The title is what the files agree on. Chunks only one file carries
+  // (`FLCL 03 Marquis de Carabas`, `Cast Commentary 01`) are episode names, and
+  // they used to outrank the shared work title for lack of any threshold. A
+  // trailing ` - 01` is not an episode name though - it is the work title with a
+  // part marker, and normalizeChunk has already removed the marker.
+  const shared = [...frequency.values()].filter((entry) => entry.count / total >= 0.5);
+  const pool = shared.length > 0 ? shared : [...frequency.values()];
+  return pool
+    .map((entry) => {
+      let rank = entry.count / total;
+      if (dirTitles.has(entry.query)) rank += 0.25; // also spelled in the directory
+      if (entry.firstIndex === 0) rank -= 0.35; // leading chunk is usually the group
+      if (/[㐀-䶿一-鿿぀-ヿ]/.test(entry.query)) rank += 0.05;
+      // Single-file groups have no frequency to separate a title from a bracketed
+      // subtitle (`（⁕不是不可能？）`) sitting inside it; the longer observation is
+      // the one that names the work.
+      rank += Math.min(entry.query.length, 24) / 100;
+      return { ...entry, rank };
+    })
+    .sort((left, right) => right.rank - left.rank || left.firstIndex - right.firstIndex)
+    .slice(0, limit)
+    .map((entry) => entry.query);
+}
+
 function isExtraDirectory(name: string): boolean {
-  return /^(?:pv|pvs|ncop(?:\s*[&＆+]\s*nced)?|nced|menu|menus|extras?|bonus(?:es)?|specials|sp|scans|booklet|特典映像|特典|特别篇|特別篇|映像特典)$/i.test(name.trim());
+  return /^(?:pv|pvs|ncop(?:\s*[&＆+]\s*nced)?|nced|menu|menus|extras?|bonus(?:es)?|scans|booklet|特典映像|特典|特别篇|特別篇|映像特典)$/i.test(name.trim());
+}
+
+/**
+ * Directories that hold regular episodes but are not named after the work:
+ * `SPs` (plural escaped the old `^sp$`), `OVA01`, `第2季`-style and episode-name
+ * folders. Their files roll up into the nearest work-level ancestor instead of
+ * being dropped - dropping them would remove real episodes from the poster wall.
+ */
+/**
+ * Bonus folders rather than episodes: `SPs` (plural escaped the old `^sp$`),
+ * `OVA01`, `CD1`, `DISC2`. Their files roll into the work card and are skipped by
+ * the 「N 集」 count, because `CM01`/`Audio Drama 01.3`/`Akeome Mini Movie` clips
+ * are not episodes.
+ */
+function isBonusDirectory(name: string): boolean {
+  return /^(?:sps?|specials?|ovas?(?:\s*\d+)?|sp\s*\d+|cd\d+|dis[ck]\d*)$/i.test(name.trim());
+}
+
+/**
+ * Folders whose files belong to the work card above them. `第N话`-style folders
+ * roll up too, but their files stay counted as episodes.
+ */
+function isRollupDirectory(name: string): boolean {
+  return isBonusDirectory(name) || /^第.{1,4}[话話期季]$/.test(name.trim());
+}
+
+/**
+ * The directory a group of files belongs to as one work. Season folders and
+ * special/OVA subfolders roll into their parent so a show is one catalog item
+ * with its specials included, rather than a second item nobody confirms.
+ */
+function workKeyOf(dir: string, seasonFolder: boolean): string {
+  let key = dir;
+  if (key === "/") return key;
+  if (seasonFolder) key = parentOf(key);
+  let guard = 0;
+  while (key !== "/" && guard < 4 && isRollupDirectory(path.posix.basename(key))) {
+    key = parentOf(key);
+    guard += 1;
+  }
+  return key;
 }
 
 function normalizeTitle(value: string): string {

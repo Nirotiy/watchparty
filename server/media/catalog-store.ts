@@ -3,6 +3,8 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { episodeSubtitle, type CatalogGroup, type CatalogGroupFile } from "./catalog-names.ts";
+import { compatibilityOf, extensionOf } from "./library-browser.ts";
+import type { MediaCompatibility } from "./watchparty-media.ts";
 import type { MetadataDb, RankedHit } from "./catalog-metadata.ts";
 import type { LibraryKind } from "./library-store.ts";
 
@@ -27,6 +29,12 @@ export type PendingItem = {
   rawName: string;
   subtitle: string | null;
   fileCount: number;
+  /**
+   * File names under this item, used to rebuild the title candidates at lookup
+   * time. Persisting `queries` instead would need a column; the children already
+   * carry the names, so a re-scan can never leave a stale candidate list behind.
+   */
+  fileNames: string[];
 };
 
 export type CatalogCard = {
@@ -43,7 +51,17 @@ export type CatalogDetail = CatalogCard & {
   originalTitle: string | null;
   overview: string | null;
   candidates: Array<{ id: string; title: string; year: number | null; score: number }>;
-  children: Array<{ mediaId: string; name: string; season: number | null; episode: number | null }>;
+  children: Array<{
+    mediaId: string;
+    name: string;
+    season: number | null;
+    episode: number | null;
+    /**
+     * Computed from the file name, same rule the browser listing uses, so a
+     * catalog card can tell "this episode needs MPV" without a second request.
+     */
+    compatibility: MediaCompatibility;
+  }>;
 };
 
 export type CatalogStore = {
@@ -279,16 +297,20 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       }
     },
     listPending(libraryId) {
-      return (pendingStmt.all(libraryId) as Array<Record<string, unknown>>).map((row) => ({
-        id: text(row, "id"),
-        libraryId: text(row, "library_id"),
-        itemKey: text(row, "item_key"),
-        kind: kindOf(text(row, "kind")),
-        query: text(row, "query"),
-        rawName: text(row, "raw_name"),
-        subtitle: text(row, "subtitle") || null,
-        fileCount: (childrenStmt.all(text(row, "id")) as unknown[]).length,
-      }));
+      return (pendingStmt.all(libraryId) as Array<Record<string, unknown>>).map((row) => {
+        const children = childrenStmt.all(text(row, "id")) as Array<Record<string, unknown>>;
+        return {
+          id: text(row, "id"),
+          libraryId: text(row, "library_id"),
+          itemKey: text(row, "item_key"),
+          kind: kindOf(text(row, "kind")),
+          query: text(row, "query"),
+          rawName: text(row, "raw_name"),
+          subtitle: text(row, "subtitle") || null,
+          fileCount: children.length,
+          fileNames: children.map((child) => text(child, "name")),
+        };
+      });
     },
     rejectionKeys(libraryId, itemKey) {
       const rows = rejectionsStmt.all(libraryId, itemKey) as Array<Record<string, unknown>>;
@@ -388,12 +410,16 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         year: intOrNull(candidate, "year"),
         score: num(candidate, "score"),
       }));
-      const children = (childrenStmt.all(id) as Array<Record<string, unknown>>).map((child) => ({
-        mediaId: text(child, "media_id"),
-        name: text(child, "name"),
-        season: intOrNull(child, "season"),
-        episode: intOrNull(child, "episode"),
-      }));
+      const children = (childrenStmt.all(id) as Array<Record<string, unknown>>).map((child) => {
+        const name = text(child, "name");
+        return {
+          mediaId: text(child, "media_id"),
+          name,
+          season: intOrNull(child, "season"),
+          episode: intOrNull(child, "episode"),
+          compatibility: compatibilityOf(false, extensionOf(name)),
+        };
+      });
       return {
         ...cardOf(row),
         originalTitle: text(row, "original_title") || null,

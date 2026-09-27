@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
-import { rankHits, type MetadataHit } from "../media/catalog-metadata.ts";
+import { chooseMatch, rankHits, variantKeys, type MetadataHit } from "../media/catalog-metadata.ts";
 import { scoreTitles, tokenizeTitle } from "../media/catalog-names.ts";
 
 /**
@@ -133,4 +133,80 @@ test("episode count still breaks a same-franchise tie", () => {
   const ranked = rankHits(entry.query, entry.hits.map(toHit), null, entry.fileCount);
   assert.equal(ranked[0]?.title, "金牌得主");
   assert.ok(ranked.length > 1, "expected the sequel to remain visible as a candidate");
+});
+
+test("an installment the folder claims but the record never mentions cannot auto-confirm", () => {
+  // Found while tuning the bigram/alias scorer: the folder is a trilogy box set
+  // and Bangumi has no such subject, yet `机动战士高达0079剧场版三部曲合集` scored
+  // 0.900 against the plain `机动战士高达` and confirmed itself.
+  const gundam: MetadataHit = {
+    externalDb: "bangumi",
+    externalId: "688",
+    title: "机动战士高达",
+    originalTitle: null,
+    year: 1981,
+    overview: null,
+    imageUrl: null,
+    episodes: 43,
+    aliases: ["机动战士高达 剧场版Ⅰ"],
+  };
+  const ranked = rankHits("机动战士高达0079剧场版三部曲合集", [gundam], null, 3);
+  assert.ok(ranked.length > 0, "the trilogy must still be listed for a human to pick");
+  assert.ok(ranked[0].score < 0.86, `expected below AUTO_SCORE, got ${ranked[0].score}`);
+  assert.equal(chooseMatch(ranked).status, "candidate");
+});
+
+test("a folder that names the same installment still confirms", () => {
+  const movie: MetadataHit = {
+    externalDb: "bangumi",
+    externalId: "206754",
+    title: "剧场版SHIROBAKO",
+    originalTitle: null,
+    year: 2020,
+    overview: null,
+    imageUrl: null,
+    episodes: 1,
+    aliases: ["Gekijouban SHIROBAKO"],
+  };
+  const ranked = rankHits("Gekijouban SHIROBAKO", [movie], null, null);
+  assert.ok(ranked[0].score >= 0.86, `expected a confirm, got ${ranked[0].score}`);
+  assert.equal(chooseMatch(ranked).status, "confirmed");
+});
+
+test("a season qualifier survives the parse and keeps the wrong season out", () => {
+  // `Yuru Camp S2` must not land on 摇曳露营△ season 1 just because the alias
+  // list of season 1 contains the bare romanized title.
+  const season1: MetadataHit = {
+    externalDb: "bangumi",
+    externalId: "178709",
+    title: "ゆるキャン△",
+    originalTitle: null,
+    year: 2018,
+    overview: null,
+    imageUrl: null,
+    episodes: 13,
+    aliases: ["摇曳露营", "Yuru Camp"],
+  };
+  assert.ok(!variantKeys("Yuru Camp S2").has("season:1"), "S2 must not read as season 1");
+  assert.ok(variantKeys("摇曳露营△ 第三季").has("season:3"));
+  const ranked = rankHits("Yuru Camp S2", [season1], null, 13);
+  assert.ok(ranked.length === 0 || ranked[0].score < 0.86, `expected no confirm, got ${ranked[0]?.score}`);
+});
+
+test("a bare title carries no installment claim", () => {
+  assert.equal(variantKeys("Cowboy Bebop").size, 0);
+  assert.equal(variantKeys("The Ghost in the Shell").size, 0);
+  assert.equal(variantKeys("24 Days no Anime").size, 0);
+  assert.equal(variantKeys("Stand Alone Complex").size, 0);
+  assert.ok(variantKeys("Mobile Suit Gundam The Movie III").has("movie"));
+  assert.ok(variantKeys("魔法使俱乐部 OVA").has("ova"));
+  assert.ok(variantKeys("Revue Starlight 剧场版 2幕").has("movie"));
+});
+
+test("a japanese season suffix reads as an installment claim", () => {
+  // `街角魔族 2-Choume` confirmed onto the first season until the season pattern
+  // only knew `第N季`/`Season N`/`S2`; the folder names ２丁目, the record does not.
+  assert.ok(variantKeys("Machikado Mazoku 2-Choume").has("season:2"));
+  assert.ok(variantKeys("街角魔族 ２丁目").has("season:2"), "full-width numbers must read as a season");
+  assert.equal(variantKeys("Mobile Suit Gundam 00").size, 0, "a bare number in a title is not a season");
 });
