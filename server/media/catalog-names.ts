@@ -155,7 +155,12 @@ function dice(left: string[], right: string[]): number {
   return (2 * shared) / (leftSet.size + rightSet.size);
 }
 
-export function groupScanFiles(files: ScanFile[]): CatalogGroup[] {
+/**
+ * `keepFolders` = directory keys a person has decided on (confirmed by hand). A
+ * folder in that set is never folded into its parent: the alternative is either
+ * deleting someone's card or showing the same file on two cards.
+ */
+export function groupScanFiles(files: ScanFile[], keepFolders?: Set<string>): CatalogGroup[] {
   const byDir = new Map<string, ScanFile[]>();
   for (const file of files) {
     const dir = parentOf(file.relativePath);
@@ -183,6 +188,27 @@ export function groupScanFiles(files: ScanFile[]): CatalogGroup[] {
     rolled.set(key, bucket);
   }
   const groups: CatalogGroup[] = [];
+  // A subfolder whose own files name the parent's work is a segment of that release,
+  // not a second work: `[DBD-Raws][泽塔奥特曼][…]` holds `/人物访谈`(8) and
+  // `/遥辉的奥特导航`(22) whose file names repeat 泽塔奥特曼. The folder *name*
+  // cannot be used for this comparison (`人物访谈` outranks everything else in that
+  // bucket), so the candidate comes from the files only. That also keeps genuine
+  // neighbours out: `/[VCB] SHIROBAKO …/[VCB] Daisan Hikou Shoujotai` names itself.
+  const titlesOfFiles = (bucket: CatalogGroupFile[]) => titleCandidates(bucket.map((file) => file.name), "", 3);
+  for (const key of [...rolled.keys()].sort((left, right) => right.split("/").length - left.split("/").length)) {
+    const bucket = rolled.get(key);
+    if (!bucket || key === "/") continue;
+    const parent = parentOf(key);
+    const parentBucket = rolled.get(parent);
+    if (!parentBucket || keepFolders?.has(key)) continue;
+    const above = titlesOfFiles(parentBucket)[0] ?? "";
+    // Any candidate counts, not just the best one: in `[组][作品][遥辉的奥特导航][01]`
+    // the segment name is longer than the work name and wins the tie-break, while
+    // still proving the folder belongs to the parent release.
+    if (!above || !titlesOfFiles(bucket).some((own) => scoreTitles(own, above) >= 0.95)) continue;
+    parentBucket.push(...bucket);
+    rolled.delete(key);
+  }
   for (const [key, bucket] of rolled) {
     const filesInOrder = [...bucket].sort(compareFiles);
     if (key === "/") {
@@ -223,15 +249,29 @@ export function groupScanFiles(files: ScanFile[]): CatalogGroup[] {
  * its commentary discs - returns null so the sub-line disappears entirely, which
  * both clients render as "no count" rather than a wrong one.
  */
-/** A file sits in a bonus folder when the directory it came from is SPs/OVA/disc. */
-function inBonusFolder(file: CatalogGroupFile): boolean {
-  if (!file.relativePath) return false;
-  const dir = file.relativePath.replace(/\/[^/]*$/, "");
-  return isBonusDirectory(dir.split("/").pop() ?? "");
+/**
+ * Is this file an episode of the card, or something filed alongside it?
+ *
+ * With the card's own folder known, the rule is structural rather than a vocabulary:
+ * a file sitting in that folder is an episode, and a deeper folder counts only when it
+ * names a season (`第二季 包含字幕和弹幕文件`, `Season 01`, `第03话`). Everything below
+ * that - `人物访谈`, `遥辉的奥特导航`, `SPs`, `爆炸` - is a segment, still playable
+ * from this card but not counted as an episode. Without `workDir` there is no
+ * structure to read, so it falls back to the folder-name shapes alone.
+ */
+function isEpisodeFile(file: CatalogGroupFile, workDir?: string): boolean {
+  if (!file.relativePath) return true;
+  const folder = file.relativePath.replace(/\/[^/]*$/, "");
+  const name = folder.split("/").pop() ?? "";
+  if (!workDir) return !isBonusDirectory(name);
+  // Files in the folder of the card itself are its episodes by definition, even if
+  // somebody named that folder `SPs` and later confirmed the card.
+  if (folder === workDir) return true;
+  return seasonFromName(name) !== null || /^第.{1,4}[话話期季]/.test(name);
 }
 
-export function episodeSubtitle(files: CatalogGroupFile[]): string | null {
-  const episodes = files.filter((file) => !inBonusFolder(file));
+export function episodeSubtitle(files: CatalogGroupFile[], workDir?: string): string | null {
+  const episodes = files.filter((file) => isEpisodeFile(file, workDir));
   if (episodes.length <= 1) return null;
   const seasons = new Set(episodes.map((file) => file.season).filter((season): season is number => season !== null));
   const prefix = seasons.size === 1 ? `S${[...seasons][0]} · ` : "";

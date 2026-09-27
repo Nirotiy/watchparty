@@ -563,3 +563,40 @@ test("an episode title that is also another show's name cannot auto-confirm the 
     close();
   }
 });
+
+test("a subfolder whose files name the parent work folds into that card", () => {
+  const files = [
+    ...[1, 2, 3].map((n) => `/[DBD][泽塔奥特曼][01-25TV]` + `/[DBD-Raws][泽塔奥特曼][${String(n).padStart(2, "0")}][1080P].mkv`),
+    ...[1, 2].map((n) => `/[DBD][泽塔奥特曼][01-25TV]/人物访谈/[DBD-Raws][泽塔奥特曼][人物访谈][${n}][1080P].mkv`),
+    ...[1, 2].map((n) => `/[DBD][泽塔奥特曼][01-25TV]/遥辉的奥特导航/[DBD-Raws][泽塔奥特曼][遥辉的奥特导航][${n}][1080P].mkv`),
+  ].map((relativePath) => ({ relativePath, name: relativePath.split("/").pop() ?? relativePath, mediaId: relativePath }));
+  const groups = groupScanFiles(files);
+  assert.equal(groups.length, 1, "访谈与奥特导航不是两部作品");
+  assert.equal(groups[0]?.files.length, 7);
+  assert.equal(episodeSubtitle(groups[0]?.files ?? [], groups[0]?.itemKey), "3 集", "集数只数与卡同层的文件");
+});
+
+test("a different work filed inside another tree is not folded away", () => {
+  const paths = [
+    "/[VCB-Studio] SHIROBAKO/[VCB-Studio] SHIROBAKO [01][Ma10p].mkv",
+    "/[VCB-Studio] SHIROBAKO/[VCB-Studio] SHIROBAKO [02][Ma10p].mkv",
+    "/[VCB-Studio] SHIROBAKO/[VCB-Studio] Daisan Hikou Shoujotai [Ma10p]/[VCB-Studio] Daisan Hikou Shoujotai [Ma10p].mkv",
+    "/[VCB-Studio] SHIROBAKO/[VCB-Studio] Exodus! [Ma10p_1080p]/[VCB-Studio] Exodus! [01][Ma10p].mkv",
+  ];
+  const groups = groupScanFiles(paths.map((relativePath) => ({ relativePath, name: relativePath.split("/").pop() ?? relativePath, mediaId: relativePath })));
+  const keys = groups.map((group) => group.query).sort();
+  assert.deepEqual(keys, ["Daisan Hikou Shoujotai", "Exodus!", "SHIROBAKO"], "第三飞行少女队与 Exodus 都是独立条目");
+});
+
+test("season folders folded into one card still count every episode", () => {
+  const paths = [
+    "/克拉克森的农场/第一季 包含字幕和弹幕文件/S01E01 拖拉机.mp4",
+    "/克拉克森的农场/第一季 包含字幕和弹幕文件/S01E02 围栏.mp4",
+    "/克拉克森的农场/第三季 包含字幕和弹幕文件/S03E01 荒原.mp4",
+    "/克拉克森的农场/第三季 包含字幕和弹幕文件/S03E02 牛棚.mp4",
+  ];
+  const groups = groupScanFiles(paths.map((relativePath) => ({ relativePath, name: relativePath.split("/").pop() ?? relativePath, mediaId: relativePath })));
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0]?.query, "克拉克森的农场");
+  assert.equal(episodeSubtitle(groups[0]?.files ?? [], groups[0]?.itemKey), "4 集");
+});

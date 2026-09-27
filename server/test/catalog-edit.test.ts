@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { createBackend, type Backend } from "../app.ts";
 import { loadConfig } from "../config.ts";
-import type { CatalogGroup } from "../media/catalog-names.ts";
+import { episodeSubtitle, groupScanFiles, type CatalogGroup } from "../media/catalog-names.ts";
 import { openCatalogStore } from "../media/catalog-store.ts";
 import { WATCHPARTY_ROOTS } from "../media/watchparty-media.ts";
 import type { OpenlistClient } from "../media/openlist.ts";
@@ -104,7 +104,7 @@ test("merge moves files onto the kept card and carries the confirmation with the
   try {
     store.upsertScan("lib_anime", "tv", [group("/Uha/SPs", "Oddtaxi SPs", ["s1", "s2"]), group("/Uha", "ODDTAXI", ["o1", "o2"])]);
     // 合并后这张卡有 4 个文件，但其中两个来自 SPs 目录 ⇒ 集数仍是 2
-    const [spCard, showCard] = store.listPending("lib_anime");
+    const [showCard, spCard] = store.listPending("lib_anime"); // listPending 按 item_key 升序：/Uha 在前
     assert.ok(spCard && showCard);
     // The confirmed card is the one being swallowed, so the binding must travel.
     store.applyMatch(spCard, "confirmed", { externalDb: "bangumi", externalId: "268510", title: "奇巧计程车", originalTitle: null, year: 2021, overview: null, imageUrl: null, episodes: null, score: 1 }, []);
@@ -491,3 +491,43 @@ test("children say which subfolder they came from, so seasons survive in one car
     store.close();
   }
 });
+
+test("folding a bonus subfolder respects who confirmed what", () => {
+  const tree = [
+    { relativePath: "/Box/t1.mkv", name: "[DBD-Raws][泽塔奥特曼][01][1080P][BDRip].mkv", mediaId: "t1" },
+    { relativePath: "/Box/t2.mkv", name: "[DBD-Raws][泽塔奥特曼][02][1080P][BDRip].mkv", mediaId: "t2" },
+    { relativePath: "/Box/人物访谈/i1.mkv", name: "[DBD-Raws][泽塔奥特曼][人物访谈][01][1080P][BDRip].mkv", mediaId: "i1" },
+  ];
+  const folded = groupScanFiles(tree);
+  assert.equal(folded.length, 1, "访谈那段属于同一个 release，折进作品卡");
+  assert.equal(episodeSubtitle(folded[0].files, folded[0].itemKey), "2 集");
+
+  const kept = groupScanFiles(tree, new Set(["/Box/人物访谈"]));
+  assert.equal(kept.length, 2, "人确认过的目录不折：既不删他的卡，也不让同一个文件出现在两张卡上");
+  const ids = kept.map((group) => group.files.map((file) => file.mediaId).sort().join("+")).sort();
+  assert.deepEqual(ids, ["i1", "t1+t2"]);
+});
+
+test("an auto-confirmed card whose folder disappeared is dropped; a human one is kept", () => {
+  const run = (as: "auto" | "manual") => {
+    const { store } = openStore();
+    try {
+      store.upsertScan("lib_tv", "tv", [group("/Box", "泽塔奥特曼", ["t1", "t2"]), group("/Box/人物访谈", "泽塔奥特曼 访谈", ["i1"])]);
+      const child = store.listPending("lib_tv").find((card) => card.itemKey === "/Box/人物访谈")!;
+      const chosen = { externalDb: "tmdb" as const, externalId: "101005", title: "泽塔奥特曼", originalTitle: null, year: 2020, overview: null, imageUrl: null, episodes: null, score: 1 };
+      store.applyMatch(child, "confirmed", chosen, [chosen]);
+      if (as === "manual") store.confirm(child.id, store.getDetail(child.id)!.candidates[0].id);
+      assert.deepEqual([...store.protectedKeys("lib_tv")], as === "manual" ? ["/Box/人物访谈"] : []);
+
+      store.upsertScan("lib_tv", "tv", [group("/Box", "泽塔奥特曼", ["t1", "t2", "i1"])]);
+      const cards = store.listCards("lib_tv", undefined, undefined).items;
+      assert.equal(cards.length, as === "auto" ? 1 : 2, "机器的孤儿行删掉，人工的行留着");
+      assert.equal(store.getDetail(child.id) !== undefined, as === "manual");
+    } finally {
+      store.close();
+    }
+  };
+  run("auto");
+  run("manual");
+});
+

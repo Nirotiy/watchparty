@@ -46,7 +46,7 @@ export function createCatalogWorker(options: {
         // grouping change can be reviewed offline against the real tree instead of
         // re-scraping the network and rewriting people's answers.
         options.catalog.writeScan(libraryId, files);
-        const groups = groupScanFiles(files).filter((group) => group.query);
+        const groups = groupScanFiles(files, options.catalog.protectedKeys(libraryId)).filter((group) => group.query);
         options.catalog.upsertScan(libraryId, library.kind, groups);
       }
       const pending = options.catalog.listPending(libraryId);

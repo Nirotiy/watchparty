@@ -121,6 +121,8 @@ export type CatalogStore = {
   reclusterBySubject(libraryId: string): { merged: number; protectedGroups: number };
   /** 快照：一次枚举的完整文件列表，供离线分类反复跑。 */
   writeScan(libraryId: string, files: ScanFile[]): number;
+  /** 人工决定过的目录：分组时不许折叠或删除它们。 */
+  protectedKeys(libraryId: string): Set<string>;
   readScan(libraryId: string): ScanFile[];
   scanInfo(libraryId: string): { files: number; enumeratedAt: string | null };
   writePoster(itemId: string, contentType: string, bytes: Buffer): void;
@@ -311,10 +313,11 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
   /** Renumber, then recompute the sub-line: `rel_path` records which folder each
    * file came from, so the bonus-vs-episode distinction survives a merge or split. */
   function resequence(itemId: string): void {
+    const workDir = text((itemById.get(itemId) ?? {}) as Record<string, unknown>, "item_key");
     const ids = (db.prepare("SELECT id FROM catalog_children WHERE item_id = ? ORDER BY sort_index, name").all(itemId) as Array<Record<string, unknown>>).map((row) => text(row, "id"));
     const update = db.prepare("UPDATE catalog_children SET sort_index = ? WHERE id = ?");
     ids.forEach((id, index) => update.run(index, id));
-    db.prepare("UPDATE catalog_items SET subtitle = ?, updated_at = ? WHERE id = ?").run(episodeSubtitle(childrenOf(itemId)), now(), itemId);
+    db.prepare("UPDATE catalog_items SET subtitle = ?, updated_at = ? WHERE id = ?").run(episodeSubtitle(childrenOf(itemId), workDir), now(), itemId);
   }
 
   /** Shared by the read path and by every mutating endpoint's response. */
@@ -476,7 +479,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       try {
         for (const group of groups) {
           seen.add(group.itemKey);
-          const subtitle = episodeSubtitle(group.files);
+          const subtitle = episodeSubtitle(group.files, group.itemKey);
           const row = byKey.get(group.itemKey) ?? bySignature.get(signatureOf(group.files));
           if (row) {
             const id = text(row, "id");
@@ -489,6 +492,10 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
           }
           if (row && text(row, "status") === "confirmed") {
             replaceChildren(text(row, "id"), group.files);
+            // A confirmed row keeps its title and binding - but `subtitle` is derived
+            // from the files, and the files just changed (fold, bonus folder). Not
+            // refreshing it leaves a card saying "58 集" for a 28-episode show.
+            db.prepare("UPDATE catalog_items SET subtitle = ?, updated_at = ? WHERE id = ?").run(subtitle, now(), text(row, "id"));
             continue;
           }
           const id = row ? text(row, "id") : nid("cat");
@@ -512,11 +519,20 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
           replaceChildren(id, group.files);
         }
         for (const row of existing) {
+          const id = text(row, "id");
           // `kept` matters: a card reused under a new key still holds its old
           // `item_key` in this pre-update snapshot, so the key test alone would
           // delete the very card we just moved.
-          if (kept.has(text(row, "id")) || seen.has(text(row, "item_key")) || text(row, "status") === "confirmed") continue;
-          db.prepare("DELETE FROM catalog_items WHERE id = ?").run(text(row, "id"));
+          if (kept.has(id) || seen.has(text(row, "item_key"))) continue;
+          if (text(row, "status") !== "confirmed") {
+            db.prepare("DELETE FROM catalog_items WHERE id = ?").run(id);
+            continue;
+          }
+          // A confirmed card whose folder no longer groups on its own (a bonus
+          // subfolder folded into the work card) would otherwise linger as an orphan
+          // holding files that now live elsewhere. Only the machine's own answers
+          // may be dropped this way; anything a person touched stays.
+          if (text(row, "confirmed_by") === "auto") db.prepare("DELETE FROM catalog_items WHERE id = ?").run(id);
         }
         const confirmed = (itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>).filter((row) => text(row, "status") === "confirmed").length;
         db.prepare(
@@ -782,6 +798,12 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         throw error;
       }
       return (db.prepare("SELECT COUNT(*) n FROM catalog_scan WHERE library_id = ?").get(libraryId) as { n: number }).n;
+    },
+    protectedKeys(libraryId) {
+      const rows = db
+        .prepare("SELECT item_key FROM catalog_items WHERE library_id = ? AND status = 'confirmed' AND COALESCE(confirmed_by, 'unknown') <> 'auto'")
+        .all(libraryId) as Array<Record<string, unknown>>;
+      return new Set(rows.map((row) => text(row, "item_key")));
     },
     readScan(libraryId) {
       return (db.prepare("SELECT rel_path, name, media_id FROM catalog_scan WHERE library_id = ? ORDER BY rel_path").all(libraryId) as Array<Record<string, unknown>>).map((row) => ({
