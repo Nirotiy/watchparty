@@ -695,7 +695,12 @@ test("judge 只写草稿：候选与自动确认都留在草稿里，正式表�
     assert.equal(card.confirmedBy, "auto");
     assert.equal(card.externalId, "430699");
     assert.equal(card.lookupState, "done");
-    assert.ok(((card.candidates as unknown[]) ?? []).length >= 1);
+    assert.equal("candidates" in card, false, "候选不在列表里");
+    assert.ok((card.candidateCount as number) >= 1, "但列表留了扁平计数");
+    assert.equal(typeof card.topScore, "number");
+    const expanded = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/classify?item=${encodeURIComponent(card.itemKey as string)}`));
+    assert.ok(((expanded.body as { candidates: unknown[] }).candidates ?? []).length >= 1, "展开时才给候选");
+    assert.equal(((expanded.body as { children: unknown[] }).children ?? []).length, 2);
 
     const cards = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`));
     assert.deepEqual((cards.body as { items: unknown[] }).items, []);

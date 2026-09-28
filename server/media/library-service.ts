@@ -12,8 +12,8 @@ import {
   type LibraryPage,
 } from "./library-browser.ts";
 import { groupScanFiles, isVideoFileName, type CatalogGroupFile, type ScanFile } from "./catalog-names.ts";
-import { createBangumiClient, createTmdbClient, fetchPosterBytes, judgeThresholds, type MetadataSearcher } from "./catalog-metadata.ts";
-import { openCatalogStore, type CatalogCard, type CatalogDraftCard, type CatalogDraftDiff, type CatalogDetail, type ManualBinding } from "./catalog-store.ts";
+import { createBangumiClient, createTmdbClient, fetchPosterBytes, judgeThresholds, type MetadataSearcher, type RankedHit } from "./catalog-metadata.ts";
+import { openCatalogStore, type CatalogCard, type CatalogDraftCard, type CatalogDraftDiff, type CatalogDraftRow, type CatalogDetail, type ManualBinding } from "./catalog-store.ts";
 import { createCatalogWorker } from "./catalog-worker.ts";
 import {
   isLibraryKind,
@@ -111,12 +111,12 @@ export type LibraryService = {
     pending: number;
     classifiedAt: string | null;
     scan: { files: number; enumeratedAt: string | null };
-    draft: Array<Omit<CatalogDraftCard, "children">>;
+    draft: CatalogDraftRow[];
     diff: CatalogDraftDiff;
     thresholds: typeof judgeThresholds;
   };
   /** 展开某一张草稿卡时才取它的文件列表。 */
-  catalogDraftCard(id: string, itemKey: string): { libraryId: string; card: Omit<CatalogDraftCard, "children">; children: CatalogGroupFile[] };
+  catalogDraftCard(id: string, itemKey: string): { libraryId: string; card: CatalogDraftRow; children: CatalogGroupFile[]; candidates: RankedHit[] };
   catalogPoster(id: string): { contentType: string; bytes: Buffer } | undefined;
   adminScrape(libraryId: string): Promise<{ libraryId: string; status: string; total: number; scanned: number; matched: number; lastError: string | null }>;
   adminScrapeStatus(libraryId: string): { libraryId: string; status: string; total: number; scanned: number; matched: number; lastError: string | null };
@@ -620,9 +620,10 @@ export function createLibraryService(options: {
     catalogDraftCard(id, itemKey) {
       if (!store.getLibrary(id)) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
       const children = catalog.draftChildren(id, itemKey);
+      const candidates = catalog.draftCandidates(id, itemKey);
       const card = catalog.draftList(id).find((entry) => entry.itemKey === itemKey);
-      if (!children || !card) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
-      return { libraryId: id, card, children };
+      if (!children || !candidates || !card) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      return { libraryId: id, card, children, candidates };
     },
     catalogPoster(id) {
       return catalog.readPoster(id);
