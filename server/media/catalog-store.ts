@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { cleanTitle, episodeSubtitle, isVideoFileName, titleCandidates, type CatalogGroup, type CatalogGroupFile, type ScanFile } from "./catalog-names.ts";
+import { cleanTitle, episodeSubtitle, isVideoFileName, parseEpisode, titleCandidates, type CatalogGroup, type CatalogGroupFile, type ScanFile } from "./catalog-names.ts";
 import { compatibilityOf, extensionOf } from "./library-browser.ts";
 import type { MediaCompatibility } from "./watchparty-media.ts";
 import type { MetadataDb, RankedHit } from "./catalog-metadata.ts";
@@ -152,6 +152,7 @@ export type CatalogDetail = CatalogCard & {
     name: string;
     season: number | null;
     episode: number | null;
+    episodeTitle?: string | null;
     /** Library-relative folder the file actually sits in (`第二季`, `SPs`, `爆炸`). */
     relDir: string | null;
     /**
@@ -596,8 +597,8 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     const children = childrenOf(id).map((child) => ({
       mediaId: child.mediaId,
       name: child.name,
-      season: child.season,
-      episode: child.episode,
+      season: child.season ?? parseEpisode(child.name).season,
+      episode: child.episode ?? parseEpisode(child.name).episode,
       // The folder the file really sits in. Seasons of one show often arrive as
       // sibling folders with no SxxEyy in the names, so this - not a guessed
       // episode number - is what lets the right-hand column say 第二季 vs SPs.

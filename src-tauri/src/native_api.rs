@@ -767,10 +767,10 @@ pub fn media_search(
 }
 
 /// Routes the media library surface may reach on the configured WatchParty backend.
-/// Phase 3 routes (catalog, posters, confirm, reject) stay closed until that phase
-/// ships. Each segment is checked on its own: a segment may not be `.`/`..` and may
+/// Phase 3 adds the catalog reads and the two candidate writes plus the admin scrape
+/// pair. Each segment is checked on its own: a segment may not be `.`/`..` and may
 /// not carry `?`, `#`, `\\` or `/`, so a path cannot smuggle a second route or a
-/// query. Artwork does not appear here: it is its own command (`mediaArtwork`)
+/// query. Images are not paths here: they are their own command (`mediaImage`)
 /// because the answer is bytes, not JSON.
 fn media_route_allowed(method: &str, path: &str) -> bool {
     let id_ok = media_id_ok;
@@ -779,16 +779,42 @@ fn media_route_allowed(method: &str, path: &str) -> bool {
         ("GET", ["", "api", "media", "libraries"]) => true,
         ("GET", ["", "api", "media", "list"]) => true,
         ("GET", ["", "api", "media", "search"]) => true,
+        ("GET", ["", "api", "media", "catalog"]) => true,
+        ("GET", ["", "api", "media", "catalog", id]) => id_ok(id),
+        ("POST", ["", "api", "media", "catalog", id, "confirm"])
+        | ("POST", ["", "api", "media", "catalog", id, "reject"])
+        | ("POST", ["", "api", "media", "catalog", id, "unconfirm"])
+        | ("POST", ["", "api", "media", "catalog", id, "rebind"])
+        | ("POST", ["", "api", "media", "catalog", id, "split"]) => id_ok(id),
+        ("POST", ["", "api", "media", "catalog", "merge"]) => true,
+        ("GET", ["", "api", "media", "bangumi", "search"]) => true,
         ("GET", ["", "api", "admin", "media-sources"]) => true,
         ("POST", ["", "api", "admin", "media-sources"]) => true,
         ("PATCH", ["", "api", "admin", "media-sources", id])
         | ("DELETE", ["", "api", "admin", "media-sources", id]) => id_ok(id),
+        ("GET", ["", "api", "admin", "media-libraries", id, "scrape"])
+        | ("POST", ["", "api", "admin", "media-libraries", id, "scrape"])
+        | ("GET", ["", "api", "admin", "media-libraries", id, "scan"])
+        | ("POST", ["", "api", "admin", "media-libraries", id, "scan"])
+        // 草稿审阅（第 4 块）：scan → classify → judge → apply
+        | ("GET", ["", "api", "admin", "media-libraries", id, "classify"])
+        | ("POST", ["", "api", "admin", "media-libraries", id, "classify"])
+        | ("POST", ["", "api", "admin", "media-libraries", id, "judge"])
+        | ("POST", ["", "api", "admin", "media-libraries", id, "apply"]) => id_ok(id),
+        // 草稿编辑（§9 六个）：动作名固定，别的一律拒。
+        ("POST", ["", "api", "admin", "media-libraries", id, "draft", action]) => {
+            id_ok(id)
+                && matches!(
+                    *action,
+                    "edit" | "confirm" | "unconfirm" | "merge" | "split" | "keep-binding"
+                )
+        }
         _ => false,
     }
 }
 
-/// Opaque media ids are base64url tokens; the server still validates them.
-/// `%` is refused as well: it would let a percent-encoded separator reach the
+/// Opaque media and catalog ids are base64url-ish tokens; the server still validates
+/// them. `%` is refused as well: it would let a percent-encoded separator reach the
 /// backend route as a path character.
 fn media_id_ok(segment: &str) -> bool {
     !segment.is_empty()
@@ -834,22 +860,24 @@ fn is_safe_media_path(path: &str) -> bool {
     path.len() <= 1000 && !path.contains('\\') && !path.split('/').any(|segment| segment == "..")
 }
 
-/// One library image (phase 2). The bytes come back base64-encoded for the shell's
-/// asset server, which is the only thing that serves them on; the renderer never
-/// sees a data URL or a public image address, and the image proxy in the main
-/// process stays the one path for `<img>`.
-pub fn media_artwork(
+/// One library image: a media entry's local artwork (phase 2) or a catalog item's
+/// cached poster (phase 3). The bytes come back base64-encoded for the shell's asset
+/// server, which is the only thing that serves them on; the renderer never sees a data
+/// URL or a public image address, and the image proxy in the main process stays the
+/// one path for `<img>`.
+pub fn media_image(
     state: &NativeDesktopState,
-    media_id: String,
+    kind: String,
+    id: String,
 ) -> Result<serde_json::Value, RuntimeError> {
-    if !media_id_ok(&media_id) {
+    if !matches!(kind.as_str(), "media" | "poster") || !media_id_ok(&id) {
         return Err(RuntimeError::media_route_denied());
     }
     configuration_task(state, move |state| {
         let _ = state.runtime()?;
         let (content_type, bytes) = state
             .media_transport()?
-            .media_artwork(&media_id)
+            .media_image(&kind, &id)
             .map_err(|error| RuntimeError::from_transport(&error))?;
         Ok(serde_json::json!({
             "contentType": content_type,
@@ -943,10 +971,33 @@ mod tests {
             ("GET", "/api/media/libraries"),
             ("GET", "/api/media/list"),
             ("GET", "/api/media/search"),
+            ("GET", "/api/media/catalog"),
+            ("GET", "/api/media/catalog/cat_1"),
+            ("POST", "/api/media/catalog/cat_1/confirm"),
+            ("POST", "/api/media/catalog/cat_1/reject"),
+            ("POST", "/api/media/catalog/cat_1/unconfirm"),
+            ("POST", "/api/media/catalog/cat_1/rebind"),
+            ("POST", "/api/media/catalog/cat_1/split"),
+            ("POST", "/api/media/catalog/merge"),
+            ("GET", "/api/media/bangumi/search"),
             ("GET", "/api/admin/media-sources"),
             ("POST", "/api/admin/media-sources"),
             ("PATCH", "/api/admin/media-sources/7"),
             ("DELETE", "/api/admin/media-sources/src-1"),
+            ("GET", "/api/admin/media-libraries/lib_anime/scrape"),
+            ("POST", "/api/admin/media-libraries/lib_anime/scrape"),
+            ("GET", "/api/admin/media-libraries/lib_anime/scan"),
+            ("POST", "/api/admin/media-libraries/lib_anime/scan"),
+            ("GET", "/api/admin/media-libraries/lib_anime/classify"),
+            ("POST", "/api/admin/media-libraries/lib_anime/classify"),
+            ("POST", "/api/admin/media-libraries/lib_anime/judge"),
+            ("POST", "/api/admin/media-libraries/lib_anime/apply"),
+            ("POST", "/api/admin/media-libraries/lib_anime/draft/edit"),
+            ("POST", "/api/admin/media-libraries/lib_anime/draft/confirm"),
+            ("POST", "/api/admin/media-libraries/lib_anime/draft/unconfirm"),
+            ("POST", "/api/admin/media-libraries/lib_anime/draft/merge"),
+            ("POST", "/api/admin/media-libraries/lib_anime/draft/split"),
+            ("POST", "/api/admin/media-libraries/lib_anime/draft/keep-binding"),
         ] {
             assert!(media_route_allowed(method, path), "{method} {path}");
         }
@@ -955,12 +1006,14 @@ mod tests {
             ("POST", "/api/media/list"),
             ("PUT", "/api/media/libraries"),
             ("PATCH", "/api/media/capabilities"),
-            // phase 3 routes stay closed
-            ("GET", "/api/media/catalog"),
-            ("GET", "/api/media/catalog/9"),
-            ("POST", "/api/media/catalog/9/confirm"),
-            ("POST", "/api/media/catalog/9/reject"),
-            ("GET", "/api/media/posters/9"),
+            ("POST", "/api/media/catalog"),
+            ("GET", "/api/media/catalog/cat_1/confirm"),
+            ("POST", "/api/media/catalog/cat_1/apply"),
+            ("DELETE", "/api/media/catalog/cat_1"),
+            ("POST", "/api/media/catalog/merge/extra"),
+            ("GET", "/api/media/bangumi"),
+            ("POST", "/api/media/bangumi/search"),
+            ("POST", "/api/media/posters/9"),
             ("GET", "/api/media/artwork/v2.abc"),
             // other surfaces the renderer must not reach
             ("GET", "/api/media/roots"),
@@ -969,6 +1022,15 @@ mod tests {
             ("POST", "/api/rooms"),
             ("GET", "/api/media/libraries/extra"),
             ("GET", "/api/admin/media-sources/7"),
+            ("GET", "/api/admin/media-libraries/lib_anime"),
+            ("DELETE", "/api/admin/media-libraries/lib_anime/scrape"),
+            ("GET", "/api/admin/media-libraries/lib_anime/classify/extra"),
+            ("POST", "/api/admin/media-libraries/lib_anime/apply/force"),
+            ("GET", "/api/admin/media-libraries/lib_anime/judge"),
+            ("GET", "/api/admin/media-libraries/lib_anime/draft/edit"),
+            ("POST", "/api/admin/media-libraries/lib_anime/draft/unknown"),
+            ("POST", "/api/admin/media-libraries/lib_anime/draft/edit/extra"),
+            ("POST", "/api/admin/media-libraries/lib_anime/draft"),
             // traversal and separator games
             ("PATCH", "/api/admin/media-sources/.."),
             ("PATCH", "/api/admin/media-sources/."),
@@ -981,7 +1043,7 @@ mod tests {
     }
 
     #[test]
-    fn media_artwork_takes_opaque_ids_and_nothing_else() {
+    fn media_image_takes_opaque_ids_and_nothing_else() {
         for id in ["v2.c3JjX2RlZmF1bHQ.a-b_c", "v2.only.payload", "legacyid"] {
             assert!(media_id_ok(id), "{id}");
         }

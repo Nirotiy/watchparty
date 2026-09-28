@@ -83,7 +83,7 @@ export type LibraryService = {
     mediaAdmin: boolean;
   };
   catalogList(libraryId: string, cursor?: string, query?: string): { items: CatalogCard[]; hasMore: boolean; nextCursor?: string };
-  catalogDetail(id: string): CatalogDetail;
+  catalogDetail(id: string, includeEpisodeTitles?: boolean): Promise<CatalogDetail>;
   catalogConfirm(id: string, body: unknown): Promise<CatalogDetail>;
   catalogReject(id: string, body: unknown): CatalogDetail;
   catalogUnconfirm(id: string): CatalogDetail;
@@ -224,6 +224,7 @@ export function createLibraryService(options: {
 
   const catalog = openCatalogStore(options.catalogDbPath ?? defaultCatalogDbPath(cfg), options.posterDir ?? defaultPosterDir(cfg));
   const bangumiSearcher = options.bangumi ?? createBangumiClient();
+  const episodeCache = new Map<string, Promise<Map<number, string>>>();
   const worker = createCatalogWorker({
     catalog,
     bangumi: bangumiSearcher,
@@ -524,10 +525,31 @@ export function createLibraryService(options: {
         throw new LibraryRequestError(400, "INVALID_REQUEST");
       }
     },
-    catalogDetail(id) {
+    async catalogDetail(id, includeEpisodeTitles = true) {
       const detail = catalog.getDetail(id);
       if (!detail) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
-      return detail;
+      if (!includeEpisodeTitles) return detail;
+      if (detail.status !== "confirmed" || detail.externalDb !== "bangumi" || !detail.externalId || !bangumiSearcher.episodeTitles) return detail;
+      const subjectId = detail.externalId;
+      let request = episodeCache.get(subjectId);
+      if (!request) {
+        request = bangumiSearcher.episodeTitles(subjectId);
+        episodeCache.set(subjectId, request);
+      }
+      let titles: Map<number, string>;
+      try {
+        titles = await request;
+      } catch {
+        episodeCache.delete(subjectId);
+        return detail;
+      }
+      return {
+        ...detail,
+        children: detail.children.map((child) => ({
+          ...child,
+          episodeTitle: child.episode === null ? null : titles.get(child.episode) ?? null,
+        })),
+      };
     },
     async catalogConfirm(id, body) {
       const candidateId = candidateIdFrom(body);

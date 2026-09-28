@@ -6,28 +6,35 @@ import {
 } from "@fluentui/react-components"
 import { Slider as WinUiSlider } from "@/components/ui/slider"
 import {
-  CheckmarkCircleRegular, DeleteRegular, GlobeRegular,
+  CheckmarkCircleRegular, DeleteRegular, GlobeRegular, LibraryRegular,
   PlayCircleRegular, PulseRegular, SaveRegular, SettingsRegular, ShieldRegular, WarningRegular,
 } from "@fluentui/react-icons"
 import type { DesktopUiState } from "@/lib/contracts"
 import { useShellToast } from "@/components/shell-toast"
 import {
-  backendAddressError, clearSiteCredentials, deleteOriginTrust, errorMessage, getDesktopSettings, importOriginTrust,
-  listOriginTrust, listAudioOutputDevices, promptSiteCredentials, updateDesktopSettings, verifyBackend,
+  backendAddressError, clearSiteCredentials, createMediaSource, deleteOriginTrust, errorMessage, getDesktopSettings, importOriginTrust,
+  listOriginTrust, listAudioOutputDevices, mediaCapabilities, mediaLibraries, mediaRequest, promptSiteCredentials, updateDesktopSettings, verifyBackend,
+  type AdminMediaSource,
   type AudioOutputDevice,
-  type DesktopSettingsStatus, type OriginTrustRecord, type PlayerPreferences,
+  type DesktopSettingsStatus, type MediaLibrary, type OriginTrustRecord, type PlayerPreferences,
 } from "@/lib/ipc"
+import { libraryKindLabel, mediaErrorText } from "@/lib/media-library-view"
+import { MaterialSymbol } from "@/components/material-symbol"
+import { MediaSourceForm, type MediaSourceDraft } from "@/components/media-source-form"
+import { CatalogDraft } from "@/components/catalog-draft"
+import { cn } from "@/lib/utils"
 import { probeMusicParty, type MusicPartyProbe } from "../../shared/musicparty-adapter"
 import { invoke } from "../../shared/desktop-runtime"
 import { musicPartyOriginError } from "../../shared/local-schema"
 
 type Theme = "dark" | "light"
-type SettingsSection = "general" | "network" | "playback" | "security"
+type SettingsSection = "general" | "network" | "playback" | "media" | "security"
 
 const sections: Array<{ value: SettingsSection; label: string; icon: typeof SettingsRegular }> = [
   { value: "general", label: "基础", icon: SettingsRegular },
   { value: "network", label: "连接", icon: GlobeRegular },
   { value: "playback", label: "播放", icon: PlayCircleRegular },
+  { value: "media", label: "媒体库", icon: LibraryRegular },
   { value: "security", label: "安全与高级", icon: ShieldRegular },
 ]
 
@@ -89,6 +96,7 @@ export function FluentSettingsView({ state, theme, onThemeChange, windowMaterial
         {section === "general" ? <GeneralPanel theme={theme} onThemeChange={onThemeChange} windowMaterial={windowMaterial} onWindowMaterialChange={onWindowMaterialChange} /> : null}
         {section === "playback" ? <PlaybackPanel state={state} /> : null}
         {section === "network" ? <NetworkPanel state={state} /> : null}
+        {section === "media" ? <MediaLibrarySettingsPanel /> : null}
         {section === "security" ? <SecurityPanel musicPartyOrigin={musicPartyOrigin} onLogout={onMusicPartyLogout} /> : null}
         </div>
       </section>
@@ -210,6 +218,94 @@ function VolumeControl({ value, onChange }: { value: number; onChange: (value: n
     <WinUiSlider value={[value]} min={0} max={100} size="compact" aria-label="默认音量" onValueChange={([next]) => onChange(next ?? value)} />
     <Text size={200}>{value}%</Text>
   </div>
+}
+
+/**
+ * 媒体库（2026-09-28 用户裁决）：片源的增删/体检搬到这里，房间里的媒体页只做选片。
+ * 后续媒体库相关的开关（默认视图、只看可播、封面策略一类）也挂在这一栏。
+ */
+function MediaLibrarySettingsPanel() {
+  const [sources, setSources] = useState<AdminMediaSource[] | null>(null)
+  const [libraries, setLibraries] = useState<MediaLibrary[]>([])
+  const [admin, setAdmin] = useState<boolean | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [draftLibraryId, setDraftLibraryId] = useState<string | null>(null)
+  const { message, intent, setMessage } = useSettingsMessage()
+
+  async function reload() {
+    try {
+      const caps = await mediaCapabilities()
+      setAdmin(caps.mediaAdmin === true)
+      const list = await mediaLibraries()
+      setLibraries(list)
+      setDraftLibraryId(current => current ?? list[0]?.id ?? null)
+      if (caps.mediaAdmin === true) {
+        const reply = await mediaRequest<{ sources?: AdminMediaSource[] }>("GET", "/api/admin/media-sources", {})
+        setSources(reply.sources ?? [])
+      } else setSources([])
+    } catch (error) {
+      setSources([])
+      setMessage(mediaErrorText(error, "读不到媒体源列表"), "error")
+    }
+  }
+  useEffect(() => { void reload() }, [])
+
+  async function create(draft: MediaSourceDraft): Promise<{ ok: true } | { ok: false; message: string }> {
+    try {
+      const created = await createMediaSource(draft)
+      setAdding(false)
+      await reload()
+      setMessage(`已添加 ${created.name}`, "success")
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: mediaErrorText(error, "无法保存这个源") }
+    }
+  }
+
+  return <>
+    <SettingsHeading title="媒体库" detail="片源站点与库在这里维护；房间里只做选片与播放。" />
+    {admin === false ? <MessageBar intent="warning" className="fluent-settings-message"><MessageBarBody><MessageBarTitle>只有本机或管理员能修改片源</MessageBarTitle>当前会话不是管理员，这里只显示只读信息。</MessageBarBody></MessageBar> : null}
+    <div className="border-y border-border">
+      <SettingsRow label="已配置的片源" description={sources === null ? "读取中…" : sources.length === 0 ? "还没有片源" : `${sources.length} 个站点 · ${libraries.length} 个库`}>
+        <Button appearance="secondary" disabled={admin !== true} aria-expanded={adding} onClick={() => setAdding(open => !open)}>
+          <MaterialSymbol name="add" />添加媒体源
+        </Button>
+      </SettingsRow>
+      {sources && sources.length > 0 ? <ul className="media-source-list">
+        {sources.map(source => (
+          <li key={source.id}>
+            <MaterialSymbol name="library" className="size-4 text-muted-foreground" />
+            <span className="media-source-name">{source.name}</span>
+            <span className="media-source-detail">{source.internalBaseUrl}{source.username ? ` · ${source.username}` : ""}{source.passwordSet ? " · 已存密码" : ""}</span>
+            <span className="media-source-libs">{source.libraries.map(library => `${library.name}（${libraryKindLabel(library.kind)}）`).join(" / ")}</span>
+          </li>
+        ))}
+      </ul> : null}
+    </div>
+    {adding ? <div className="mt-4"><MediaSourceForm onCreate={create} onCancel={() => setAdding(false)} /></div> : null}
+    <div className="mt-5"><Text size={200}>库的健康状态在房间里的媒体页顶部（库切换条上的小圆点）；坏掉的库只影响它自己。</Text></div>
+
+    <SettingsHeading title="草稿审阅" detail="扫描 / 分类 / 判定只写草稿，正式卡一行不动；「应用」是唯一落库步骤。" />
+    {libraries.length === 0 ? <Text size={200}>还没有可审阅的库。</Text> : (
+      <>
+        <div className="media-lib-picker" role="group" aria-label="选择要审阅的库">
+          {libraries.map(library => (
+            <button
+              key={library.id}
+              type="button"
+              className={cn("draft-lib-chip", draftLibraryId === library.id && "on")}
+              aria-pressed={draftLibraryId === library.id}
+              onClick={() => setDraftLibraryId(library.id)}
+            >
+              {library.name}
+            </button>
+          ))}
+        </div>
+        {draftLibraryId ? <CatalogDraft key={draftLibraryId} libraryId={draftLibraryId} libraryName={libraries.find(entry => entry.id === draftLibraryId)?.name ?? draftLibraryId} admin={admin === true} /> : null}
+      </>
+    )}
+    <StatusMessage message={message} intent={intent} />
+  </>
 }
 
 function NetworkPanel({ state }: { state: DesktopUiState | null }) {

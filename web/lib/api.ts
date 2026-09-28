@@ -9,9 +9,19 @@ import {
   RoomInfoResponse,
   RoomAccessRequest,
   RoomAccessResponse,
+  CatalogDetail,
+  CatalogPage,
+  BangumiHit,
+  DraftApplyResult,
+  DraftCardDetail,
+  DraftEditInput,
+  DraftEditResult,
+  DraftJudgeResult,
+  DraftState,
   MediaCapabilities,
   MediaLibrary,
   MediaLibraryPage,
+  ScrapeJob,
   SubtitleTrack,
   HandoffTicketResponse,
 } from "./contracts";
@@ -100,6 +110,77 @@ export const api = {
     if (cursor) params.set("cursor", cursor);
     return request<MediaLibraryPage>(`/api/media/search?${params.toString()}`);
   },
+
+  // 7b.（相位 3）标题库：条目列表 / 详情 / 候选写入 / 刮削状态
+  getCatalog: (libraryId: string, cursor?: string, q?: string): Promise<CatalogPage> => {
+    const params = new URLSearchParams({ libraryId });
+    if (cursor) params.set("cursor", cursor);
+    if (q) params.set("q", q);
+    return request<CatalogPage>(`/api/media/catalog?${params.toString()}`);
+  },
+
+  getCatalogItem: (id: string): Promise<CatalogDetail> =>
+    request<CatalogDetail>(`/api/media/catalog/${encodeURIComponent(id)}`),
+
+  confirmCatalogItem: (id: string, candidateId: string): Promise<CatalogDetail> =>
+    request<CatalogDetail>(`/api/media/catalog/${encodeURIComponent(id)}/confirm`, {
+      method: "POST",
+      body: JSON.stringify({ candidateId }),
+    }),
+
+  rejectCatalogItem: (id: string, candidateId: string): Promise<CatalogDetail> =>
+    request<CatalogDetail>(`/api/media/catalog/${encodeURIComponent(id)}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ candidateId }),
+    }),
+
+  // 草稿审阅（第 4 块）：读草稿 / 重新分类 / 分批判定 / 应用 / 只扫描。
+  getDraft: (libraryId: string): Promise<DraftState> =>
+    request<DraftState>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/classify`),
+
+  getDraftCard: (libraryId: string, itemKey: string): Promise<DraftCardDetail> =>
+    request<DraftCardDetail>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/classify?item=${encodeURIComponent(itemKey)}`),
+
+  classifyDraft: (libraryId: string): Promise<DraftState> =>
+    request<DraftState>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/classify`, { method: "POST" }),
+
+  judgeDraft: (libraryId: string, max: number): Promise<DraftJudgeResult> =>
+    request<DraftJudgeResult>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/judge?max=${max}`, { method: "POST" }),
+
+  applyDraft: (libraryId: string, force = false): Promise<DraftApplyResult> =>
+    request<DraftApplyResult>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/apply${force ? "?force=1" : ""}`, { method: "POST" }),
+
+  // 草稿编辑（§9 的六个接口）：只写草稿、身份用 itemKey。
+  editDraft: (libraryId: string, input: DraftEditInput): Promise<DraftEditResult> =>
+    request<DraftEditResult>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/draft/edit`, { method: "POST", body: JSON.stringify(input) }),
+
+  confirmDraft: (libraryId: string, input: { itemKey: string; externalDb?: string; externalId?: string }): Promise<DraftEditResult> =>
+    request<DraftEditResult>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/draft/confirm`, { method: "POST", body: JSON.stringify(input) }),
+
+  unconfirmDraft: (libraryId: string, input: { itemKey: string }): Promise<DraftEditResult> =>
+    request<DraftEditResult>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/draft/unconfirm`, { method: "POST", body: JSON.stringify(input) }),
+
+  mergeDraft: (libraryId: string, input: { keepKey: string; dropKeys: string[] }): Promise<DraftEditResult> =>
+    request<DraftEditResult>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/draft/merge`, { method: "POST", body: JSON.stringify(input) }),
+
+  splitDraft: (libraryId: string, input: { itemKey: string; keep: string[] }): Promise<DraftEditResult> =>
+    request<DraftEditResult>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/draft/split`, { method: "POST", body: JSON.stringify(input) }),
+
+  keepDraftBinding: (libraryId: string, input: { itemKey: string; keepsBindingOnKey: string }): Promise<DraftEditResult> =>
+    request<DraftEditResult>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/draft/keep-binding`, { method: "POST", body: JSON.stringify(input) }),
+
+  /** 人工挑条目（刮削提不出正确条目时的出口）——草稿换条目与正式卡换绑共用这个搜索端点。 */
+  bangumiSearch: (q: string): Promise<{ items: BangumiHit[] }> =>
+    request<{ items: BangumiHit[] }>(`/api/media/bangumi/search?q=${encodeURIComponent(q)}`),
+
+  scanLibrary: (libraryId: string): Promise<{ libraryId: string; files: number; enumeratedAt: string; rev: number }> =>
+    request(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/scan`, { method: "POST" }),
+
+  getScrapeStatus: (libraryId: string): Promise<ScrapeJob> =>
+    request<ScrapeJob>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/scrape`),
+
+  startScrape: (libraryId: string): Promise<ScrapeJob> =>
+    request<ScrapeJob>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/scrape`, { method: "POST" }),
 
   // 8. 解析临时 HTTPS 播放直链 (需 accessToken)
   resolveMedia: (

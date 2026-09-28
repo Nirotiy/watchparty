@@ -67,17 +67,22 @@ test('mediaRequest take a whitelisted shape and nothing else', () => {
   assert.equal(policy.validRequest('mediaRequest', { method: 'GET', path: '/api/media/list', query: null, body: null, extra: 1 }), false)
 })
 
-test('mediaArtwork takes one opaque id and nothing else', () => {
-  assert.equal(policy.validRequest('mediaArtwork', { mediaId: 'v2.c3JjX2RlZmF1bHQ.signature' }), true)
+test('mediaImage takes a known kind and one opaque id', () => {
+  assert.equal(policy.validRequest('mediaImage', { kind: 'media', id: 'v2.c3JjX2RlZmF1bHQ.signature' }), true)
+  assert.equal(policy.validRequest('mediaImage', { kind: 'poster', id: 'cat_menMrsMfZBlr' }), true)
   for (const args of [
     {},
-    { mediaId: '' },
-    { mediaId: 'v'.repeat(513) },
-    { mediaId: 7 },
-    { mediaId: 'v2.a', extra: 1 },
-    { mediaId: 'v2.a', path: '/api/media/artwork/v2.a' },
+    { kind: 'media' },
+    { id: 'cat_1' },
+    { kind: 'catalog', id: 'cat_1' },
+    { kind: 'posters', id: 'cat_1' },
+    { kind: 'media', id: '' },
+    { kind: 'media', id: 'v'.repeat(513) },
+    { kind: 'media', id: 7 },
+    { kind: 'media', id: 'cat_1', extra: 1 },
+    { kind: 'media', id: 'cat_1', path: '/api/media/posters/cat_1' },
   ]) {
-    assert.equal(policy.validRequest('mediaArtwork', args), false, JSON.stringify(args))
+    assert.equal(policy.validRequest('mediaImage', args), false, JSON.stringify(args))
   }
 })
 

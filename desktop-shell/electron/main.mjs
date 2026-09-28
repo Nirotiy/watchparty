@@ -91,11 +91,11 @@ else {
       const pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://127.0.0.1').pathname)
       // 库封面（phase 2）：渲染层的 <img> 打到这个只读路由，主进程让侧车带站点凭据取字节，
       // 再把字节当成同源图片发出去。渲染层因此既不碰后端地址，也不拿 data URL。
-      const artwork = /^\/artwork\/([^/]+)$/.exec(pathname)
+      const artwork = /^\/artwork\/(media|poster)\/([^/]+)$/.exec(pathname)
       if (artwork) {
         if (request.method !== 'GET') return response.writeHead(404).end()
         try {
-          const image = await native.request('mediaArtwork', { mediaId: artwork[1] })
+          const image = await native.request('mediaImage', { kind: artwork[1], id: artwork[2] })
           const bytes = Buffer.from(image?.base64 ?? '', 'base64')
           if (!bytes.byteLength) return response.writeHead(404).end()
           response.writeHead(200, {
@@ -125,14 +125,18 @@ else {
   window = new BrowserWindow({
     width: 1300, height: 800, minWidth: 960, minHeight: 640, title: 'Banguru',
     show: false, transparent: false, backgroundColor: '#202020',
+    // 顶栏整条由页面画（preload 注入的 #watchparty-titlebar）。原生 WCO 一旦启用就
+    // 无法在运行时收起来（setTitleBarOverlay 只改样式不摘按钮），而播放页要求整屏
+    // 无顶栏 ⇒ 原生按钮改成自绘，播放时随播放控件一起隐藏。
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#202020', symbolColor: '#ffffff', height: 48 },
     webPreferences: { preload: join(directory, 'preload-built.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true },
   })
   applyWindowMaterial('auto')
   window.setMenu(null)
   window.on('enter-full-screen', () => window.webContents.send('watchparty:fullscreen', true))
   window.on('leave-full-screen', () => window.webContents.send('watchparty:fullscreen', false))
+  window.on('maximize', () => window.webContents.send('watchparty:window-state', { maximized: true }))
+  window.on('unmaximize', () => window.webContents.send('watchparty:window-state', { maximized: false }))
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
   window.webContents.session.setPermissionCheckHandler(() => false)
   window.webContents.session.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: {
@@ -176,14 +180,15 @@ else {
       if (command === 'currentDesktopLaunch' && latestLaunch) return { result: latestLaunch }
       if (command === 'updateDesktopWindowChrome') {
         window.setTitle(args.title)
-        const solidCaption = args.theme === 'dark' ? '#202020' : '#f3f3f3'
         applyWindowMaterial(args.windowMaterial)
-        window.setTitleBarOverlay({
-          color: args.windowMaterial === 'auto' ? '#00000000' : solidCaption,
-          symbolColor: args.theme === 'dark' ? '#ffffff' : '#1b1b1b',
-          height: 48,
-        })
         return { result: null }
+      }
+      if (command === 'windowControl') {
+        if (args.action === 'minimize') window.minimize()
+        else if (args.action === 'close') window.close()
+        else if (window.isMaximized()) window.unmaximize()
+        else window.maximize()
+        return { result: { maximized: window.isMaximized() } }
       }
       if (command === 'getDesktopWallpaperBackdrop') {
         const backdrop = await getWallpaperBackdrop()

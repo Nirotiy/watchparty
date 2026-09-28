@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import ts from 'typescript'
 const js = ts.transpile(readFileSync(new URL('../src/lib/media-library-view.ts', import.meta.url), 'utf8'), { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 })
-const { desktopPlayable, healthLabel, legacyView, libraryKindLabel, mediaErrorText, toCard, toView } = await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`)
+const { desktopPlayable, healthLabel, hiddenCardCount, legacyView, libraryKindLabel, mediaErrorText, toCard, toView, visibleCards } = await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`)
 
 test('desktop playability tolerates legacy data and blocks anything else', () => {
   assert.equal(desktopPlayable(undefined), true)
@@ -98,6 +98,25 @@ test('phase 2 artwork: poster ids become card and folder images, through the res
   })
   assert.equal(bare.posterUrl, null)
   assert.equal(bare.cards[0].imageUrl, null)
+})
+
+test('non-video files are hidden in the files view unless asked for', () => {
+  const dir = toCard({ id: 'd1', name: 'Season 01', type: 'dir', relativePath: '/Season 01', compatibility: { desktop: 'supported', browser: 'supported' } })
+  const video = toCard({ id: 'f1', name: 'A.mkv', type: 'file', extension: 'mkv', relativePath: '/A.mkv', compatibility: { desktop: 'supported', browser: 'unsupported' } })
+  const maybe = toCard({ id: 'f2', name: 'B.avi', type: 'file', extension: 'avi', relativePath: '/B.avi', compatibility: { desktop: 'maybe', browser: 'maybe' } })
+  const still = toCard({ id: 'f3', name: 'poster.jpg', type: 'file', extension: 'jpg', relativePath: '/poster.jpg', compatibility: { desktop: 'unsupported', browser: 'unsupported' } })
+  const subs = toCard({ id: 'f4', name: 'A.ass', type: 'file', extension: 'ass', relativePath: '/A.ass', compatibility: { desktop: 'unsupported', browser: 'unsupported' } })
+
+  assert.equal(dir.nonMedia, false, '目录永远留着')
+  assert.equal(video.nonMedia, false)
+  assert.equal(maybe.nonMedia, false, 'maybe 是"可能要转码的视频"，不是非视频')
+  assert.equal(still.nonMedia, true)
+  assert.equal(subs.nonMedia, true)
+
+  const all = [dir, video, maybe, still, subs]
+  assert.equal(hiddenCardCount(all), 2)
+  assert.equal(visibleCards(all, true).length, 5, '显示全部时一个不少')
+  assert.deepEqual(visibleCards(all, false).map(card => card.title), ['Season 01', 'A.mkv', 'B.avi'])
 })
 
 test('codes and labels the UI shows', () => {

@@ -24,6 +24,8 @@ export type RankedHit = MetadataHit & { score: number };
 
 export type MetadataSearcher = {
   search(query: string, kind: "anime" | "movie" | "tv"): Promise<MetadataHit[]>;
+  /** Only providers with per-episode metadata implement this. */
+  episodeTitles?(subjectId: string): Promise<Map<number, string>>;
 };
 
 export class MetadataUnavailable extends Error {
@@ -134,6 +136,39 @@ export function createBangumiClient(fetchImpl: typeof fetch = fetch): MetadataSe
       }
       const seen = new Set(anime.map((hit) => hit.externalId));
       return [...anime, ...staged.filter((hit) => !seen.has(hit.externalId))];
+    },
+    async episodeTitles(subjectId) {
+      if (!/^\d{1,12}$/.test(subjectId)) return new Map();
+      const titles = new Map<number, string>();
+      for (let offset = 0; offset < 500; offset += 100) {
+        const url = new URL("https://api.bgm.tv/v0/episodes");
+        url.searchParams.set("subject_id", subjectId);
+        url.searchParams.set("type", "0");
+        url.searchParams.set("limit", "100");
+        url.searchParams.set("offset", String(offset));
+        let response: Response;
+        try {
+          response = await fetchImpl(url, {
+            headers: { accept: "application/json", "user-agent": "watchparty/0.1.0 (catalog episodes)" },
+            signal: AbortSignal.timeout(10_000),
+          });
+        } catch {
+          throw new MetadataUnavailable();
+        }
+        if (!response.ok) throw new MetadataUnavailable();
+        const body = (await response.json()) as { data?: unknown; total?: unknown };
+        if (!Array.isArray(body.data)) break;
+        for (const value of body.data) {
+          if (!value || typeof value !== "object") continue;
+          const row = value as Record<string, unknown>;
+          if (row.type !== 0 || typeof row.sort !== "number" || !Number.isSafeInteger(row.sort) || row.sort < 1) continue;
+          const title = (typeof row.name_cn === "string" && row.name_cn.trim()) || (typeof row.name === "string" && row.name.trim()) || "";
+          if (title) titles.set(row.sort, title);
+        }
+        if (typeof body.total === "number" && offset + 100 >= body.total) break;
+        if (body.data.length < 100 && typeof body.total !== "number") break;
+      }
+      return titles;
     },
   };
 }

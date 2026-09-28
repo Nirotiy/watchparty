@@ -15,11 +15,13 @@ const commands = Object.freeze([
   'fetchArtworkImage',
   'saveTextFile',
   'mediaRequest',
-  'mediaArtwork',
+  'mediaImage',
+  'windowControl',
 ])
 const events = Object.freeze([
   'desktop://state', 'desktop://launch', 'desktop://session-reset', 'desktop://settings',
   'musicparty://audio-error',
+  'watchparty:window-state',
 ])
 // Only the local demo server may run without TLS; anywhere else plaintext http would
 // carry the session cookie over the wire. Enforced here, never only in the renderer.
@@ -57,10 +59,15 @@ function validRequest(command, args) {
     return true
   }
   if (command === 'updateDesktopWindowChrome') return (args.title === 'Banguru' || args.title === 'Linkle') && (args.theme === 'dark' || args.theme === 'light') && (args.windowMaterial === 'auto' || args.windowMaterial === 'none')
-  // 封面取图：渲染层只给一个不透明 mediaId，字节由侧车取、主进程转成 HTTP 响应。
-  if (command === 'mediaArtwork') {
+  // 自绘窗口按钮（顶栏由页面画，原生 WCO 已拆掉，见 main.mjs 的 BrowserWindow 选项）。
+  if (command === 'windowControl') return ['minimize', 'maximize', 'close'].includes(args.action)
+  // 封面/海报取图：渲染层只给一个是 media 还是 poster 的 kind 加不透明 id，
+  // 字节由侧车取、主进程转成 HTTP 响应。
+  if (command === 'mediaImage') {
     const keys = Object.keys(args)
-    return keys.length === 1 && keys[0] === 'mediaId' && typeof args.mediaId === 'string' && args.mediaId.length > 0 && args.mediaId.length <= 512
+    return keys.length === 2 && keys.includes('kind') && keys.includes('id')
+      && ['media', 'poster'].includes(args.kind)
+      && typeof args.id === 'string' && args.id.length > 0 && args.id.length <= 512
   }
   // 导出落盘：渲染层只给「建议文件名 + 后缀 + 文本」，路径永远由系统保存对话框决定，
   // 因此这里不接受任何调用方传来的路径（写哪儿不由页面说了算）。

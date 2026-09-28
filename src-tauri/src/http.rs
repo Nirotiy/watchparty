@@ -420,14 +420,20 @@ impl DesktopHttpTransport {
         Ok((status, text))
     }
 
-    /// Image bytes for one media-library entry (phase 2 artwork). Same transport as
-    /// `media_request`, so it carries the site Basic Auth and the TLS policy; the caller
-    /// only ever hands the bytes to the shell's asset server, never to the renderer.
-    pub fn media_artwork(&self, media_id: &str) -> Result<(String, Vec<u8>), TransportError> {
+    /// Image bytes for one library entry or one catalog item (phase 2 artwork / phase 3
+    /// posters). Same transport as `media_request`, so it carries the site Basic Auth and
+    /// the TLS policy; the caller only ever hands the bytes to the shell's asset server,
+    /// never to the renderer.
+    pub fn media_image(&self, kind: &str, id: &str) -> Result<(String, Vec<u8>), TransportError> {
+        let route = match kind {
+            "media" => "artwork",
+            "poster" => "posters",
+            _ => return Err(TransportError::Protocol("unsupported media image kind".into())),
+        };
         let response = self
             .headers(
                 self.client
-                    .get(format!("{}/api/media/artwork/{}", self.base_url, media_id)),
+                    .get(format!("{}/api/media/{}/{}", self.base_url, route, id)),
                 None,
             )
             .send()

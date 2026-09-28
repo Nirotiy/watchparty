@@ -20,6 +20,8 @@ export interface MediaCard {
   playable: boolean
   /** Why play/enqueue are blocked; null when playable. */
   note: string | null
+  /** 两端都不支持的普通文件（.nfo/.jpg/.ass…）：默认不进文件视图。 */
+  nonMedia: boolean
 }
 
 export interface MediaCrumb { name: string; path: string }
@@ -67,7 +69,18 @@ export function toCard(
     extension: item.extension ?? "",
     playable,
     note: playable ? null : item.compatibility?.desktopReason?.trim() || "桌面端无法播放这个文件（浏览器可能可以）",
+    // 两端都 unsupported 才是"不是视频"；maybe（需转码的封装）仍然留在列表里。
+    nonMedia: !isDir && item.compatibility?.desktop === "unsupported" && item.compatibility?.browser === "unsupported",
   }
+}
+
+/** 文件视图默认藏掉非视频文件，可一键显示（用户的 2026-09-26 裁决）。 */
+export function visibleCards(cards: MediaCard[], showAll: boolean): MediaCard[] {
+  return showAll ? cards : cards.filter(card => !card.nonMedia)
+}
+
+export function hiddenCardCount(cards: MediaCard[]): number {
+  return cards.filter(card => card.nonMedia).length
 }
 
 /** The new library route: breadcrumbs already carry their own paths. */

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback, type CSSProperties, type ReactNode } from "react"
+import { createPortal } from "react-dom"
 import { FluentProvider, Button as FluentButton, webDarkTheme, webLightTheme } from "@fluentui/react-components"
 import { KeyRegular, PanelLeftContractRegular, PanelLeftExpandRegular, PlugConnectedRegular, PulseRegular, SaveRegular } from "@fluentui/react-icons"
 import { ShellStatusToast, ShellToastProvider } from "@/components/shell-toast"
@@ -24,7 +25,10 @@ import { cn } from "@/lib/utils"
 import { childDirectoryPath } from "@/lib/media-library-navigation"
 import { healthLabel, legacyView, libraryKindLabel, mediaErrorText, toView, type MediaCard, type MediaView } from "@/lib/media-library-view"
 import { MediaCardGrid, MediaFolderBanner } from "@/components/media-card-grid"
-import { MediaSourceForm, type MediaSourceDraft } from "@/components/media-source-form"
+import { CatalogRail, CatalogWall, UnmatchedLine } from "@/components/catalog-wall"
+import { catalogErrorText, toDetail, toWall, scrapeSummary, type Wall, type WallCard, type WallDetail } from "@/lib/catalog-view"
+import { hiddenCardCount, visibleCards } from "@/lib/media-library-view"
+
 import { winuiFluentTheme } from "@/lib/winui-theme"
 import { createDefaultLocalSettings, linkleDisplayName, linkleMemberOf, migrateLocalSettings, musicPartyOriginError, saveMusicPartyService, serviceForProduct } from "../shared/local-schema"
 import { MusicPartyAdapter, probeMusicParty, type MusicPartyProbe } from "../shared/musicparty-adapter"
@@ -35,7 +39,7 @@ import { invoke, listen } from "../shared/desktop-runtime"
 import { getDesktopWallpaperBackdrop } from "@/lib/ipc"
 import type { DomainEvent } from "../shared/domain"
 import { LinkleRoom } from "@/components/linkle-room"
-import { backendAddressError, clearSiteCredentials, createDesktopRoom, createMediaSource, errorMessage, getDesktopSettings, listenForSettings, mediaCapabilities, mediaLibraries, mediaLibraryPage, mediaLibrarySearch, mediaList, mediaRoots, mediaSearch, probeDesktopBackend, probeDesktopReadiness, promptSiteCredentials, updateDesktopSettings, verifyBackend, verifyPrivateRoom, listOriginTrust, importOriginTrust, deleteOriginTrust, type DesktopProbeReport, type DesktopSettingsStatus, artworkUrl, type MediaCapabilities, type MediaLibrary, type PlayerPreferences, type OriginTrustRecord } from "@/lib/ipc"
+import { backendAddressError, bangumiSearch, clearSiteCredentials, createDesktopRoom, createMediaSource, catalogRebind, catalogUnconfirm, errorMessage, getDesktopSettings, listenForSettings, mediaCapabilities, mediaLibraries, mediaLibraryPage, mediaLibrarySearch, mediaList, mediaRoots, mediaSearch, probeDesktopBackend, probeDesktopReadiness, promptSiteCredentials, updateDesktopSettings, verifyBackend, verifyPrivateRoom, listOriginTrust, importOriginTrust, deleteOriginTrust, catalogPage, catalogDetail, catalogConfirm, catalogReject, libraryScrapeStatus, startLibraryScrape, type BangumiHit, type DesktopProbeReport, type DesktopSettingsStatus, artworkUrl, type MediaCapabilities, type MediaLibrary, type PlayerPreferences, type OriginTrustRecord, type ScrapeJob } from "@/lib/ipc"
 
 type View = "home" | "room" | "media" | "settings"
 type Drawer = "queue" | "members" | null
@@ -68,6 +72,15 @@ function connectionTone(connection?: ConnectionState): string {
   if (connection === "backoff") return "bg-warning"
   if (connection === "expired" || connection === "failed") return "bg-destructive"
   return "bg-muted-foreground"
+}
+
+/** 文件浏览器与标题墙共用的取图入口：库封面走 media，目录海报走 poster。 */
+function libraryArtwork(posterId: string): string | null {
+  return posterId ? artworkUrl("media", posterId) : null
+}
+
+function catalogPoster(itemId: string): string | null {
+  return itemId ? artworkUrl("poster", itemId) : null
 }
 
 function mediaTitle(source: MediaSource | null | undefined): string {
@@ -126,6 +139,7 @@ export default function App() {
   const [banguruProbe, setBanguruProbe] = useState<BanguruProbeState>({ status: "unconfigured" })
   const [restorationSettledOrigin, setRestorationSettledOrigin] = useState<string | null>(null)
   const restoreAttemptedOrigin = useRef<string | null>(null)
+  const restoringSession = useRef(false)
   const previousBackendOrigin = useRef<string | null>(null)
   // 首启向导：null = 还没读到磁盘设置，此时不闪向导。
   const [setupCompleted, setSetupCompleted] = useState<boolean | null>(null)
@@ -309,7 +323,11 @@ export default function App() {
       setRestorationSettledOrigin(backendOrigin)
       return
     }
-    void session.restore().finally(() => setRestorationSettledOrigin(backendOrigin))
+    restoringSession.current = true
+    void session.restore().finally(() => {
+      restoringSession.current = false
+      setRestorationSettledOrigin(backendOrigin)
+    })
   }, [backendOrigin, banguruProbe, product, session.readyForRestore, session.restore, view])
   const activeProbe = banguruProbe.origin === backendOrigin ? banguruProbe : { status: "checking" as const }
   const capabilities = activeProbe.status === "online" ? activeProbe.capabilities : undefined
@@ -343,12 +361,17 @@ export default function App() {
   useEffect(() => {
     const title = product === "watchparty" ? "Banguru" : "Linkle"
     document.title = title
-    const caption = document.getElementById("watchparty-titlebar")
-    if (caption) caption.textContent = title
+    const label = document.getElementById("watchparty-titlebar")?.querySelector(".wpc-title")
+    if (label) label.textContent = title
     if (window.watchpartyDesktop) void invoke("updateDesktopWindowChrome", { title, theme, windowMaterial })
   }, [product, theme, windowMaterial])
 
   useEffect(() => {
+    if (state && restoringSession.current) {
+      // Restoring the last session keeps the connection alive without reopening playback.
+      previouslyConnected.current = true
+      return
+    }
     if (state && !previouslyConnected.current && !switchingLobby.current) setView("room")
     if (!state && previouslyConnected.current) {
       setDrawer(null)
@@ -806,16 +829,28 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
   const [query, setQuery] = useState("")
   const [searching, setSearching] = useState(false)
   const [message, setMessage] = useState("")
-  const [addingSource, setAddingSource] = useState(false)
+  // 相位 3：标题墙。模式按库记忆（裁决 ②：整页 + 切库不重置视图），默认 Titles。
+  const [modeByLibrary, setModeByLibrary] = useState<Record<string, "titles" | "files">>({})
+  const [wall, setWall] = useState<Wall | null>(null)
+  const [detail, setDetail] = useState<WallDetail | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const detailRequest = useRef(0)
+  const [catalogBusy, setCatalogBusy] = useState(false)
+  const [catalogQuery, setCatalogQuery] = useState("")
+  const [scrape, setScrape] = useState<ScrapeJob | null>(null)
+  const [showAllFiles, setShowAllFiles] = useState(false)
+  // 冠军稿的「只看待确认」：只在已载入的那一页里筛，不额外打请求。
+  const [onlyReview, setOnlyReview] = useState(false)
   const [backendOrigin, setBackendOrigin] = useState<string | null>(null)
   useEffect(() => { void getDesktopSettings().then((s) => setBackendOrigin(s.backendOrigin)).catch(() => setMessage("请先配置后端站点")) }, [])
   const canControl = Boolean(state?.canControlSharedPlayback)
   const usesLibraries = capabilities?.libraries === true
   const activeLibrary = libraries.find(entry => entry.id === activeLibraryId) ?? null
+  const mode: "titles" | "files" = activeLibraryId ? modeByLibrary[activeLibraryId] ?? "titles" : "files"
 
   const loadLibrary = useCallback(async (libraryId: string, targetPath: string, cursor?: string) => {
     try {
-      const next = toView(await mediaLibraryPage({ libraryId, path: targetPath, cursor }), artworkUrl)
+      const next = toView(await mediaLibraryPage({ libraryId, path: targetPath, cursor }), libraryArtwork)
       setView(current => cursor && current ? { ...next, cards: [...current.cards, ...next.cards] } : next)
       setMessage("")
     } catch (error) {
@@ -837,7 +872,7 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
 
   const searchLibrary = useCallback(async (libraryId: string, text: string, cursor?: string) => {
     try {
-      const next = toView(await mediaLibrarySearch({ libraryId, q: text, cursor }), artworkUrl)
+      const next = toView(await mediaLibrarySearch({ libraryId, q: text, cursor }), libraryArtwork)
       setView(current => cursor && current ? { ...next, cards: [...current.cards, ...next.cards] } : next)
       setMessage(next.cards.length ? "" : "没有匹配的文件")
     } catch (error) {
@@ -855,45 +890,6 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
     }
   }, [])
 
-  useEffect(() => {
-    let live = true
-    void (async () => {
-      let caps: MediaCapabilities | null = null
-      try { caps = await mediaCapabilities() } catch { caps = null }
-      if (!live) return
-      setCapabilities(caps)
-      if (caps?.libraries === true) {
-        try {
-          // 顺序按服务端返回（seed 在前），客户端不排序。
-          const list = await mediaLibraries()
-          if (!live) return
-          setLibraries(list)
-          const first = list[0]
-          if (first) {
-            setActiveLibraryId(first.id)
-            await loadLibrary(first.id, "/")
-          } else {
-            setMessage("这台服务器还没有可浏览的库")
-          }
-        } catch (error) {
-          if (live) setMessage(mediaErrorText(error, "无法读取媒体库列表"))
-        }
-        return
-      }
-      try {
-        const names = await mediaRoots()
-        if (!live) return
-        setRoots(names)
-        if (names.length > 0) {
-          setActiveRoot(names[0]!)
-          await loadLegacy(names[0]!, "/")
-        }
-      } catch {
-        if (live) setMessage("媒体浏览需要先配置站点")
-      }
-    })()
-    return () => { live = false }
-  }, [loadLibrary, loadLegacy])
 
   /** 面包屑与"载入更多"都从当前数据源重新取，客户端不自造路径。 */
   function openPath(targetPath: string, cursor?: string) {
@@ -905,38 +901,234 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
   }
 
   function retry() {
-    if (usesLibraries && activeLibraryId) void loadLibrary(activeLibraryId, view?.currentPath ?? "/")
-    else if (activeRoot) void loadLegacy(activeRoot, view?.currentPath ?? "/")
+    if (usesLibraries && activeLibraryId) {
+      if (mode === "titles") { void loadWall(activeLibraryId, undefined, catalogQuery.trim() || undefined); return }
+      void loadLibrary(activeLibraryId, view?.currentPath ?? "/")
+      return
+    }
+    if (activeRoot) void loadLegacy(activeRoot, view?.currentPath ?? "/")
   }
 
   /** 新增源：服务端整单验证，成功后才回库列表，然后把新源的第一个库切到前面。 */
-  async function addSource(draft: MediaSourceDraft): Promise<{ ok: true } | { ok: false; message: string }> {
-    try {
-      const created = await createMediaSource(draft)
-      const list = await mediaLibraries()
-      setLibraries(list)
-      setAddingSource(false)
-      const target = list.find(entry => entry.id === created.libraries[0]?.id) ?? list.find(entry => entry.sourceId === created.id)
-      if (target) {
-        setActiveLibraryId(target.id)
-        setSearching(false)
-        setQuery("")
-        await loadLibrary(target.id, "/")
-      }
-      setMessage(`已添加 ${created.name}`)
-      return { ok: true }
-    } catch (error) {
-      return { ok: false, message: mediaErrorText(error, "无法保存这个源") }
-    }
-  }
-
   function runSearch(text: string, cursor?: string) {
     setSearching(true)
     if (usesLibraries) {
-      if (activeLibraryId) void searchLibrary(activeLibraryId, text, cursor)
+      if (!activeLibraryId) return
+      if (mode === "titles") { setCatalogQuery(text); void loadWall(activeLibraryId, cursor, text); return }
+      void searchLibrary(activeLibraryId, text, cursor)
       return
     }
     void searchLegacy(text, cursor)
+  }
+
+  const loadWall = useCallback(async (libraryId: string, cursor?: string, q?: string) => {
+    try {
+      const next = toWall(await catalogPage({ libraryId, cursor, q }), catalogPoster)
+      setWall(current => cursor && current ? { ...next, cards: [...current.cards, ...next.cards] } : next)
+      setMessage("")
+    } catch (error) {
+      // 换库失败不能留着上一个库的墙。
+      if (!cursor) setWall(null)
+      setMessage(catalogErrorText(error, "无法读取标题库"))
+    }
+  }, [])
+
+  const openDetail = useCallback(async (card: WallCard) => {
+    const itemId = card.id
+    const request = ++detailRequest.current
+    setSelectedId(itemId)
+    setCatalogBusy(true)
+    // Mount the panel from the card immediately. The native IPC request can be
+    // slower than the backend itself, so the first paint must not wait for it.
+    setDetail({
+      id: card.id,
+      title: card.title,
+      source: null,
+      year: card.year,
+      originalTitle: null,
+      overview: null,
+      status: card.status,
+      statusLabel: card.statusLabel,
+      posterUrl: card.posterUrl,
+      subtitle: card.subtitle,
+      candidates: [],
+      seasons: [],
+      single: false,
+    })
+    try {
+      const base = await catalogDetail(itemId, false)
+      if (request !== detailRequest.current) return
+      setDetail(toDetail(base, catalogPoster))
+      setCatalogBusy(false)
+      if (base.status === "confirmed" && base.children.some(child => child.episode !== null)) {
+        void catalogDetail(itemId).then(enriched => {
+          if (request === detailRequest.current) setDetail(toDetail(enriched, catalogPoster))
+        }).catch(() => {})
+      }
+    } catch (error) {
+      if (request !== detailRequest.current) return
+      setDetail(null)
+      setMessage(catalogErrorText(error, "无法读取这个条目"))
+    } finally {
+      if (request === detailRequest.current) setCatalogBusy(false)
+    }
+  }, [])
+
+  function closeDetail() {
+    detailRequest.current += 1
+    setDetail(null)
+    setSelectedId(null)
+  }
+
+  /** 确认/拒绝是唯一两种标题库写入；两个都不碰凭据。 */
+  async function reviewCandidate(action: "confirm" | "reject", candidateId: string) {
+    if (!detail || catalogBusy) return
+    const request = ++detailRequest.current
+    setCatalogBusy(true)
+    try {
+      const next = action === "confirm" ? await catalogConfirm(detail.id, candidateId) : await catalogReject(detail.id, candidateId)
+      if (request !== detailRequest.current) return
+      setDetail(toDetail(next, catalogPoster))
+      // 确认会换掉墙上的标题/年份/海报，整页重取一次最省事。
+      if (activeLibraryId) void loadWall(activeLibraryId, undefined, catalogQuery.trim() || undefined)
+      setMessage(action === "confirm" ? `已确认《${next.title}》` : "已拒绝这个候选，下次刮削不会再提")
+    } catch (error) {
+      setMessage(catalogErrorText(error, "这条写入没成功"))
+    } finally {
+      if (request === detailRequest.current) setCatalogBusy(false)
+    }
+  }
+
+  /** 撤销确认：绑定清空、标题回到解析名，文件一张不丢（后端 2026-09-27 的编辑 API）。 */
+  async function unconfirmCurrent() {
+    if (!detail || catalogBusy) return
+    const request = ++detailRequest.current
+    setCatalogBusy(true)
+    try {
+      const next = await catalogUnconfirm(detail.id)
+      if (request !== detailRequest.current) return
+      setDetail(toDetail(next, catalogPoster))
+      if (activeLibraryId) void loadWall(activeLibraryId, undefined, catalogQuery.trim() || undefined)
+      setMessage(`已撤销确认：${next.title}`)
+    } catch (error) {
+      setMessage(catalogErrorText(error, "撤销没成功"))
+    } finally {
+      if (request === detailRequest.current) setCatalogBusy(false)
+    }
+  }
+
+  /** 人工挑条目：刮削提不出正确条目时的出口。 */
+  async function searchBangumi(query: string): Promise<BangumiHit[]> {
+    const result = await bangumiSearch(query.trim())
+    return (result.items ?? []).filter(hit => hit.externalDb === "bangumi")
+  }
+
+  /** 换绑：直接绑一个条目，服务端走 confirmed_by='rebind' 并顺带拉封面。 */
+  async function rebindCurrent(hit: BangumiHit) {
+    if (!detail || catalogBusy) return
+    const request = ++detailRequest.current
+    setCatalogBusy(true)
+    try {
+      const next = await catalogRebind(detail.id, {
+        externalDb: hit.externalDb, externalId: hit.externalId, title: hit.title,
+        year: hit.year ?? null, originalTitle: hit.originalTitle ?? null,
+      })
+      if (request !== detailRequest.current) return
+      setDetail(toDetail(next, catalogPoster))
+      if (activeLibraryId) void loadWall(activeLibraryId, undefined, catalogQuery.trim() || undefined)
+      setMessage(`已绑定《${next.title}》`)
+    } catch (error) {
+      setMessage(catalogErrorText(error, "换绑没成功"))
+    } finally {
+      if (request === detailRequest.current) setCatalogBusy(false)
+    }
+  }
+
+  /** 刮削只给管理员：本机桌面端能看到这个按钮，网页端拿不到 mediaAdmin。 */
+  async function updateScrape() {
+    if (!activeLibraryId || catalogBusy) return
+    setCatalogBusy(true)
+    try {
+      // 后端有个已知竞态：首次 POST 可能先回 404 而任务其实已经跑起来了，
+      // 所以这里不把 POST 的失败当结论，接着读一次状态。
+      await startLibraryScrape(activeLibraryId).catch(() => null)
+      const job = await libraryScrapeStatus(activeLibraryId)
+      setScrape(job)
+      void loadWall(activeLibraryId, undefined, catalogQuery.trim() || undefined)
+      setMessage(scrapeSummary(job))
+    } catch (error) {
+      setMessage(catalogErrorText(error, "刮削没启动"))
+    } finally {
+      setCatalogBusy(false)
+    }
+  }
+
+  async function refreshScrape() {
+    if (!activeLibraryId) return
+    await refreshScrapeFor(activeLibraryId)
+  }
+
+  const refreshScrapeFor = useCallback(async (libraryId: string) => {
+    try { setScrape(await libraryScrapeStatus(libraryId)) } catch { setScrape(null) }
+  }, [])
+
+  /** 换模式只补自己缺的那半：标题墙和目录页各自缓存，来回切不重发。 */
+  function selectMode(next: "titles" | "files") {
+    if (!activeLibraryId) return
+    setModeByLibrary(current => ({ ...current, [activeLibraryId]: next }))
+    setSearching(false)
+    setQuery("")
+    setCatalogQuery("")
+    setOnlyReview(false)
+    setMessage("")
+    if (next === "titles") {
+      if (!wall) void loadWall(activeLibraryId)
+      void refreshScrape()
+      return
+    }
+    if (!view) void loadLibrary(activeLibraryId, "/")
+  }
+
+  /** 换库：两个视图都清掉，再按当前模式补数据。 */
+  function selectLibrary(libraryId: string) {
+    detailRequest.current += 1
+    setActiveLibraryId(libraryId)
+    setSearching(false)
+    setQuery("")
+    setCatalogQuery("")
+    setView(null)
+    setWall(null)
+    setDetail(null)
+    setSelectedId(null)
+    setScrape(null)
+    setOnlyReview(false)
+    setMessage("")
+    const next = modeByLibrary[libraryId] ?? "titles"
+    if (next === "titles") { void loadWall(libraryId); void refreshScrapeFor(libraryId); return }
+    void loadLibrary(libraryId, "/")
+  }
+
+  /** 标题墙的播放走和文件视图同一条房间路径，只是 mediaId 来自条目的子项。 */
+  async function playCatalogChild(mediaId: string, title: string, container: string) {
+    if (!canControl) {
+      setMessage("当前无控制权限（房间已锁定或非房主）")
+      return
+    }
+    const media: MediaSource = { kind: "openlist", mediaId, title, container: container || "mp4" }
+    if (await command({ type: "mediaSet", media })) {
+      setMessage(`正在播放 ${title}`)
+      navigate("room")
+    }
+  }
+
+  async function enqueueCatalogChild(mediaId: string, title: string, container: string) {
+    if (!mediaQueueAvailable) return
+    if (!canControl) {
+      setMessage("当前无控制权限（房间已锁定或非房主）")
+      return
+    }
+    const media: MediaSource = { kind: "openlist", mediaId, title, container: container || "mp4" }
+    if (await command({ type: "playlistAdd", media })) setMessage(`已加入队列：${title}`)
   }
 
   async function playCard(card: MediaCard) {
@@ -972,6 +1164,48 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
     if (await command({ type: "playlistAdd", media })) setMessage(`已加入队列：${card.title}`)
   }
 
+  useEffect(() => {
+    let live = true
+    void (async () => {
+      let caps: MediaCapabilities | null = null
+      try { caps = await mediaCapabilities() } catch { caps = null }
+      if (!live) return
+      setCapabilities(caps)
+      if (caps?.libraries === true) {
+        try {
+          // 顺序按服务端返回（seed 在前），客户端不排序。
+          const list = await mediaLibraries()
+          if (!live) return
+          setLibraries(list)
+          const first = list[0]
+          if (first) {
+            setActiveLibraryId(first.id)
+            // 默认进 Titles（裁决 ②）；文件视图切过去时再按需载入。
+            await loadWall(first.id)
+            void refreshScrapeFor(first.id)
+          } else {
+            setMessage("这台服务器还没有可浏览的库")
+          }
+        } catch (error) {
+          if (live) setMessage(mediaErrorText(error, "无法读取媒体库列表"))
+        }
+        return
+      }
+      try {
+        const names = await mediaRoots()
+        if (!live) return
+        setRoots(names)
+        if (names.length > 0) {
+          setActiveRoot(names[0]!)
+          await loadLegacy(names[0]!, "/")
+        }
+      } catch {
+        if (live) setMessage("媒体浏览需要先配置站点")
+      }
+    })()
+    return () => { live = false }
+  }, [loadLibrary, loadLegacy, loadWall, refreshScrapeFor])
+
   const [pasteUrl, setPasteUrl] = useState("")
   const [pasteTitle, setPasteTitle] = useState("")
 
@@ -1002,11 +1236,12 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
   const currentSourceName = usesLibraries ? activeLibrary?.name ?? null : activeRoot
   // 库本身不可用时，横幅已经说清「哪个库坏了、其它库不受影响」，行内错误就不再重复一遍。
   const unhealthyLibrary = usesLibraries && !searching && activeLibrary && activeLibrary.health !== "ok" ? activeLibrary : null
+  const overlayHost = document.querySelector(".desktop-main")
 
   return (
-    <div className="mx-auto min-h-full w-full max-w-[1120px] px-8 py-8">
+    <div className="media-library-view mx-auto min-h-full w-full max-w-[1120px] px-8 py-8">
       <header className="flex flex-wrap items-center gap-3">
-        <SectionTitle detail={usesLibraries ? "多源媒体库 · 浏览与搜索经 Rust 原生 IPC" : "OpenList · 浏览与搜索经 Rust 原生 IPC"}>媒体库</SectionTitle>
+        <SectionTitle detail={usesLibraries ? "" : "OpenList"}>媒体库</SectionTitle>
         <div className="flex-1" />
         {usesLibraries
           ? libraries.map((library) => (
@@ -1016,7 +1251,7 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
               className={cn("media-lib-chip", library.id === activeLibraryId && !searching && "on")}
               aria-pressed={library.id === activeLibraryId && !searching}
               title={`${library.sourceName} · ${libraryKindLabel(library.kind)} · ${healthLabel(library.health)}`}
-              onClick={() => { setActiveLibraryId(library.id); setSearching(false); setQuery(""); setView(null); setMessage(""); void loadLibrary(library.id, "/") }}
+              onClick={() => selectLibrary(library.id)}
             >
               <span className={cn("media-lib-health", library.health)} aria-hidden="true" />
               <span className="min-w-0 truncate">{library.name}</span>
@@ -1030,25 +1265,23 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
               {root}
             </Button>
           ))}
+        {usesLibraries && activeLibraryId ? (
+          <div className="seg" role="group" aria-label="媒体库视图">
+            <button type="button" className={cn("seg-item", mode === "titles" && "on")} aria-pressed={mode === "titles"} onClick={() => selectMode("titles")}>点播</button>
+            <button type="button" className={cn("seg-item", mode === "files" && "on")} aria-pressed={mode === "files"} onClick={() => selectMode("files")}>文件</button>
+          </div>
+        ) : null}
         {mediaSearchAvailable ? <form className="relative w-56" onSubmit={(event) => {
           event.preventDefault()
           if (!query.trim()) return
           runSearch(query.trim())
         }}>
           <MaterialSymbol name="search" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索文件名…" aria-label="搜索媒体" className="h-8 pl-9 text-xs" />
+          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={mode === "titles" ? "搜索标题…" : "搜索文件名…"} aria-label={mode === "titles" ? "搜索标题" : "搜索媒体"} className="h-8 pl-9 text-xs" />
         </form> : null}
       </header>
 
-      {capabilities?.mediaAdmin === true ? (
-        <div className="mt-2 flex items-center gap-2">
-          <Button variant="ghost" size="sm" aria-expanded={addingSource} onClick={() => setAddingSource(open => !open)}>
-            <MaterialSymbol name="add" />添加媒体源
-          </Button>
-        </div>
-      ) : null}
-
-      {addingSource ? <MediaSourceForm onCreate={addSource} onCancel={() => setAddingSource(false)} /> : null}
+      {/* 添加/管理片源已经搬到「设置 · 媒体库」：房间里只做选片。 */}
 
       {unhealthyLibrary ? (
         <div className="mt-3 flex items-center gap-3 border border-[var(--stroke-card)] bg-[var(--fill-card)] px-3 py-2 text-xs text-muted-foreground" role="status">
@@ -1069,43 +1302,125 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
         </Button>
       </form>
 
-      {view && !searching ? (
-        <nav aria-label="目录路径" className="mt-4 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-          {/* 库路由的面包屑第一格就是库根，再顶一个同名按钮会重复；旧路由只给文件夹名，才需要这个根。 */}
-          {!usesLibraries && currentSourceName ? (
-            <button type="button" aria-current={view.currentPath === "/" ? "page" : undefined} className="hover:text-foreground" onClick={() => openPath("/")}>
-              {currentSourceName}
-            </button>
+      {usesLibraries && activeLibraryId && mode === "titles" ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>{wall ? `${wall.cards.filter(card => card.status !== "unmatched").length} 个标题 · ${wall.cards.filter(card => card.needsReview).length} 个待确认` : "正在读取标题库…"}</span>
+          {wall && wall.cards.some(card => card.needsReview) ? (
+            <Button size="sm" variant={onlyReview ? "default" : "ghost"} aria-pressed={onlyReview} onClick={() => setOnlyReview(value => !value)}>
+              只看待确认
+            </Button>
           ) : null}
-          {view.crumbs.map((crumb, index) => (
-            <span key={`${crumb.path}-${index}`} className="flex items-center gap-1">
-              <span aria-hidden="true">/</span>
-              <button type="button" aria-current={view.currentPath === crumb.path ? "page" : undefined} className="hover:text-foreground" onClick={() => openPath(crumb.path)}>
-                {crumb.name}
-              </button>
+          {catalogQuery.trim() ? (
+            <span className="catalog-query">标题：{catalogQuery}
+              <button type="button" onClick={() => { setCatalogQuery(""); setSearching(false); setQuery(""); if (activeLibraryId) void loadWall(activeLibraryId) }}>清除</button>
             </span>
-          ))}
-        </nav>
+          ) : null}
+          <span className="flex-1" />
+          {scrape ? <span role="status">{scrapeSummary(scrape)}<button type="button" className="ml-2 underline" onClick={() => void refreshScrape()}>刷新</button></span> : null}
+          {capabilities?.mediaAdmin === true ? (
+            <Button size="sm" variant="outline" disabled={catalogBusy} onClick={() => void updateScrape()}>
+              <MaterialSymbol name="sync" />更新标题库
+            </Button>
+          ) : null}
+        </div>
       ) : null}
 
-      {view?.posterUrl ? <MediaFolderBanner imageUrl={view.posterUrl} title={view.crumbs[view.crumbs.length - 1]?.name ?? currentSourceName ?? view.currentPath} /> : null}
-
-      {view?.cards.length ? (
-        <MediaCardGrid cards={view.cards} controlEnabled={canControl} queueEnabled={mediaQueueAvailable} onOpen={card => void playCard(card)} onPlay={card => void playCard(card)} onEnqueue={card => void enqueueCard(card)} />
-      ) : view ? (
-        // 有页面才是"空目录"；一次都没载出来（换库失败/没配好）留给错误行说，别谎报目录为空。
-        <EmptyPosterGrid label={searching ? "没有匹配的媒体" : "这里还没有内容"} />
+      {usesLibraries && activeLibraryId && mode === "titles" ? (
+        wall ? (
+          <>
+            <div className="catalog-split">
+              <CatalogWall
+                cards={wall.cards.filter(card => card.status !== "unmatched" && (!onlyReview || card.needsReview))}
+                selectedId={selectedId}
+                onSelect={card => void openDetail(card)}
+              />
+            </div>
+            {detail && overlayHost ? createPortal(
+              <div className="catalog-detail-overlay">
+                <button type="button" className="catalog-detail-scrim" aria-label="关闭作品详情" onClick={closeDetail} />
+                <CatalogRail
+                  detail={detail}
+                  controlEnabled={canControl}
+                  queueEnabled={mediaQueueAvailable}
+                  onPlay={playCatalogChild}
+                  onEnqueue={enqueueCatalogChild}
+                  onConfirm={candidateId => void reviewCandidate("confirm", candidateId)}
+                  onReject={candidateId => void reviewCandidate("reject", candidateId)}
+                  onUnconfirm={() => void unconfirmCurrent()}
+                  onSearchBangumi={searchBangumi}
+                  onRebind={hit => void rebindCurrent(hit)}
+                  onClose={closeDetail}
+                  busy={catalogBusy}
+                />
+              </div>,
+              overlayHost
+            ) : null}
+            <UnmatchedLine count={wall.cards.filter(card => card.status === "unmatched").length} onShowFiles={() => selectMode("files")} />
+            {wall.hasMore && wall.nextCursor ? (
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => activeLibraryId && loadWall(activeLibraryId, wall.nextCursor ?? undefined, catalogQuery.trim() || undefined)}>载入更多</Button>
+            ) : null}
+          </>
+        ) : (
+          <EmptyPosterGrid label="正在读取标题库…" />
+        )
       ) : null}
 
-      {view?.hasMore && view.nextCursor ? (
-        <Button variant="outline" size="sm" className="mt-3" onClick={() => searching ? runSearch(query, view.nextCursor ?? undefined) : openPath(view.currentPath, view.nextCursor ?? undefined)}>
-          载入更多
-        </Button>
+      {mode === "files" || !usesLibraries ? (
+        <>
+          {view && !searching ? (
+            <nav aria-label="目录路径" className="mt-4 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+              {/* 库路由的面包屑第一格就是库根，再顶一个同名按钮会重复；旧路由只给文件夹名，才需要这个根。 */}
+              {!usesLibraries && currentSourceName ? (
+                <button type="button" aria-current={view.currentPath === "/" ? "page" : undefined} className="hover:text-foreground" onClick={() => openPath("/")}>
+                  {currentSourceName}
+                </button>
+              ) : null}
+              {view.crumbs.map((crumb, index) => (
+                <span key={`${crumb.path}-${index}`} className="flex items-center gap-1">
+                  <span aria-hidden="true">/</span>
+                  <button type="button" aria-current={view.currentPath === crumb.path ? "page" : undefined} className="hover:text-foreground" onClick={() => openPath(crumb.path)}>
+                    {crumb.name}
+                  </button>
+                </span>
+              ))}
+            </nav>
+          ) : null}
+
+          {view?.posterUrl ? <MediaFolderBanner imageUrl={view.posterUrl} title={view.crumbs[view.crumbs.length - 1]?.name ?? currentSourceName ?? view.currentPath} /> : null}
+
+          {view?.cards.length ? (
+            <MediaCardGrid
+              cards={visibleCards(view.cards, showAllFiles)}
+              controlEnabled={canControl}
+              queueEnabled={mediaQueueAvailable}
+              onOpen={card => void playCard(card)}
+              onPlay={card => void playCard(card)}
+              onEnqueue={card => void enqueueCard(card)}
+            />
+          ) : view ? (
+            // 有页面才是"空目录"；一次都没载出来（换库失败/没配好）留给错误行说，别谎报目录为空。
+            <EmptyPosterGrid label={searching ? "没有匹配的媒体" : "这里还没有内容"} />
+          ) : null}
+
+          {view && hiddenCardCount(view.cards) > 0 ? (
+            <p className="catalog-unmatched">
+              已隐藏 <b>{hiddenCardCount(view.cards)}</b> 个非视频文件（.nfo / 图片 / 字幕一类）
+              <Button size="sm" variant="ghost" onClick={() => setShowAllFiles(show => !show)}>{showAllFiles ? "隐藏它们" : "显示全部"}</Button>
+            </p>
+          ) : null}
+
+          {view?.hasMore && view.nextCursor ? (
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => searching ? runSearch(query, view.nextCursor ?? undefined) : openPath(view.currentPath, view.nextCursor ?? undefined)}>
+              载入更多
+            </Button>
+          ) : null}
+        </>
       ) : null}
+
       {message && !unhealthyLibrary ? (
         <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
           <span role="status">{message}</span>
-          {view || activeLibraryId || activeRoot ? <Button size="sm" variant="ghost" onClick={retry}>重试</Button> : null}
+          {view || wall || activeLibraryId || activeRoot ? <Button size="sm" variant="ghost" onClick={retry}>重试</Button> : null}
         </div>
       ) : null}
     </div>
@@ -1381,5 +1696,5 @@ function SettingRow({ icon, title, detail, children }: { icon: MaterialSymbolNam
 }
 
 function TerminalOverlay({ state, onLeave }: { state: DesktopUiState; onLeave: () => void }) {
-  return <section className="fixed inset-0 z-50 grid place-items-center bg-black/86 px-6" aria-live="assertive"><div className="w-full max-w-lg border border-border bg-card p-7"><p className="mb-2 font-mono text-xs text-primary">{state.error?.code ?? "DESKTOP_SESSION_FAILED"}</p><h1 className="text-2xl font-semibold">{state.connection === "expired" ? "桌面会话已过期" : "桌面会话不可用"}</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">{state.error?.message ?? "请返回网页房间重新生成一次性交接码。"}</p><Button className="mt-6" onClick={onLeave}>重新加入</Button></div></section>
+  return <section className="fixed inset-0 z-50 grid place-items-center bg-black/86 px-6" aria-live="assertive"><div className="terminal-overlay-card w-full max-w-lg border border-border p-7"><p className="mb-2 font-mono text-xs text-primary">{state.error?.code ?? "DESKTOP_SESSION_FAILED"}</p><h1 className="text-2xl font-semibold">{state.connection === "expired" ? "桌面会话已过期" : "桌面会话不可用"}</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">{state.error?.message ?? "请返回网页房间重新生成一次性交接码。"}</p><Button className="mt-6" onClick={onLeave}>重新加入</Button></div></section>
 }

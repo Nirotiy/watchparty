@@ -115,9 +115,9 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
     }
   });
 
-  app.get("/api/media/catalog/:id", (req, res) => {
+  app.get("/api/media/catalog/:id", async (req, res) => {
     try {
-      res.json(library.catalogDetail(paramId(req)));
+      res.json(await library.catalogDetail(paramId(req), req.query.episodeTitles !== "0"));
     } catch (error) {
       sendFailure(res, error);
     }

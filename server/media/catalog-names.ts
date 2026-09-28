@@ -77,9 +77,16 @@ export function yearFrom(name: string): number | null {
 }
 
 export function parseEpisode(name: string): { season: number | null; episode: number | null } {
-  const match = name.match(/S(\d{1,2})E(\d{1,3})/i);
-  if (!match?.[1] || !match[2]) return { season: null, episode: null };
-  return { season: Number(match[1]), episode: Number(match[2]) };
+  const stem = name.replace(/\.[a-z0-9]{2,5}$/i, "");
+  const seasonEpisode = /S(\d{1,2})E(\d{1,3})/i.exec(stem);
+  if (seasonEpisode?.[1] && seasonEpisode[2]) return { season: Number(seasonEpisode[1]), episode: Number(seasonEpisode[2]) };
+  const explicit = /(?:\bEP(?:ISODE)?[\s._-]*(\d{1,3})\b|第\s*(\d{1,3})\s*[话話集])/i.exec(stem);
+  if (explicit) return { season: null, episode: Number(explicit[1] ?? explicit[2]) };
+  // Release groups place an episode after the title, before codec/language tags.
+  const bracketed = /(?:^|[\s\]\)])\[(\d{1,3})\](?=\[|\s|$)/.exec(stem);
+  if (bracketed?.[1]) return { season: null, episode: Number(bracketed[1]) };
+  const trailing = /(?:^|\s)[-–]\s*(\d{1,3})(?=\s*(?:\[|$))/.exec(stem);
+  return { season: null, episode: trailing?.[1] ? Number(trailing[1]) : null };
 }
 
 const CN_DIGIT: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };

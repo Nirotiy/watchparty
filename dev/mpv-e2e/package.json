@@ -1,1 +1,1 @@
-{"name":"watchparty-mpv-e2e","private":true,"scripts":{"wss:fixture":"node wss-fixture-test.cjs"},"dependencies":{"fengari":"^0.1.5"}}
+{"name":"watchparty-mpv-e2e","private":true,"scripts":{"wss:fixture":"node wss-fixture-test.cjs","wss:rust":"node wss-rust-e2e.cjs","http:musicparty":"node musicparty-http-e2e.cjs","libmpv:ca":"node libmpv-ca-e2e.cjs","audio:musicparty":"node libmpv-ca-e2e.cjs --audio-worker"},"dependencies":{"fengari":"^0.1.5"}}

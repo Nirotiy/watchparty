@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { createBackend, type Backend } from "../app.ts";
 import { loadConfig } from "../config.ts";
-import { cleanTitle, episodeSubtitle, groupScanFiles, scoreTitles, titleCandidateDetails, titleCandidates, yearFrom } from "../media/catalog-names.ts";
+import { cleanTitle, episodeSubtitle, groupScanFiles, parseEpisode, scoreTitles, titleCandidateDetails, titleCandidates, yearFrom } from "../media/catalog-names.ts";
 import { chooseMatch, createBangumiClient, rankHits, type MetadataHit, type MetadataSearcher } from "../media/catalog-metadata.ts";
 import { openCatalogStore } from "../media/catalog-store.ts";
 import { createCatalogWorker } from "../media/catalog-worker.ts";
@@ -116,6 +116,18 @@ test("season folders roll up to one series and episodes stay ordered", () => {
   );
 });
 
+test("release file episode numbers survive catalog grouping", () => {
+  const names = [
+    "[Lilith-Raws] Tengen Toppa Gurren Lagann - 02 [Baha][WEB-DL][1080p][AVC AAC][CHT][MP4].mp4",
+    "[Lilith-Raws] Tengen Toppa Gurren Lagann - 01 [Baha][WEB-DL][1080p][AVC AAC][CHT][MP4].mp4",
+  ];
+  const groups = groupScanFiles(names.map((name, index) => ({ relativePath: `/Show/${name}`, name, mediaId: String(index) })));
+  assert.deepEqual(groups[0]?.files.map((file) => file.episode), [1, 2]);
+  assert.deepEqual(parseEpisode("[Group][Show][03][1080p].mkv"), { season: null, episode: 3 });
+  assert.deepEqual(parseEpisode("Show_S01E04.mkv"), { season: 1, episode: 4 });
+  assert.deepEqual(parseEpisode("Show [SP03][1080p].mkv"), { season: null, episode: null });
+});
+
 test("episodeSubtitle emits a zh-CN display string with the contract's shape", () => {
   const files = (count: number, season: number | null) =>
     Array.from({ length: count }, (_unused, index) => ({
@@ -175,6 +187,27 @@ test("bangumi keeps anime hits and appends tokusatsu", async () => {
   const hits = await client.search("侍战队真剑者", "anime");
   assert.deepEqual(seen, [2, 6]);
   assert.deepEqual(hits.map((hit) => hit.title), ["金牌得主", "侍战队真剑者"]);
+});
+
+test("bangumi episode titles use numbered regular episodes and paginate", async () => {
+  const offsets: number[] = [];
+  const client = createBangumiClient(async (input) => {
+    const url = new URL(String(input));
+    assert.equal(url.pathname, "/v0/episodes");
+    assert.equal(url.searchParams.get("subject_id"), "123");
+    assert.equal(url.searchParams.get("type"), "0");
+    const offset = Number(url.searchParams.get("offset"));
+    offsets.push(offset);
+    return Response.json(offset === 0 ? {
+      total: 101,
+      data: [{ type: 0, sort: 1, name: "Original", name_cn: "第一话" }, { type: 1, sort: 2, name: "Special" }],
+    } : { total: 101, data: [{ type: 0, sort: 101, name: "Finale", name_cn: "" }] });
+  });
+  const titles = await client.episodeTitles?.("123");
+  assert.deepEqual(offsets, [0, 100]);
+  assert.equal(titles?.get(1), "第一话");
+  assert.equal(titles?.get(2), undefined);
+  assert.equal(titles?.get(101), "Finale");
 });
 
 test("ten local episodes prefer the 2026 series over the 2017 film", () => {
@@ -307,8 +340,8 @@ test("a rejected pair is not proposed again on the next scan", async () => {
   }
 });
 
-test("listing a library does not scrape, and a scrape serves the cached poster", async () => {
-  const calls = { bangumi: 0, tmdb: 0 };
+test("listing a library does not scrape, and detail serves numbered episodes with cached titles", async () => {
+  const calls = { bangumi: 0, episodes: 0, tmdb: 0 };
   const backend = createBackend({
     host: "127.0.0.1",
     port: 0,
@@ -317,11 +350,16 @@ test("listing a library does not scrape, and a scrape serves the cached poster",
     config: loadConfig({ NODE_ENV: "test", OPENLIST_PASSWORD: "secret-value" }),
     catalogInline: true,
     catalogDelayMs: 0,
-    libraryClientFactory: () => fakeLibrary(WATCHPARTY_ROOTS.Anime),
+    libraryClientFactory: () => fakeLibrary(WATCHPARTY_ROOTS.Anime, ["Medalist - 02.mkv", "Medalist - 01.mkv"]),
     bangumi: {
       async search(query) {
         calls.bangumi += 1;
         return [hit("bangumi", "430699", query, "https://lain.bgm.tv/pic/a.jpg")];
+      },
+      async episodeTitles(subjectId) {
+        assert.equal(subjectId, "430699");
+        calls.episodes += 1;
+        return new Map([[1, "第一话"], [2, "第二话"]]);
       },
     },
     tmdb: {
@@ -348,10 +386,22 @@ test("listing a library does not scrape, and a scrape serves the cached poster",
     assert.equal(job.lastError, null);
     assert.equal(calls.tmdb, 0);
     const catalog = (await (await fetch(`${baseUrl(backend)}/api/media/catalog?libraryId=lib_anime`)).json()) as {
-      items: Array<{ title: string; status: string; posterUrl: string | null }>;
+      items: Array<{ id: string; title: string; status: string; posterUrl: string | null }>;
     };
     assert.equal(catalog.items[0]?.title, "Medalist");
     assert.equal(catalog.items[0]?.status, "confirmed");
+    const detailUrl = `${baseUrl(backend)}/api/media/catalog/${catalog.items[0]?.id}`;
+    const fastResponse = await fetch(`${detailUrl}?episodeTitles=0`);
+    assert.equal(fastResponse.status, 200);
+    const fastDetail = (await fastResponse.json()) as { children: Array<{ episode: number | null; episodeTitle?: string | null }> };
+    assert.deepEqual(fastDetail.children.map(({ episode, episodeTitle }) => [episode, episodeTitle ?? null]), [[1, null], [2, null]]);
+    assert.equal(calls.episodes, 0, "opening the card must not wait for Bangumi episode titles");
+    const detailResponse = await fetch(detailUrl);
+    assert.equal(detailResponse.status, 200);
+    const detail = (await detailResponse.json()) as { children: Array<{ episode: number | null; episodeTitle?: string | null }> };
+    assert.deepEqual(detail.children.map(({ episode, episodeTitle }) => [episode, episodeTitle]), [[1, "第一话"], [2, "第二话"]]);
+    assert.equal((await fetch(detailUrl)).status, 200);
+    assert.equal(calls.episodes, 1);
     const posterUrl = catalog.items[0]?.posterUrl ?? "";
     const poster = await fetch(`${baseUrl(backend)}${posterUrl}`);
     assert.equal(poster.status, 200);
@@ -409,11 +459,11 @@ function openWorker(options: {
   return { catalog, worker, close: () => catalog.close() };
 }
 
-function fakeLibrary(root: string): OpenlistClient {
+function fakeLibrary(root: string, names: string[] = ["Medalist.mkv"]): OpenlistClient {
   return {
     async list(dir) {
       if (dir !== root) return { code: 200, data: { content: [] } };
-      return { code: 200, data: { content: [{ name: "Medalist.mkv", is_dir: false, size: 10, path: `${root}/Medalist.mkv` }] } };
+      return { code: 200, data: { content: names.map((name) => ({ name, is_dir: false, size: 10, path: `${root}/${name}` })) } };
     },
     async listShallow() {
       return { code: 200, data: { content: [] } };
@@ -476,6 +526,28 @@ test("catalog detail children carry the same compatibility verdict as the browse
       [mp4.compatibility.browser, mp4.compatibility.desktop],
       ["supported", "supported"],
     );
+  } finally {
+    store.close();
+  }
+});
+
+test("existing catalog children with missing episode numbers are parsed on read", () => {
+  const posterDir = fs.mkdtempSync(path.join(os.tmpdir(), "wp-posters-"));
+  const store = openCatalogStore(":memory:", posterDir);
+  try {
+    store.upsertScan("lib_anime", "anime", [{
+      itemKey: "/Gurren Lagann",
+      query: "Gurren Lagann",
+      queries: ["Gurren Lagann"],
+      rawName: "Gurren Lagann",
+      files: [
+        { mediaId: "e2", name: "Gurren Lagann - 02 [Baha].mp4", season: null, episode: null },
+        { mediaId: "e1", name: "Gurren Lagann - 01 [Baha].mp4", season: null, episode: null },
+      ],
+    }]);
+    const card = store.listCards("lib_anime", undefined, undefined).items[0];
+    assert.ok(card);
+    assert.deepEqual(store.getDetail(card.id)?.children.map((child) => child.episode), [2, 1]);
   } finally {
     store.close();
   }

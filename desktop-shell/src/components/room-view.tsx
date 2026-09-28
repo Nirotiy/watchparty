@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { ReactElement } from "react"
+import { GaugeRegular } from "@fluentui/react-icons"
 
 import { MaterialSymbol, type MaterialSymbolName } from "@/components/material-symbol"
 import { Button } from "@/components/ui/button"
@@ -7,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { DesktopCommand, DesktopUiState, MediaSource, Track } from "@/lib/contracts"
+import { listenForWindowState, windowControl } from "@/lib/ipc"
 import { cn } from "@/lib/utils"
 
 type Drawer = "queue" | "members" | null
@@ -100,6 +102,28 @@ function SharedControl({ reason, children }: { reason: string | null; children: 
       <TooltipTrigger asChild><span className="inline-flex">{children}</span></TooltipTrigger>
       <TooltipContent>{reason}</TooltipContent>
     </Tooltip>
+  )
+}
+
+/** 播放页不画系统顶栏，窗口按钮跟着悬浮控件一起收放（同 Segoe Fluent Icons 字形）。 */
+const WINDOW_GLYPH = { minimize: "\uE921", maximize: "\uE922", restore: "\uE923", close: "\uE8BB" }
+
+function WindowControls() {
+  const [maximized, setMaximized] = useState(false)
+  useEffect(() => {
+    let dispose: (() => void) | null = null
+    let dropped = false
+    void listenForWindowState((state) => { if (!dropped) setMaximized(state.maximized) })
+      .then((unlisten) => { if (dropped) unlisten(); else dispose = unlisten })
+      .catch(() => {})
+    return () => { dropped = true; dispose?.() }
+  }, [])
+  return (
+    <div className="flex items-stretch">
+      <button type="button" tabIndex={-1} className="room-window-btn" aria-label="最小化" onClick={() => void windowControl("minimize")}>{WINDOW_GLYPH.minimize}</button>
+      <button type="button" tabIndex={-1} className="room-window-btn" aria-label={maximized ? "向下还原" : "最大化"} onClick={() => void windowControl("maximize")}>{maximized ? WINDOW_GLYPH.restore : WINDOW_GLYPH.maximize}</button>
+      <button type="button" tabIndex={-1} className="room-window-btn room-window-close" aria-label="关闭" onClick={() => void windowControl("close")}>{WINDOW_GLYPH.close}</button>
+    </div>
   )
 }
 
@@ -225,11 +249,15 @@ export function RoomView({
             {ready ? <span className="sr-only">桌面会话连接正常</span> : <span className="truncate text-[var(--text-primary)]">{statusText}</span>}
           </div>
         </div>
-        <div className="absolute right-4 top-2.5 flex items-center gap-1">
-          <IconControl icon="queue" label={`播放队列，${room?.playlist.length ?? 0} 项`} active={drawer === "queue"} disabled={!mediaQueueAvailable} onClick={() => onDrawerChange("queue")} />
-          <IconControl icon="group" label={`在线成员，${state.members.length} 人`} active={drawer === "members"} onClick={() => onDrawerChange("members")} />
-        </div>
       </header>
+
+      {/* 窗口三键留在右上角（与其它页面的顶栏同一位置/同尺码），跟随悬浮控件一起收放。 */}
+      <div
+        className={cn("absolute right-0 top-0 z-40 transition-opacity duration-200 ease-[var(--f2-ease-out)] motion-reduce:transition-none", showControls ? "opacity-100" : "pointer-events-none opacity-0")}
+        {...holdControls}
+      >
+        <WindowControls />
+      </div>
 
       <footer style={{ right: overlayRight }} className={cn(overlayClass, "media-bottom-scrim bottom-0 space-y-2 px-4 pt-14 pb-4 transition-[opacity,right] duration-200 ease-[var(--f2-ease-out)] motion-reduce:transition-none")} {...holdControls}>
         <div className="flex items-center gap-2">
@@ -341,7 +369,7 @@ export function RoomView({
             onValueChange={(value) => void command({ type: "rate", rate: Number(value) })}
           >
             <SelectTrigger className="media-icon label [&>svg:last-child]:hidden" title="倍速" aria-label="倍速">
-              <MaterialSymbol name="speed" />
+              <GaugeRegular aria-hidden="true" />
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -350,6 +378,8 @@ export function RoomView({
           </Select>
           </div>
           <div className="media-control-group media-control-group-end">
+            <IconControl icon="queue" label={`播放队列，${room?.playlist.length ?? 0} 项`} active={drawer === "queue"} disabled={!mediaQueueAvailable} onClick={() => onDrawerChange("queue")} />
+            <IconControl icon="group" label={`在线成员，${state.members.length} 人`} active={drawer === "members"} onClick={() => onDrawerChange("members")} />
             <IconControl
               icon={fullscreen ? "fullscreen-exit" : "fullscreen"}
               label={fullscreen ? "退出全屏" : "全屏"}

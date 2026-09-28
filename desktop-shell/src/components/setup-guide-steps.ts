@@ -101,10 +101,16 @@ export interface ReadinessLineReport {
  * `components.openlist.code`（那里只放 `MediaHealthCode`），而在 `diagnostics[]`。
  */
 export function readinessSummary(readiness: ReadinessLineReport | null | undefined): string | null {
-  if (!readiness) return null
+  const parts = readinessParts(readiness)
+  if (!parts.openlist && !parts.roots) return null
+  return [parts.openlist, parts.roots].filter(Boolean).join("。")
+}
+
+/** 同一份判定拆开给状态卡的两行用（「媒体源」「媒体库」各占一行）。 */
+export function readinessParts(readiness: ReadinessLineReport | null | undefined): { openlist: string | null; roots: string | null } {
+  if (!readiness) return { openlist: null, roots: null }
   const openlist = readiness.components?.openlist
   const roots = readiness.components?.mediaRoots
-  if (!openlist && !roots) return null
   const diagnosticCodes = new Set((readiness.diagnostics ?? []).map(entry => entry.code))
   const unconfigured = diagnosticCodes.has("OPENLIST_URL_NOT_CONFIGURED") || diagnosticCodes.has("OPENLIST_PASSWORD_NOT_CONFIGURED")
   const openlistLabel = !openlist ? null
@@ -116,7 +122,7 @@ export function readinessSummary(readiness: ReadinessLineReport | null | undefin
     : (roots.code === "MEDIA_ROOT_NOT_FOUND"
       || (roots as { roots?: { ok?: boolean }[] }).roots?.some(root => root.ok === false)) ? "媒体库：路径未找到"
     : "媒体库：不可用"
-  return [openlistLabel, rootsLabel].filter(Boolean).join("。")
+  return { openlist: openlistLabel, roots: rootsLabel }
 }
 
 /**

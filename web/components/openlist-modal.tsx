@@ -12,10 +12,14 @@ import {
   ChevronRight,
   Link as LinkIcon,
 
+  Maximize2,
+  Minimize2,
+
   AlertCircle,
   RefreshCw,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import type { ScrapeJob } from "@/lib/contracts";
 import {
   MediaBreadcrumb,
   MediaLibrary,
@@ -24,6 +28,9 @@ import {
   MediaSource,
 } from "@/lib/contracts";
 import { mediaErrorText } from "@/lib/media-error-text";
+import { isNonMedia, scrapeSummary, toDetail, toWall, type Wall, type WallDetail } from "@/lib/catalog-view";
+import { CatalogRail, CatalogWall, UnmatchedLine } from "@/components/catalog-wall";
+import { CatalogDraft } from "@/components/catalog-draft";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,6 +58,9 @@ interface OpenListModalProps {
   onPlayOnDesktop?: (media: MediaSource) => boolean | void | Promise<boolean | void>;
   onAddToQueue: (media: MediaSource) => void;
   onBatchAdd: (medias: MediaSource[]) => void | Promise<void>;
+  /** 裁决 ②：媒体库可以是整页。弹窗是"房间内快速挑一个"，整页是浏览与整理。 */
+  fullPage?: boolean;
+  onToggleFullPage?: () => void;
 }
 
 /** 库封面（相位 2）：同源 <img>，走 Next 的 /api 重写，失败就退回图标。 */
@@ -90,6 +100,8 @@ export function OpenListModal({
   onPlayOnDesktop,
   onAddToQueue,
   onBatchAdd,
+  fullPage = false,
+  onToggleFullPage,
 }: OpenListModalProps) {
   // 多源库（phase 1）：能力位为真走 /api/media/libraries + list?libraryId=，
   // 顺序、面包屑路径都按服务端返回渲染，客户端不排序、不拼路径。
@@ -101,6 +113,21 @@ export function OpenListModal({
   const [hasMore, setHasMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
   const [folderPosterId, setFolderPosterId] = useState<string | null>(null);
+  // 相位 3：Titles/Files 开关（默认 Titles）+ 标题墙状态 + 非视频文件的显示开关。
+  const [mode, setMode] = useState<"titles" | "files" | "draft">("titles");
+  const [wall, setWall] = useState<Wall | null>(null);
+  const [wallDetail, setWallDetail] = useState<WallDetail | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [catalogBusy, setCatalogBusy] = useState(false);
+  const [scrape, setScrape] = useState<ScrapeJob | null>(null);
+  const [mediaAdmin, setMediaAdmin] = useState(false);
+  const [showAllFiles, setShowAllFiles] = useState(false);
+  // 冠军稿的「只看待确认」：只在已载入的那一页里筛，不额外打请求。
+  const [onlyReview, setOnlyReview] = useState(false);
+  // 切到整页时 Dialog 会卸载，Radix 会顺手报一次 close —— 用一个"正在换壳"的开关挡掉它。
+  // （开关在事件里置位、在换壳落地后复位，不在渲染期写 ref。）
+  const switchingShellRef = useRef(false);
+  useEffect(() => { switchingShellRef.current = false; }, [fullPage]);
 
   // 加载与错误状态 (绝对零 mock 降级)
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -173,6 +200,36 @@ export function OpenListModal({
     }
   }, []);
 
+  // 3. 标题库：列表 / 详情 / 候选写回 / 刮削状态
+  const loadWall = useCallback(async (libraryId: string, cursor?: string, q?: string) => {
+    try {
+      const page = await api.getCatalog(libraryId, cursor, q);
+      const next = toWall(page);
+      setWall((prev) => (cursor && prev ? { ...next, cards: [...prev.cards, ...next.cards] } : next));
+      setErrorMsg(null);
+    } catch (err: unknown) {
+      if (!cursor) setWall(null);
+      setErrorMsg(mediaErrorText(err, "无法读取标题库"));
+    }
+  }, []);
+
+  const openWallDetail = useCallback(async (itemId: string) => {
+    setSelectedId(itemId);
+    setCatalogBusy(true);
+    try {
+      setWallDetail(toDetail(await api.getCatalogItem(itemId)));
+    } catch (err: unknown) {
+      setWallDetail(null);
+      setErrorMsg(mediaErrorText(err, "无法读取这个条目"));
+    } finally {
+      setCatalogBusy(false);
+    }
+  }, []);
+
+  const refreshScrape = useCallback(async (libraryId: string) => {
+    try { setScrape(await api.getScrapeStatus(libraryId)); } catch { setScrape(null); }
+  }, []);
+
   // 打开时读能力位与库列表，再落第一个库的首页（服务端顺序，客户端不排序）
   useEffect(() => {
     if (!isOpen) return;
@@ -182,6 +239,8 @@ export function OpenListModal({
         setIsLoading(true);
         setErrorMsg(null);
         try {
+          const caps = await api.getMediaCapabilities().catch(() => null);
+          if (live) setMediaAdmin(caps?.mediaAdmin === true);
           const listed = await api.getMediaLibraries();
           if (!live) return;
           setLibraries(listed);
@@ -195,7 +254,9 @@ export function OpenListModal({
           }
           setActiveLibraryId(first.id);
           setCurrentPath("/");
-          await loadDirectory(first.id, "/");
+          // 默认进 Titles（裁决 ②）；文件视图切过去时再载入。
+          await loadWall(first.id);
+          void refreshScrape(first.id);
         } catch (err: unknown) {
           if (!live) return;
           setItems([]);
@@ -209,7 +270,7 @@ export function OpenListModal({
       window.clearTimeout(loadTimer);
       requestSequenceRef.current += 1;
     };
-  }, [isOpen, loadDirectory]);
+  }, [isOpen, loadDirectory, loadWall, refreshScrape]);
 
   const clearSearch = useCallback(() => {
     requestSequenceRef.current += 1;
@@ -234,12 +295,26 @@ export function OpenListModal({
     setSearchResults([]);
     setSearchHasMore(false);
     setSearchNextCursor(undefined);
+    if (mode === "titles") {
+      setWall(null);
+      setSelectedId(null);
+      setWallDetail(null);
+      await loadWall(activeLibraryId, undefined, query);
+      return;
+    }
     await loadSearch(query, activeLibraryId);
   };
 
   const handleClose = () => {
     clearSearch();
     onClose();
+  };
+
+  /** 摊成整页 / 收回到弹窗：只为这次动画挡住 Radix 的假 close。 */
+  const toggleShell = () => {
+    if (!onToggleFullPage) return;
+    switchingShellRef.current = true;
+    onToggleFullPage();
   };
 
   /** 切库/进目录/回上层的唯一入口：路径只用服务端给的 relativePath 或面包屑 path。 */
@@ -252,13 +327,83 @@ export function OpenListModal({
     clearSearch();
     setActiveLibraryId(libraryId);
     setCurrentPath("/");
+    setWall(null);
+    setWallDetail(null);
+    setSelectedId(null);
+    setScrape(null);
+    setShowAllFiles(false);
+    setOnlyReview(false);
+    if (mode === "titles") {
+      void loadWall(libraryId);
+      void refreshScrape(libraryId);
+      return;
+    }
     void loadDirectory(libraryId, "/");
+  };
+
+  /** 换模式只补自己缺的那半。 */
+  const selectMode = (next: "titles" | "files" | "draft") => {
+    setMode(next);
+    setShowAllFiles(false);
+    setOnlyReview(false);
+    if (!activeLibraryId || next === "draft") return;
+    if (next === "titles") {
+      if (!wall) void loadWall(activeLibraryId);
+      void refreshScrape(activeLibraryId);
+      return;
+    }
+    if (items.length === 0) void loadDirectory(activeLibraryId, "/");
+  };
+
+  /** 标题墙里点一张卡：右栏出详情（季/集与候选）。 */
+  const openCard = (card: { id: string }) => {
+    void openWallDetail(card.id);
+  };
+
+  /** 确认/拒绝是标题库仅有的两种写入。 */
+  const reviewCandidate = async (action: "confirm" | "reject", candidateId: string) => {
+    if (!wallDetail || catalogBusy) return;
+    setCatalogBusy(true);
+    try {
+      const next = action === "confirm"
+        ? await api.confirmCatalogItem(wallDetail.id, candidateId)
+        : await api.rejectCatalogItem(wallDetail.id, candidateId);
+      setWallDetail(toDetail(next));
+      if (activeLibraryId) void loadWall(activeLibraryId, undefined, activeSearchQuery ?? undefined);
+      setErrorMsg(null);
+    } catch (err: unknown) {
+      setErrorMsg(mediaErrorText(err, action === "confirm" ? "确认没写成功" : "拒绝没写成功"));
+    } finally {
+      setCatalogBusy(false);
+    }
+  };
+
+  /** 刮削只给管理员：远端网页拿不到 mediaAdmin，入口自动隐藏。 */
+  const updateScrape = async () => {
+    if (!activeLibraryId || catalogBusy) return;
+    setCatalogBusy(true);
+    try {
+      // 后端首次 POST 可能先回 404 而任务已启动，所以随后读一次状态为准。
+      await api.startScrape(activeLibraryId).catch(() => null);
+      await refreshScrape(activeLibraryId);
+      void loadWall(activeLibraryId, undefined, activeSearchQuery ?? undefined);
+    } catch (err: unknown) {
+      setErrorMsg(mediaErrorText(err, "刮削没启动"));
+    } finally {
+      setCatalogBusy(false);
+    }
   };
 
   if (!isOpen) return null;
 
   const isSearching = activeSearchQuery !== null;
   const displayItems = isSearching ? searchResults : items;
+  const visibleItems = mode === "files" && !showAllFiles ? displayItems.filter(item => !isNonMedia(item)) : displayItems;
+  const hiddenFiles = mode === "files" ? displayItems.filter(item => isNonMedia(item)).length : 0;
+  const wallCardsAll = (wall?.cards ?? []).filter(card => card.status !== "unmatched");
+  const reviewCount = wallCardsAll.filter(card => card.needsReview).length;
+  const wallCards = onlyReview ? wallCardsAll.filter(card => card.needsReview) : wallCardsAll;
+  const unmatchedCount = (wall?.cards ?? []).filter(card => card.status === "unmatched").length;
 
   // 一键入队当前目录全部可由任一正式客户端播放的文件。
   const handleBatchAddCurrentDir = async () => {
@@ -324,20 +469,23 @@ export function OpenListModal({
     handleClose();
   };
 
-  return (
-    <Dialog open onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent
-        showCloseButton={false}
-        aria-describedby={undefined}
-        className="flex h-[620px] max-h-[92dvh] w-full max-w-4xl flex-col gap-0 overflow-hidden border-border bg-card p-0 sm:max-w-4xl"
-      >
+  const panel = (
+    <>
         {/* ================= 头部工具条 ================= */}
         <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3.5">
           <div className="flex items-center gap-3">
-            <DialogTitle className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-              <Film className="size-4 text-sky-400" />
-              <span>点播媒体库</span>
-            </DialogTitle>
+            {/* 整页模式没有 Radix Dialog，DialogTitle 会抛错 —— 两种壳各用各的标题元素。 */}
+            {fullPage ? (
+              <span className="flex items-center gap-1.5 text-base font-semibold text-foreground">
+                <Film className="size-4 text-sky-400" />
+                <span>媒体库</span>
+              </span>
+            ) : (
+              <DialogTitle className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                <Film className="size-4 text-sky-400" />
+                <span>点播媒体库</span>
+              </DialogTitle>
+            )}
 
             {/* 库切换器：顺序与健康位都按服务端返回，客户端不排序 */}
             <div className="flex flex-wrap rounded border border-border bg-black p-0.5 text-xs" role="group" aria-label="媒体库">
@@ -374,6 +522,27 @@ export function OpenListModal({
               )}
             </div>
 
+            {/* 裁决 ②：整页 ↔ 弹窗。弹窗留给"快速挑一个"，整页用来浏览与整理。 */}
+            <div className="flex rounded border border-border bg-black p-0.5 text-xs">
+              {((mediaAdmin ? ["titles", "files", "draft"] : ["titles", "files"]) as ReadonlyArray<"titles" | "files" | "draft">).map((value) => (
+                <Button
+                  key={value}
+                  variant="ghost"
+                  size="sm"
+                  aria-pressed={mode === value}
+                  onClick={() => selectMode(value)}
+                  className={cn(
+                    "px-2.5",
+                    mode === value
+                      ? "bg-sky-500 font-semibold text-black hover:bg-sky-500 hover:text-black"
+                      : "font-normal text-muted-foreground hover:text-white",
+                  )}
+                >
+                  {value === "titles" ? "点播" : value === "files" ? "文件" : "草稿"}
+                </Button>
+              ))}
+            </div>
+
             <Button
               variant="outline"
               size="sm"
@@ -389,15 +558,28 @@ export function OpenListModal({
             </Button>
           </div>
 
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={handleClose}
-            aria-label="关闭媒体库"
-            className="text-muted-foreground hover:bg-accent hover:text-white"
-          >
-            <X className="size-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            {onToggleFullPage ? (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={toggleShell}
+                aria-label={fullPage ? "收起到弹窗" : "整页打开"}
+                className="text-muted-foreground hover:bg-accent hover:text-white"
+              >
+                {fullPage ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+              </Button>
+            ) : null}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={handleClose}
+              aria-label="关闭媒体库"
+              className="text-muted-foreground hover:bg-accent hover:text-white"
+            >
+              <X className="size-4" />
+            </Button>
+          </div>
         </div>
 
         {/* 直链输入栏 */}
@@ -438,8 +620,8 @@ export function OpenListModal({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="在当前库里搜索文件名..."
-                aria-label={`在 ${activeLibrary?.name ?? "媒体库"} 中搜索`}
+                placeholder={mode === "titles" ? "在当前库里搜索标题..." : "在当前库里搜索文件名..."}
+                aria-label={`在 ${activeLibrary?.name ?? "媒体库"} 中${mode === "titles" ? "搜索标题" : "搜索文件名"}`}
                 className="h-8 w-full bg-black pl-8 text-xs"
               />
             </div>
@@ -513,7 +695,84 @@ export function OpenListModal({
           )}
         </div>
 
-        {/* ================= 主体列表区域 ================= */}
+        {mode === "draft" ? (
+          <div className="flex-1 overflow-y-auto p-4">
+            {activeLibraryId && mediaAdmin ? <CatalogDraft key={activeLibraryId} libraryId={activeLibraryId} libraryName={activeLibrary?.name ?? activeLibraryId} /> : (
+              <p className="text-xs text-muted-foreground">只有本机或管理员能审阅与应用草稿。</p>
+            )}
+          </div>
+        ) : mode === "titles" ? (
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>{wall ? `${wallCardsAll.length} 个标题 · ${reviewCount} 个待确认` : "正在读取标题库…"}</span>
+              {reviewCount > 0 ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-pressed={onlyReview}
+                  onClick={() => setOnlyReview((value) => !value)}
+                  className={cn("h-6 px-2 text-[11px]", onlyReview ? "bg-sky-500 font-semibold text-black hover:bg-sky-400 hover:text-black" : "text-muted-foreground hover:text-white")}
+                >
+                  只看待确认
+                </Button>
+              ) : null}
+              {activeSearchQuery ? (
+                <span className="rounded-full border border-border px-2">标题：{activeSearchQuery}<button type="button" className="ml-1 underline" onClick={() => clearSearch()}>清除</button></span>
+              ) : null}
+              <span className="flex-1" />
+              {scrape ? <span role="status">{scrapeSummary(scrape)}<button type="button" className="ml-2 underline" onClick={() => activeLibraryId && void refreshScrape(activeLibraryId)}>刷新</button></span> : null}
+              {mediaAdmin ? (
+                <Button variant="outline" size="sm" disabled={catalogBusy} onClick={() => void updateScrape()}>
+                  <RefreshCw className="size-3" />更新标题库
+                </Button>
+              ) : null}
+            </div>
+            {errorMsg ? (
+              <div className="flex items-center justify-between rounded border border-rose-900/50 bg-rose-950/30 p-3 text-xs text-rose-300">
+                <div className="flex items-center gap-2"><AlertCircle className="size-4 shrink-0" /><span>{errorMsg}</span></div>
+                <Button variant="link" size="sm" className="h-6 px-1 text-white" onClick={() => activeLibraryId && void loadWall(activeLibraryId, undefined, activeSearchQuery ?? undefined)}>重试</Button>
+              </div>
+            ) : null}
+            {wall ? (
+              <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px]">
+                {/* 只有墙滚；右栏固定在自己的高度里（产品负责人 2026-09-27）。 */}
+                <div className="min-h-0 overflow-y-auto pr-1">
+                  <CatalogWall cards={wallCards} selectedId={selectedId} onSelect={openCard} />
+                </div>
+                {wallDetail ? (
+                  <CatalogRail
+                    detail={wallDetail}
+                    busy={catalogBusy}
+                    onConfirm={(candidateId) => void reviewCandidate("confirm", candidateId)}
+                    onReject={(candidateId) => void reviewCandidate("reject", candidateId)}
+                    onPlay={(media) => { onPlayNow(media); handleClose(); }}
+                    onAddToQueue={onAddToQueue}
+                  />
+                ) : (
+                  <aside className="flex min-h-0 flex-col gap-3 rounded-lg border border-border bg-card p-3.5 text-xs text-muted-foreground">
+                    {wallCards.length ? "选一张海报看详情与候选。" : "这个库还没有标题。管理员可以在这里跑一次刮削。"}
+                  </aside>
+                )}
+              </div>
+            ) : (
+              <div className="flex h-48 items-center justify-center text-xs text-muted-foreground">正在读取标题库…</div>
+            )}
+            <UnmatchedLine
+              count={unmatchedCount}
+              hiddenFiles={0}
+              showAllFiles={false}
+              onShowFiles={() => selectMode("files")}
+              onToggleFiles={() => undefined}
+            />
+            {wall?.hasMore && wall.nextCursor ? (
+              <div className="text-center">
+                <Button variant="outline" size="sm" disabled={catalogBusy} onClick={() => activeLibraryId && void loadWall(activeLibraryId, wall.nextCursor ?? undefined, activeSearchQuery ?? undefined)}>
+                  载入更多标题
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        ) : (
         <div className="flex-1 overflow-y-auto p-4">
           {/* 当前目录自己的封面（相位 2）：只有这一层有 poster.jpg 时才有 */}
           {folderPosterId && !isSearching && !errorMsg && (
@@ -571,7 +830,7 @@ export function OpenListModal({
             )
           ) : (
             <div className="space-y-1">
-              {displayItems.map((item) => {
+              {visibleItems.map((item) => {
                 const isDir = item.type === "dir";
                 // 严格等于 supported 才可播：maybe 与未知值都不放行（handoff §2 D7）。
                 const isBrowserPlayable = item.compatibility.browser === "supported";
@@ -690,6 +949,16 @@ export function OpenListModal({
                 );
               })}
 
+              {hiddenFiles > 0 ? (
+                <UnmatchedLine
+                  count={0}
+                  hiddenFiles={hiddenFiles}
+                  showAllFiles={showAllFiles}
+                  onShowFiles={() => undefined}
+                  onToggleFiles={() => setShowAllFiles((show) => !show)}
+                />
+              ) : null}
+
               {((!isSearching && hasMore) || (isSearching && searchHasMore)) && (
                 <div className="pt-2 text-center">
                   <Button
@@ -713,6 +982,21 @@ export function OpenListModal({
             </div>
           )}
         </div>
+        )}
+    </>
+  );
+
+  if (fullPage) {
+    return <div className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-black">{panel}</div>;
+  }
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open && !switchingShellRef.current) handleClose(); }}>
+      <DialogContent
+        showCloseButton={false}
+        aria-describedby={undefined}
+        className="flex h-[620px] max-h-[92dvh] w-full max-w-4xl flex-col gap-0 overflow-hidden border-border bg-card p-0 sm:max-w-4xl"
+      >
+        {panel}
       </DialogContent>
     </Dialog>
   );

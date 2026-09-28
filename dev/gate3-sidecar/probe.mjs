@@ -76,6 +76,12 @@ function sha256(file) {
 function withTimeout(promise, label, ms = timeoutMs) {
   return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out`)), ms))]);
 }
+function waitUntil(predicate, label, ms = 3_000) {
+  return withTimeout(new Promise((resolve) => {
+    const check = () => predicate() ? resolve(true) : setTimeout(check, 25);
+    check();
+  }), label, ms);
+}
 function waitForLine(lines, predicate, label) {
   return withTimeout(new Promise((resolve) => {
     const check = () => {
@@ -138,10 +144,10 @@ class MpvIpc {
     this.socket.write(`${JSON.stringify({ command, request_id: requestId })}\n`);
     return withTimeout(new Promise((resolve, reject) => this.waiters.push({ id: requestId, resolve, reject })), `IPC ${command[0]}`);
   }
-  event(name) {
+  event(name, predicate = () => true) {
     return withTimeout(new Promise((resolve) => {
       const check = () => {
-        const index = this.events.findIndex((event) => event.event === name);
+        const index = this.events.findIndex((event) => event.event === name && predicate(event));
         if (index >= 0) resolve(this.events.splice(index, 1)[0]);
         else setTimeout(check, 20);
       };
@@ -168,7 +174,6 @@ try {
     "--no-config", "--idle=yes", "--pause=yes", "--keep-open=yes", "--vo=null", "--ao=null",
     "--input-ipc-server=" + pipe,
     "--user-agent=pan.baidu.com",
-    "--http-header-fields=Range: bytes=0-",
   ], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   child.stderr.setEncoding("utf8");
   const socket = await withTimeout(new Promise((resolve, reject) => {
@@ -205,12 +210,32 @@ try {
   for (const [id, command] of [["play", ["set_property", "pause", false]], ["pause", ["set_property", "pause", true]], ["seek", ["seek", 2, "absolute+exact"]], ["rate", ["set_property", "speed", 1.25]], ["volume", ["set_property", "volume", 35]]]) {
     assertResponse(await ipc.command(command), id);
   }
-  record("S3", "passed", "play pause deep-seek rate");
+  record("S3", "passed", "play pause seek rate");
   record("S4", "passed", `volume and track-list=${JSON.stringify(capabilities["track-list"] ?? [])}`);
 
   const directRequest = requests.find((request) => request.pathname === "/direct.mp4");
   record("S6", directRequest?.userAgent.includes("pan.baidu.com") ? "passed" : "failed", `user-agent=${directRequest?.userAgent ?? "missing"}`);
-  record("S7", requests.some((request) => request.pathname === "/direct.mp4" && request.range.includes("bytes=")) ? "passed" : "failed", "Range observed on direct request");
+  const duration = Number((await ipc.command(["get_property", "duration"])).data ?? 0);
+  const deepSeekEligible = duration >= 60 && mediaSize >= 20 * 1024 * 1024;
+  if (deepSeekEligible) {
+    const requestMarker = requests.length;
+    const seekTarget = Math.max(30, duration * 0.75);
+    assertResponse(await ipc.command(["seek", seekTarget, "absolute+exact"]), "deep seek");
+    try {
+      await waitUntil(
+        () => requests.slice(requestMarker).some((request) => {
+          const match = /^bytes=(\d+)-/.exec(request.range);
+          return match && Number(match[1]) > 0;
+        }),
+        "post-seek Range request",
+      );
+      record("S7", "passed", `non-zero Range observed after seek to ${seekTarget.toFixed(1)}s`);
+    } catch {
+      record("S7", "failed", "no non-zero Range request was observed after deep seek");
+    }
+  } else {
+    record("S7", "pending", `fixture too small for deep-seek proof (duration=${duration.toFixed(1)}s, bytes=${mediaSize})`);
+  }
 
   const redirectLoaded = ipc.event("file-loaded");
   assertResponse(await ipc.command(["loadfile", `http://127.0.0.1:${port}/redirect.mp4`, "replace"]), "loadfile redirect");
@@ -225,11 +250,13 @@ try {
   const fallbackRequest = requests.find((request) => request.pathname === "/fallback.mp4");
   record("S9", fallbackRequest?.authorization === authValue && fallbackRequest.range.includes("bytes=") ? "passed" : "failed", "fallback Authorization and Range observed");
 
-  const endFile = ipc.event("end-file");
+  const endFile = ipc.event("end-file", (event) => event.reason === "eof");
+  assertResponse(await ipc.command(["set_property", "keep-open", false]), "disable keep-open for EOF probe");
+  assertResponse(await ipc.command(["seek", 0, "absolute+exact"]), "rewind short fixture");
   assertResponse(await ipc.command(["set_property", "pause", false]), "resume short fixture");
   try {
-    await endFile;
-    record("S5", "passed", "end-file received");
+    const event = await endFile;
+    record("S5", "passed", `end-file reason=${event.reason}`);
   } catch {
     record("S5", "failed", "end-file was not received from the short fixture");
   }

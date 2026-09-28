@@ -100,8 +100,8 @@ enum Command {
         query: Option<String>,
         body: Option<Value>,
     },
-    #[serde(rename = "mediaArtwork", rename_all = "camelCase")]
-    MediaArtwork { media_id: String },
+    #[serde(rename = "mediaImage", rename_all = "camelCase")]
+    MediaImage { kind: String, id: String },
     #[serde(rename = "__launch")]
     OpenUrl { url: String },
     #[serde(rename = "__shutdown")]
@@ -234,7 +234,7 @@ impl State {
             Command::List { root, path, cursor } => encode(api::media_list(s, root, path, cursor)),
             Command::Search { query, cursor } => encode(api::media_search(s, query, cursor)),
             Command::MediaRequest { method, path, query, body } => encode(api::media_request(s, method, path, query, body)),
-            Command::MediaArtwork { media_id } => encode(api::media_artwork(s, media_id)),
+            Command::MediaImage { kind, id } => encode(api::media_image(s, kind, id)),
             Command::OpenUrl { url } => {
                 let launch = parse_room_deep_link(&url).ok_or(json!("invalid_deep_link"))?;
                 s.record_launch(launch.clone());

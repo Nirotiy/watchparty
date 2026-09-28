@@ -1102,6 +1102,18 @@ test("草稿编辑的路由：返回新摘要，错误按码分（前端按码�
     assert.equal((edited.body as { card: { title: string; confirmedBy: string } }).card.title, "我要的名字");
     assert.equal((edited.body as { diff: { formalCards: number } }).diff.formalCards, 0, "编辑不碰正式表");
 
+    const searched = await post("edit", {
+      itemKey: "/Medalist", title: "搜索命中的作品", originalTitle: "Search hit", year: 2025,
+      externalDb: "bangumi", externalId: "9622", posterUrl: "https://example.test/poster.jpg",
+    });
+    assert.equal(searched.status, 200, "搜索命中不在判定候选里，也能人工绑定");
+    const searchedCard = (searched.body as { card: { externalDb: string; externalId: string; title: string; status: string; confirmedBy: string } }).card;
+    assert.equal(searchedCard.externalDb, "bangumi");
+    assert.equal(searchedCard.externalId, "9622");
+    assert.equal(searchedCard.title, "搜索命中的作品");
+    assert.equal(searchedCard.status, "confirmed");
+    assert.equal(searchedCard.confirmedBy, "manual");
+
     assert.equal((await post("edit", { itemKey: "/Nope", title: "x" })).status, 404);
     assert.equal((await post("edit", { itemKey: "/Medalist" })).status, 400, "空补丁");
     assert.equal((await post("edit", { itemKey: "/Medalist", externalDb: "imdb", externalId: "tt1" })).status, 400, "条目库要在白名单里");

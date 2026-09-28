@@ -20,6 +20,7 @@ export default function HomePage() {
   const router = useRouter();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isOpenListSelectorOpen, setIsOpenListSelectorOpen] = useState(false);
+  const [isLibraryFullPage, setIsLibraryFullPage] = useState(false);
   const [initialSelectedMedia, setInitialSelectedMedia] = useState<MediaSource | null>(null);
 
   const [joinRoomId, setJoinRoomId] = useState("");
@@ -206,6 +207,8 @@ export default function HomePage() {
       <OpenListModal
         isOpen={isOpenListSelectorOpen}
         onClose={() => setIsOpenListSelectorOpen(false)}
+        fullPage={isLibraryFullPage}
+        onToggleFullPage={() => setIsLibraryFullPage((value) => !value)}
         onPlayNow={(media) => {
           setInitialSelectedMedia(media);
           setIsOpenListSelectorOpen(false);

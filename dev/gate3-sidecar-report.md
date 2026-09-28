@@ -8,13 +8,13 @@ Command:
 npm run test:gate3-sidecar
 ```
 
-Result on 2026-09-03:
+Result on 2026-09-04:
 
 ```text
-S1-S9: passed
-S10: pending
+S1-S6, S8-S9: passed
+S7, S10: pending
 failed: 0
-pending: 1
+pending: 2
 ```
 
 The verifier uses a local short H.264/AAC fixture at `dev/mpv-e2e/short.mp4`. Supply another fixture with `GATE3_MEDIA_FILE=/absolute/path/file.mp4` when needed.
@@ -44,7 +44,7 @@ The sidecar is a Gate 3 verifier only. It is not the product embedding path and 
 | S4 | volume and track-list | passed |
 | S5 | end-file event | passed |
 | S6 | direct URL User-Agent | passed |
-| S7 | direct URL Range and deep-seek request path | passed |
+| S7 | direct URL Range and deep-seek request path | pending; the 4-second, 53,950-byte fixture cannot prove a non-zero deep-seek Range request |
 | S8 | redirect and dynamic reload | passed |
 | S9 | fallback URL Basic Auth and Range | passed |
 | S10 | high-risk codecs/subtitles/HDR/4K | pending; needs media fixtures |

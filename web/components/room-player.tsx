@@ -186,6 +186,8 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
 
   // 7. Pop-up 模态弹窗控制
   const [isOpenListModalOpen, setIsOpenListModalOpen] = useState(false);
+  // 裁决 ②：媒体库默认按"快速挑一个"的弹窗打开，可以摊成整页做浏览与整理。
+  const [isLibraryFullPage, setIsLibraryFullPage] = useState(false);
   const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
   const [isMpvModalOpen, setIsMpvModalOpen] = useState(false);
@@ -949,6 +951,8 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
       <OpenListModal
         isOpen={isOpenListModalOpen}
         onClose={() => setIsOpenListModalOpen(false)}
+        fullPage={isLibraryFullPage}
+        onToggleFullPage={() => setIsLibraryFullPage((value) => !value)}
         onPlayNow={async (media) => {
           if (!snapshot || !socketRef.current) return;
           if (!canControl) {

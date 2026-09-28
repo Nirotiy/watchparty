@@ -9,6 +9,8 @@ COPY --from=dependencies /app/web/node_modules ./node_modules
 COPY web ./
 ARG BACKEND_ORIGIN=http://backend:8080
 ENV BACKEND_ORIGIN=${BACKEND_ORIGIN}
+ARG NEXT_PUBLIC_SOCKET_ORIGIN=
+ENV NEXT_PUBLIC_SOCKET_ORIGIN=${NEXT_PUBLIC_SOCKET_ORIGIN}
 ENV NODE_ENV=production
 RUN npm run build
 

@@ -95,9 +95,10 @@ pub struct ReadinessDiagnostic {
 /// Readiness payload as served by Node (`GET /api/desktop/readiness`); unknown
 /// fields are tolerated so a Go dialect can be projected onto the same shape.
 /// `startedAt`/`checkedAt` are epoch **milliseconds** (numbers, not ISO strings)
-/// and `listener`/`cache`/`config` are carried through as opaque JSON: the
-/// banner only reads `status`/`service`/`components`/`diagnostics`, and pinning
-/// the rest down here would reject payloads for fields nobody renders.
+/// and `listener`/`config` are carried through as opaque JSON: the lobby's
+/// 「检查服务器」 panel reads `config.mediaIdKey.mode` and the listener port for
+/// troubleshooting, and pinning those shapes down here would reject payloads for
+/// fields nobody renders.
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopReadinessReport {
@@ -110,6 +111,14 @@ pub struct DesktopReadinessReport {
     pub started_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checked_at: Option<u64>,
+    /// Opaque passthrough for the lobby's details panel (`config.mediaIdKey.mode`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<serde_json::Value>,
+    /// Opaque passthrough: `{ host, boundPort, secure }` when the backend reports it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub listener: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub boot_id: Option<String>,
     #[serde(default)]
     pub components: ReadinessComponents,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
