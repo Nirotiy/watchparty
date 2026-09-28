@@ -629,7 +629,7 @@ test("草稿差异分桶：新增、消失、改名、人工漂移各归各的",
       group("/Human", "机器想改的名", ["h1"]),
     ]);
     const diff = store.draftDiff("lib_anime");
-    assert.deepEqual(diff.added, [{ itemKey: "/Brand", query: "Brand", files: 1 }]);
+    assert.deepEqual(diff.added, [{ itemKey: "/Brand", query: "Brand", files: 1, splitFromKey: null, fromFiles: 0 }]);
     assert.equal(diff.dropped.length, 1);
     assert.equal(diff.dropped[0].itemKey, "/Vanishing");
     assert.equal(diff.changed.length, 1);
@@ -909,5 +909,26 @@ test("judge 有单轮上限并回本批 itemKey；没判完的 409 带数量", a
     assert.equal(err.draftCards, 1);
   } finally {
     await backend.close();
+  }
+});
+
+test("新卡带权威来源：文件是从哪张卡接走的，前端不用猜（回执 §6 要的字段）", () => {
+  const { store } = openStore();
+  try {
+    store.upsertScan("lib_anime", "anime", [group("/Show", "Show", ["s1", "s2", "s3", "s4"])]);
+    // 劈卡时文件不动，动的只有"哪张卡认领它们"——所以配对只能按文件路径认，不能按目录名猜。
+    store.writeDraft("lib_anime", [
+      group("/Show", "Show", ["s1", "s2"]),
+      group("/Bonus", "Bonus", ["s3", "s4"], { s3: "/Show", s4: "/Show" }),
+    ]);
+    const diff = store.draftDiff("lib_anime");
+    const added = diff.added.find((entry) => entry.itemKey === "/Bonus");
+    assert.deepEqual({ splitFromKey: added?.splitFromKey, fromFiles: added?.fromFiles }, { splitFromKey: "/Show", fromFiles: 2 }, "文案能写 4 → 2 + 2");
+    assert.equal(diff.changed.length, 1);
+    assert.deepEqual(diff.changed[0].splitIntoKeys, ["/Bonus"], "反向也给出：这张卡被谁接走了文件");
+    assert.deepEqual(diff.changed[0].from, { title: "Show", subtitle: "4 集" });
+    assert.deepEqual(diff.changed[0].to, { title: "Show", subtitle: "2 集" });
+  } finally {
+    store.close();
   }
 });

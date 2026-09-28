@@ -100,16 +100,17 @@ export type DraftJudgment = {
 
 /** 草稿与库里的正式卡对照出来的差异，就是"应用这一步会发生什么"。 */
 export type CatalogDraftDiff = {
-  added: Array<{ itemKey: string; query: string; files: number }>;
+  /** 新卡从哪张正式卡接走文件（文件级证据）：`fromFiles` 是接走的个数。 */
+  added: Array<{ itemKey: string; query: string; files: number; splitFromKey: string | null; fromFiles: number }>;
   dropped: Array<{ id: string; itemKey: string; title: string; files: number }>;
   moved: Array<{ id: string; itemKey: string; fromKey: string; files: number }>;
   /** 同一张卡、文案（标题或集数行）会被改写：两个值都给出，看不出改的是哪一项不算差异。 */
-  changed: Array<{ id: string; itemKey: string; from: { title: string; subtitle: string | null }; to: { title: string; subtitle: string | null } }>;
+  changed: Array<{ id: string; itemKey: string; from: { title: string; subtitle: string | null }; to: { title: string; subtitle: string | null }; splitIntoKeys: string[] }>;
   /**
    * 已确认的卡：标题与绑定动不了（`confirmed_by` 的保护规则），应用时只会刷子文件和
    * 集数行——所以这里只报那两样，报标题漂移是噪音（人挑的中文名本来就 ≠ 罗马字猜测）。
    */
-  confirmedDrift: Array<{ id: string; itemKey: string; title: string; subtitle: { from: string | null; to: string | null }; files: { from: number; to: number } }>;
+  confirmedDrift: Array<{ id: string; itemKey: string; title: string; subtitle: { from: string | null; to: string | null }; files: { from: number; to: number }; splitIntoKeys: string[] }>;
   unchanged: number;
   /** 应用后会自动确认的张数（草稿里 status=confirmed 且 confirmed_by=auto）。 */
   autoConfirmed: number;
@@ -1137,7 +1138,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       );
     },
     draftDiff(libraryId) {
-      const drafts = (db.prepare("SELECT item_key, signature, query, title, subtitle, files, status, confirmed_by FROM catalog_draft WHERE library_id = ? ORDER BY item_key").all(libraryId) as Array<Record<string, unknown>>).map(
+      const drafts = (db.prepare("SELECT item_key, signature, query, title, subtitle, files, status, confirmed_by, children FROM catalog_draft WHERE library_id = ? ORDER BY item_key").all(libraryId) as Array<Record<string, unknown>>).map(
         (row) => ({
           itemKey: text(row, "item_key"),
           signature: text(row, "signature"),
@@ -1146,12 +1147,34 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
           title: typeof row.title === "string" ? row.title : text(row, "query"),
           subtitle: typeof row.subtitle === "string" ? row.subtitle : null,
           files: Number(row.files),
+          paths: (JSON.parse(String(row.children ?? "[]")) as CatalogGroupFile[]).map((file) => file.relativePath ?? `id:${file.mediaId}`),
           autoConfirmed: text(row, "status") === "confirmed" && text(row, "confirmed_by") === "auto",
         }),
       );
       const formal = itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>;
       const draftByKey = new Map(drafts.map((draft) => [draft.itemKey, draft]));
       const draftBySignature = new Map(drafts.map((draft) => [draft.signature, draft]));
+      // 权威配对：一个文件今天在哪张卡上，就说明"新卡是从那张卡劈出来的"。
+      // 让前端靠"文件数相同 / 标题互为包含"去猜，猜错比不提示更糟。
+      const owner = new Map<string, string>();
+      const childrenByCard = new Map<string, Array<CatalogGroupFile & { mediaId: string }>>();
+      for (const row of formal) {
+        const children = childrenOf(text(row, "id"));
+        childrenByCard.set(text(row, "id"), children);
+        for (const child of children) {
+          const filePath = child.relativePath ?? `id:${child.mediaId}`;
+          if (!owner.has(filePath)) owner.set(filePath, text(row, "item_key"));
+        }
+      }
+      const ownerCounts = new Map<string, Array<[string, number]>>();
+      for (const draft of drafts) {
+        const counts = new Map<string, number>();
+        for (const filePath of draft.paths) {
+          const holder = owner.get(filePath);
+          if (holder) counts.set(holder, (counts.get(holder) ?? 0) + 1);
+        }
+        ownerCounts.set(draft.itemKey, [...counts.entries()].sort((a, b) => b[1] - a[1]));
+      }
       const diff: CatalogDraftDiff = { added: [], dropped: [], moved: [], changed: [], confirmedDrift: [], unchanged: 0, autoConfirmed: 0, draftCards: drafts.length, formalCards: formal.length };
       const matchedDrafts = new Set<string>();
       for (const row of formal) {
@@ -1160,7 +1183,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         const title = text(row, "title");
         const subtitle = typeof row.subtitle === "string" ? row.subtitle : null;
         const confirmed = text(row, "status") === "confirmed";
-        const children = childrenOf(id);
+        const children = childrenByCard.get(id) ?? [];
         const signature = signatureOf(children);
         const draft = (signature ? draftBySignature.get(signature) : undefined) ?? draftByKey.get(itemKey);
         if (!draft) {
@@ -1168,28 +1191,31 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
           continue;
         }
         matchedDrafts.add(draft.itemKey);
-        if (draft.autoConfirmed) diff.autoConfirmed += 1;
         if (draft.itemKey !== itemKey) {
           diff.moved.push({ id, itemKey: draft.itemKey, fromKey: itemKey, files: draft.files });
         }
+        // 这张卡的文件被别的草稿卡接走了多少 ⇒ 应用后它会"变小/被劈开"。
+        const cardPaths = new Set(children.map((child) => child.relativePath ?? `id:${child.mediaId}`));
+        const splitIntoKeys = drafts.filter((other) => other.itemKey !== draft.itemKey && other.paths.some((filePath) => cardPaths.has(filePath))).map((other) => other.itemKey);
         if (confirmed) {
           if (draft.subtitle === subtitle && draft.files === children.length) {
             diff.unchanged += 1;
             continue;
           }
-          diff.confirmedDrift.push({ id, itemKey, title, subtitle: { from: subtitle, to: draft.subtitle }, files: { from: children.length, to: draft.files } });
+          diff.confirmedDrift.push({ id, itemKey, title, subtitle: { from: subtitle, to: draft.subtitle }, files: { from: children.length, to: draft.files }, splitIntoKeys });
           continue;
         }
         if (draft.title === title && draft.subtitle === subtitle) {
           diff.unchanged += 1;
           continue;
         }
-        diff.changed.push({ id, itemKey: draft.itemKey, from: { title, subtitle }, to: { title: draft.title, subtitle: draft.subtitle } });
+        diff.changed.push({ id, itemKey: draft.itemKey, from: { title, subtitle }, to: { title: draft.title, subtitle: draft.subtitle }, splitIntoKeys });
       }
       for (const draft of drafts) {
         if (!matchedDrafts.has(draft.itemKey)) {
           if (draft.autoConfirmed) diff.autoConfirmed += 1;
-          diff.added.push({ itemKey: draft.itemKey, query: draft.title, files: draft.files });
+          const sources = ownerCounts.get(draft.itemKey) ?? [];
+          diff.added.push({ itemKey: draft.itemKey, query: draft.title, files: draft.files, splitFromKey: sources[0]?.[0] ?? null, fromFiles: sources[0]?.[1] ?? 0 });
         }
       }
       return diff;
