@@ -488,11 +488,13 @@ function toItem(library: StoredLibrary, entry: OpenlistEntry, encode: (mediaPath
 
 export function compatibilityOf(isDir: boolean, extension: string): MediaCompatibility {
   if (extension === "strm") {
-    // A pointer: what actually plays is whatever the single line inside names.
+    // A pointer: what plays is whatever the line inside names, and that is frequently
+    // HEVC in a container the browser refuses - same as MKV, so the desktop is the
+    // only honest answer rather than "maybe" and a failed <video> load.
     return {
-      browser: "maybe",
+      browser: "unsupported",
       desktop: "supported",
-      browserReason: "STRM 指向的外链能否在浏览器直接播放取决于其编码与跨域策略，桌面端 MPV 可播",
+      browserReason: "浏览器不播 STRM 指针，请用桌面端 MPV 或 WatchParty 桌面客户端",
     };
   }
   if (isDir || NATIVE_VIDEO_EXTENSIONS.has(extension)) return { browser: "supported", desktop: "supported" };

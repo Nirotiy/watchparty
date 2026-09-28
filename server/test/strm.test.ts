@@ -102,7 +102,7 @@ test("parseStrmTarget rejects local paths and other schemes", () => {
 test("strm files count as media for listing, grouping and compatibility", () => {
   assert.equal(isVideoFileName("Show - 01.strm"), true);
   const compat = compatibilityOf(false, "strm");
-  assert.equal(compat.browser, "maybe");
+  assert.equal(compat.browser, "unsupported");
   assert.equal(compat.desktop, "supported");
   assert.ok(compat.browserReason);
 });
@@ -150,7 +150,7 @@ test("listing exposes strm items as media files of the pointer extension", async
   assert.equal(item.extension, "strm");
   assert.equal(item.type, "file");
   assert.equal(item.isDirectory, false);
-  assert.equal(item.compatibility.browser, "maybe");
+  assert.equal(item.compatibility.browser, "unsupported");
   assert.equal(item.compatibility.desktop, "supported");
 });
 
