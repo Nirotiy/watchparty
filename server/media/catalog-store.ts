@@ -105,12 +105,14 @@ export type CatalogDraftDiff = {
   dropped: Array<{ id: string; itemKey: string; title: string; files: number }>;
   moved: Array<{ id: string; itemKey: string; fromKey: string; files: number }>;
   /** 同一张卡、文案（标题或集数行）会被改写：两个值都给出，看不出改的是哪一项不算差异。 */
-  changed: Array<{ id: string; itemKey: string; from: { title: string; subtitle: string | null }; to: { title: string; subtitle: string | null }; splitIntoKeys: string[] }>;
+  changed: Array<{ id: string; itemKey: string; from: { title: string; subtitle: string | null }; to: { title: string; subtitle: string | null }; splitIntoKeys: string[]; keepsBindingOnKey: string }>;
   /**
    * 已确认的卡：标题与绑定动不了（`confirmed_by` 的保护规则），应用时只会刷子文件和
    * 集数行——所以这里只报那两样，报标题漂移是噪音（人挑的中文名本来就 ≠ 罗马字猜测）。
    */
-  confirmedDrift: Array<{ id: string; itemKey: string; title: string; subtitle: { from: string | null; to: string | null }; files: { from: number; to: number }; splitIntoKeys: string[] }>;
+  /** `keepsBindingOnKey`：应用后这张卡的绑定跟着哪一份草稿走。劈卡时这是关键 ——
+   *  人合并过的卡重新分类会分成两半，绑定只会留在其中一半上（另一半变新卡）。 */
+  confirmedDrift: Array<{ id: string; itemKey: string; title: string; subtitle: { from: string | null; to: string | null }; files: { from: number; to: number }; splitIntoKeys: string[]; keepsBindingOnKey: string }>;
   unchanged: number;
   /** 应用后会自动确认的张数（草稿里 status=confirmed 且 confirmed_by=auto）。 */
   autoConfirmed: number;
@@ -217,6 +219,8 @@ export type CatalogStore = {
    * 人已确认过的卡整张跳过。海报不在这里抓，只回列表给调用方。
    */
   applyDraftDecisions(libraryId: string): { updated: number; skipped: number; deferred: number; posters: Array<{ itemId: string; url: string }> };
+  /** 库被删掉时清掉它的快照与草稿：这两张表按 library_id 存，外键管不到它们。 */
+  forgetLibrary(libraryId: string): { scan: number; draft: number };
   writePoster(itemId: string, contentType: string, bytes: Buffer): void;
   readPoster(itemId: string): { contentType: string; bytes: Buffer } | undefined;
 };
@@ -1203,14 +1207,14 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
             diff.unchanged += 1;
             continue;
           }
-          diff.confirmedDrift.push({ id, itemKey, title, subtitle: { from: subtitle, to: draft.subtitle }, files: { from: children.length, to: draft.files }, splitIntoKeys });
+          diff.confirmedDrift.push({ id, itemKey, title, subtitle: { from: subtitle, to: draft.subtitle }, files: { from: children.length, to: draft.files }, splitIntoKeys, keepsBindingOnKey: draft.itemKey });
           continue;
         }
         if (draft.title === title && draft.subtitle === subtitle) {
           diff.unchanged += 1;
           continue;
         }
-        diff.changed.push({ id, itemKey: draft.itemKey, from: { title, subtitle }, to: { title: draft.title, subtitle: draft.subtitle }, splitIntoKeys });
+        diff.changed.push({ id, itemKey: draft.itemKey, from: { title, subtitle }, to: { title: draft.title, subtitle: draft.subtitle }, splitIntoKeys, keepsBindingOnKey: draft.itemKey });
       }
       for (const draft of drafts) {
         if (!matchedDrafts.has(draft.itemKey)) {
@@ -1220,6 +1224,18 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         }
       }
       return diff;
+    },
+    forgetLibrary(libraryId) {
+      db.exec("BEGIN");
+      try {
+        const scan = db.prepare("DELETE FROM catalog_scan WHERE library_id = ?").run(libraryId) as { changes?: number };
+        const draft = db.prepare("DELETE FROM catalog_draft WHERE library_id = ?").run(libraryId) as { changes?: number };
+        db.exec("COMMIT");
+        return { scan: Number(scan.changes ?? 0), draft: Number(draft.changes ?? 0) };
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
     },
     cardIds(libraryId) {
       return (itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>).map((row) => text(row, "id"));

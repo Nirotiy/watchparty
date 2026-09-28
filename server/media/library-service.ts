@@ -435,14 +435,22 @@ export function createLibraryService(options: {
         const probeTargets = (libraries ?? store.librariesFor(id)).map((library) => ({ path: library.absolutePath }));
         await assertProbe(next, probeTargets);
       }
+      // 快照与草稿按 library_id 存，外键管不到它们：库被删掉时必须一起清，
+      // 否则界面上早就不见的库会一直留着一堆孤儿草稿和快照行。
+      const before = new Set(store.librariesFor(id).map((library) => library.id));
       store.replaceSource(next, libraries);
+      for (const libraryId of before) {
+        if (!store.getLibrary(libraryId)) catalog.forgetLibrary(libraryId);
+      }
       clients.delete(id);
       healthCache.clear();
       return publish(next);
     },
     adminDelete(id) {
+      const orphaned = store.librariesFor(id).map((library) => library.id);
       const removed = store.deleteSource(id);
       if (removed) {
+        for (const libraryId of orphaned) catalog.forgetLibrary(libraryId);
         clients.delete(id);
         healthCache.clear();
       }

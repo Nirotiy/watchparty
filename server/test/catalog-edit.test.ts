@@ -948,3 +948,18 @@ test("autoConfirmed 数的是整份草稿里机器确认的张数（含已存在
     store.close();
   }
 });
+
+test("forgetLibrary 清掉这个库的快照与草稿（删库不留孤儿行）", () => {
+  const { store } = openStore();
+  try {
+    store.writeScan("lib_anime", snapshotThree);
+    store.writeDraft("lib_anime", [group("/Show", "Show", ["m1", "m2"])]);
+    store.writeScan("lib_tv", [{ relativePath: "/Other/x.mkv", name: "x.mkv", mediaId: "x" }]);
+    assert.deepEqual(store.forgetLibrary("lib_anime"), { scan: 3, draft: 1 }, "返回的是删掉的行数");
+    assert.deepEqual(store.scanInfo("lib_anime"), { files: 0, enumeratedAt: null, rev: 0 });
+    assert.equal(store.draftInfo("lib_anime").cards, 0);
+    assert.equal(store.scanInfo("lib_tv").files, 1, "别的库不受影响");
+  } finally {
+    store.close();
+  }
+});
