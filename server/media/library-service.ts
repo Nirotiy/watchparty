@@ -60,6 +60,16 @@ export class LibraryRequestError extends Error {
   }
 }
 
+/** 六个草稿编辑接口共同的返回：改完直接给新摘要，界面不必自己算 diff。 */
+export type DraftEditResult = {
+  libraryId: string;
+  card: CatalogDraftRow | null;
+  cards: number;
+  files: number;
+  pending: number;
+  diff: CatalogDraftDiff;
+};
+
 export type LibraryService = {
   close(): void;
   sourceCount(): number;
@@ -103,6 +113,14 @@ export type LibraryService = {
     items: string[];
     diff: CatalogDraftDiff;
   }>;
+  /** 以下六个都只写草稿：正式卡要等 apply；任何编辑都记成人工决定（confirmed_by=manual），
+   *  下一轮判定不会盖掉；重新 classify 会整体丢掉这些编辑。 */
+  draftEdit(id: string, body: unknown): DraftEditResult;
+  draftConfirm(id: string, body: unknown): DraftEditResult;
+  draftUnconfirm(id: string, body: unknown): DraftEditResult;
+  draftMerge(id: string, body: unknown): DraftEditResult;
+  draftSplit(id: string, body: unknown): DraftEditResult & { createdKeys: string[] };
+  draftKeepBinding(id: string, body: unknown): DraftEditResult;
   /** 读回草稿与它同正式卡的差异。 */
   catalogDraft(id: string): {
     libraryId: string;
@@ -217,6 +235,48 @@ export function createLibraryService(options: {
     ...(options.catalogMaxLookups !== undefined ? { maxLookupsPerRun: options.catalogMaxLookups } : {}),
     inline: options.catalogInline === true,
   });
+
+  const draftError = (code: string, status: number, detail?: Record<string, unknown>) => new LibraryRequestError(status, code, detail);
+  const draftInvalid = () => draftError("DRAFT_EDIT_INVALID", 400);
+  const draftNotFound = () => draftError("DRAFT_CARD_NOT_FOUND", 404);
+
+  function draftString(body: unknown, key: string, max: number): string {
+    const value = (body as Record<string, unknown> | undefined)?.[key];
+    if (typeof value !== "string" || value.trim().length === 0 || value.length > max) throw draftInvalid();
+    return value;
+  }
+
+  function draftYear(body: unknown): { year?: number | null } {
+    const value = (body as Record<string, unknown> | undefined)?.year;
+    if (value === undefined) return {};
+    if (value === null) return { year: null };
+    if (typeof value === "number" && Number.isSafeInteger(value) && value >= 1900 && value <= 2100) return { year: value };
+    throw draftInvalid();
+  }
+
+  /** 条目对：要么给全（且合法），要么显式 null 解绑，要么不传保持原样。 */
+  function draftBinding(body: unknown): { externalDb?: string | null; externalId?: string | null } {
+    const record = body as Record<string, unknown> | undefined;
+    const db = record?.externalDb;
+    const id = record?.externalId;
+    if (db === undefined && id === undefined) return {};
+    if (db === null && id === null) return { externalDb: null, externalId: null };
+    if (typeof db !== "string" || !["bangumi", "tmdb"].includes(db) || typeof id !== "string" || !/^\d{1,12}$/.test(id)) throw draftInvalid();
+    return { externalDb: db, externalId: id };
+  }
+
+  /** 每次编辑都回同样的摘要：界面不必再猜 diff 变了什么。 */
+  function draftSummary(id: string, itemKey?: string) {
+    const info = catalog.draftInfo(id);
+    return {
+      libraryId: id,
+      card: itemKey === undefined ? null : (catalog.draftList(id).find((entry) => entry.itemKey === itemKey) ?? null),
+      cards: info.cards,
+      files: info.files,
+      pending: info.pending,
+      diff: catalog.draftDiff(id),
+    };
+  }
 
   /** 枚举（快照为空或已过期时）+ 分类，结果只进草稿表。 */
   async function classifyLibrary(library: StoredLibrary): Promise<{ libraryId: string; files: number; cards: number; rev: number; diff: CatalogDraftDiff }> {
@@ -632,6 +692,65 @@ export function createLibraryService(options: {
       const card = catalog.draftList(id).find((entry) => entry.itemKey === itemKey);
       if (!children || !candidates || !card) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
       return { libraryId: id, card, children, candidates };
+    },
+    draftEdit(id, body) {
+      requireLibrary(id);
+      const itemKey = draftString(body, "itemKey", 1000);
+      const patch = {
+        ...(typeof (body as Record<string, unknown>)?.title === "string" ? { title: draftString(body, "title", 160) } : {}),
+        ...(typeof (body as Record<string, unknown>)?.originalTitle === "string" ? { originalTitle: draftString(body, "originalTitle", 160) } : {}),
+        ...(typeof (body as Record<string, unknown>)?.overview === "string" ? { overview: draftString(body, "overview", 4000) } : {}),
+        ...(typeof (body as Record<string, unknown>)?.posterUrl === "string" ? { posterUrl: draftString(body, "posterUrl", 1000) } : {}),
+        ...draftYear(body),
+        ...draftBinding(body),
+      };
+      if (Object.keys(patch).length === 0) throw draftInvalid();
+      if (!catalog.draftEdit(id, itemKey, patch)) throw draftNotFound();
+      return draftSummary(id, itemKey);
+    },
+    draftConfirm(id, body) {
+      requireLibrary(id);
+      const itemKey = draftString(body, "itemKey", 1000);
+      const binding = draftBinding(body);
+      const result = catalog.draftConfirm(id, itemKey, binding.externalDb && binding.externalId ? { externalDb: binding.externalDb, externalId: binding.externalId } : undefined);
+      if (result === "missing") throw draftNotFound();
+      if (result === "no-candidate") throw draftError("DRAFT_EDIT_INVALID", 400, { reason: "no-candidate" });
+      if (result === "unknown-candidate") throw draftError("DRAFT_EDIT_INVALID", 400, { reason: "unknown-candidate" });
+      return draftSummary(id, itemKey);
+    },
+    draftUnconfirm(id, body) {
+      requireLibrary(id);
+      const itemKey = draftString(body, "itemKey", 1000);
+      if (!catalog.draftUnconfirm(id, itemKey)) throw draftNotFound();
+      return draftSummary(id, itemKey);
+    },
+    draftMerge(id, body) {
+      requireLibrary(id);
+      const keepKey = draftString(body, "keepKey", 1000);
+      const raw = (body as Record<string, unknown>)?.dropKeys;
+      if (!Array.isArray(raw) || raw.length === 0 || raw.some((key) => typeof key !== "string" || !key || key.length > 1000)) throw draftInvalid();
+      const dropKeys = raw as string[];
+      const merged = catalog.draftMerge(id, keepKey, dropKeys);
+      if (merged.error === "missing") throw draftNotFound();
+      if (merged.error === "conflict") throw new LibraryRequestError(400, "DRAFT_EDIT_CONFLICT", { keys: merged.keys ?? [] });
+      return draftSummary(id, keepKey);
+    },
+    draftSplit(id, body) {
+      requireLibrary(id);
+      const itemKey = draftString(body, "itemKey", 1000);
+      const raw = (body as Record<string, unknown>)?.keep;
+      if (!Array.isArray(raw) || raw.length === 0 || raw.some((mediaId) => typeof mediaId !== "string" || !mediaId || mediaId.length > 200)) throw draftInvalid();
+      const result = catalog.draftSplit(id, itemKey, raw as string[]);
+      if (result.error === "missing") throw draftNotFound();
+      if (result.error === "invalid") throw draftError("DRAFT_EDIT_INVALID", 400, { reason: "nothing-to-split" });
+      return { ...draftSummary(id, itemKey), createdKeys: result.created ?? [] };
+    },
+    draftKeepBinding(id, body) {
+      requireLibrary(id);
+      const itemKey = draftString(body, "itemKey", 1000);
+      const keepsBindingOnKey = draftString(body, "keepsBindingOnKey", 1000);
+      if (!catalog.draftCarryBinding(id, itemKey, keepsBindingOnKey)) throw draftError("DRAFT_EDIT_INVALID", 400, { reason: "bad-carrier" });
+      return draftSummary(id, itemKey);
     },
     catalogPoster(id) {
       return catalog.readPoster(id);

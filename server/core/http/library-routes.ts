@@ -280,6 +280,26 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
     }
   });
 
+  // 草稿编辑：六个动作同一种形状（只写草稿、返回新摘要），所以表驱动注册。
+  const draftEdits: Array<{ action: string; run: (id: string, body: unknown) => unknown }> = [
+    { action: "edit", run: (id, body) => library.draftEdit(id, body) },
+    { action: "confirm", run: (id, body) => library.draftConfirm(id, body) },
+    { action: "unconfirm", run: (id, body) => library.draftUnconfirm(id, body) },
+    { action: "merge", run: (id, body) => library.draftMerge(id, body) },
+    { action: "split", run: (id, body) => library.draftSplit(id, body) },
+    { action: "keep-binding", run: (id, body) => library.draftKeepBinding(id, body) },
+  ];
+  for (const { action, run } of draftEdits) {
+    app.post(`/api/admin/media-libraries/:id/draft/${action}`, (req, res) => {
+      if (!requireAdmin(library, req, res)) return;
+      try {
+        res.json(run(paramId(req), req.body));
+      } catch (error) {
+        sendFailure(res, error);
+      }
+    });
+  }
+
   // One call for the whole local loop: classify what is missing, judge what is not
   // yet judged, and stop at the draft. `?max=` caps this run's lookups.
   app.post("/api/admin/media-libraries/:id/prepare", async (req, res) => {

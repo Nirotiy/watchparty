@@ -963,3 +963,150 @@ test("forgetLibrary 清掉这个库的快照与草稿（删库不留孤儿行）
     store.close();
   }
 });
+
+/** 六个草稿编辑接口：只写草稿、人工决定不被下一轮判定盖掉。 */
+function draftStore() {
+  const { store } = openStore();
+  store.writeScan("lib_anime", [
+    { relativePath: "/W/1.mkv", name: "W 1.mkv", mediaId: "a1" },
+    { relativePath: "/W/2.mkv", name: "W 2.mkv", mediaId: "a2" },
+    { relativePath: "/W/3.mkv", name: "W 3.mkv", mediaId: "a3" },
+    { relativePath: "/Other/4.mkv", name: "Other 4.mkv", mediaId: "a4" },
+  ]);
+  store.writeDraft("lib_anime", [group("/W", "W", ["a1", "a2", "a3"]), group("/Other", "Other", ["a4"])]);
+  return store;
+}
+
+const draftCandidate = { externalDb: "bangumi" as const, externalId: "4242", title: "候选条目", originalTitle: "原名", year: 2021, overview: "简介", imageUrl: "https://x/p.jpg", episodes: 3, score: 0.7 };
+
+test("草稿编辑：改标题/换条目都记成人工决定，正式卡一行不动", () => {
+  const store = draftStore();
+  try {
+    const before = store.cardIds("lib_anime").length;
+    assert.equal(store.draftEdit("lib_anime", "/W", { title: "我起的名字" }), true);
+    assert.equal(store.draftEdit("lib_anime", "/Nope", { title: "x" }), false, "不存在的草稿卡返回 false");
+    store.draftConfirm("lib_anime", "/Other", undefined); // 没有候选 → 失败但不抛
+    const cards = store.listCards("lib_anime", undefined, undefined).items;
+    assert.equal(cards.length, before, "编辑不建卡");
+    const row = store.readDraft("lib_anime").find((entry) => entry.itemKey === "/W");
+    assert.equal(row?.title, "我起的名字");
+    assert.equal(row.confirmedBy, "manual");
+    assert.equal(row.lookupState, "done", "下一轮判定不会再盖掉它");
+    assert.equal(row.status, "candidate", "只改名字不算确认绑定");
+  } finally {
+    store.close();
+  }
+});
+
+test("草稿确认/撤销：确认写进条目字段，撤销只撤人的决定、不清绑定", () => {
+  const store = draftStore();
+  try {
+    store.writeDraftJudgment("lib_anime", "/W", { status: "candidate", candidates: [draftCandidate] });
+    assert.equal(store.draftConfirm("lib_anime", "/W", { externalDb: "bangumi", externalId: "999" }), "unknown-candidate");
+    assert.equal(store.draftConfirm("lib_anime", "/W", { externalDb: "bangumi", externalId: "4242" }), "ok");
+    let row = store.readDraft("lib_anime").find((entry) => entry.itemKey === "/W");
+    assert.equal(row?.status, "confirmed");
+    assert.equal(row?.externalId, "4242");
+    assert.equal(row?.year, 2021);
+    assert.equal(row?.posterUrl, "https://x/p.jpg");
+    assert.equal(row?.confirmedBy, "manual");
+
+    store.draftUnconfirm("lib_anime", "/W");
+    row = store.readDraft("lib_anime").find((entry) => entry.itemKey === "/W");
+    assert.equal(row?.status, "candidate", "退回候选，不是 unmatched");
+    assert.equal(row?.externalId, "4242", "条目留着，重新确认是一键的事");
+    assert.equal(row?.confirmedBy, null);
+  } finally {
+    store.close();
+  }
+});
+
+test("草稿合并：文件并到留着的卡，人已定过的那张不许被静默吃掉", () => {
+  const store = draftStore();
+  try {
+    store.writeDraftJudgment("lib_anime", "/Other", { status: "candidate", candidates: [draftCandidate] });
+    store.draftConfirm("lib_anime", "/Other", { externalDb: "bangumi", externalId: "4242" });
+    assert.deepEqual(store.draftMerge("lib_anime", "/W", ["/Other"]), { error: "conflict", keys: ["/Other"] });
+
+    store.draftUnconfirm("lib_anime", "/Other");
+    assert.deepEqual(store.draftMerge("lib_anime", "/W", ["/Other"]), { error: null });
+    const rows = store.readDraft("lib_anime");
+    assert.equal(rows.length, 1);
+    assert.deepEqual(rows[0]?.children.map((file) => file.mediaId).sort(), ["a1", "a2", "a3", "a4"]);
+    assert.equal(rows[0]?.files, 4);
+    assert.equal(rows[0]?.subtitle, "3 集", "文件 4 个，但集数行只数本卡目录里的那 3 个（口径与正式卡一致）");
+    assert.equal(rows[0]?.files, 4);
+    assert.equal(rows[0]?.candidates.length, 1, "候选并过来，不丢");
+  } finally {
+    store.close();
+  }
+});
+
+test("草稿拆分：只传留下的那批，其余自动成新卡并回到待判定", () => {
+  const store = draftStore();
+  try {
+    assert.deepEqual(store.draftSplit("lib_anime", "/W", ["a1", "a2", "a3"]), { error: "invalid" });
+    const split = store.draftSplit("lib_anime", "/W", ["a1", "a2"]);
+    assert.equal(split.error, null);
+    assert.equal(split.created?.length, 1, "分出去的那 1 个文件还在 /W 目录里 ⇒ 用 #split 合成键");
+    const rows = store.readDraft("lib_anime");
+    const created = rows.find((row) => row.itemKey.startsWith("#split/"));
+    assert.deepEqual(created?.children.map((file) => file.mediaId), ["a3"]);
+    assert.equal(created?.lookupState, "pending", "新卡交给下一轮判定");
+    assert.equal(created?.confirmedBy, null);
+    assert.equal(rows.find((row) => row.itemKey === "/W")?.files, 2);
+  } finally {
+    store.close();
+  }
+});
+
+test("绑定承接：人可以选择让哪一半留住条目，应用时按这个决定搬绑定", () => {
+  const store = draftStore();
+  try {
+    store.upsertScan("lib_anime", "anime", [group("/W", "W", ["a1", "a2", "a3"], { a1: "/W", a2: "/W", a3: "/W" }), group("/Other", "Other", ["a4"])]);
+    const card = store.listCards("lib_anime", undefined, undefined).items.find((row) => store.getDetail(row.id)?.itemKey === "/W");
+    assert.ok(card, "先找到 /W 那张卡");
+    store.rebind(card!.id, { externalDb: "bangumi", externalId: "777", title: "人工挑的条目", originalTitle: null, year: null });
+    store.writeDraft("lib_anime", [group("/W", "W", ["a1", "a2"]), group("/Other", "Other", ["a3", "a4"], { a3: "/W" })]);
+
+    assert.equal(store.draftCarryBinding("lib_anime", "/Other", "/W"), true);
+    assert.equal(store.draftCarryBinding("lib_anime", "/Other", "/Other"), false, "不能选自己");
+    assert.equal(store.draftDiff("lib_anime").confirmedDrift.find((row) => row.itemKey === "/W")?.keepsBindingOnKey, "/Other");
+
+    store.upsertScan("lib_anime", "anime", [group("/W", "W", ["a1", "a2"]), group("/Other", "Other", ["a3", "a4"], { a3: "/W" })], false);
+    const applied = store.applyDraftDecisions("lib_anime");
+    assert.equal(applied.transferred, 1);
+    const rows = store.listCards("lib_anime", undefined, undefined).items;
+    const carrier = rows.find((row) => (store.getDetail(row.id)?.externalId ?? "") === "777");
+    assert.equal(store.getDetail(carrier!.id)?.itemKey, "/Other", "绑定跟着人挑的那一半走了");
+    const emptied = rows.find((row) => store.getDetail(row.id)?.itemKey === "/W");
+    assert.equal(store.getDetail(emptied!.id)?.status, "unmatched", "另一半不再是确认态");
+  } finally {
+    store.close();
+  }
+});
+
+test("草稿编辑的路由：返回新摘要，错误按码分（前端按码映射，不解析 message）", async () => {
+  const backend = await started({});
+  try {
+    const id = "lib_anime";
+    const post = async (action: string, body: unknown) =>
+      json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/draft/${action}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+    await fetch(`${base(backend)}/api/admin/media-libraries/${id}/classify`, { method: "POST" });
+
+    const edited = await post("edit", { itemKey: "/Medalist", title: "我要的名字" });
+    assert.equal(edited.status, 200);
+    assert.equal((edited.body as { card: { title: string; confirmedBy: string } }).card.title, "我要的名字");
+    assert.equal((edited.body as { diff: { formalCards: number } }).diff.formalCards, 0, "编辑不碰正式表");
+
+    assert.equal((await post("edit", { itemKey: "/Nope", title: "x" })).status, 404);
+    assert.equal((await post("edit", { itemKey: "/Medalist" })).status, 400, "空补丁");
+    assert.equal((await post("edit", { itemKey: "/Medalist", externalDb: "imdb", externalId: "tt1" })).status, 400, "条目库要在白名单里");
+    assert.equal((await post("confirm", { itemKey: "/Medalist" })).status, 400, "没候选就确认不了");
+    assert.equal((await post("split", { itemKey: "/Medalist", keep: [] })).status, 400);
+    const merged = await post("merge", { keepKey: "/Medalist", dropKeys: ["/Nope"] });
+    assert.equal(merged.status, 404);
+  } finally {
+    await backend.close();
+  }
+});

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { episodeSubtitle, isVideoFileName, titleCandidates, type CatalogGroup, type CatalogGroupFile, type ScanFile } from "./catalog-names.ts";
+import { cleanTitle, episodeSubtitle, isVideoFileName, titleCandidates, type CatalogGroup, type CatalogGroupFile, type ScanFile } from "./catalog-names.ts";
 import { compatibilityOf, extensionOf } from "./library-browser.ts";
 import type { MediaCompatibility } from "./watchparty-media.ts";
 import type { MetadataDb, RankedHit } from "./catalog-metadata.ts";
@@ -81,6 +81,17 @@ export type CatalogDraftRow = Omit<CatalogDraftCard, "children" | "candidates"> 
   candidateCount: number;
 };
 
+/** 人工改草稿能改的字段；`undefined` = 保持原样。 */
+export type DraftPatch = {
+  title?: string;
+  originalTitle?: string | null;
+  year?: number | null;
+  overview?: string | null;
+  externalDb?: string | null;
+  externalId?: string | null;
+  posterUrl?: string | null;
+};
+
 /** 判定阶段要处理的草稿行：只给得出查询需要的字段，kind 由调用方（库）提供。 */
 export type DraftSubject = {
   itemKey: string;
@@ -121,6 +132,8 @@ export type CatalogDraftDiff = {
 };
 
 export type CatalogDetail = CatalogCard & {
+  /** 卡片对应的分组键。界面要靠它把正式卡和草稿行对上（草稿的身份就是 itemKey）。 */
+  itemKey: string;
   confirmedBy: ConfirmedBy | null;
   originalTitle: string | null;
   overview: string | null;
@@ -212,13 +225,20 @@ export type CatalogStore = {
   writeDraftJudgment(libraryId: string, itemKey: string, judgment: DraftJudgment): void;
   /** 草稿 vs 正式卡（按文件集合认身份）：应用一步会新增/换绑/改名/删除什么。 */
   draftDiff(libraryId: string): CatalogDraftDiff;
+  /** 以下六个只改草稿：正式卡要等 apply，判定不会盖掉人工编辑（confirmed_by=manual）。 */
+  draftEdit(libraryId: string, itemKey: string, patch: DraftPatch): boolean;
+  draftConfirm(libraryId: string, itemKey: string, choice?: { externalDb: string; externalId: string }): "ok" | "missing" | "no-candidate" | "unknown-candidate";
+  draftUnconfirm(libraryId: string, itemKey: string): boolean;
+  draftMerge(libraryId: string, keepKey: string, dropKeys: string[]): { error: "missing" | "conflict" | null; keys?: string[] };
+  draftSplit(libraryId: string, itemKey: string, keepMediaIds: string[]): { error: "missing" | "invalid" | null; created?: string[] };
+  draftCarryBinding(libraryId: string, targetKey: string, fromKey: string): boolean;
   cardIds(libraryId: string): string[];
   /**
    * 把草稿里的判定结论（条目、候选、状态）写到正式卡上。结构对齐由 upsertScan 做完
    * 再调它：身份、保护规则、孤儿行都归那边管，这里只写"这张卡绑哪个条目"。
    * 人已确认过的卡整张跳过。海报不在这里抓，只回列表给调用方。
    */
-  applyDraftDecisions(libraryId: string): { updated: number; skipped: number; deferred: number; posters: Array<{ itemId: string; url: string }> };
+  applyDraftDecisions(libraryId: string): { updated: number; skipped: number; deferred: number; transferred: number; posters: Array<{ itemId: string; url: string }> };
   /** 库被删掉时清掉它的快照与草稿：这两张表按 library_id 存，外键管不到它们。 */
   forgetLibrary(libraryId: string): { scan: number; draft: number };
   writePoster(itemId: string, contentType: string, bytes: Buffer): void;
@@ -329,6 +349,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       confirmed_by TEXT,
       candidates TEXT NOT NULL DEFAULT '[]',
       poster_url TEXT,
+      carries_key TEXT,
       PRIMARY KEY (library_id, item_key)
     );
   `);
@@ -419,6 +440,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     ["confirmed_by", "confirmed_by TEXT"],
     ["candidates", "candidates TEXT NOT NULL DEFAULT '[]'"],
     ["poster_url", "poster_url TEXT"],
+    ["carries_key", "carries_key TEXT"],
   ] as const) {
     if (!columnExists("catalog_draft", column)) db.exec(`ALTER TABLE catalog_draft ADD COLUMN ${ddl}`);
   }
@@ -459,6 +481,77 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
    */
   function signatureOf(files: Array<{ mediaId: string; relativePath?: string }>): string {
     return [...new Set(files.map((file) => file.relativePath ?? `id:${file.mediaId}`))].sort().join("|");
+  }
+
+  type DraftRecord = {
+    itemKey: string;
+    query: string;
+    rawName: string;
+    title: string | null;
+    originalTitle: string | null;
+    year: number | null;
+    overview: string | null;
+    externalDb: string | null;
+    externalId: string | null;
+    posterUrl: string | null;
+    confirmedBy: string | null;
+    status: string;
+    subtitle: string | null;
+    files: number;
+    rev: number;
+    enumeratedAt: string;
+    carriesKey: string | null;
+    children: CatalogGroupFile[];
+    candidates: RankedHit[];
+  };
+
+  function readDraftRow(libraryId: string, itemKey: string): DraftRecord | undefined {
+    const row = db.prepare("SELECT * FROM catalog_draft WHERE library_id = ? AND item_key = ?").get(libraryId, itemKey) as Record<string, unknown> | undefined;
+    if (!row) return undefined;
+    return {
+      itemKey,
+      query: text(row, "query"),
+      rawName: text(row, "raw_name"),
+      title: typeof row.title === "string" ? row.title : null,
+      originalTitle: typeof row.original_title === "string" ? row.original_title : null,
+      year: intOrNull(row, "year"),
+      overview: typeof row.overview === "string" ? row.overview : null,
+      externalDb: typeof row.external_db === "string" ? row.external_db : null,
+      externalId: typeof row.external_id === "string" ? row.external_id : null,
+      posterUrl: typeof row.poster_url === "string" ? row.poster_url : null,
+      confirmedBy: typeof row.confirmed_by === "string" ? row.confirmed_by : null,
+      status: text(row, "status") || "unmatched",
+      subtitle: typeof row.subtitle === "string" ? row.subtitle : null,
+      files: Number(row.files),
+      rev: Number(row.rev ?? 0),
+      enumeratedAt: text(row, "enumerated_at"),
+      carriesKey: typeof row.carries_key === "string" ? row.carries_key : null,
+      children: JSON.parse(String(row.children ?? "[]")) as CatalogGroupFile[],
+      candidates: JSON.parse(String(row.candidates ?? "[]")) as RankedHit[],
+    };
+  }
+
+  /** 文件集合变了就要重算这三样：它们决定这张卡在扫描后还能不能被认回来。 */
+  function writeDraftShape(libraryId: string, itemKey: string, children: CatalogGroupFile[], candidates?: RankedHit[]): void {
+    db.prepare("UPDATE catalog_draft SET children = ?, files = ?, signature = ?, subtitle = ?, candidates = ? WHERE library_id = ? AND item_key = ?").run(
+      JSON.stringify(children),
+      children.length,
+      signatureOf(children),
+      episodeSubtitle(children, itemKey),
+      JSON.stringify(candidates ?? readDraftRow(libraryId, itemKey)?.candidates ?? []),
+      libraryId,
+      itemKey,
+    );
+  }
+
+  function dedupeCandidates(candidates: RankedHit[]): RankedHit[] {
+    const best = new Map<string, RankedHit>();
+    for (const candidate of candidates) {
+      const key = `${candidate.externalDb}:${candidate.externalId}`;
+      const prior = best.get(key);
+      if (!prior || candidate.score > prior.score) best.set(key, candidate);
+    }
+    return [...best.values()].sort((left, right) => right.score - left.score).slice(0, 5);
   }
 
   function childrenOf(itemId: string): Array<CatalogGroupFile & { mediaId: string }> {
@@ -510,6 +603,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     }));
     return {
       ...cardOf(row),
+      itemKey: text(row, "item_key"),
       confirmedBy: (text(row, "confirmed_by") || null) as ConfirmedBy | null,
       originalTitle: text(row, "original_title") || null,
       overview: text(row, "overview") || null,
@@ -1142,7 +1236,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       );
     },
     draftDiff(libraryId) {
-      const drafts = (db.prepare("SELECT item_key, signature, query, title, subtitle, files, status, confirmed_by, children FROM catalog_draft WHERE library_id = ? ORDER BY item_key").all(libraryId) as Array<Record<string, unknown>>).map(
+      const drafts = (db.prepare("SELECT item_key, signature, query, title, subtitle, files, status, confirmed_by, carries_key, children FROM catalog_draft WHERE library_id = ? ORDER BY item_key").all(libraryId) as Array<Record<string, unknown>>).map(
         (row) => ({
           itemKey: text(row, "item_key"),
           signature: text(row, "signature"),
@@ -1152,6 +1246,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
           subtitle: typeof row.subtitle === "string" ? row.subtitle : null,
           files: Number(row.files),
           paths: (JSON.parse(String(row.children ?? "[]")) as CatalogGroupFile[]).map((file) => file.relativePath ?? `id:${file.mediaId}`),
+          carriesKey: typeof row.carries_key === "string" ? row.carries_key : null,
           autoConfirmed: text(row, "status") === "confirmed" && text(row, "confirmed_by") === "auto",
         }),
       );
@@ -1202,19 +1297,22 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         // 这张卡的文件被别的草稿卡接走了多少 ⇒ 应用后它会"变小/被劈开"。
         const cardPaths = new Set(children.map((child) => child.relativePath ?? `id:${child.mediaId}`));
         const splitIntoKeys = drafts.filter((other) => other.itemKey !== draft.itemKey && other.paths.some((filePath) => cardPaths.has(filePath))).map((other) => other.itemKey);
+        // 人可以为某张正式卡指定"绑定跟着哪一份草稿走"（劈卡时两半都想留住名字）。
+        const carrier = drafts.find((other) => other.carriesKey === itemKey);
+        const keepsBindingOnKey = carrier?.itemKey ?? draft.itemKey;
         if (confirmed) {
           if (draft.subtitle === subtitle && draft.files === children.length) {
             diff.unchanged += 1;
             continue;
           }
-          diff.confirmedDrift.push({ id, itemKey, title, subtitle: { from: subtitle, to: draft.subtitle }, files: { from: children.length, to: draft.files }, splitIntoKeys, keepsBindingOnKey: draft.itemKey });
+          diff.confirmedDrift.push({ id, itemKey, title, subtitle: { from: subtitle, to: draft.subtitle }, files: { from: children.length, to: draft.files }, splitIntoKeys, keepsBindingOnKey });
           continue;
         }
         if (draft.title === title && draft.subtitle === subtitle) {
           diff.unchanged += 1;
           continue;
         }
-        diff.changed.push({ id, itemKey: draft.itemKey, from: { title, subtitle }, to: { title: draft.title, subtitle: draft.subtitle }, splitIntoKeys, keepsBindingOnKey: draft.itemKey });
+        diff.changed.push({ id, itemKey: draft.itemKey, from: { title, subtitle }, to: { title: draft.title, subtitle: draft.subtitle }, splitIntoKeys, keepsBindingOnKey });
       }
       for (const draft of drafts) {
         if (!matchedDrafts.has(draft.itemKey)) {
@@ -1240,17 +1338,167 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     cardIds(libraryId) {
       return (itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>).map((row) => text(row, "id"));
     },
+    draftEdit(libraryId, itemKey, patch) {
+      const row = readDraftRow(libraryId, itemKey);
+      if (!row) return false;
+      const externalDb = patch.externalDb === undefined ? row.externalDb : patch.externalDb;
+      const externalId = patch.externalId === undefined ? row.externalId : patch.externalId;
+      db.prepare(
+        `UPDATE catalog_draft
+         SET title = ?, original_title = COALESCE(?, original_title), year = COALESCE(?, year),
+             overview = COALESCE(?, overview), poster_url = COALESCE(?, poster_url),
+             external_db = ?, external_id = ?, status = ?, confirmed_by = 'manual', lookup_state = 'done'
+         WHERE library_id = ? AND item_key = ?`,
+      ).run(
+        patch.title ?? row.title ?? row.query,
+        patch.originalTitle ?? null,
+        patch.year ?? null,
+        patch.overview ?? null,
+        patch.posterUrl ?? null,
+        externalDb,
+        externalId,
+        externalId ? "confirmed" : "candidate",
+        libraryId,
+        itemKey,
+      );
+      return true;
+    },
+    draftConfirm(libraryId, itemKey, choice) {
+      const row = readDraftRow(libraryId, itemKey);
+      if (!row) return "missing" as const;
+      const hit = choice
+        ? row.candidates.find((candidate) => candidate.externalDb === choice.externalDb && candidate.externalId === choice.externalId)
+        : row.candidates[0];
+      if (!hit) return row.candidates.length > 0 ? ("unknown-candidate" as const) : ("no-candidate" as const);
+      db.prepare(
+        `UPDATE catalog_draft
+         SET title = ?, original_title = ?, year = ?, overview = ?, external_db = ?, external_id = ?,
+             poster_url = ?, status = 'confirmed', confirmed_by = 'manual', lookup_state = 'done'
+         WHERE library_id = ? AND item_key = ?`,
+      ).run(hit.title, hit.originalTitle, hit.year, hit.overview, hit.externalDb, hit.externalId, hit.imageUrl ?? null, libraryId, itemKey);
+      return "ok" as const;
+    },
+    draftUnconfirm(libraryId, itemKey) {
+      const row = readDraftRow(libraryId, itemKey);
+      if (!row) return false;
+      // 只撤"人确认过"这件事：条目和名字留着，重新确认是一键的事。正式卡的 unconfirm
+      // 会把绑定清空打回 unmatched，草稿不该那样。
+      db.prepare("UPDATE catalog_draft SET status = ?, confirmed_by = NULL, lookup_state = 'done' WHERE library_id = ? AND item_key = ?").run(
+        row.candidates.length > 0 ? "candidate" : "unmatched",
+        libraryId,
+        itemKey,
+      );
+      return true;
+    },
+    draftMerge(libraryId, keepKey, dropKeys) {
+      const keep = readDraftRow(libraryId, keepKey);
+      if (!keep) return { error: "missing" as const };
+      const drops = dropKeys.map((key) => readDraftRow(libraryId, key));
+      if (drops.some((row) => !row)) return { error: "missing" as const };
+      const conflicts = dropKeys.filter((key, index) => {
+        const by = drops[index]?.confirmedBy;
+        return by === "manual" || by === "rebind" || by === "unknown";
+      });
+      if (conflicts.length > 0) return { error: "conflict" as const, keys: conflicts };
+      db.exec("BEGIN");
+      try {
+        const seen = new Set(keep.children.map((file) => file.relativePath ?? `id:${file.mediaId}`));
+        const children = [...keep.children];
+        for (const drop of drops) for (const file of drop?.children ?? []) {
+          const key = file.relativePath ?? `id:${file.mediaId}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            children.push(file);
+          }
+        }
+        children.sort((left, right) => String(left.relativePath ?? left.mediaId).localeCompare(String(right.relativePath ?? right.mediaId), undefined, { numeric: true }));
+        const candidates = dedupeCandidates([...keep.candidates, ...drops.flatMap((drop) => drop?.candidates ?? [])]);
+        writeDraftShape(libraryId, keepKey, children, candidates);
+        for (const key of dropKeys) db.prepare("DELETE FROM catalog_draft WHERE library_id = ? AND item_key = ?").run(libraryId, key);
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+      return { error: null };
+    },
+    draftSplit(libraryId, itemKey, keepMediaIds) {
+      const row = readDraftRow(libraryId, itemKey);
+      if (!row) return { error: "missing" as const };
+      const wanted = new Set(keepMediaIds);
+      const kept = row.children.filter((file) => wanted.has(file.mediaId));
+      const rest = row.children.filter((file) => !wanted.has(file.mediaId));
+      if (kept.length === 0 || rest.length === 0) return { error: "invalid" as const };
+      const created: string[] = [];
+      db.exec("BEGIN");
+      try {
+        writeDraftShape(libraryId, itemKey, kept, row.candidates);
+        const byFolder = new Map<string, CatalogGroupFile[]>();
+        for (const file of rest) {
+          const dir = path.posix.dirname(String(file.relativePath ?? "/"));
+          byFolder.set(dir, [...(byFolder.get(dir) ?? []), file]);
+        }
+        for (const [dir, files] of byFolder) {
+          // 拆出来的这批可能还住在同一个目录里，那时目录名会撞回原键位 —— 用与正式卡
+          // 拆分相同的 `#split/` 合成键，扫描时靠文件集合把它认回来。
+          const newKey = dir === itemKey ? `#split/${nid("cat")}` : dir;
+          const names = files.map((file) => file.name);
+          const query = titleCandidates(names, path.posix.basename(newKey))[0] ?? cleanTitle(names[0] ?? newKey);
+          db.prepare(
+            `INSERT INTO catalog_draft (library_id, item_key, signature, query, raw_name, subtitle, files, children,
+                                        enumerated_at, classified_at, rev, title, status, lookup_state, candidates)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unmatched', 'pending', '[]')`,
+          ).run(
+            libraryId,
+            newKey,
+            signatureOf(files),
+            query,
+            path.posix.basename(newKey),
+            episodeSubtitle(files, newKey),
+            files.length,
+            JSON.stringify(files),
+            row.enumeratedAt,
+            now(),
+            row.rev,
+            query,
+          );
+          created.push(newKey);
+        }
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+      return { error: null, created };
+    },
+    draftCarryBinding(libraryId, targetKey, fromKey) {
+      if (targetKey === fromKey) return false;
+      const target = readDraftRow(libraryId, targetKey);
+      const source = readDraftRow(libraryId, fromKey);
+      if (!target || !source) return false;
+      db.exec("BEGIN");
+      try {
+        db.prepare("UPDATE catalog_draft SET carries_key = NULL WHERE library_id = ? AND carries_key = ?").run(libraryId, fromKey);
+        db.prepare("UPDATE catalog_draft SET carries_key = ?, confirmed_by = 'manual', lookup_state = 'done' WHERE library_id = ? AND item_key = ?").run(fromKey, libraryId, targetKey);
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+      return true;
+    },
     applyDraftDecisions(libraryId) {
       const rows = db
         .prepare(
           `SELECT item_key, query, title, original_title, year, overview, external_db, external_id,
-                  status, lookup_state, candidates, poster_url
+                  status, lookup_state, candidates, poster_url, carries_key
            FROM catalog_draft WHERE library_id = ? ORDER BY item_key`,
         )
         .all(libraryId) as Array<Record<string, unknown>>;
       let updated = 0;
       let skipped = 0;
       let deferred = 0;
+      let transferred = 0;
       const posters: Array<{ itemId: string; url: string }> = [];
       db.exec("BEGIN");
       try {
@@ -1308,12 +1556,45 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
           const posterUrl = typeof draft.poster_url === "string" ? draft.poster_url : "";
           if (confirmed && posterUrl && !posterStmt.get(id)) posters.push({ itemId: id, url: posterUrl });
         }
+        // 绑定承接：人指定"这张正式卡的绑定改由另一份草稿承接"（劈卡时选跟哪一半）。
+        // 结构对齐与判定都已经落定，这里只搬绑定，且绝不覆盖目标上的人工答案。
+        for (const draft of rows) {
+          const fromKey = typeof draft.carries_key === "string" ? draft.carries_key : "";
+          if (!fromKey || fromKey === text(draft, "item_key")) continue;
+          const target = itemByKey.get(libraryId, text(draft, "item_key")) as Record<string, unknown> | undefined;
+          const source = itemByKey.get(libraryId, fromKey) as Record<string, unknown> | undefined;
+          if (!target || !source || text(source, "status") !== "confirmed") continue;
+          if (["manual", "rebind", "unknown"].includes(text(target, "confirmed_by"))) continue;
+          db.prepare(
+            `UPDATE catalog_items
+             SET title = ?, original_title = ?, year = ?, overview = ?, external_db = ?, external_id = ?,
+                 status = 'confirmed', lookup_state = 'done', confirmed_by = ?, updated_at = ?
+             WHERE id = ?`,
+          ).run(
+            text(source, "title"),
+            typeof source.original_title === "string" ? source.original_title : null,
+            intOrNull(source, "year"),
+            typeof source.overview === "string" ? source.overview : null,
+            typeof source.external_db === "string" ? source.external_db : null,
+            typeof source.external_id === "string" ? source.external_id : null,
+            text(source, "confirmed_by") || "unknown",
+            now(),
+            text(target, "id"),
+          );
+          db.prepare(
+            `UPDATE catalog_items
+             SET title = query, original_title = NULL, year = NULL, overview = NULL, external_db = NULL, external_id = NULL,
+                 status = 'unmatched', lookup_state = 'done', confirmed_by = NULL, updated_at = ?
+             WHERE id = ?`,
+          ).run(now(), text(source, "id"));
+          transferred += 1;
+        }
         db.exec("COMMIT");
       } catch (error) {
         db.exec("ROLLBACK");
         throw error;
       }
-      return { updated, skipped, deferred, posters };
+      return { updated, skipped, deferred, transferred, posters };
     },
     reclusterBySubject(libraryId) {
       const bound = db
