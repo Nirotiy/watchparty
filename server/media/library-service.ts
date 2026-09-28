@@ -86,6 +86,8 @@ export type LibraryService = {
   catalogClassify(id: string): Promise<{ libraryId: string; files: number; cards: number; rev: number; diff: CatalogDraftDiff }>;
   /** 对草稿逐条查条目打分，结论只写草稿；maxLookups 限制本次处理几张（Bangumi 匿名限速）。 */
   catalogJudge(id: string, maxLookups?: number): Promise<{ libraryId: string; kind: LibraryKind; judged: number; confirmed: number; pending: number; diff: CatalogDraftDiff }>;
+  /** 把草稿变成正式卡。rev 与当前快照不一致就 409，绝不拿过期结果盖库。 */
+  catalogApply(id: string): Promise<{ libraryId: string; cards: number; created: number; updated: number; skipped: number; posters: number; diff: CatalogDraftDiff }>;
   /** 读回草稿与它同正式卡的差异。 */
   catalogDraft(id: string): {
     libraryId: string;
@@ -519,6 +521,34 @@ export function createLibraryService(options: {
     async catalogClassify(id) {
       const { library } = requireLibrary(id);
       return classifyLibrary(library);
+    },
+    async catalogApply(id) {
+      const { library } = requireLibrary(id);
+      const info = catalog.draftInfo(id);
+      if (info.cards === 0) throw new LibraryRequestError(409, "CATALOG_DRAFT_EMPTY");
+      if (info.rev !== catalog.scanInfo(id).rev) throw new LibraryRequestError(409, "CATALOG_STALE_SCAN");
+      const groups = catalog.readDraft(id).map((card) => ({
+        itemKey: card.itemKey,
+        query: card.query,
+        queries: [card.query],
+        rawName: card.rawName,
+        files: card.children,
+      }));
+      const before = new Set(catalog.cardIds(id));
+      // 结构交给 upsertScan：身份认别、人工保护、孤儿行清理都在那边，一行都不重写。
+      catalog.upsertScan(id, library.kind, groups, false);
+      const applied = catalog.applyDraftDecisions(id);
+      const created = catalog.cardIds(id).filter((cardId) => !before.has(cardId)).length;
+      for (const poster of applied.posters) await worker.cachePoster(poster.itemId, poster.url);
+      return {
+        libraryId: id,
+        cards: groups.length,
+        created,
+        updated: applied.updated,
+        skipped: applied.skipped,
+        posters: applied.posters.length,
+        diff: catalog.draftDiff(id),
+      };
     },
     async catalogJudge(id, maxLookups) {
       const { library } = requireLibrary(id);

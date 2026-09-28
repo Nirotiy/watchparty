@@ -709,3 +709,87 @@ test("judge 只写草稿：候选与自动确认都留在草稿里，正式表�
     await backend.close();
   }
 });
+
+/**
+ * 应用一步：草稿变成卡。结构对齐复用 upsertScan（身份、保护、孤儿行都在那边），
+ * 判定结论单独落，所以这里钉的是"复用没走样"：幂等、过期拒绝、人工答案不动。
+ */
+async function draftToCards(backend: Backend): Promise<string> {
+  const id = "lib_anime";
+  await fetch(`${base(backend)}/api/admin/media-libraries/${id}/classify`, { method: "POST" });
+  await fetch(`${base(backend)}/api/admin/media-libraries/${id}/judge`, { method: "POST" });
+  const applied = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply`, { method: "POST" }));
+  assert.equal(applied.status, 200);
+  return id;
+}
+
+test("apply 把草稿变成已确认的卡，再跑一遍不多一张", async () => {
+  const backend = await started({});
+  try {
+    const id = await draftToCards(backend);
+    const first = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=${id}`));
+    const items = (first.body as { items: Array<{ id: string; status: string; title: string }> }).items;
+    assert.equal(items.length, 1);
+    assert.equal(items[0].status, "confirmed", "草稿里已经判定过，应用后直接是确认态");
+    const detail = await json(await fetch(`${base(backend)}/api/media/catalog/${items[0].id}`));
+    assert.equal((detail.body as { externalId: string }).externalId, "430699");
+    assert.equal((detail.body as { confirmedBy: string }).confirmedBy, "auto");
+    assert.equal((detail.body as { children: unknown[] }).children.length, 2);
+
+    const again = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply`, { method: "POST" }));
+    assert.equal((again.body as { created: number }).created, 0, "同一份草稿重复应用不建重卡");
+    const second = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=${id}`));
+    assert.equal((second.body as { items: unknown[] }).items.length, 1);
+    assert.equal((again.body as { diff: { added: unknown[] } }).diff.added.length, 0, "应用后差异收敛");
+  } finally {
+    await backend.close();
+  }
+});
+
+test("apply 拒绝过期草稿，也不碰刮削作业行", async () => {
+  const backend = await started({});
+  try {
+    const id = await draftToCards(backend);
+    const jobs = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/scrape`));
+    assert.equal(jobs.status, 404, "整条草稿链路不建作业行：作业只属于扫描");
+
+    await fetch(`${base(backend)}/api/admin/media-libraries/${id}/scan`, { method: "POST" });
+    const stale = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply`, { method: "POST" }));
+    assert.equal(stale.status, 409);
+    assert.equal((stale.body as { code: string }).code, "CATALOG_STALE_SCAN");
+    const cards = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=${id}`));
+    assert.equal((cards.body as { items: unknown[] }).items.length, 1, "被拒绝的应用什么都没改");
+
+    // 重新分类到当前修订后就能应用了。
+    await fetch(`${base(backend)}/api/admin/media-libraries/${id}/classify`, { method: "POST" });
+    const fresh = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply`, { method: "POST" }));
+    assert.equal(fresh.status, 200);
+    assert.equal((fresh.body as { created: number }).created, 0);
+  } finally {
+    await backend.close();
+  }
+});
+
+test("apply 不动人已确认的绑定", async () => {
+  const backend = await started({});
+  try {
+    const id = await draftToCards(backend);
+    const cards = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=${id}`));
+    const cardId = (cards.body as { items: Array<{ id: string }> }).items[0].id;
+    await fetch(`${base(backend)}/api/media/catalog/${cardId}/rebind`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ externalDb: "bangumi", externalId: "777777", title: "人工挑的条目" }),
+    });
+
+    await fetch(`${base(backend)}/api/admin/media-libraries/${id}/classify`, { method: "POST" });
+    await fetch(`${base(backend)}/api/admin/media-libraries/${id}/judge`, { method: "POST" });
+    const applied = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply`, { method: "POST" }));
+    assert.equal((applied.body as { skipped: number }).skipped, 1);
+    const detail = await json(await fetch(`${base(backend)}/api/media/catalog/${cardId}`));
+    assert.equal((detail.body as { externalId: string }).externalId, "777777", "机器重新确认也不能盖掉人的选择");
+    assert.equal((detail.body as { confirmedBy: string }).confirmedBy, "rebind");
+  } finally {
+    await backend.close();
+  }
+});

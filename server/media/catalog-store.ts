@@ -159,7 +159,8 @@ export type CatalogStore = {
   getJob(libraryId: string): ScrapeJob | undefined;
   listRunningJobs(): ScrapeJob[];
   markRunning(libraryId: string, reset: boolean): void;
-  upsertScan(libraryId: string, kind: LibraryKind, groups: CatalogGroup[]): void;
+  /** `touchJob=false`：只对齐卡与文件，不碰 scrape_jobs（应用草稿时用它）。 */
+  upsertScan(libraryId: string, kind: LibraryKind, groups: CatalogGroup[], touchJob?: boolean): void;
   listPending(libraryId: string): PendingItem[];
   rejectionKeys(libraryId: string, itemKey: string): Set<string>;
   applyMatch(item: PendingItem, status: CatalogStatus, chosen: RankedHit | null, candidates: RankedHit[]): void;
@@ -196,6 +197,13 @@ export type CatalogStore = {
   writeDraftJudgment(libraryId: string, itemKey: string, judgment: DraftJudgment): void;
   /** 草稿 vs 正式卡（按文件集合认身份）：应用一步会新增/换绑/改名/删除什么。 */
   draftDiff(libraryId: string): CatalogDraftDiff;
+  cardIds(libraryId: string): string[];
+  /**
+   * 把草稿里的判定结论（条目、候选、状态）写到正式卡上。结构对齐由 upsertScan 做完
+   * 再调它：身份、保护规则、孤儿行都归那边管，这里只写"这张卡绑哪个条目"。
+   * 人已确认过的卡整张跳过。海报不在这里抓，只回列表给调用方。
+   */
+  applyDraftDecisions(libraryId: string): { updated: number; skipped: number; posters: Array<{ itemId: string; url: string }> };
   writePoster(itemId: string, contentType: string, bytes: Buffer): void;
   readPoster(itemId: string): { contentType: string; bytes: Buffer } | undefined;
 };
@@ -598,7 +606,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       }
       db.prepare("UPDATE scrape_jobs SET status = 'running', last_error = NULL, updated_at = ? WHERE library_id = ?").run(now(), libraryId);
     },
-    upsertScan(libraryId, kind, groups) {
+    upsertScan(libraryId, kind, groups, touchJob = true) {
       const existing = itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>;
       const byKey = new Map(existing.map((row) => [text(row, "item_key"), row]));
       // Second chance at identity: a card the human merged or split no longer sits
@@ -672,13 +680,15 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
           if (text(row, "confirmed_by") === "auto") db.prepare("DELETE FROM catalog_items WHERE id = ?").run(id);
         }
         const confirmed = (itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>).filter((row) => text(row, "status") === "confirmed").length;
-        db.prepare(
-          `INSERT INTO scrape_jobs (library_id, status, total, scanned, matched, enumerated, last_error, updated_at)
-           VALUES (?, 'running', ?, ?, ?, 1, NULL, ?)
-           ON CONFLICT(library_id) DO UPDATE SET
-             status = 'running', total = excluded.total, scanned = excluded.scanned, matched = excluded.matched,
-             enumerated = 1, last_error = NULL, updated_at = excluded.updated_at`,
-        ).run(libraryId, groups.length, confirmed, confirmed, now());
+        if (touchJob) {
+          db.prepare(
+            `INSERT INTO scrape_jobs (library_id, status, total, scanned, matched, enumerated, last_error, updated_at)
+             VALUES (?, 'running', ?, ?, ?, 1, NULL, ?)
+             ON CONFLICT(library_id) DO UPDATE SET
+               status = 'running', total = excluded.total, scanned = excluded.scanned, matched = excluded.matched,
+               enumerated = 1, last_error = NULL, updated_at = excluded.updated_at`,
+          ).run(libraryId, groups.length, confirmed, confirmed, now());
+        }
         db.exec("COMMIT");
       } catch (error) {
         db.exec("ROLLBACK");
@@ -1112,6 +1122,77 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         }
       }
       return diff;
+    },
+    cardIds(libraryId) {
+      return (itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>).map((row) => text(row, "id"));
+    },
+    applyDraftDecisions(libraryId) {
+      const rows = db
+        .prepare(
+          `SELECT item_key, query, title, original_title, year, overview, external_db, external_id,
+                  status, candidates, poster_url
+           FROM catalog_draft WHERE library_id = ? ORDER BY item_key`,
+        )
+        .all(libraryId) as Array<Record<string, unknown>>;
+      let updated = 0;
+      let skipped = 0;
+      const posters: Array<{ itemId: string; url: string }> = [];
+      db.exec("BEGIN");
+      try {
+        for (const draft of rows) {
+          const card = itemByKey.get(libraryId, text(draft, "item_key")) as Record<string, unknown> | undefined;
+          if (!card) continue;
+          const id = text(card, "id");
+          // 人的答案优先，整张跳过：绑定、候选列表都不动。
+          if (text(card, "status") === "confirmed" && (text(card, "confirmed_by") || "unknown") !== "auto") {
+            skipped += 1;
+            continue;
+          }
+          const candidates = JSON.parse(String(draft.candidates ?? "[]")) as RankedHit[];
+          const confirmed = text(draft, "status") === "confirmed" && Boolean(text(draft, "external_id"));
+          db.prepare("DELETE FROM catalog_candidates WHERE item_id = ?").run(id);
+          const insert = db.prepare(
+            "INSERT INTO catalog_candidates (id, item_id, external_db, external_id, title, year, score, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          );
+          for (const candidate of candidates) {
+            insert.run(
+              nid("cand"),
+              id,
+              candidate.externalDb,
+              candidate.externalId,
+              candidate.title,
+              candidate.year,
+              candidate.score,
+              JSON.stringify({ imageUrl: candidate.imageUrl, overview: candidate.overview, originalTitle: candidate.originalTitle }),
+            );
+          }
+          db.prepare(
+            `UPDATE catalog_items
+             SET title = ?, original_title = ?, year = ?, overview = ?, external_db = ?, external_id = ?,
+                 status = ?, lookup_state = 'done', confirmed_by = ?, updated_at = ?
+             WHERE id = ?`,
+          ).run(
+            confirmed ? text(draft, "title") || text(draft, "query") : text(draft, "query"),
+            confirmed ? (typeof draft.original_title === "string" ? draft.original_title : null) : null,
+            confirmed ? intOrNull(draft, "year") : null,
+            confirmed ? (typeof draft.overview === "string" ? draft.overview : null) : null,
+            confirmed ? text(draft, "external_db") : null,
+            confirmed ? text(draft, "external_id") : null,
+            confirmed ? "confirmed" : text(draft, "status") === "candidate" ? "candidate" : "unmatched",
+            confirmed ? "auto" : null,
+            now(),
+            id,
+          );
+          updated += 1;
+          const posterUrl = typeof draft.poster_url === "string" ? draft.poster_url : "";
+          if (confirmed && posterUrl && !posterStmt.get(id)) posters.push({ itemId: id, url: posterUrl });
+        }
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+      return { updated, skipped, posters };
     },
     reclusterBySubject(libraryId) {
       const bound = db

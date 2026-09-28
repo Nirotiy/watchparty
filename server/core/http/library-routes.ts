@@ -265,6 +265,16 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
       sendFailure(res, error);
     }
   });
+
+  // The only step that lets a locally prepared draft touch the wall.
+  app.post("/api/admin/media-libraries/:id/apply", async (req, res) => {
+    if (!requireAdmin(library, req, res)) return;
+    try {
+      res.json(await library.catalogApply(paramId(req)));
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
 }
 
 function requireAdmin(library: LibraryService, req: Request, res: Response): boolean {
