@@ -190,6 +190,10 @@ export type CatalogStore = {
   /** 分类落草稿：只读快照、只写 catalog_draft，正式表一行都不动。 */
   writeDraft(libraryId: string, groups: CatalogGroup[]): number;
   readDraft(libraryId: string): CatalogDraftCard[];
+  /** 列表投影：与 readDraft 同样的行，但不带 children（审阅页首屏用）。 */
+  draftList(libraryId: string): Omit<CatalogDraftCard, "children">[];
+  /** 展开某一张草稿卡时才取它的文件。 */
+  draftChildren(libraryId: string, itemKey: string): CatalogGroupFile[] | undefined;
   draftInfo(libraryId: string): { cards: number; files: number; classifiedAt: string | null; rev: number; pending: number };
   /** 还没判定过的草稿（判定阶段逐条查条目）。 */
   listPendingDrafts(libraryId: string): DraftSubject[];
@@ -1021,6 +1025,34 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         throw error;
       }
       return (db.prepare("SELECT COUNT(*) n FROM catalog_draft WHERE library_id = ?").get(libraryId) as { n: number }).n;
+    },
+    draftList(libraryId) {
+      // Same rows as readDraft without `children`: a wall of 64 cards is 700 KB with
+      // full paths and media ids, and the list view needs none of it.
+      return (db.prepare("SELECT item_key, query, raw_name, subtitle, files, rev, status, lookup_state, title, original_title, year, overview, external_db, external_id, confirmed_by, poster_url, candidates FROM catalog_draft WHERE library_id = ? ORDER BY files DESC, item_key").all(libraryId) as Array<Record<string, unknown>>).map((row) => ({
+        itemKey: text(row, "item_key"),
+        query: text(row, "query"),
+        rawName: text(row, "raw_name"),
+        subtitle: typeof row.subtitle === "string" ? row.subtitle : null,
+        files: Number(row.files),
+        rev: Number(row.rev ?? 0),
+        status: (text(row, "status") || "unmatched") as CatalogStatus,
+        lookupState: (text(row, "lookup_state") === "done" ? "done" : "pending") as "pending" | "done",
+        title: typeof row.title === "string" ? row.title : null,
+        originalTitle: typeof row.original_title === "string" ? row.original_title : null,
+        year: intOrNull(row, "year"),
+        overview: typeof row.overview === "string" ? row.overview : null,
+        externalDb: typeof row.external_db === "string" ? row.external_db : null,
+        externalId: typeof row.external_id === "string" ? row.external_id : null,
+        confirmedBy: (typeof row.confirmed_by === "string" ? row.confirmed_by : null) as ConfirmedBy | null,
+        posterUrl: typeof row.poster_url === "string" ? row.poster_url : null,
+        candidates: JSON.parse(String(row.candidates ?? "[]")) as RankedHit[],
+      }));
+    },
+    draftChildren(libraryId, itemKey) {
+      const row = db.prepare("SELECT children FROM catalog_draft WHERE library_id = ? AND item_key = ?").get(libraryId, itemKey) as Record<string, unknown> | undefined;
+      if (!row) return undefined;
+      return JSON.parse(String(row.children ?? "[]")) as CatalogGroupFile[];
     },
     readDraft(libraryId) {
       return (db.prepare("SELECT * FROM catalog_draft WHERE library_id = ? ORDER BY item_key").all(libraryId) as Array<Record<string, unknown>>).map((row) => ({

@@ -855,3 +855,54 @@ test("没判定过的草稿不许把已确认的卡打回未匹配（分批跑�
     await backend.close();
   }
 });
+
+test("草稿列表不下发 children，展开某一张时才给（前端回执 §4.1）", async () => {
+  const backend = await started({});
+  try {
+    const id = "lib_anime";
+    await fetch(`${base(backend)}/api/admin/media-libraries/${id}/classify`, { method: "POST" });
+    const list = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/classify`));
+    const body = list.body as {
+      draft: Array<{ itemKey: string; files: number; children?: unknown }>;
+      thresholds: Record<string, number>;
+    };
+    assert.equal("children" in body.draft[0], false, "列表项不该带 children");
+    assert.equal(body.draft[0].files, 2, "但文件数还在");
+    assert.equal(body.thresholds.autoScore, 0.86, "阈值下发，别让客户端硬编码");
+
+    const one = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/classify?item=${encodeURIComponent(body.draft[0].itemKey)}`));
+    const card = one.body as { card: { itemKey: string }; children: Array<{ relativePath: string }> };
+    assert.equal(card.card.itemKey, body.draft[0].itemKey);
+    assert.equal(card.children.length, 2);
+
+    const missing = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/classify?item=%2FNope`));
+    assert.equal(missing.status, 404);
+  } finally {
+    await backend.close();
+  }
+});
+
+test("judge 有单轮上限并回本批 itemKey；没判完的 409 带数量", async () => {
+  const backend = await started({});
+  try {
+    const id = "lib_anime";
+    await fetch(`${base(backend)}/api/admin/media-libraries/${id}/classify`, { method: "POST" });
+    const judged = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/judge?max=1`, { method: "POST" }));
+    const body = judged.body as { judged: number; items: string[] };
+    assert.equal(body.judged, 1);
+    assert.equal(body.items.length, 1, "表格只刷新这几行");
+
+    assert.equal((await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/judge?max=21`, { method: "POST" }))).status, 400);
+
+    // 一张都没判就去应用 → 409，且带上还剩几张。
+    await fetch(`${base(backend)}/api/admin/media-libraries/${id}/classify`, { method: "POST" });
+    const blocked = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply`, { method: "POST" }));
+    assert.equal(blocked.status, 409);
+    const err = blocked.body as { code: string; pending?: number; draftCards?: number };
+    assert.equal(err.code, "CATALOG_DRAFT_INCOMPLETE");
+    assert.equal(err.pending, 1);
+    assert.equal(err.draftCards, 1);
+  } finally {
+    await backend.close();
+  }
+});

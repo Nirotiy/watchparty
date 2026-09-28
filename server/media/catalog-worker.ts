@@ -4,7 +4,7 @@ import { judgeSubject } from "./catalog-judge.ts";
 import type { CatalogStore, PendingItem, ScrapeJob } from "./catalog-store.ts";
 import type { StoredLibrary } from "./library-store.ts";
 
-export type JudgeReport = { judged: number; confirmed: number; pending: number };
+export type JudgeReport = { judged: number; confirmed: number; pending: number; items: string[] };
 
 export function createCatalogWorker(options: {
   catalog: CatalogStore;
@@ -130,6 +130,7 @@ export function createCatalogWorker(options: {
         const batch = maxLookups === undefined ? subjects : subjects.slice(0, maxLookups);
         let judged = 0;
         let confirmed = 0;
+        const items: string[] = [];
         for (const subject of batch) {
           const judgment = await judgeSubject(
             { ...subject, kind, rejected: options.catalog.rejectionKeys(libraryId, subject.itemKey) },
@@ -137,12 +138,13 @@ export function createCatalogWorker(options: {
           );
           options.catalog.writeDraftJudgment(libraryId, subject.itemKey, judgment);
           judged += 1;
+          items.push(subject.itemKey);
           if (judgment.status === "confirmed") confirmed += 1;
           // Anonymous Bangumi allows roughly 60 requests a minute, and one subject can
           // spend three of them, so the wait between subjects is what keeps us literate.
           if (options.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, options.delayMs));
         }
-        return { judged, confirmed, pending: options.catalog.listPendingDrafts(libraryId).length };
+        return { judged, confirmed, items, pending: options.catalog.listPendingDrafts(libraryId).length };
       });
     },
     resumeIncomplete() {

@@ -29,6 +29,7 @@ for (const id of libraries) {
 
 const scanDb = new DatabaseSync(path.join(process.cwd(), "data", "watchparty-catalog.sqlite"), { readOnly: true });
 const draftStmt = scanDb.prepare("SELECT children FROM catalog_draft WHERE library_id = ?");
+const oneChildrenStmt = scanDb.prepare("SELECT children FROM catalog_draft WHERE library_id = ? AND item_key = ?");
 const scanStmt = scanDb.prepare("SELECT rel_path FROM catalog_scan WHERE library_id = ? ORDER BY rel_path");
 
 function unfiled(libraryId) {
@@ -68,7 +69,10 @@ function table(headers, rows, empty, numeric = [1]) {
 function section(report) {
   const d = report.diff;
   const label = report.libraryId;
-  const draftCards = (report.draft ?? []).slice().sort((a, b) => b.files - a.files || a.query.localeCompare(b.query));
+  // 列表接口不再下发 children（大库首屏几百 KB），审阅稿按张从库里补上。
+  const draftCards = (report.draft ?? [])
+    .map((card) => ({ ...card, children: JSON.parse(String(oneChildrenStmt.get(report.libraryId, card.itemKey)?.children ?? "[]")) }))
+    .sort((a, b) => b.files - a.files || a.query.localeCompare(b.query));
   const missing = unfiled(report.libraryId);
 
   const added = d.added.map((x) => [esc(x.query), `${x.files}`, `<code>${esc(shown(x.itemKey))}</code>`]);

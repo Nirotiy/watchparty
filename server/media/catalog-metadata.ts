@@ -40,6 +40,12 @@ const AUTO_GAP = 0.08;
 const CANDIDATE_SCORE = 0.5;
 /** Below AUTO_SCORE on purpose: an installment mismatch must stay reviewable. */
 const VARIANT_CAP = 0.84;
+
+/**
+ * 判定阈值下发给界面：客户端要标"这条是机器自动确认的候选"就依赖这些数，硬编码在
+ * 两边迟早对不上（改一次阈值就得改一次前端）。
+ */
+export const judgeThresholds = { autoScore: AUTO_SCORE, autoGap: AUTO_GAP, candidateScore: CANDIDATE_SCORE, variantCap: VARIANT_CAP };
 const POSTER_CAP_BYTES = 2 * 1024 * 1024;
 const POSTER_HOSTS = new Set(["lain.bgm.tv", "image.tmdb.org"]);
 /**

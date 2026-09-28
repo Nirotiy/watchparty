@@ -240,10 +240,13 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
     }
   });
 
+  // 列表投影（不含 children）；?item=<草稿 itemKey> 时只回那一张的文件列表。
   app.get("/api/admin/media-libraries/:id/classify", (req, res) => {
     if (!requireAdmin(library, req, res)) return;
+    const id = paramId(req);
+    const item = queryString(req.query.item);
     try {
-      res.json(library.catalogDraft(paramId(req)));
+      res.json(item === undefined ? library.catalogDraft(id) : library.catalogDraftCard(id, item));
     } catch (error) {
       sendFailure(res, error);
     }
@@ -254,9 +257,8 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   // Bangumi rate-limits anonymous callers.
   app.post("/api/admin/media-libraries/:id/judge", async (req, res) => {
     if (!requireAdmin(library, req, res)) return;
-    const raw = queryString(req.query.max);
-    const max = raw === undefined ? undefined : Number(raw);
-    if (max !== undefined && (!Number.isSafeInteger(max) || max < 0)) {
+    const max = parseMax(req);
+    if (max === null) {
       sendError(res, 400, "INVALID_REQUEST");
       return;
     }
@@ -282,9 +284,8 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   // yet judged, and stop at the draft. `?max=` caps this run's lookups.
   app.post("/api/admin/media-libraries/:id/prepare", async (req, res) => {
     if (!requireAdmin(library, req, res)) return;
-    const raw = queryString(req.query.max);
-    const max = raw === undefined ? undefined : Number(raw);
-    if (max !== undefined && (!Number.isSafeInteger(max) || max < 0)) {
+    const max = parseMax(req);
+    if (max === null) {
       sendError(res, 400, "INVALID_REQUEST");
       return;
     }
@@ -294,6 +295,17 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
       sendFailure(res, error);
     }
   });
+}
+
+/** `?max=N`：判定是同步批量请求，一轮上限 20 张（条目站匿名限速下的合理批量）。 */
+const JUDGE_MAX = 20;
+
+function parseMax(req: Request): number | undefined | null {
+  const raw = queryString(req.query.max);
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0 || value > JUDGE_MAX) return null;
+  return value;
 }
 
 function requireAdmin(library: LibraryService, req: Request, res: Response): boolean {
@@ -308,7 +320,7 @@ function sendFailure(res: Response, error: unknown): void {
       sendError(res, error.status, error.code);
       return;
     }
-    res.status(error.status).json({ code: error.code, error: error.code, message: error.code });
+    res.status(error.status).json({ code: error.code, error: error.code, message: error.code, ...(error.detail ?? {}) });
     return;
   }
   if (error instanceof OpenlistServiceError) {
