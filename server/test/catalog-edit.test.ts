@@ -574,10 +574,16 @@ test("分类只落草稿：正式卡一张都不生成，重跑是整批替换",
     assert.equal(show.subtitle, "2 集", "集数在分类时就定下来，与正式卡同一口径");
     assert.equal(other.subtitle, null, "单文件不写 0 集也不写 1 集");
     assert.deepEqual(show.children.map((file) => file.mediaId), ["m1", "m2"]);
-    assert.deepEqual(store.draftInfo("lib_anime"), { cards: 2, files: 3, classifiedAt: store.draftInfo("lib_anime").classifiedAt });
+    assert.equal(show.title, "Show", "没判定过之前草稿标题就是查询词");
+    assert.equal(show.lookupState, "pending");
+    assert.deepEqual(store.draftInfo("lib_anime"), { cards: 2, files: 3, classifiedAt: store.draftInfo("lib_anime").classifiedAt, rev: 1 });
 
+    // 修订号：每次枚举 +1，草稿记住自己来自哪一版，应用时才能拒掉过期结果。
+    store.writeScan("lib_anime", snapshotThree.slice(0, 2));
+    assert.equal(store.scanInfo("lib_anime").rev, 2);
+    assert.equal(store.draftInfo("lib_anime").rev, 1, "旧草稿仍标着旧修订");
     store.writeDraft("lib_anime", [group("/Show", "Show", ["m1", "m2"])]);
-    assert.deepEqual(store.draftInfo("lib_anime"), { cards: 1, files: 2, classifiedAt: store.draftInfo("lib_anime").classifiedAt }, "整批替换而不是追加");
+    assert.deepEqual(store.draftInfo("lib_anime"), { cards: 1, files: 2, classifiedAt: store.draftInfo("lib_anime").classifiedAt, rev: 2 }, "整批替换而不是追加");
   } finally {
     store.close();
   }
@@ -666,6 +672,39 @@ test("classify 端点只产生草稿与差异，卡片要等 scrape", async () =
 
     const missing = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_nope/classify`, { method: "POST" }));
     assert.equal(missing.status, 404);
+  } finally {
+    await backend.close();
+  }
+});
+
+test("judge 只写草稿：候选与自动确认都留在草稿里，正式表和作业都不动", async () => {
+  const backend = await started({});
+  try {
+    const judged = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/judge`, { method: "POST" }));
+    assert.equal(judged.status, 200);
+    const body = judged.body as { judged: number; confirmed: number; pending: number; diff: { autoConfirmed: number; formalCards: number } };
+    assert.equal(body.judged, 1, "两集同一作品 ⇒ 一条草稿");
+    assert.equal(body.pending, 0);
+    assert.ok(body.confirmed >= 1, "假条目库回的就是同名条目，应当自动确认");
+    assert.equal(body.diff.formalCards, 0, "判定不建卡");
+
+    const draft = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/classify`));
+    const card = (draft.body as { draft: Array<Record<string, unknown>> }).draft[0];
+    assert.equal(card.status, "confirmed");
+    assert.equal(card.confirmedBy, "auto");
+    assert.equal(card.externalId, "430699");
+    assert.equal(card.lookupState, "done");
+    assert.ok(((card.candidates as unknown[]) ?? []).length >= 1);
+
+    const cards = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`));
+    assert.deepEqual((cards.body as { items: unknown[] }).items, []);
+    const scraped = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/scrape`, { method: "POST" }));
+    assert.equal(scraped.status, 200, "旧扫描路径照旧可用");
+    const afterScrape = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`));
+    assert.ok((afterScrape.body as { items: unknown[] }).items.length >= 1, "卡是 scrape 建的，不是 judge 建的");
+
+    const bad = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/judge?max=abc`, { method: "POST" }));
+    assert.equal(bad.status, 400);
   } finally {
     await backend.close();
   }

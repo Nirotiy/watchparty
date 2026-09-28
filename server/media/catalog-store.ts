@@ -61,6 +61,35 @@ export type CatalogDraftCard = {
   subtitle: string | null;
   files: number;
   children: CatalogGroupFile[];
+  rev: number;
+  status: CatalogStatus;
+  lookupState: "pending" | "done";
+  title: string | null;
+  originalTitle: string | null;
+  year: number | null;
+  overview: string | null;
+  externalDb: string | null;
+  externalId: string | null;
+  confirmedBy: ConfirmedBy | null;
+  posterUrl: string | null;
+  candidates: RankedHit[];
+};
+
+/** 判定阶段要处理的草稿行：只给得出查询需要的字段，kind 由调用方（库）提供。 */
+export type DraftSubject = {
+  itemKey: string;
+  query: string;
+  rawName: string;
+  fileNames: string[];
+  fileCount: number;
+};
+
+/** 判定的产物。写草稿用，不落正式表；应用时才变成卡上的绑定。 */
+export type DraftJudgment = {
+  status: CatalogStatus;
+  candidates: RankedHit[];
+  chosen?: RankedHit | null;
+  posterUrl?: string | null;
 };
 
 /** 草稿与库里的正式卡对照出来的差异，就是"应用这一步会发生什么"。 */
@@ -76,6 +105,8 @@ export type CatalogDraftDiff = {
    */
   confirmedDrift: Array<{ id: string; itemKey: string; title: string; subtitle: { from: string | null; to: string | null }; files: { from: number; to: number } }>;
   unchanged: number;
+  /** 应用后会自动确认的张数（草稿里 status=confirmed 且 confirmed_by=auto）。 */
+  autoConfirmed: number;
   draftCards: number;
   formalCards: number;
 };
@@ -154,11 +185,15 @@ export type CatalogStore = {
   /** 人工决定过的目录：分组时不许折叠或删除它们。 */
   protectedKeys(libraryId: string): Set<string>;
   readScan(libraryId: string): ScanFile[];
-  scanInfo(libraryId: string): { files: number; enumeratedAt: string | null };
+  scanInfo(libraryId: string): { files: number; enumeratedAt: string | null; rev: number };
   /** 分类落草稿：只读快照、只写 catalog_draft，正式表一行都不动。 */
   writeDraft(libraryId: string, groups: CatalogGroup[]): number;
   readDraft(libraryId: string): CatalogDraftCard[];
-  draftInfo(libraryId: string): { cards: number; files: number; classifiedAt: string | null };
+  draftInfo(libraryId: string): { cards: number; files: number; classifiedAt: string | null; rev: number };
+  /** 还没判定过的草稿（判定阶段逐条查条目）。 */
+  listPendingDrafts(libraryId: string): DraftSubject[];
+  /** 一次判定的结果写回草稿；不碰正式表，也不动 job 计数。 */
+  writeDraftJudgment(libraryId: string, itemKey: string, judgment: DraftJudgment): void;
   /** 草稿 vs 正式卡（按文件集合认身份）：应用一步会新增/换绑/改名/删除什么。 */
   draftDiff(libraryId: string): CatalogDraftDiff;
   writePoster(itemId: string, contentType: string, bytes: Buffer): void;
@@ -257,6 +292,18 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       children TEXT NOT NULL,
       enumerated_at TEXT NOT NULL,
       classified_at TEXT NOT NULL,
+      rev INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'unmatched',
+      lookup_state TEXT NOT NULL DEFAULT 'pending',
+      title TEXT,
+      original_title TEXT,
+      year INTEGER,
+      overview TEXT,
+      external_db TEXT,
+      external_id TEXT,
+      confirmed_by TEXT,
+      candidates TEXT NOT NULL DEFAULT '[]',
+      poster_url TEXT,
       PRIMARY KEY (library_id, item_key)
     );
   `);
@@ -312,6 +359,30 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
   if (!columnExists("catalog_items", "confirmed_by")) {
     db.exec("ALTER TABLE catalog_items ADD COLUMN confirmed_by TEXT");
     db.exec("UPDATE catalog_items SET confirmed_by = 'unknown' WHERE status = 'confirmed'");
+  }
+
+  /**
+   * 快照修订号：本地处理（分类 + 判定）可能跑很久，期间网盘可能变。草稿带着它来自
+   * 哪一版快照，应用时不匹配就拒——否则上周的分类结果会盖到今天的库上。
+   */
+  if (!columnExists("catalog_scan", "rev")) {
+    db.exec("ALTER TABLE catalog_scan ADD COLUMN rev INTEGER NOT NULL DEFAULT 0");
+  }
+  for (const [column, ddl] of [
+    ["rev", "rev INTEGER NOT NULL DEFAULT 0"],
+    ["status", "status TEXT NOT NULL DEFAULT 'unmatched'"],
+    ["lookup_state", "lookup_state TEXT NOT NULL DEFAULT 'pending'"],
+    ["title", "title TEXT"],
+    ["original_title", "original_title TEXT"],
+    ["year", "year INTEGER"],
+    ["overview", "overview TEXT"],
+    ["external_db", "external_db TEXT"],
+    ["external_id", "external_id TEXT"],
+    ["confirmed_by", "confirmed_by TEXT"],
+    ["candidates", "candidates TEXT NOT NULL DEFAULT '[]'"],
+    ["poster_url", "poster_url TEXT"],
+  ] as const) {
+    if (!columnExists("catalog_draft", column)) db.exec(`ALTER TABLE catalog_draft ADD COLUMN ${ddl}`);
   }
 
   function now(): string {
@@ -854,10 +925,11 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     writeScan(libraryId, files) {
       db.exec("BEGIN");
       try {
+        const next = ((db.prepare("SELECT COALESCE(MAX(rev), 0) rev FROM catalog_scan WHERE library_id = ?").get(libraryId) as { rev: number }).rev ?? 0) + 1;
         db.prepare("DELETE FROM catalog_scan WHERE library_id = ?").run(libraryId);
-        const insert = db.prepare("INSERT OR IGNORE INTO catalog_scan (library_id, rel_path, media_id, name, enumerated_at) VALUES (?, ?, ?, ?, ?)");
+        const insert = db.prepare("INSERT OR IGNORE INTO catalog_scan (library_id, rel_path, media_id, name, enumerated_at, rev) VALUES (?, ?, ?, ?, ?, ?)");
         const stamp = now();
-        for (const file of files) insert.run(libraryId, file.relativePath, file.mediaId, file.name, stamp);
+        for (const file of files) insert.run(libraryId, file.relativePath, file.mediaId, file.name, stamp, next);
         db.exec("COMMIT");
       } catch (error) {
         db.exec("ROLLBACK");
@@ -879,19 +951,21 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       }));
     },
     scanInfo(libraryId) {
-      const row = db.prepare("SELECT COUNT(*) files, MAX(enumerated_at) at FROM catalog_scan WHERE library_id = ?").get(libraryId) as { files: number; at: string | null };
-      return { files: row.files, enumeratedAt: row.at ?? null };
+      const row = db.prepare("SELECT COUNT(*) files, MAX(enumerated_at) at, MAX(rev) rev FROM catalog_scan WHERE library_id = ?").get(libraryId) as { files: number; at: string | null; rev: number | null };
+      return { files: row.files, enumeratedAt: row.at ?? null, rev: row.rev ?? 0 };
     },
     writeDraft(libraryId, groups) {
       const stamp = now();
-      const enumerated = (db.prepare("SELECT MAX(enumerated_at) at FROM catalog_scan WHERE library_id = ?").get(libraryId) as { at: string | null }).at ?? stamp;
+      const scan = db.prepare("SELECT MAX(enumerated_at) at, MAX(rev) rev FROM catalog_scan WHERE library_id = ?").get(libraryId) as { at: string | null; rev: number | null };
+      const enumerated = scan.at ?? stamp;
+      const rev = scan.rev ?? 0;
       db.exec("BEGIN");
       try {
         // Drafts are disposable by definition: replace the whole set, never merge into
         // it, or a folder that disappeared would keep proposing a card forever.
         db.prepare("DELETE FROM catalog_draft WHERE library_id = ?").run(libraryId);
         const insert = db.prepare(
-          "INSERT INTO catalog_draft (library_id, item_key, signature, query, raw_name, subtitle, files, children, enumerated_at, classified_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO catalog_draft (library_id, item_key, signature, query, raw_name, subtitle, files, children, enumerated_at, classified_at, rev, title) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         );
         for (const group of groups) {
           insert.run(
@@ -905,6 +979,8 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
             JSON.stringify(group.files),
             enumerated,
             stamp,
+            rev,
+            group.query,
           );
         }
         db.exec("COMMIT");
@@ -922,28 +998,80 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         subtitle: typeof row.subtitle === "string" ? row.subtitle : null,
         files: Number(row.files),
         children: JSON.parse(String(row.children)) as CatalogGroupFile[],
+        rev: Number(row.rev ?? 0),
+        status: (text(row, "status") || "unmatched") as CatalogStatus,
+        lookupState: (text(row, "lookup_state") === "done" ? "done" : "pending") as "pending" | "done",
+        title: typeof row.title === "string" ? row.title : null,
+        originalTitle: typeof row.original_title === "string" ? row.original_title : null,
+        year: intOrNull(row, "year"),
+        overview: typeof row.overview === "string" ? row.overview : null,
+        externalDb: typeof row.external_db === "string" ? row.external_db : null,
+        externalId: typeof row.external_id === "string" ? row.external_id : null,
+        confirmedBy: (typeof row.confirmed_by === "string" ? row.confirmed_by : null) as ConfirmedBy | null,
+        posterUrl: typeof row.poster_url === "string" ? row.poster_url : null,
+        candidates: JSON.parse(String(row.candidates ?? "[]")) as RankedHit[],
       }));
     },
     draftInfo(libraryId) {
       const row = db
-        .prepare("SELECT COUNT(*) cards, COALESCE(SUM(files), 0) files, MAX(classified_at) at FROM catalog_draft WHERE library_id = ?")
-        .get(libraryId) as { cards: number; files: number; at: string | null };
-      return { cards: row.cards, files: row.files, classifiedAt: row.at ?? null };
+        .prepare("SELECT COUNT(*) cards, COALESCE(SUM(files), 0) files, MAX(classified_at) at, MAX(rev) rev FROM catalog_draft WHERE library_id = ?")
+        .get(libraryId) as { cards: number; files: number; at: string | null; rev: number | null };
+      return { cards: row.cards, files: row.files, classifiedAt: row.at ?? null, rev: row.rev ?? 0 };
+    },
+    listPendingDrafts(libraryId) {
+      return (db.prepare("SELECT item_key, query, raw_name, children FROM catalog_draft WHERE library_id = ? AND lookup_state = 'pending' ORDER BY files DESC, item_key").all(libraryId) as Array<
+        Record<string, unknown>
+      >).map((row) => {
+        const children = JSON.parse(String(row.children ?? "[]")) as CatalogGroupFile[];
+        return {
+          itemKey: text(row, "item_key"),
+          query: text(row, "query"),
+          rawName: text(row, "raw_name"),
+          fileNames: children.map((child) => child.name),
+          fileCount: children.length,
+        };
+      });
+    },
+    writeDraftJudgment(libraryId, itemKey, judgment) {
+      const chosen = judgment.chosen ?? null;
+      db.prepare(
+        `UPDATE catalog_draft
+         SET status = ?, lookup_state = 'done', candidates = ?,
+             title = COALESCE(?, title), original_title = ?, year = ?, overview = ?,
+             external_db = ?, external_id = ?, confirmed_by = ?, poster_url = ?
+         WHERE library_id = ? AND item_key = ?`,
+      ).run(
+        judgment.status,
+        JSON.stringify(judgment.candidates),
+        chosen?.title ?? null,
+        chosen?.originalTitle ?? null,
+        chosen?.year ?? null,
+        chosen?.overview ?? null,
+        chosen?.externalDb ?? null,
+        chosen?.externalId ?? null,
+        chosen ? "auto" : null,
+        judgment.posterUrl ?? chosen?.imageUrl ?? null,
+        libraryId,
+        itemKey,
+      );
     },
     draftDiff(libraryId) {
-      const drafts = (db.prepare("SELECT item_key, signature, query, subtitle, files FROM catalog_draft WHERE library_id = ? ORDER BY item_key").all(libraryId) as Array<Record<string, unknown>>).map(
+      const drafts = (db.prepare("SELECT item_key, signature, query, title, subtitle, files, status, confirmed_by FROM catalog_draft WHERE library_id = ? ORDER BY item_key").all(libraryId) as Array<Record<string, unknown>>).map(
         (row) => ({
           itemKey: text(row, "item_key"),
           signature: text(row, "signature"),
           query: text(row, "query"),
+          // 判定过后草稿的"标题"是条目名，没判定过才用查询词。
+          title: typeof row.title === "string" ? row.title : text(row, "query"),
           subtitle: typeof row.subtitle === "string" ? row.subtitle : null,
           files: Number(row.files),
+          autoConfirmed: text(row, "status") === "confirmed" && text(row, "confirmed_by") === "auto",
         }),
       );
       const formal = itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>;
       const draftByKey = new Map(drafts.map((draft) => [draft.itemKey, draft]));
       const draftBySignature = new Map(drafts.map((draft) => [draft.signature, draft]));
-      const diff: CatalogDraftDiff = { added: [], dropped: [], moved: [], changed: [], confirmedDrift: [], unchanged: 0, draftCards: drafts.length, formalCards: formal.length };
+      const diff: CatalogDraftDiff = { added: [], dropped: [], moved: [], changed: [], confirmedDrift: [], unchanged: 0, autoConfirmed: 0, draftCards: drafts.length, formalCards: formal.length };
       const matchedDrafts = new Set<string>();
       for (const row of formal) {
         const id = text(row, "id");
@@ -959,6 +1087,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
           continue;
         }
         matchedDrafts.add(draft.itemKey);
+        if (draft.autoConfirmed) diff.autoConfirmed += 1;
         if (draft.itemKey !== itemKey) {
           diff.moved.push({ id, itemKey: draft.itemKey, fromKey: itemKey, files: draft.files });
         }
@@ -970,14 +1099,17 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
           diff.confirmedDrift.push({ id, itemKey, title, subtitle: { from: subtitle, to: draft.subtitle }, files: { from: children.length, to: draft.files } });
           continue;
         }
-        if (draft.query === title && draft.subtitle === subtitle) {
+        if (draft.title === title && draft.subtitle === subtitle) {
           diff.unchanged += 1;
           continue;
         }
-        diff.changed.push({ id, itemKey: draft.itemKey, from: { title, subtitle }, to: { title: draft.query, subtitle: draft.subtitle } });
+        diff.changed.push({ id, itemKey: draft.itemKey, from: { title, subtitle }, to: { title: draft.title, subtitle: draft.subtitle } });
       }
       for (const draft of drafts) {
-        if (!matchedDrafts.has(draft.itemKey)) diff.added.push({ itemKey: draft.itemKey, query: draft.query, files: draft.files });
+        if (!matchedDrafts.has(draft.itemKey)) {
+          if (draft.autoConfirmed) diff.autoConfirmed += 1;
+          diff.added.push({ itemKey: draft.itemKey, query: draft.title, files: draft.files });
+        }
       }
       return diff;
     },

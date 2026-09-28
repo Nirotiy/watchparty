@@ -247,6 +247,24 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
       sendFailure(res, error);
     }
   });
+
+  // Judging is the network half of the local loop: it fills the draft's candidates
+  // and bindings, and still writes no card. `?max=` caps the subjects because
+  // Bangumi rate-limits anonymous callers.
+  app.post("/api/admin/media-libraries/:id/judge", async (req, res) => {
+    if (!requireAdmin(library, req, res)) return;
+    const raw = queryString(req.query.max);
+    const max = raw === undefined ? undefined : Number(raw);
+    if (max !== undefined && (!Number.isSafeInteger(max) || max < 0)) {
+      sendError(res, 400, "INVALID_REQUEST");
+      return;
+    }
+    try {
+      res.json(await library.catalogJudge(paramId(req), max));
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
 }
 
 function requireAdmin(library: LibraryService, req: Request, res: Response): boolean {

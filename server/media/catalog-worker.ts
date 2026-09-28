@@ -1,7 +1,10 @@
-import { groupScanFiles, titleCandidateDetails, yearFrom, type ScanFile, type TitleCandidate } from "./catalog-names.ts";
-import { chooseMatch, MetadataUnavailable, rankHits, type MetadataSearcher } from "./catalog-metadata.ts";
+import { groupScanFiles, type ScanFile } from "./catalog-names.ts";
+import { MetadataUnavailable, type MetadataSearcher } from "./catalog-metadata.ts";
+import { judgeSubject } from "./catalog-judge.ts";
 import type { CatalogStore, PendingItem, ScrapeJob } from "./catalog-store.ts";
 import type { StoredLibrary } from "./library-store.ts";
+
+export type JudgeReport = { judged: number; confirmed: number; pending: number };
 
 export function createCatalogWorker(options: {
   catalog: CatalogStore;
@@ -16,17 +19,17 @@ export function createCatalogWorker(options: {
 }): {
   start(libraryId: string): Promise<ScrapeJob | undefined>;
   continue(libraryId: string): Promise<ScrapeJob | undefined>;
+  /** 只判定草稿：查条目、打分、把结论写回 catalog_draft，正式表与 scrape_jobs 都不动。 */
+  judgeDrafts(libraryId: string, maxLookups?: number): Promise<JudgeReport | undefined>;
   resumeIncomplete(): void;
   cachePoster(itemId: string, imageUrl: string): Promise<void>;
 } {
-  const inflight = new Map<string, Promise<void>>();
+  const inflight = new Map<string, Promise<unknown>>();
 
-  function enqueue(libraryId: string, reset: boolean): Promise<void> {
+  /** One task at a time per library: a scrape, a resume and a draft judge never interleave. */
+  function enqueue<T>(libraryId: string, task: () => Promise<T>): Promise<T> {
     const previous = inflight.get(libraryId) ?? Promise.resolve();
-    const next = previous.then(
-      () => run(libraryId, reset),
-      () => run(libraryId, reset),
-    );
+    const next = previous.then(task, task);
     inflight.set(libraryId, next);
     return next;
   }
@@ -76,63 +79,28 @@ export function createCatalogWorker(options: {
       options.catalog.bumpJob(item.libraryId, false);
       return;
     }
-    // One guess per folder is not a guess: the work title may sit in the file
-    // names, in a bracket behind the subtitle group, or in the folder itself.
-    // Candidates are rebuilt here instead of read from the row, so a parse fix
-    // takes effect without a re-scan.
-    const queries = candidateQueries(item);
-    if (queries.length === 0) {
-      options.catalog.applyMatch(item, "unmatched", null, []);
-      options.catalog.bumpJob(item.libraryId, false);
+    // Candidates are rebuilt from the file names rather than read from the row, so a
+    // parse fix takes effect without a re-scan.
+    const judgment = await judgeSubject(
+      {
+        itemKey: item.itemKey,
+        query: item.query,
+        rawName: item.rawName,
+        fileNames: item.fileNames,
+        fileCount: item.fileCount,
+        kind: item.kind,
+        rejected: options.catalog.rejectionKeys(item.libraryId, item.itemKey),
+      },
+      { bangumi: options.bangumi, tmdb: options.tmdb, delayMs: options.delayMs },
+    );
+    if (judgment.status === "confirmed" && judgment.chosen) {
+      options.catalog.applyMatch(item, "confirmed", judgment.chosen, judgment.candidates);
+      if (judgment.posterUrl) await cachePoster(item.id, judgment.posterUrl);
+      options.catalog.bumpJob(item.libraryId, true);
       return;
     }
-    const searchKind = item.kind === "tv" ? "tv" : item.kind === "movie" ? "movie" : "anime";
-    const searcher = item.kind === "anime" ? options.bangumi : options.tmdb;
-    const rejected = options.catalog.rejectionKeys(item.libraryId, item.itemKey);
-    let best: { status: "candidate" | "unmatched"; candidates: ReturnType<typeof rankHits> } = { status: "unmatched", candidates: [] };
-    let bestScore = -1;
-    for (const [index, guess] of queries.entries()) {
-      if (index > 0 && options.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, options.delayMs));
-      const hits = await searcher.search(guess.query, searchKind);
-      const ranked = rankHits(guess.query, hits, yearFrom(item.rawName), item.fileCount || null).filter(
-        (hit) => !rejected.has(`${hit.externalDb}:${hit.externalId}`),
-      );
-      // Early stop: a confirmed match costs no further request, and a strong
-      // candidate list means the query was understood even if nobody chose it.
-      const choice = chooseMatch(ranked);
-      // An episode title that happens to be another show's name must not bind the
-      // card: `S03E01 荒原.mp4` confirmed 克拉克森的农场's folder as 荒原 (2015).
-      // It still goes to the human as a candidate, which is the useful outcome.
-      const confirmed = choice.status === "confirmed" && guess.authoritative;
-      if (confirmed && choice.chosen) {
-        options.catalog.applyMatch(item, "confirmed", choice.chosen, choice.candidates);
-        if (choice.chosen.imageUrl) await cachePoster(item.id, choice.chosen.imageUrl);
-        options.catalog.bumpJob(item.libraryId, true);
-        return;
-      }
-      const topScore = ranked[0]?.score ?? -1;
-      if (ranked.length > 0 && topScore > bestScore) {
-        best = { status: "candidate", candidates: choice.status === "confirmed" ? choice.candidates : ranked };
-        bestScore = topScore;
-      }
-      if (topScore >= 0.75) break;
-    }
-    options.catalog.applyMatch(item, best.status, null, best.candidates);
+    options.catalog.applyMatch(item, judgment.status, null, judgment.candidates);
     options.catalog.bumpJob(item.libraryId, false);
-  }
-
-  /** Ordered, de-duplicated title guesses for one pending item (max 3 requests). */
-  function candidateQueries(item: PendingItem): TitleCandidate[] {
-    const segment = item.itemKey.split("/").filter(Boolean).pop() ?? item.rawName;
-    const guesses = titleCandidateDetails(item.fileNames, segment).slice(0, 3);
-    if (guesses.length === 0 && item.query) guesses.push({ query: item.query, authoritative: true });
-    const seen = new Set<string>();
-    return guesses.filter((guess) => {
-      const query = guess.query.trim();
-      if (!query || seen.has(query)) return false;
-      seen.add(query);
-      return true;
-    });
   }
 
   async function cachePoster(itemId: string, imageUrl: string): Promise<void> {
@@ -144,18 +112,41 @@ export function createCatalogWorker(options: {
   return {
     async start(libraryId) {
       if (!options.getLibrary(libraryId)) return undefined;
-      const done = enqueue(libraryId, true);
+      const done = enqueue(libraryId, () => run(libraryId, true));
       if (options.inline) await done;
       return options.catalog.getJob(libraryId);
     },
     async continue(libraryId) {
       if (!options.getLibrary(libraryId)) return undefined;
-      const done = enqueue(libraryId, false);
+      const done = enqueue(libraryId, () => run(libraryId, false));
       if (options.inline) await done;
       return options.catalog.getJob(libraryId);
     },
+    async judgeDrafts(libraryId, maxLookups) {
+      if (!options.getLibrary(libraryId)) return undefined;
+      const kind = options.getLibrary(libraryId)?.kind ?? "anime";
+      return enqueue(libraryId, async () => {
+        const subjects = options.catalog.listPendingDrafts(libraryId);
+        const batch = maxLookups === undefined ? subjects : subjects.slice(0, maxLookups);
+        let judged = 0;
+        let confirmed = 0;
+        for (const subject of batch) {
+          const judgment = await judgeSubject(
+            { ...subject, kind, rejected: options.catalog.rejectionKeys(libraryId, subject.itemKey) },
+            { bangumi: options.bangumi, tmdb: options.tmdb, delayMs: options.delayMs },
+          );
+          options.catalog.writeDraftJudgment(libraryId, subject.itemKey, judgment);
+          judged += 1;
+          if (judgment.status === "confirmed") confirmed += 1;
+          // Anonymous Bangumi allows roughly 60 requests a minute, and one subject can
+          // spend three of them, so the wait between subjects is what keeps us literate.
+          if (options.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, options.delayMs));
+        }
+        return { judged, confirmed, pending: options.catalog.listPendingDrafts(libraryId).length };
+      });
+    },
     resumeIncomplete() {
-      for (const job of options.catalog.listRunningJobs()) void enqueue(job.libraryId, false);
+      for (const job of options.catalog.listRunningJobs()) void enqueue(job.libraryId, () => run(job.libraryId, false));
     },
     cachePoster,
   };

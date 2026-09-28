@@ -83,7 +83,9 @@ export type LibraryService = {
   /** 只枚举并刷新快照，不分组、不刮削、不动任何卡。 */
   catalogRefreshScan(id: string): Promise<{ files: number; enumeratedAt: string | null }>;
   /** 枚举（快照为空时）+ 分类。结果只进 catalog_draft，正式卡一行不动。 */
-  catalogClassify(id: string): Promise<{ libraryId: string; files: number; cards: number; diff: CatalogDraftDiff }>;
+  catalogClassify(id: string): Promise<{ libraryId: string; files: number; cards: number; rev: number; diff: CatalogDraftDiff }>;
+  /** 对草稿逐条查条目打分，结论只写草稿；maxLookups 限制本次处理几张（Bangumi 匿名限速）。 */
+  catalogJudge(id: string, maxLookups?: number): Promise<{ libraryId: string; kind: LibraryKind; judged: number; confirmed: number; pending: number; diff: CatalogDraftDiff }>;
   /** 读回草稿与它同正式卡的差异。 */
   catalogDraft(id: string): {
     libraryId: string;
@@ -194,6 +196,20 @@ export function createLibraryService(options: {
     ...(options.catalogMaxLookups !== undefined ? { maxLookupsPerRun: options.catalogMaxLookups } : {}),
     inline: options.catalogInline === true,
   });
+
+  /** 枚举（快照为空或已过期时）+ 分类，结果只进草稿表。 */
+  async function classifyLibrary(library: StoredLibrary): Promise<{ libraryId: string; files: number; cards: number; rev: number; diff: CatalogDraftDiff }> {
+    const id = library.id;
+    const current = catalog.scanInfo(id).rev;
+    let files = current > 0 ? catalog.readScan(id) : [];
+    if (files.length === 0) {
+      files = library.kind === "other" ? [] : await collectLibraryFiles(library);
+      catalog.writeScan(id, files);
+    }
+    const groups = groupScanFiles(files, catalog.protectedKeys(id)).filter((group) => group.query);
+    const cards = catalog.writeDraft(id, groups);
+    return { libraryId: id, files: files.length, cards, rev: catalog.scanInfo(id).rev, diff: catalog.draftDiff(id) };
+  }
 
   async function collectLibraryFiles(library: StoredLibrary): Promise<ScanFile[]> {
     const source = store.getSource(library.sourceId);
@@ -501,16 +517,15 @@ export function createLibraryService(options: {
       return catalog.scanInfo(id);
     },
     async catalogClassify(id) {
-      const library = store.getLibrary(id);
-      if (!library) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
-      let files = catalog.readScan(id);
-      if (files.length === 0) {
-        files = library.kind === "other" ? [] : await collectLibraryFiles(library);
-        catalog.writeScan(id, files);
-      }
-      const groups = groupScanFiles(files, catalog.protectedKeys(id)).filter((group) => group.query);
-      const cards = catalog.writeDraft(id, groups);
-      return { libraryId: id, files: files.length, cards, diff: catalog.draftDiff(id) };
+      const { library } = requireLibrary(id);
+      return classifyLibrary(library);
+    },
+    async catalogJudge(id, maxLookups) {
+      const { library } = requireLibrary(id);
+      if (catalog.draftInfo(id).cards === 0 || catalog.draftInfo(id).rev !== catalog.scanInfo(id).rev) await classifyLibrary(library);
+      const report = await worker.judgeDrafts(id, maxLookups);
+      if (!report) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      return { libraryId: id, kind: library.kind, ...report, diff: catalog.draftDiff(id) };
     },
     catalogDraft(id) {
       if (!store.getLibrary(id)) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
