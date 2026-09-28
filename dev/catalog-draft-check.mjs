@@ -18,6 +18,13 @@ const list = (value) => (value.length === 0 ? "-" : value.map((x) => `${x.title 
 
 for (const id of libraries) {
   const started = Date.now();
+  if (!judge) {
+    // classify 是整批替换：会连该库草稿里已判定的结果一起清掉，先说清楚再动手。
+    const now = await (await fetch(`${base}/api/admin/media-libraries/${id}/classify`)).json();
+    if (now.cards && now.pending < now.cards) {
+      console.log(`${id}：重做分类会清空现有 ${now.cards - now.pending} 张判定。只想看当前草稿请直接用 GET .../classify。`);
+    }
+  }
   const response = await fetch(`${base}/api/admin/media-libraries/${id}/${judge ? "prepare" : "classify"}${judge ? max : ""}`, { method: "POST" });
   if (!response.ok) {
     console.log(`${id} → HTTP ${response.status} ${(await response.text()).slice(0, 120)}`);

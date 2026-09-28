@@ -22,9 +22,19 @@ const base = `http://127.0.0.1:${backend.port}`;
 
 const reports = [];
 for (const id of libraries) {
-  const response = await fetch(`${base}/api/admin/media-libraries/${id}/classify`, { method: "POST" });
-  if (!response.ok) continue;
-  reports.push(await (await fetch(`${base}/api/admin/media-libraries/${id}/classify`)).json());
+  const url = `${base}/api/admin/media-libraries/${id}/classify`;
+  let list = await (await fetch(url)).json();
+  // 只有没草稿、或草稿来自旧快照时才重做分类：classify 是整批替换，无条件跑会把
+  // 已经判定好的结果擦掉（这个坑我自己踩过一次）。
+  if (!list.cards || (list.draft[0]?.rev ?? -1) !== list.scan?.rev) {
+    await fetch(url, { method: "POST" });
+    list = await (await fetch(url)).json();
+  }
+  if (!list.cards) {
+    console.log(`${id} → 没有草稿，先跑 dev/catalog-draft-check.mjs`);
+    continue;
+  }
+  reports.push(list);
 }
 
 const scanDb = new DatabaseSync(path.join(process.cwd(), "data", "watchparty-catalog.sqlite"), { readOnly: true });
