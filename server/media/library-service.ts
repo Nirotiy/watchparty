@@ -738,10 +738,14 @@ export function createLibraryService(options: {
     draftSplit(id, body) {
       requireLibrary(id);
       const itemKey = draftString(body, "itemKey", 1000);
+      // mediaId 是路径 HMAC，实测 307-349 字：只校验类型与个数，归属交给 store 判。
       const raw = (body as Record<string, unknown>)?.keep;
-      if (!Array.isArray(raw) || raw.length === 0 || raw.some((mediaId) => typeof mediaId !== "string" || !mediaId || mediaId.length > 200)) throw draftInvalid();
+      if (!Array.isArray(raw) || raw.length === 0 || raw.length > 5000 || raw.some((mediaId) => typeof mediaId !== "string" || !mediaId || mediaId.length > 1024)) {
+        throw draftError("DRAFT_EDIT_INVALID", 400, { reason: "bad-keep-list" });
+      }
       const result = catalog.draftSplit(id, itemKey, raw as string[]);
       if (result.error === "missing") throw draftNotFound();
+      if (result.error === "unknown-media") throw draftError("DRAFT_EDIT_INVALID", 400, { reason: "unknown-media", keys: result.unknown ?? [] });
       if (result.error === "invalid") throw draftError("DRAFT_EDIT_INVALID", 400, { reason: "nothing-to-split" });
       return { ...draftSummary(id, itemKey), createdKeys: result.created ?? [] };
     },
@@ -749,6 +753,7 @@ export function createLibraryService(options: {
       requireLibrary(id);
       const itemKey = draftString(body, "itemKey", 1000);
       const keepsBindingOnKey = draftString(body, "keepsBindingOnKey", 1000);
+      // itemKey === keepsBindingOnKey 是"不搬/复位"，不是非法：下拉的默认项要走得通。
       if (!catalog.draftCarryBinding(id, itemKey, keepsBindingOnKey)) throw draftError("DRAFT_EDIT_INVALID", 400, { reason: "bad-carrier" });
       return draftSummary(id, itemKey);
     },

@@ -1070,7 +1070,6 @@ test("绑定承接：人可以选择让哪一半留住条目，应用时按这�
     store.writeDraft("lib_anime", [group("/W", "W", ["a1", "a2"]), group("/Other", "Other", ["a3", "a4"], { a3: "/W" })]);
 
     assert.equal(store.draftCarryBinding("lib_anime", "/Other", "/W"), true);
-    assert.equal(store.draftCarryBinding("lib_anime", "/Other", "/Other"), false, "不能选自己");
     assert.equal(store.draftDiff("lib_anime").confirmedDrift.find((row) => row.itemKey === "/W")?.keepsBindingOnKey, "/Other");
 
     store.upsertScan("lib_anime", "anime", [group("/W", "W", ["a1", "a2"]), group("/Other", "Other", ["a3", "a4"], { a3: "/W" })], false);
@@ -1081,6 +1080,10 @@ test("绑定承接：人可以选择让哪一半留住条目，应用时按这�
     assert.equal(store.getDetail(carrier!.id)?.itemKey, "/Other", "绑定跟着人挑的那一半走了");
     const emptied = rows.find((row) => store.getDetail(row.id)?.itemKey === "/W");
     assert.equal(store.getDetail(emptied!.id)?.status, "unmatched", "另一半不再是确认态");
+
+    // 选回自己 = 复位：下拉的默认项必须点得回去
+    assert.equal(store.draftCarryBinding("lib_anime", "/Other", "/Other"), true);
+    assert.equal(store.readDraft("lib_anime").find((row) => row.itemKey === "/Other")?.carriesKey, null);
   } finally {
     store.close();
   }
@@ -1108,5 +1111,43 @@ test("草稿编辑的路由：返回新摘要，错误按码分（前端按码�
     assert.equal(merged.status, 404);
   } finally {
     await backend.close();
+  }
+});
+
+test("拆分接受真实的长 mediaId（HMAC 300+ 字），认不出的 id 说清是哪几个", () => {
+  const { store } = openStore();
+  try {
+    const long = (n: number) => `v2.${Buffer.from(`/W/${"x".repeat(300)}#${n}`).toString("base64url")}.${"s".repeat(43)}`;
+    const files = [1, 2, 3].map((n) => ({ relativePath: `/W/${n}.mkv`, name: `W ${n}.mkv`, mediaId: long(n) }));
+    store.writeScan("lib_anime", files);
+    store.writeDraft("lib_anime", [{ itemKey: "/W", query: "W", queries: ["W"], rawName: "W", files: files.map((file) => ({ ...file, season: null, episode: null })) }]);
+    const split = store.draftSplit("lib_anime", "/W", [long(1), long(2)]);
+    assert.equal(split.error, null);
+    assert.equal(split.created?.length, 1);
+    const unknown = store.draftSplit("lib_anime", "/W", ["v2.NS5taw.x"]);
+    assert.equal(unknown.error, "unknown-media");
+    assert.deepEqual(unknown.unknown, ["v2.NS5taw.x"]);
+  } finally {
+    store.close();
+  }
+});
+
+test("绑定承接可以复位，也不会被反向调用点成环", () => {
+  const store = draftStore();
+  try {
+    assert.equal(store.draftCarryBinding("lib_anime", "/Other", "/W"), true);
+    assert.equal(store.draftDiff("lib_anime").changed.find((row) => row.itemKey === "/W")?.keepsBindingOnKey ?? "/Other", "/Other");
+    // 反向再点一次：不该留下 A↔B 互指
+    assert.equal(store.draftCarryBinding("lib_anime", "/W", "/Other"), true);
+    const rows = store.readDraft("lib_anime");
+    const pointing = rows.filter((row) => row.carriesKey);
+    assert.equal(pointing.length, 1, "只有一行承接，不形成环");
+    assert.equal(pointing[0]?.itemKey, "/W");
+    // 选回自己 = 不搬
+    assert.equal(store.draftCarryBinding("lib_anime", "/W", "/W"), true);
+    assert.equal(store.readDraft("lib_anime").find((row) => row.itemKey === "/W")?.carriesKey ?? null, null);
+    assert.equal(store.draftCarryBinding("lib_anime", "/Nope", "/W"), false);
+  } finally {
+    store.close();
   }
 });

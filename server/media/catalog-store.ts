@@ -72,6 +72,8 @@ export type CatalogDraftCard = {
   externalId: string | null;
   confirmedBy: ConfirmedBy | null;
   posterUrl: string | null;
+  /** 这行承接了哪张正式卡的绑定（null = 默认，不搬）。界面下拉的当前值就取这里。 */
+  carriesKey: string | null;
   candidates: RankedHit[];
 };
 
@@ -230,7 +232,8 @@ export type CatalogStore = {
   draftConfirm(libraryId: string, itemKey: string, choice?: { externalDb: string; externalId: string }): "ok" | "missing" | "no-candidate" | "unknown-candidate";
   draftUnconfirm(libraryId: string, itemKey: string): boolean;
   draftMerge(libraryId: string, keepKey: string, dropKeys: string[]): { error: "missing" | "conflict" | null; keys?: string[] };
-  draftSplit(libraryId: string, itemKey: string, keepMediaIds: string[]): { error: "missing" | "invalid" | null; created?: string[] };
+  draftSplit(libraryId: string, itemKey: string, keepMediaIds: string[]): { error: "missing" | "invalid" | "unknown-media" | null; created?: string[]; unknown?: string[] };
+  /** `fromKey === targetKey` = 复位（不搬），下拉的默认项必须能选回去。 */
   draftCarryBinding(libraryId: string, targetKey: string, fromKey: string): boolean;
   cardIds(libraryId: string): string[];
   /**
@@ -1137,7 +1140,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       // Same rows as readDraft without `children` *or* `candidates`: a wall of 64 cards
       // is 700 KB with paths and 88 KB with candidate lists, and the list view needs
       // neither - only the two numbers it sorts and filters by.
-      return (db.prepare("SELECT item_key, query, raw_name, subtitle, files, rev, status, lookup_state, title, original_title, year, overview, external_db, external_id, confirmed_by, poster_url, candidates FROM catalog_draft WHERE library_id = ? ORDER BY files DESC, item_key").all(libraryId) as Array<Record<string, unknown>>).map((row) => {
+      return (db.prepare("SELECT item_key, query, raw_name, subtitle, files, rev, status, lookup_state, title, original_title, year, overview, external_db, external_id, confirmed_by, poster_url, carries_key, candidates FROM catalog_draft WHERE library_id = ? ORDER BY files DESC, item_key").all(libraryId) as Array<Record<string, unknown>>).map((row) => {
         const candidates = JSON.parse(String(row.candidates ?? "[]")) as RankedHit[];
         return {
           itemKey: text(row, "item_key"),
@@ -1156,6 +1159,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
           externalId: typeof row.external_id === "string" ? row.external_id : null,
           confirmedBy: (typeof row.confirmed_by === "string" ? row.confirmed_by : null) as ConfirmedBy | null,
           posterUrl: typeof row.poster_url === "string" ? row.poster_url : null,
+          carriesKey: typeof row.carries_key === "string" ? row.carries_key : null,
           topScore: candidates.length > 0 ? Math.max(...candidates.map((candidate) => candidate.score)) : null,
           candidateCount: candidates.length,
         };
@@ -1189,6 +1193,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         externalId: typeof row.external_id === "string" ? row.external_id : null,
         confirmedBy: (typeof row.confirmed_by === "string" ? row.confirmed_by : null) as ConfirmedBy | null,
         posterUrl: typeof row.poster_url === "string" ? row.poster_url : null,
+        carriesKey: typeof row.carries_key === "string" ? row.carries_key : null,
         candidates: JSON.parse(String(row.candidates ?? "[]")) as RankedHit[],
       }));
     },
@@ -1426,6 +1431,9 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       const row = readDraftRow(libraryId, itemKey);
       if (!row) return { error: "missing" as const };
       const wanted = new Set(keepMediaIds);
+      const owned = new Set(row.children.map((file) => file.mediaId));
+      const unknown = keepMediaIds.filter((mediaId) => !owned.has(mediaId));
+      if (unknown.length > 0) return { error: "unknown-media" as const, unknown };
       const kept = row.children.filter((file) => wanted.has(file.mediaId));
       const rest = row.children.filter((file) => !wanted.has(file.mediaId));
       if (kept.length === 0 || rest.length === 0) return { error: "invalid" as const };
@@ -1472,12 +1480,22 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       return { error: null, created };
     },
     draftCarryBinding(libraryId, targetKey, fromKey) {
-      if (targetKey === fromKey) return false;
       const target = readDraftRow(libraryId, targetKey);
-      const source = readDraftRow(libraryId, fromKey);
-      if (!target || !source) return false;
+      if (!target) return false;
       db.exec("BEGIN");
       try {
+        // 复位：选回自己 = 不搬。之前这里当非法处理，导致下拉的默认项点不动。
+        if (targetKey === fromKey) {
+          db.prepare("UPDATE catalog_draft SET carries_key = NULL WHERE library_id = ? AND item_key = ?").run(libraryId, targetKey);
+          db.exec("COMMIT");
+          return true;
+        }
+        const source = readDraftRow(libraryId, fromKey);
+        if (!source) return false;
+        // 反向已经指过来时先清掉，否则两行互指成环，apply 时谁也不动。
+        if (source.carriesKey === targetKey) {
+          db.prepare("UPDATE catalog_draft SET carries_key = NULL WHERE library_id = ? AND item_key = ?").run(libraryId, fromKey);
+        }
         db.prepare("UPDATE catalog_draft SET carries_key = NULL WHERE library_id = ? AND carries_key = ?").run(libraryId, fromKey);
         db.prepare("UPDATE catalog_draft SET carries_key = ?, confirmed_by = 'manual', lookup_state = 'done' WHERE library_id = ? AND item_key = ?").run(fromKey, libraryId, targetKey);
         db.exec("COMMIT");
