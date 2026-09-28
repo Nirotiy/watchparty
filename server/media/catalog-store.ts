@@ -50,6 +50,36 @@ export type CatalogCard = {
 /** `auto` = 刮削自己确认的；其余都是人的决定，自动流程一律不许改。 */
 export type ConfirmedBy = "auto" | "manual" | "rebind" | "unknown";
 
+/**
+ * 分类结果：卡片"应该是这样"的陈述，正式表一行都不动。身份仍是文件集合
+ * （`signature`），所以人改过路径的卡不会因为换目录而被当成新片。
+ */
+export type CatalogDraftCard = {
+  itemKey: string;
+  query: string;
+  rawName: string;
+  subtitle: string | null;
+  files: number;
+  children: CatalogGroupFile[];
+};
+
+/** 草稿与库里的正式卡对照出来的差异，就是"应用这一步会发生什么"。 */
+export type CatalogDraftDiff = {
+  added: Array<{ itemKey: string; query: string; files: number }>;
+  dropped: Array<{ id: string; itemKey: string; title: string; files: number }>;
+  moved: Array<{ id: string; itemKey: string; fromKey: string; files: number }>;
+  /** 同一张卡、文案（标题或集数行）会被改写：两个值都给出，看不出改的是哪一项不算差异。 */
+  changed: Array<{ id: string; itemKey: string; from: { title: string; subtitle: string | null }; to: { title: string; subtitle: string | null } }>;
+  /**
+   * 已确认的卡：标题与绑定动不了（`confirmed_by` 的保护规则），应用时只会刷子文件和
+   * 集数行——所以这里只报那两样，报标题漂移是噪音（人挑的中文名本来就 ≠ 罗马字猜测）。
+   */
+  confirmedDrift: Array<{ id: string; itemKey: string; title: string; subtitle: { from: string | null; to: string | null }; files: { from: number; to: number } }>;
+  unchanged: number;
+  draftCards: number;
+  formalCards: number;
+};
+
 export type CatalogDetail = CatalogCard & {
   confirmedBy: ConfirmedBy | null;
   originalTitle: string | null;
@@ -125,6 +155,12 @@ export type CatalogStore = {
   protectedKeys(libraryId: string): Set<string>;
   readScan(libraryId: string): ScanFile[];
   scanInfo(libraryId: string): { files: number; enumeratedAt: string | null };
+  /** 分类落草稿：只读快照、只写 catalog_draft，正式表一行都不动。 */
+  writeDraft(libraryId: string, groups: CatalogGroup[]): number;
+  readDraft(libraryId: string): CatalogDraftCard[];
+  draftInfo(libraryId: string): { cards: number; files: number; classifiedAt: string | null };
+  /** 草稿 vs 正式卡（按文件集合认身份）：应用一步会新增/换绑/改名/删除什么。 */
+  draftDiff(libraryId: string): CatalogDraftDiff;
   writePoster(itemId: string, contentType: string, bytes: Buffer): void;
   readPoster(itemId: string): { contentType: string; bytes: Buffer } | undefined;
 };
@@ -206,6 +242,22 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       name TEXT NOT NULL,
       enumerated_at TEXT NOT NULL,
       PRIMARY KEY (library_id, rel_path)
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS catalog_draft (
+      library_id TEXT NOT NULL,
+      item_key TEXT NOT NULL,
+      signature TEXT NOT NULL,
+      query TEXT NOT NULL,
+      raw_name TEXT NOT NULL,
+      subtitle TEXT,
+      files INTEGER NOT NULL,
+      children TEXT NOT NULL,
+      enumerated_at TEXT NOT NULL,
+      classified_at TEXT NOT NULL,
+      PRIMARY KEY (library_id, item_key)
     );
   `);
 
@@ -301,7 +353,13 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
   }
 
   function childrenOf(itemId: string): Array<CatalogGroupFile & { mediaId: string }> {
-    return (childrenStmt.all(itemId) as Array<Record<string, unknown>>).map((child) => ({
+    // Named columns, prepared per call: a reused `SELECT *` statement was observed to
+    // hand back `rel_path` as null on its first read after the rows were written, which
+    // silently degraded a card's identity from its paths to its media ids.
+    const rows = db
+      .prepare("SELECT media_id, name, season, episode, rel_path FROM catalog_children WHERE item_id = ? ORDER BY sort_index")
+      .all(itemId) as Array<Record<string, unknown>>;
+    return rows.map((child) => ({
       mediaId: text(child, "media_id"),
       name: text(child, "name"),
       season: intOrNull(child, "season"),
@@ -823,6 +881,105 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     scanInfo(libraryId) {
       const row = db.prepare("SELECT COUNT(*) files, MAX(enumerated_at) at FROM catalog_scan WHERE library_id = ?").get(libraryId) as { files: number; at: string | null };
       return { files: row.files, enumeratedAt: row.at ?? null };
+    },
+    writeDraft(libraryId, groups) {
+      const stamp = now();
+      const enumerated = (db.prepare("SELECT MAX(enumerated_at) at FROM catalog_scan WHERE library_id = ?").get(libraryId) as { at: string | null }).at ?? stamp;
+      db.exec("BEGIN");
+      try {
+        // Drafts are disposable by definition: replace the whole set, never merge into
+        // it, or a folder that disappeared would keep proposing a card forever.
+        db.prepare("DELETE FROM catalog_draft WHERE library_id = ?").run(libraryId);
+        const insert = db.prepare(
+          "INSERT INTO catalog_draft (library_id, item_key, signature, query, raw_name, subtitle, files, children, enumerated_at, classified_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        );
+        for (const group of groups) {
+          insert.run(
+            libraryId,
+            group.itemKey,
+            signatureOf(group.files),
+            group.query,
+            group.rawName,
+            episodeSubtitle(group.files, group.itemKey),
+            group.files.length,
+            JSON.stringify(group.files),
+            enumerated,
+            stamp,
+          );
+        }
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+      return (db.prepare("SELECT COUNT(*) n FROM catalog_draft WHERE library_id = ?").get(libraryId) as { n: number }).n;
+    },
+    readDraft(libraryId) {
+      return (db.prepare("SELECT * FROM catalog_draft WHERE library_id = ? ORDER BY item_key").all(libraryId) as Array<Record<string, unknown>>).map((row) => ({
+        itemKey: text(row, "item_key"),
+        query: text(row, "query"),
+        rawName: text(row, "raw_name"),
+        subtitle: typeof row.subtitle === "string" ? row.subtitle : null,
+        files: Number(row.files),
+        children: JSON.parse(String(row.children)) as CatalogGroupFile[],
+      }));
+    },
+    draftInfo(libraryId) {
+      const row = db
+        .prepare("SELECT COUNT(*) cards, COALESCE(SUM(files), 0) files, MAX(classified_at) at FROM catalog_draft WHERE library_id = ?")
+        .get(libraryId) as { cards: number; files: number; at: string | null };
+      return { cards: row.cards, files: row.files, classifiedAt: row.at ?? null };
+    },
+    draftDiff(libraryId) {
+      const drafts = (db.prepare("SELECT item_key, signature, query, subtitle, files FROM catalog_draft WHERE library_id = ? ORDER BY item_key").all(libraryId) as Array<Record<string, unknown>>).map(
+        (row) => ({
+          itemKey: text(row, "item_key"),
+          signature: text(row, "signature"),
+          query: text(row, "query"),
+          subtitle: typeof row.subtitle === "string" ? row.subtitle : null,
+          files: Number(row.files),
+        }),
+      );
+      const formal = itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>;
+      const draftByKey = new Map(drafts.map((draft) => [draft.itemKey, draft]));
+      const draftBySignature = new Map(drafts.map((draft) => [draft.signature, draft]));
+      const diff: CatalogDraftDiff = { added: [], dropped: [], moved: [], changed: [], confirmedDrift: [], unchanged: 0, draftCards: drafts.length, formalCards: formal.length };
+      const matchedDrafts = new Set<string>();
+      for (const row of formal) {
+        const id = text(row, "id");
+        const itemKey = text(row, "item_key");
+        const title = text(row, "title");
+        const subtitle = typeof row.subtitle === "string" ? row.subtitle : null;
+        const confirmed = text(row, "status") === "confirmed";
+        const children = childrenOf(id);
+        const signature = signatureOf(children);
+        const draft = (signature ? draftBySignature.get(signature) : undefined) ?? draftByKey.get(itemKey);
+        if (!draft) {
+          diff.dropped.push({ id, itemKey, title, files: children.length });
+          continue;
+        }
+        matchedDrafts.add(draft.itemKey);
+        if (draft.itemKey !== itemKey) {
+          diff.moved.push({ id, itemKey: draft.itemKey, fromKey: itemKey, files: draft.files });
+        }
+        if (confirmed) {
+          if (draft.subtitle === subtitle && draft.files === children.length) {
+            diff.unchanged += 1;
+            continue;
+          }
+          diff.confirmedDrift.push({ id, itemKey, title, subtitle: { from: subtitle, to: draft.subtitle }, files: { from: children.length, to: draft.files } });
+          continue;
+        }
+        if (draft.query === title && draft.subtitle === subtitle) {
+          diff.unchanged += 1;
+          continue;
+        }
+        diff.changed.push({ id, itemKey: draft.itemKey, from: { title, subtitle }, to: { title: draft.query, subtitle: draft.subtitle } });
+      }
+      for (const draft of drafts) {
+        if (!matchedDrafts.has(draft.itemKey)) diff.added.push({ itemKey: draft.itemKey, query: draft.query, files: draft.files });
+      }
+      return diff;
     },
     reclusterBySubject(libraryId) {
       const bound = db

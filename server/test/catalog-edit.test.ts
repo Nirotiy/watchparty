@@ -549,3 +549,124 @@ test("merging never launders a human answer into an automatable one", () => {
     store.close();
   }
 });
+
+/**
+ * 分类层：把「枚举 + 分组」的结果当成数据存下来，正式表一行都不动。
+ * 身份仍按文件集合认，所以差异报告里"换目录"是 moved，不是删一张再加一张。
+ */
+const snapshotThree = [
+  { relativePath: "/Show/m1.mkv", name: "m1.mkv", mediaId: "m1" },
+  { relativePath: "/Show/m2.mkv", name: "m2.mkv", mediaId: "m2" },
+  { relativePath: "/Other/m3.mkv", name: "m3.mkv", mediaId: "m3" },
+];
+
+test("分类只落草稿：正式卡一张都不生成，重跑是整批替换", () => {
+  const { store } = openStore();
+  try {
+    store.writeScan("lib_anime", snapshotThree);
+    const groups = [group("/Show", "Show", ["m1", "m2"]), group("/Other", "Other", ["m3"])];
+    assert.equal(store.writeDraft("lib_anime", groups), 2);
+    assert.deepEqual(store.listCards("lib_anime", undefined, undefined).items, [], "正式表必须还是空的");
+    assert.equal(store.getJob("lib_anime"), undefined, "也不碰刮削作业行");
+    assert.equal(store.scanInfo("lib_anime").files, 3, "快照不被分类改写");
+
+    const [other, show] = store.readDraft("lib_anime");
+    assert.equal(show.subtitle, "2 集", "集数在分类时就定下来，与正式卡同一口径");
+    assert.equal(other.subtitle, null, "单文件不写 0 集也不写 1 集");
+    assert.deepEqual(show.children.map((file) => file.mediaId), ["m1", "m2"]);
+    assert.deepEqual(store.draftInfo("lib_anime"), { cards: 2, files: 3, classifiedAt: store.draftInfo("lib_anime").classifiedAt });
+
+    store.writeDraft("lib_anime", [group("/Show", "Show", ["m1", "m2"])]);
+    assert.deepEqual(store.draftInfo("lib_anime"), { cards: 1, files: 2, classifiedAt: store.draftInfo("lib_anime").classifiedAt }, "整批替换而不是追加");
+  } finally {
+    store.close();
+  }
+});
+
+test("草稿差异按文件集合认身份：换 key 是 moved", () => {
+  const { store } = openStore();
+  try {
+    store.upsertScan("lib_anime", "anime", [group("/Old", "Show", ["m1", "m2"])]);
+    store.writeDraft("lib_anime", [group("/New", "Show", ["m1", "m2"], { m1: "/Old", m2: "/Old" })]);
+    const diff = store.draftDiff("lib_anime");
+    assert.equal(diff.moved.length, 1, "同文件集合、不同 key ⇒ 认成同一张卡");
+    assert.equal(diff.moved[0].fromKey, "/Old");
+    assert.equal(diff.moved[0].itemKey, "/New");
+    assert.deepEqual(diff.added, []);
+    assert.deepEqual(diff.dropped, []);
+    assert.equal(diff.unchanged, 0);
+    assert.equal(diff.changed.length, 1, "顺带报出文案差异");
+    assert.deepEqual(diff.changed[0].from, { title: "Show", subtitle: "2 集" });
+  } finally {
+    store.close();
+  }
+});
+
+test("草稿差异分桶：新增、消失、改名、人工漂移各归各的", () => {
+  const { store } = openStore();
+  try {
+    store.upsertScan("lib_anime", "anime", [
+      group("/Kept", "Kept", ["k1", "k2"]),
+      group("/Renamed", "旧的猜测", ["r1"]),
+      group("/Vanishing", "Vanishing", ["v1"]),
+      group("/Human", "人挑的", ["h1", "h2"]),
+    ]);
+    const human = store.listPending("lib_anime").find((item) => item.itemKey === "/Human");
+    assert.ok(human);
+    store.rebind(human.id, { externalDb: "bangumi", externalId: "1", title: "人挑的", originalTitle: null, year: null });
+
+    store.writeDraft("lib_anime", [
+      group("/Kept", "Kept", ["k1", "k2"]),
+      group("/Renamed", "新的猜测", ["r1"]),
+      group("/Brand", "Brand", ["b1"]),
+      group("/Human", "机器想改的名", ["h1"]),
+    ]);
+    const diff = store.draftDiff("lib_anime");
+    assert.deepEqual(diff.added, [{ itemKey: "/Brand", query: "Brand", files: 1 }]);
+    assert.equal(diff.dropped.length, 1);
+    assert.equal(diff.dropped[0].itemKey, "/Vanishing");
+    assert.equal(diff.changed.length, 1);
+    assert.equal(diff.changed[0].itemKey, "/Renamed");
+    assert.deepEqual(diff.changed[0].from, { title: "旧的猜测", subtitle: null });
+    assert.deepEqual(diff.changed[0].to, { title: "新的猜测", subtitle: null });
+    assert.equal(diff.confirmedDrift.length, 1, "人已确认的那张不进可改名桶");
+    assert.deepEqual(
+      { itemKey: diff.confirmedDrift[0].itemKey, subtitle: diff.confirmedDrift[0].subtitle, files: diff.confirmedDrift[0].files },
+      { itemKey: "/Human", subtitle: { from: "2 集", to: null }, files: { from: 2, to: 1 } },
+    );
+    assert.equal(diff.unchanged, 1);
+    assert.equal(store.listCards("lib_anime", undefined, undefined).items.length, 4, "读差异不写任何东西");
+  } finally {
+    store.close();
+  }
+});
+
+test("classify 端点只产生草稿与差异，卡片要等 scrape", async () => {
+  const backend = await started({});
+  try {
+    const classified = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/classify`, { method: "POST" }));
+    assert.equal(classified.status, 200);
+    assert.equal((classified.body as { files: number }).files, 2);
+    assert.equal((classified.body as { cards: number }).cards, 1);
+    assert.equal((classified.body as { diff: { added: unknown[] } }).diff.added.length, 1);
+
+    const empty = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`));
+    assert.deepEqual((empty.body as { items: unknown[] }).items, [], "分类不建卡");
+
+    const draft = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/classify`));
+    assert.equal((draft.body as { cards: number }).cards, 1);
+    const card = (draft.body as { draft: Array<{ itemKey: string; subtitle: string | null; files: number }> }).draft[0];
+    assert.equal(card.files, 2);
+    assert.equal(card.subtitle, "2 集");
+
+    await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/scrape`, { method: "POST" });
+    const afterScrape = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/classify`));
+    assert.equal((afterScrape.body as { diff: { added: unknown[] } }).diff.added.length, 0, "scrape 顺手把草稿也刷新了");
+    assert.ok((afterScrape.body as { diff: { unchanged: number } }).diff.unchanged >= 1);
+
+    const missing = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_nope/classify`, { method: "POST" }));
+    assert.equal(missing.status, 404);
+  } finally {
+    await backend.close();
+  }
+});

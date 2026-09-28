@@ -227,6 +227,26 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
       sendFailure(res, error);
     }
   });
+
+  // Classification is deliberately separate from the scrape: it lands in the draft
+  // table and reports what applying it would change, without touching a single card.
+  app.post("/api/admin/media-libraries/:id/classify", async (req, res) => {
+    if (!requireAdmin(library, req, res)) return;
+    try {
+      res.json(await library.catalogClassify(paramId(req)));
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
+
+  app.get("/api/admin/media-libraries/:id/classify", (req, res) => {
+    if (!requireAdmin(library, req, res)) return;
+    try {
+      res.json(library.catalogDraft(paramId(req)));
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
 }
 
 function requireAdmin(library: LibraryService, req: Request, res: Response): boolean {

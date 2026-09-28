@@ -47,6 +47,9 @@ export function createCatalogWorker(options: {
         // re-scraping the network and rewriting people's answers.
         options.catalog.writeScan(libraryId, files);
         const groups = groupScanFiles(files, options.catalog.protectedKeys(libraryId)).filter((group) => group.query);
+        // Classification lands in the draft table first: it is the one place where a
+        // grouping change can be reviewed as data, and writing it costs nothing.
+        options.catalog.writeDraft(libraryId, groups);
         options.catalog.upsertScan(libraryId, library.kind, groups);
       }
       const pending = options.catalog.listPending(libraryId);

@@ -11,9 +11,9 @@ import {
   type LibraryArtwork,
   type LibraryPage,
 } from "./library-browser.ts";
-import { isVideoFileName, type ScanFile } from "./catalog-names.ts";
+import { groupScanFiles, isVideoFileName, type ScanFile } from "./catalog-names.ts";
 import { createBangumiClient, createTmdbClient, fetchPosterBytes, type MetadataSearcher } from "./catalog-metadata.ts";
-import { openCatalogStore, type CatalogCard, type CatalogDetail, type ManualBinding } from "./catalog-store.ts";
+import { openCatalogStore, type CatalogCard, type CatalogDraftCard, type CatalogDraftDiff, type CatalogDetail, type ManualBinding } from "./catalog-store.ts";
 import { createCatalogWorker } from "./catalog-worker.ts";
 import {
   isLibraryKind,
@@ -82,6 +82,18 @@ export type LibraryService = {
   catalogScan(id: string): { files: number; enumeratedAt: string | null };
   /** 只枚举并刷新快照，不分组、不刮削、不动任何卡。 */
   catalogRefreshScan(id: string): Promise<{ files: number; enumeratedAt: string | null }>;
+  /** 枚举（快照为空时）+ 分类。结果只进 catalog_draft，正式卡一行不动。 */
+  catalogClassify(id: string): Promise<{ libraryId: string; files: number; cards: number; diff: CatalogDraftDiff }>;
+  /** 读回草稿与它同正式卡的差异。 */
+  catalogDraft(id: string): {
+    libraryId: string;
+    cards: number;
+    files: number;
+    classifiedAt: string | null;
+    scan: { files: number; enumeratedAt: string | null };
+    draft: CatalogDraftCard[];
+    diff: CatalogDraftDiff;
+  };
   catalogPoster(id: string): { contentType: string; bytes: Buffer } | undefined;
   adminScrape(libraryId: string): Promise<{ libraryId: string; status: string; total: number; scanned: number; matched: number; lastError: string | null }>;
   adminScrapeStatus(libraryId: string): { libraryId: string; status: string; total: number; scanned: number; matched: number; lastError: string | null };
@@ -487,6 +499,31 @@ export function createLibraryService(options: {
       const files = library.kind === "other" ? [] : await collectLibraryFiles(library);
       catalog.writeScan(id, files);
       return catalog.scanInfo(id);
+    },
+    async catalogClassify(id) {
+      const library = store.getLibrary(id);
+      if (!library) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      let files = catalog.readScan(id);
+      if (files.length === 0) {
+        files = library.kind === "other" ? [] : await collectLibraryFiles(library);
+        catalog.writeScan(id, files);
+      }
+      const groups = groupScanFiles(files, catalog.protectedKeys(id)).filter((group) => group.query);
+      const cards = catalog.writeDraft(id, groups);
+      return { libraryId: id, files: files.length, cards, diff: catalog.draftDiff(id) };
+    },
+    catalogDraft(id) {
+      if (!store.getLibrary(id)) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      const info = catalog.draftInfo(id);
+      return {
+        libraryId: id,
+        cards: info.cards,
+        files: info.files,
+        classifiedAt: info.classifiedAt,
+        scan: catalog.scanInfo(id),
+        draft: catalog.readDraft(id),
+        diff: catalog.draftDiff(id),
+      };
     },
     catalogPoster(id) {
       return catalog.readPoster(id);
