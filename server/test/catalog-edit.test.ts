@@ -7,6 +7,7 @@ import { createBackend, type Backend } from "../app.ts";
 import { loadConfig } from "../config.ts";
 import { episodeSubtitle, groupScanFiles, type CatalogGroup } from "../media/catalog-names.ts";
 import { openCatalogStore } from "../media/catalog-store.ts";
+import { MetadataUnavailable } from "../media/catalog-metadata.ts";
 import { WATCHPARTY_ROOTS } from "../media/watchparty-media.ts";
 import type { OpenlistClient } from "../media/openlist.ts";
 
@@ -576,14 +577,14 @@ test("分类只落草稿：正式卡一张都不生成，重跑是整批替换",
     assert.deepEqual(show.children.map((file) => file.mediaId), ["m1", "m2"]);
     assert.equal(show.title, "Show", "没判定过之前草稿标题就是查询词");
     assert.equal(show.lookupState, "pending");
-    assert.deepEqual(store.draftInfo("lib_anime"), { cards: 2, files: 3, classifiedAt: store.draftInfo("lib_anime").classifiedAt, rev: 1 });
+    assert.deepEqual(store.draftInfo("lib_anime"), { cards: 2, files: 3, classifiedAt: store.draftInfo("lib_anime").classifiedAt, rev: 1, pending: 2 });
 
     // 修订号：每次枚举 +1，草稿记住自己来自哪一版，应用时才能拒掉过期结果。
     store.writeScan("lib_anime", snapshotThree.slice(0, 2));
     assert.equal(store.scanInfo("lib_anime").rev, 2);
     assert.equal(store.draftInfo("lib_anime").rev, 1, "旧草稿仍标着旧修订");
     store.writeDraft("lib_anime", [group("/Show", "Show", ["m1", "m2"])]);
-    assert.deepEqual(store.draftInfo("lib_anime"), { cards: 1, files: 2, classifiedAt: store.draftInfo("lib_anime").classifiedAt, rev: 2 }, "整批替换而不是追加");
+    assert.deepEqual(store.draftInfo("lib_anime"), { cards: 1, files: 2, classifiedAt: store.draftInfo("lib_anime").classifiedAt, rev: 2, pending: 1 }, "整批替换而不是追加");
   } finally {
     store.close();
   }
@@ -762,7 +763,7 @@ test("apply 拒绝过期草稿，也不碰刮削作业行", async () => {
 
     // 重新分类到当前修订后就能应用了。
     await fetch(`${base(backend)}/api/admin/media-libraries/${id}/classify`, { method: "POST" });
-    const fresh = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply`, { method: "POST" }));
+    const fresh = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply?force=1`, { method: "POST" }));
     assert.equal(fresh.status, 200);
     assert.equal((fresh.body as { created: number }).created, 0);
   } finally {
@@ -789,6 +790,67 @@ test("apply 不动人已确认的绑定", async () => {
     const detail = await json(await fetch(`${base(backend)}/api/media/catalog/${cardId}`));
     assert.equal((detail.body as { externalId: string }).externalId, "777777", "机器重新确认也不能盖掉人的选择");
     assert.equal((detail.body as { confirmedBy: string }).confirmedBy, "rebind");
+  } finally {
+    await backend.close();
+  }
+});
+
+test("prepare 一次跑完分类+判定，再跑不擦上一轮的结果", async () => {
+  const backend = await started({});
+  try {
+    const id = "lib_anime";
+    const first = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/prepare?max=1`, { method: "POST" }));
+    assert.equal(first.status, 200);
+    const a = first.body as { judged: number; pending: number; cards: number; rev: number; diff: { autoConfirmed: number } };
+    assert.equal(a.judged, 1);
+    assert.equal(a.pending, 0);
+    assert.ok(a.diff.autoConfirmed >= 1);
+
+    const second = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/prepare`, { method: "POST" }));
+    const b = second.body as { judged: number; pending: number; diff: { autoConfirmed: number } };
+    assert.equal(b.judged, 0, "没有待判定的了就不该重跑");
+    assert.equal(b.pending, 0);
+    assert.ok(b.diff.autoConfirmed >= 1, "上一轮的判定还在：prepare 不整批重做");
+  } finally {
+    await backend.close();
+  }
+});
+
+test("条目站不可达时报 503 CATALOG_UNAVAILABLE，不是 500", async () => {
+  const backend = await started({
+    bangumi: {
+      async search() {
+        throw new MetadataUnavailable();
+      },
+    },
+  });
+  try {
+    const response = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/prepare`, { method: "POST" }));
+    assert.equal(response.status, 503);
+    assert.equal((response.body as { code: string }).code, "CATALOG_UNAVAILABLE");
+  } finally {
+    await backend.close();
+  }
+});
+
+test("没判定过的草稿不许把已确认的卡打回未匹配（分批跑的前提）", async () => {
+  const backend = await started({});
+  try {
+    const id = await draftToCards(backend);
+    const before = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=${id}`));
+    const cardId = (before.body as { items: Array<{ id: string }> }).items[0].id;
+
+    // 只重新分类（草稿全部回到 pending），不判定，然后应用：绑定必须原样保留。
+    await fetch(`${base(backend)}/api/admin/media-libraries/${id}/classify`, { method: "POST" });
+    const blocked = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply`, { method: "POST" }));
+    assert.equal(blocked.status, 409, "没判完默认不给应用");
+    assert.equal((blocked.body as { code: string }).code, "CATALOG_DRAFT_INCOMPLETE");
+    const applied = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply?force=1`, { method: "POST" }));
+    assert.equal((applied.body as { deferred: number }).deferred, 1);
+    assert.equal((applied.body as { updated: number }).updated, 0);
+    const detail = await json(await fetch(`${base(backend)}/api/media/catalog/${cardId}`));
+    assert.equal((detail.body as { status: string }).status, "confirmed");
+    assert.equal((detail.body as { externalId: string }).externalId, "430699");
   } finally {
     await backend.close();
   }

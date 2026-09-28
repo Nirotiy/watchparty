@@ -87,12 +87,24 @@ export type LibraryService = {
   /** 对草稿逐条查条目打分，结论只写草稿；maxLookups 限制本次处理几张（Bangumi 匿名限速）。 */
   catalogJudge(id: string, maxLookups?: number): Promise<{ libraryId: string; kind: LibraryKind; judged: number; confirmed: number; pending: number; diff: CatalogDraftDiff }>;
   /** 把草稿变成正式卡。rev 与当前快照不一致就 409，绝不拿过期结果盖库。 */
-  catalogApply(id: string): Promise<{ libraryId: string; cards: number; created: number; updated: number; skipped: number; posters: number; diff: CatalogDraftDiff }>;
+  catalogApply(id: string, force?: boolean): Promise<{ libraryId: string; cards: number; created: number; updated: number; skipped: number; deferred: number; posters: number; diff: CatalogDraftDiff }>;
+  /** 一条命令跑完"分类 + 判定"（只到草稿）：缺多少判多少，不擦上一轮的结果。 */
+  catalogPrepare(id: string, maxLookups?: number): Promise<{
+    libraryId: string;
+    files: number;
+    cards: number;
+    rev: number;
+    judged: number;
+    confirmed: number;
+    pending: number;
+    diff: CatalogDraftDiff;
+  }>;
   /** 读回草稿与它同正式卡的差异。 */
   catalogDraft(id: string): {
     libraryId: string;
     cards: number;
     files: number;
+    pending: number;
     classifiedAt: string | null;
     scan: { files: number; enumeratedAt: string | null };
     draft: CatalogDraftCard[];
@@ -522,11 +534,35 @@ export function createLibraryService(options: {
       const { library } = requireLibrary(id);
       return classifyLibrary(library);
     },
-    async catalogApply(id) {
+    async catalogPrepare(id, maxLookups) {
+      const { library } = requireLibrary(id);
+      const info = catalog.draftInfo(id);
+      const scan = catalog.scanInfo(id);
+      // 只在没有草稿或草稿过期时重新分类：分类是整批替换，每次进来就重做会把上一轮
+      // 判定好的草稿擦掉，那样分批跑（Bangumi 匿名限速）永远凑不完。
+      const classified =
+        info.cards === 0 || info.rev !== scan.rev
+          ? await classifyLibrary(library)
+          : { files: scan.files, cards: info.cards, rev: scan.rev };
+      const report = await worker.judgeDrafts(id, maxLookups);
+      if (!report) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
+      return {
+        libraryId: id,
+        files: classified.files,
+        cards: classified.cards,
+        rev: classified.rev,
+        ...report,
+        diff: catalog.draftDiff(id),
+      };
+    },
+    async catalogApply(id, force) {
       const { library } = requireLibrary(id);
       const info = catalog.draftInfo(id);
       if (info.cards === 0) throw new LibraryRequestError(409, "CATALOG_DRAFT_EMPTY");
       if (info.rev !== catalog.scanInfo(id).rev) throw new LibraryRequestError(409, "CATALOG_STALE_SCAN");
+      // 没判完就应用：未确认的卡会被结构对齐重置成"未匹配"，候选列表也一起丢。
+      // 绑定不会丢（未判定的草稿跳过），但界面会看起来"掉了一截"，所以默认拒绝。
+      if (info.pending > 0 && !force) throw new LibraryRequestError(409, "CATALOG_DRAFT_INCOMPLETE");
       const groups = catalog.readDraft(id).map((card) => ({
         itemKey: card.itemKey,
         query: card.query,
@@ -546,6 +582,7 @@ export function createLibraryService(options: {
         created,
         updated: applied.updated,
         skipped: applied.skipped,
+        deferred: applied.deferred,
         posters: applied.posters.length,
         diff: catalog.draftDiff(id),
       };
@@ -564,6 +601,7 @@ export function createLibraryService(options: {
         libraryId: id,
         cards: info.cards,
         files: info.files,
+        pending: info.pending,
         classifiedAt: info.classifiedAt,
         scan: catalog.scanInfo(id),
         draft: catalog.readDraft(id),

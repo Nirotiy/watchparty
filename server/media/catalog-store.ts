@@ -190,7 +190,7 @@ export type CatalogStore = {
   /** 分类落草稿：只读快照、只写 catalog_draft，正式表一行都不动。 */
   writeDraft(libraryId: string, groups: CatalogGroup[]): number;
   readDraft(libraryId: string): CatalogDraftCard[];
-  draftInfo(libraryId: string): { cards: number; files: number; classifiedAt: string | null; rev: number };
+  draftInfo(libraryId: string): { cards: number; files: number; classifiedAt: string | null; rev: number; pending: number };
   /** 还没判定过的草稿（判定阶段逐条查条目）。 */
   listPendingDrafts(libraryId: string): DraftSubject[];
   /** 一次判定的结果写回草稿；不碰正式表，也不动 job 计数。 */
@@ -203,7 +203,7 @@ export type CatalogStore = {
    * 再调它：身份、保护规则、孤儿行都归那边管，这里只写"这张卡绑哪个条目"。
    * 人已确认过的卡整张跳过。海报不在这里抓，只回列表给调用方。
    */
-  applyDraftDecisions(libraryId: string): { updated: number; skipped: number; posters: Array<{ itemId: string; url: string }> };
+  applyDraftDecisions(libraryId: string): { updated: number; skipped: number; deferred: number; posters: Array<{ itemId: string; url: string }> };
   writePoster(itemId: string, contentType: string, bytes: Buffer): void;
   readPoster(itemId: string): { contentType: string; bytes: Buffer } | undefined;
 };
@@ -376,6 +376,19 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
   if (!columnExists("catalog_scan", "rev")) {
     db.exec("ALTER TABLE catalog_scan ADD COLUMN rev INTEGER NOT NULL DEFAULT 0");
   }
+  /**
+   * 一张卡一个键位。历史上 upsertScan 的改名会让两张卡写到同一个 item_key（表现为后一个
+   * 分组覆盖前一个分组的子文件，静默丢文件），唯一索引让这种写入当场失败。
+   * 已有重复键位的旧库跳过：一次数据卫生检查不该把整个应用挡住。
+   */
+  if (!db.prepare("SELECT 1 hit FROM sqlite_master WHERE type='index' AND name='catalog_items_key_unique'").get()) {
+    try {
+      db.exec("CREATE UNIQUE INDEX catalog_items_key_unique ON catalog_items (library_id, item_key)");
+    } catch {
+      /* 库里已有重复键位，留给人工处理 */
+    }
+  }
+
   for (const [column, ddl] of [
     ["rev", "rev INTEGER NOT NULL DEFAULT 0"],
     ["status", "status TEXT NOT NULL DEFAULT 'unmatched'"],
@@ -625,13 +638,22 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         for (const group of groups) {
           seen.add(group.itemKey);
           const subtitle = episodeSubtitle(group.files, group.itemKey);
-          const row = byKey.get(group.itemKey) ?? bySignature.get(signatureOf(group.files));
+          const signature = signatureOf(group.files);
+          // A card already claimed by an earlier group is off the table: after a rename
+          // the map still holds its *old* key, and claiming it twice makes the second
+          // group overwrite the first one's children - which silently deletes a file.
+          let row = byKey.get(group.itemKey);
+          if (row && kept.has(text(row, "id"))) row = undefined;
+          row ??= bySignature.get(signature);
           if (row) {
             const id = text(row, "id");
             kept.add(id);
-            bySignature.delete(signatureOf(group.files));
+            bySignature.delete(signature);
             if (text(row, "item_key") !== group.itemKey) {
+              const previousKey = text(row, "item_key");
               db.prepare("UPDATE catalog_items SET item_key = ? WHERE id = ?").run(group.itemKey, id);
+              byKey.delete(previousKey);
+              row = { ...row, item_key: group.itemKey };
               byKey.set(group.itemKey, row);
             }
           }
@@ -1024,9 +1046,9 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     },
     draftInfo(libraryId) {
       const row = db
-        .prepare("SELECT COUNT(*) cards, COALESCE(SUM(files), 0) files, MAX(classified_at) at, MAX(rev) rev FROM catalog_draft WHERE library_id = ?")
-        .get(libraryId) as { cards: number; files: number; at: string | null; rev: number | null };
-      return { cards: row.cards, files: row.files, classifiedAt: row.at ?? null, rev: row.rev ?? 0 };
+        .prepare("SELECT COUNT(*) cards, COALESCE(SUM(files), 0) files, MAX(classified_at) at, MAX(rev) rev, SUM(lookup_state = 'pending') pending FROM catalog_draft WHERE library_id = ?")
+        .get(libraryId) as { cards: number; files: number; at: string | null; rev: number | null; pending: number | null };
+      return { cards: row.cards, files: row.files, classifiedAt: row.at ?? null, rev: row.rev ?? 0, pending: row.pending ?? 0 };
     },
     listPendingDrafts(libraryId) {
       return (db.prepare("SELECT item_key, query, raw_name, children FROM catalog_draft WHERE library_id = ? AND lookup_state = 'pending' ORDER BY files DESC, item_key").all(libraryId) as Array<
@@ -1130,12 +1152,13 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       const rows = db
         .prepare(
           `SELECT item_key, query, title, original_title, year, overview, external_db, external_id,
-                  status, candidates, poster_url
+                  status, lookup_state, candidates, poster_url
            FROM catalog_draft WHERE library_id = ? ORDER BY item_key`,
         )
         .all(libraryId) as Array<Record<string, unknown>>;
       let updated = 0;
       let skipped = 0;
+      let deferred = 0;
       const posters: Array<{ itemId: string; url: string }> = [];
       db.exec("BEGIN");
       try {
@@ -1143,6 +1166,12 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
           const card = itemByKey.get(libraryId, text(draft, "item_key")) as Record<string, unknown> | undefined;
           if (!card) continue;
           const id = text(card, "id");
+          // 没判定过的草稿不是"判过且不匹配"：它只参与结构对齐，绑定留给卡上现有的值。
+          // 少了这一条，分批跑（Bangumi 匿名限速）会把上一轮已确认的卡打回未匹配。
+          if (text(draft, "lookup_state") !== "done") {
+            deferred += 1;
+            continue;
+          }
           // 人的答案优先，整张跳过：绑定、候选列表都不动。
           if (text(card, "status") === "confirmed" && (text(card, "confirmed_by") || "unknown") !== "auto") {
             skipped += 1;
@@ -1192,7 +1221,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         db.exec("ROLLBACK");
         throw error;
       }
-      return { updated, skipped, posters };
+      return { updated, skipped, deferred, posters };
     },
     reclusterBySubject(libraryId) {
       const bound = db

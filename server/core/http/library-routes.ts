@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { OpenlistServiceError } from "../../media/openlist.ts";
+import { MetadataUnavailable } from "../../media/catalog-metadata.ts";
 import { LibraryRequestError, type LibraryService } from "../../media/library-service.ts";
 import { sendError, requestIp } from "./shared.ts";
 
@@ -269,8 +270,26 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   // The only step that lets a locally prepared draft touch the wall.
   app.post("/api/admin/media-libraries/:id/apply", async (req, res) => {
     if (!requireAdmin(library, req, res)) return;
+    const force = /^(1|true|yes)$/i.test(queryString(req.query.force) ?? "");
     try {
-      res.json(await library.catalogApply(paramId(req)));
+      res.json(await library.catalogApply(paramId(req), force));
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
+
+  // One call for the whole local loop: classify what is missing, judge what is not
+  // yet judged, and stop at the draft. `?max=` caps this run's lookups.
+  app.post("/api/admin/media-libraries/:id/prepare", async (req, res) => {
+    if (!requireAdmin(library, req, res)) return;
+    const raw = queryString(req.query.max);
+    const max = raw === undefined ? undefined : Number(raw);
+    if (max !== undefined && (!Number.isSafeInteger(max) || max < 0)) {
+      sendError(res, 400, "INVALID_REQUEST");
+      return;
+    }
+    try {
+      res.json(await library.catalogPrepare(paramId(req), max));
     } catch (error) {
       sendFailure(res, error);
     }
@@ -294,6 +313,11 @@ function sendFailure(res: Response, error: unknown): void {
   }
   if (error instanceof OpenlistServiceError) {
     sendError(res, 502, "OPENLIST_UNAVAILABLE", error.message);
+    return;
+  }
+  // 判定要打的条目站挂了/没代理：说清楚是它，而不是一个 500。
+  if (error instanceof MetadataUnavailable) {
+    res.status(503).json({ code: "CATALOG_UNAVAILABLE", error: "CATALOG_UNAVAILABLE", message: "条目检索暂不可用（检查网络或代理）" });
     return;
   }
   if (error instanceof Error && (error.message === "Invalid media path" || error.message === "Invalid cursor")) {
