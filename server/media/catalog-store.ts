@@ -1191,6 +1191,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
           continue;
         }
         matchedDrafts.add(draft.itemKey);
+        if (draft.autoConfirmed) diff.autoConfirmed += 1;
         if (draft.itemKey !== itemKey) {
           diff.moved.push({ id, itemKey: draft.itemKey, fromKey: itemKey, files: draft.files });
         }

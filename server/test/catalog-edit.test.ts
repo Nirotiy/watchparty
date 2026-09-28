@@ -932,3 +932,19 @@ test("新卡带权威来源：文件是从哪张卡接走的，前端不用猜�
     store.close();
   }
 });
+
+test("autoConfirmed 数的是整份草稿里机器确认的张数（含已存在的卡，不只新卡）", () => {
+  const { store } = openStore();
+  try {
+    const hit = { externalDb: "bangumi" as const, externalId: "1", title: "确认过的条目", originalTitle: null, year: 2020, overview: null, imageUrl: null, episodes: null, score: 0.9 };
+    store.upsertScan("lib_anime", "anime", [group("/A", "A", ["a1", "a2"])]);
+    store.writeDraft("lib_anime", [group("/A", "A", ["a1", "a2"]), group("/New", "New", ["n1"])]);
+    store.writeDraftJudgment("lib_anime", "/A", { status: "confirmed", candidates: [hit], chosen: hit });
+    store.writeDraftJudgment("lib_anime", "/New", { status: "confirmed", candidates: [hit], chosen: hit });
+    const diff = store.draftDiff("lib_anime");
+    assert.equal(diff.autoConfirmed, 2, "一张对上已有卡、一张是新卡，两边都要数进来");
+    assert.equal(diff.added.length, 1);
+  } finally {
+    store.close();
+  }
+});
