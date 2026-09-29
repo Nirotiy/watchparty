@@ -33,6 +33,8 @@ export type AppConfig = {
    * 只有这个值能把人和 Agent 真正分开：没配就是软门禁（谁都能批），配了就必须带头。
    */
   catalogApprovalSecret: string;
+  /** 批准凭证的有效期，也是"那次应用还能撤回"的窗口长度（过期只清 undo，审计行留着）。 */
+  catalogApprovalTtlMs: number;
   /** 开发期旁挂 sidecar 的镜像根（只读）。空 = 不读镜像。 */
   catalogMirrorRoot: string;
   configStatus: ConfigStatus;
@@ -122,6 +124,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     // signed ids only need to survive within one process lifetime.
     watchPartyMediaIdKey: watchPartyMediaIdKey || randomBytes(32).toString("base64url"),
     catalogApprovalSecret: envString(env, "WATCHPARTY_CATALOG_APPROVAL_SECRET", ""),
+    catalogApprovalTtlMs: Math.max(1, envNumber(env, "WATCHPARTY_CATALOG_APPROVAL_TTL_MS", 48 * 60 * 60 * 1000)),
     catalogMirrorRoot: envString(env, "WATCHPARTY_CATALOG_MIRROR_ROOT", ""),
     configStatus: {
       openlist: {

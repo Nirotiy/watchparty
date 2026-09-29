@@ -386,6 +386,11 @@ export type CatalogStore = {
   readUndo(id: string): ApplyUndo | undefined;
   setApprovalOutcome(id: string, undo: ApplyUndo): void;
   markRolledBack(id: string): boolean;
+  /**
+   * 撤回窗口过了：只清 `undo_json`，谁批的、动了哪些键位、什么时候应用的都留着。
+   * 返回被清掉的行数，让调用方能说一句"这次顺带收回了几次撤回权"。
+   */
+  pruneExpiredUndo(now: string): number;
   snapshotLibrary(libraryId: string): CatalogCardSnapshot[];
   /** 这个库现存的海报缓存行，回滚要按它把被级联删掉的行补回去。 */
   posterRows(libraryId: string): Array<{ itemId: string; contentType: string; cachePath: string; byteSize: number }>;
@@ -1645,6 +1650,10 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     },
     setApprovalOutcome(id, undo) {
       db.prepare("UPDATE catalog_approvals SET undo_json = ?, applied_at = ? WHERE id = ?").run(JSON.stringify(undo), now(), id);
+    },
+    pruneExpiredUndo(now) {
+      // 只清 undo：谁批的、什么时候应用的、动了哪些键位，审计行一律留着。
+      return Number(db.prepare("UPDATE catalog_approvals SET undo_json = NULL WHERE undo_json IS NOT NULL AND expires_at < ?").run(now).changes);
     },
     markRolledBack(id) {
       return db.prepare("UPDATE catalog_approvals SET rolled_back_at = ? WHERE id = ? AND rolled_back_at IS NULL").run(now(), id).changes === 1;

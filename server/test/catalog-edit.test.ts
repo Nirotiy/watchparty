@@ -1707,3 +1707,85 @@ test("开发期旁挂：镜像根里的 sidecar 读得到，导出仍然只落�
     fs.rmSync(serverRoot, { recursive: true, force: true });
   }
 });
+
+test("撤回窗口过了只清 undo：谁批的、什么时候用的，审计行还得读得到", () => {
+  const { store } = openStore();
+  try {
+    store.writeScan("lib_tv", [{ relativePath: "/Show/S01E01.mkv", name: "S01E01.mkv", mediaId: "m1" }]);
+    store.upsertScan("lib_tv", "tv", [group("/Show", "Show", ["m1"])]);
+    const undo = {
+      libraryId: "lib_tv",
+      before: [],
+      after: store.snapshotLibrary("lib_tv"),
+      keys: ["/Show"],
+      counts: { created: 1, removed: 0, changed: 0 },
+      posters: [],
+    };
+    const approvalId = store.createApproval({
+      tokenHash: "hash-1",
+      libraryId: "lib_tv",
+      draftRevision: 1,
+      scanRevision: 1,
+      operationHash: "ops-1",
+      approvedBy: "网页",
+      expiresAt: "2020-01-01T00:00:00.000Z",
+    });
+    assert.ok(store.useApproval("hash-1"));
+    store.setApprovalOutcome(approvalId, undo);
+    assert.ok(store.readUndo(approvalId), "窗口内撤得掉");
+
+    assert.equal(store.pruneExpiredUndo("2021-01-01T00:00:00.000Z"), 1);
+    assert.equal(store.readUndo(approvalId), undefined, "过了窗口，反向操作回收");
+    assert.equal(store.pruneExpiredUndo("2021-01-01T00:00:00.000Z"), 0, "第二次没有可清的");
+    const row = store.findApprovalById(approvalId)!;
+    assert.equal(row.approvedBy, "网页", "审计行留着：谁批的");
+    assert.equal(row.usedAt !== null, true, "审计行留着：用过没有");
+    assert.equal(row.appliedAt !== null, true, "审计行留着：什么时候应用的");
+    assert.equal(row.rolledBackAt, null);
+  } finally {
+    store.close();
+  }
+});
+
+test("撤回窗口就是凭证有效期：过了就只能前滚，签发时顺带回收并报数量", async () => {
+  const backend = await started({ config: loadConfig({ NODE_ENV: "test", OPENLIST_PASSWORD: "secret-value", WATCHPARTY_CATALOG_APPROVAL_TTL_MS: "1200" }) });
+  const api = async (route: string, body?: unknown) =>
+    json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/${route}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) }));
+  const ledger = async () => (await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/approvals`))).body.items as Array<Record<string, unknown>>;
+  try {
+    await api("classify");
+    await api("judge");
+    const granted = await api("approval");
+    assert.equal(granted.status, 200);
+    assert.equal(granted.body.pruned, 0, "第一次没东西可回收");
+    const applied = await api("apply-approved", { approvalToken: granted.body.approvalToken, force: 1 });
+    assert.equal(applied.status, 200);
+    assert.equal(applied.body.rollbackAvailable, true);
+    let rows = await ledger();
+    assert.equal(rows[0].rollbackAvailable, true);
+    assert.equal(rows[0].windowClosed, false);
+    assert.deepEqual(rows[0].keys, ["/Medalist"], "窗口内连键位都还在，界面能写清要撤回什么");
+
+    await new Promise((resolve) => setTimeout(resolve, 1400));
+
+    rows = await ledger();
+    assert.equal(rows[0].rollbackAvailable, false, "窗口过了就不能撤");
+    assert.equal(rows[0].windowClosed, true);
+    assert.equal(rows[0].keys, undefined, "键位随 undo 一起回收，但这一行还在");
+    assert.equal(rows[0].approvedBy, "web");
+    // 窗口判据必须排在读 undo 之前：签发这一刻会先回收过期 undo，
+    // 若先读就会报成"那次应用没留台账"，把真原因说丢了。
+    const refused = await api("approval", { rollbackOf: rows[0].approvalId });
+    assert.equal(refused.status, 409);
+    assert.equal((refused.body as { code: string }).code, "CATALOG_ROLLBACK_WINDOW_CLOSED");
+    assert.equal((refused.body as { pruned: number }).pruned, 1, "这一次顺带回收了一条过期 undo");
+
+    const next = await api("approval", { approvedBy: "网页" });
+    assert.equal(next.status, 409, "这份草稿已应用完，没有新结构要批");
+    assert.equal((next.body as { pruned: number }).pruned, 0, "回收只发生一次，不重复计数");
+    const afterPrune = await ledger();
+    assert.equal(afterPrune[0].windowClosed, true, "审计行还在，撤回权没了");
+  } finally {
+    await backend.close();
+  }
+});

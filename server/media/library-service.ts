@@ -152,6 +152,8 @@ export type ApprovalIssue = {
   approvalToken: string;
   expiresAt: string;
   approvedBy: string;
+  /** 这次签发顺手回收了几条过了撤回窗口的 undo。 */
+  pruned: number;
   structural?: StructuralChanges;
   rollback?: RollbackPlanSummary;
 };
@@ -243,6 +245,8 @@ export type LibraryService = {
       keys?: string[];
       counts?: { created: number; removed: number; changed: number };
       rollbackAvailable: boolean;
+      /** 撤回窗口就是凭证有效期；过期后只清 undo，审计行永远还读得到。 */
+      windowClosed: boolean;
     }>;
   };
   /** 墙上的疑似同作（OVA/季度/SP 那类）。只读：不改卡、不合并、也不建任何待办。 */
@@ -298,7 +302,8 @@ export type LibraryService = {
 
 const HEALTH_TTL_MS = 5000;
 /** 人工批准的结构变更凭证有效期（文档 §8：created_at + 48h）。 */
-const APPROVAL_TTL_MS = 48 * 60 * 60 * 1000;
+/** 撤回窗口就是凭证有效期：过期只清 undo，审计行留着。默认 48 小时。 */
+const DEFAULT_APPROVAL_TTL_MS = 48 * 60 * 60 * 1000;
 const SEEDED_SOURCE_ID = "src_default";
 
 export function createLibraryService(options: {
@@ -315,6 +320,8 @@ export function createLibraryService(options: {
   catalogMirrorDir?: string;
   /** 批准结构变更的第二把密钥；默认取 `WATCHPARTY_CATALOG_APPROVAL_SECRET`。 */
   approvalSecret?: string;
+  /** 凭证有效期 = 可撤回窗口（毫秒）；默认取 `WATCHPARTY_CATALOG_APPROVAL_TTL_MS`（48h）。 */
+  approvalTtlMs?: number;
   bangumi?: MetadataSearcher;
   tmdb?: MetadataSearcher;
   fetchPoster?: (url: string) => Promise<{ contentType: string; bytes: Buffer } | undefined>;
@@ -371,6 +378,7 @@ export function createLibraryService(options: {
   const sidecarRoot = options.catalogSidecarDir ?? defaultSidecarDir(cfg);
   const mirrorRoot = options.catalogMirrorDir ?? cfg.catalogMirrorRoot;
   const approvalSecret = options.approvalSecret ?? cfg.catalogApprovalSecret;
+  const approvalTtlMs = options.approvalTtlMs ?? (cfg.catalogApprovalTtlMs > 0 ? cfg.catalogApprovalTtlMs : DEFAULT_APPROVAL_TTL_MS);
   const secretMatches = (provided: string | undefined, expected: string) => {
     if (typeof provided !== "string") return false;
     const left = Buffer.from(provided);
@@ -460,13 +468,16 @@ export function createLibraryService(options: {
   }
 
   /** 一次结构 apply 留下的反向操作，连同它现在的形状 —— 回滚批准与回滚执行都从这里取。 */
-  function rollbackPlan(libraryId: string, approvalId: string) {
+  function rollbackPlan(libraryId: string, approvalId: string, pruned = 0) {
     const record = catalog.findApprovalById(approvalId);
     if (!record || record.libraryId !== libraryId) throw new LibraryRequestError(404, "CATALOG_ROLLBACK_TARGET_NOT_FOUND");
     if (record.kind !== "apply") throw new LibraryRequestError(409, "CATALOG_ROLLBACK_TARGET_NOT_APPLY");
-    const undo = catalog.readUndo(approvalId);
-    if (!undo) throw new LibraryRequestError(409, "CATALOG_ROLLBACK_NOT_RECORDED", { approvalId });
     if (record.rolledBackAt) throw new LibraryRequestError(409, "CATALOG_ROLLBACK_ALREADY_DONE", { approvalId, rolledBackAt: record.rolledBackAt });
+    // 窗口判据必须排在读 undo 之前：签发这一刻会先回收过期的 undo，若先读就会报成
+    // "那次应用没留台账"，把"窗口过了"这个真原因说丢了。
+    if (new Date(record.expiresAt).getTime() <= Date.now()) throw new LibraryRequestError(409, "CATALOG_ROLLBACK_WINDOW_CLOSED", { approvalId, expiresAt: record.expiresAt, pruned });
+    const undo = catalog.readUndo(approvalId);
+    if (!undo) throw new LibraryRequestError(409, "CATALOG_ROLLBACK_NOT_RECORDED", { approvalId, pruned });
     return {
       undo,
       digest: rollbackDigest({ libraryId, approvalId, keys: undo.keys }),
@@ -1059,14 +1070,17 @@ export function createLibraryService(options: {
     },
     catalogApprove(id, body, approvalSecretHeader) {
       requireLibrary(id);
+      // 顺手回收过了撤回窗口的 undo。放在签发这一刻（一次写）而不是读接口里，免得 GET 改数据；
+      // 窗口本身在 rollbackPlan 里也单独判，不依赖这次清理跑没跑过。
+      const pruned = catalog.pruneExpiredUndo(new Date().toISOString());
       if (approvalSecret && !secretMatches(approvalSecretHeader, approvalSecret)) throw new LibraryRequestError(401, "CATALOG_APPROVAL_SECRET_REQUIRED");
       const record = (body ?? {}) as Record<string, unknown>;
       const approvedBy = typeof record.approvedBy === "string" && record.approvedBy.trim() ? record.approvedBy.trim().slice(0, 80) : "web";
-      const expiresAt = new Date(Date.now() + APPROVAL_TTL_MS).toISOString();
+      const expiresAt = new Date(Date.now() + approvalTtlMs).toISOString();
       const token = randomBytes(24).toString("base64url");
       // 回滚也要人再点一次：批准的是"把那次应用撤回去"这个动作，不是又一次盖库。
       if (typeof record.rollbackOf === "string" && record.rollbackOf) {
-        const plan = rollbackPlan(id, record.rollbackOf);
+        const plan = rollbackPlan(id, record.rollbackOf, pruned);
         const approvalId = catalog.createApproval({
           tokenHash: tokenHashOf(token),
           libraryId: id,
@@ -1078,11 +1092,11 @@ export function createLibraryService(options: {
           kind: "rollback",
           targets: plan.undo ? record.rollbackOf : null,
         });
-        return { libraryId: id, approvalId, approvalToken: token, expiresAt, approvedBy, rollback: plan.detail.rollback };
+        return { libraryId: id, approvalId, approvalToken: token, expiresAt, approvedBy, pruned, rollback: plan.detail.rollback };
       }
       const target = approvalTarget(id);
       if (structuralCount(target.structural) === 0) {
-        throw new LibraryRequestError(409, "CATALOG_NOTHING_TO_APPROVE", { draftCards: catalog.draftInfo(id).cards });
+        throw new LibraryRequestError(409, "CATALOG_NOTHING_TO_APPROVE", { draftCards: catalog.draftInfo(id).cards, pruned });
       }
       const approvalId = catalog.createApproval({
         tokenHash: tokenHashOf(token),
@@ -1093,7 +1107,7 @@ export function createLibraryService(options: {
         approvedBy,
         expiresAt,
       });
-      return { libraryId: id, approvalId, approvalToken: token, expiresAt, approvedBy, structural: target.structural };
+      return { libraryId: id, approvalId, approvalToken: token, expiresAt, approvedBy, pruned, structural: target.structural };
     },
     async catalogRollback(id, body) {
       requireLibrary(id);
@@ -1153,7 +1167,9 @@ export function createLibraryService(options: {
       return {
         libraryId: id,
         items: catalog.listApprovals(id).map((record) => {
-          const undo = record.kind === "apply" && record.usedAt && !record.rolledBackAt ? catalog.readUndo(record.id) : undefined;
+          const expired = new Date(record.expiresAt).getTime() <= Date.now();
+          const found = record.kind === "apply" && record.usedAt && !record.rolledBackAt ? catalog.readUndo(record.id) : undefined;
+          const undo = expired ? undefined : found;
           return {
             approvalId: record.id,
             kind: record.kind,
@@ -1167,6 +1183,8 @@ export function createLibraryService(options: {
             targets: record.targets,
             ...(undo ? { keys: undo.keys, counts: undo.counts } : {}),
             rollbackAvailable: Boolean(undo),
+            /** 用过、没撤过，但撤回窗口已经过了（凭证过期或 undo 已被回收）。 */
+            windowClosed: Boolean(record.usedAt) && record.kind === "apply" && !record.rolledBackAt && !undo,
           };
         }),
       };
