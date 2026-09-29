@@ -309,6 +309,17 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
     }
   });
 
+  // 回滚 = 带并发检查的反向 patch：先由人批准这一次撤回（/approval {rollbackOf}），
+  // 再带凭证执行。当前值与当时写入的不一致就整批不动，只报冲突 keys。
+  app.post("/api/admin/media-libraries/:id/rollback", async (req, res) => {
+    if (!requireAdmin(library, req, res)) return;
+    try {
+      res.json(await library.catalogRollback(paramId(req), req.body));
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
+
   // 草稿编辑：六个动作同一种形状（只写草稿、返回新摘要），所以表驱动注册。
   const draftEdits: Array<{ action: string; run: (id: string, body: unknown) => unknown }> = [
     { action: "edit", run: (id, body) => library.draftEdit(id, body) },

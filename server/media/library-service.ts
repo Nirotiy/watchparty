@@ -15,7 +15,9 @@ import { groupScanFiles, isVideoFileName, type CatalogGroupFile, type ScanFile }
 import { createBangumiClient, createTmdbClient, fetchPosterBytes, judgeThresholds, type MetadataSearcher, type RankedHit } from "./catalog-metadata.ts";
 import {
   approvalDigest,
+  diffSnapshots,
   openCatalogStore,
+  rollbackDigest,
   structuralChanges,
   structuralCount,
   type CatalogCard,
@@ -120,6 +122,35 @@ export type ImportPreviewResult = {
   diff: CatalogDraftDiff;
 };
 
+/** 一次结构应用的结果，含"这次是否留下了可回滚的记录"。 */
+export type ApplyOutcome = {
+  libraryId: string;
+  cards: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  deferred: number;
+  posters: number;
+  structural: StructuralChanges;
+  /** 带凭证应用时是那张批准记录；没有它就是 null（纯元数据应用不进回滚台账）。 */
+  approvalId: string | null;
+  rollbackAvailable: boolean;
+  diff: CatalogDraftDiff;
+};
+
+/** 一次结构应用留下的反向操作摘要（回滚批准与执行都回这个形状）。 */
+export type RollbackPlanSummary = { approvalId: string; keys: string[]; counts: { created: number; removed: number; changed: number } };
+
+export type ApprovalIssue = {
+  libraryId: string;
+  approvalId: string;
+  approvalToken: string;
+  expiresAt: string;
+  approvedBy: string;
+  structural?: StructuralChanges;
+  rollback?: RollbackPlanSummary;
+};
+
 export type LibraryService = {
   close(): void;
   sourceCount(): number;
@@ -153,14 +184,17 @@ export type LibraryService = {
   catalogJudge(id: string, maxLookups?: number): Promise<{ libraryId: string; kind: LibraryKind; judged: number; confirmed: number; pending: number; items: string[]; diff: CatalogDraftDiff }>;
   /** 把草稿变成正式卡。rev 与当前快照不一致就 409，绝不拿过期结果盖库。
    *  带结构变更（建卡/删卡/移动文件）时必须给人工签发的一次性 `approvalToken`。 */
-  catalogApply(id: string, force?: boolean, approvalToken?: string): Promise<{ libraryId: string; cards: number; created: number; updated: number; skipped: number; deferred: number; posters: number; structural: StructuralChanges; diff: CatalogDraftDiff }>;
+  catalogApply(id: string, force?: boolean, approvalToken?: string): Promise<ApplyOutcome>;
   /** 网页批准当前草稿的结构变更，签发一次性凭证（48h）。明文只在这里回一次。
    *  配了 WATCHPARTY_CATALOG_APPROVAL_SECRET 时，调用方必须出示它 —— 这才是"人是人、
-   *  Agent 是 Agent"的分界；没配就是软边界，任何 admin 权限都能批（capability 会如实报）。 */
-  catalogApprove(id: string, body: unknown, approvalSecret?: string): { libraryId: string; approvalId: string; approvalToken: string; expiresAt: string; approvedBy: string; structural: StructuralChanges };
+   *  Agent 是 Agent"的分界；没配就是软边界，任何 admin 权限都能批（capability 会如实报）。
+   *  body 带 `rollbackOf` 时批准的是"把那次应用撤回去"，返回 `rollback` 而不是 `structural`。 */
+  catalogApprove(id: string, body: unknown, approvalSecret?: string): ApprovalIssue;
   catalogRevoke(id: string, body: unknown): { libraryId: string; revoked: true };
+  /** 带着回滚凭证还原那次结构应用。当前值与当时写入的不一致就整批不动，只报冲突。 */
+  catalogRollback(id: string, body: unknown): Promise<{ libraryId: string; rollbackOf: string; restored: number; removed: number; keys: string[]; diff: CatalogDraftDiff }>;
   /** 带着凭证应用：`/apply` 遇到结构变更会 409，这里才是那条路。 */
-  catalogApplyApproved(id: string, body: unknown): Promise<{ libraryId: string; cards: number; created: number; updated: number; skipped: number; deferred: number; posters: number; structural: StructuralChanges; diff: CatalogDraftDiff }>;
+  catalogApplyApproved(id: string, body: unknown): Promise<ApplyOutcome>;
   /** 一条命令跑完"分类 + 判定"（只到草稿）：缺多少判多少，不擦上一轮的结果。 */
   catalogPrepare(id: string, maxLookups?: number): Promise<{
     libraryId: string;
@@ -351,19 +385,18 @@ export function createLibraryService(options: {
     const structural = structuralChanges(catalog.draftDiff(libraryId));
     const draftRevision = catalog.draftInfo(libraryId).rev;
     const scanRevision = catalog.scanInfo(libraryId).rev;
-    return { structural, digest: approvalDigest({ libraryId, structural, scanRevision, draftRevision }), scanRevision, draftRevision };
+    return { structural, digest: approvalDigest({ libraryId, structural, scanRevision, draftRevision }), scanRevision, draftRevision, detail: { structural } };
   }
 
   const tokenHashOf = (token: string) => createHash("sha256").update(token).digest("hex");
 
   /**
    * 校验并当场消费凭证：宁可"失败即作废"也不留下可重放的窗口（所以是先消费、后执行）。
-   * 结构指纹、两个 revision、过期、撤销、已用逐项都对得上才放行。
+   * 指纹、两个 revision、过期、撤销、已用逐项都对得上才放行。
    */
-  function consumeApproval(libraryId: string, token: string): string {
+  function consumeApproval(libraryId: string, token: string, expected: { digest: string; scanRevision: number; draftRevision: number; detail: Record<string, unknown> }): string {
     const tokenHash = tokenHashOf(token);
     const record = catalog.findApproval(tokenHash);
-    const target = approvalTarget(libraryId);
     const reason =
       !record || record.libraryId !== libraryId
         ? "unknown"
@@ -373,17 +406,34 @@ export function createLibraryService(options: {
             ? "used"
             : new Date(record.expiresAt).getTime() <= Date.now()
               ? "expired"
-              : record.scanRevision !== target.scanRevision
+              : record.scanRevision !== expected.scanRevision
                 ? "scan-revision"
-                : record.draftRevision !== target.draftRevision
+                : record.draftRevision !== expected.draftRevision
                   ? "draft-revision"
-                  : record.operationHash !== target.digest
+                  : record.operationHash !== expected.digest
                     ? "operations-changed"
                     : !catalog.useApproval(tokenHash)
                       ? "used"
                       : null;
-    if (reason || !record) throw new LibraryRequestError(409, "CATALOG_APPROVAL_INVALID", { reason: reason ?? "unknown", structural: target.structural });
+    if (reason || !record) throw new LibraryRequestError(409, "CATALOG_APPROVAL_INVALID", { reason: reason ?? "unknown", ...expected.detail });
     return record.id;
+  }
+
+  /** 一次结构 apply 留下的反向操作，连同它现在的形状 —— 回滚批准与回滚执行都从这里取。 */
+  function rollbackPlan(libraryId: string, approvalId: string) {
+    const record = catalog.findApprovalById(approvalId);
+    if (!record || record.libraryId !== libraryId) throw new LibraryRequestError(404, "CATALOG_ROLLBACK_TARGET_NOT_FOUND");
+    if (record.kind !== "apply") throw new LibraryRequestError(409, "CATALOG_ROLLBACK_TARGET_NOT_APPLY");
+    const undo = catalog.readUndo(approvalId);
+    if (!undo) throw new LibraryRequestError(409, "CATALOG_ROLLBACK_NOT_RECORDED", { approvalId });
+    if (record.rolledBackAt) throw new LibraryRequestError(409, "CATALOG_ROLLBACK_ALREADY_DONE", { approvalId, rolledBackAt: record.rolledBackAt });
+    return {
+      undo,
+      digest: rollbackDigest({ libraryId, approvalId, keys: undo.keys }),
+      scanRevision: catalog.scanInfo(libraryId).rev,
+      draftRevision: catalog.draftInfo(libraryId).rev,
+      detail: { rollback: { approvalId, keys: undo.keys, counts: undo.counts } },
+    };
   }
 
   function approvalTokenOf(body: unknown): string {
@@ -910,11 +960,12 @@ export function createLibraryService(options: {
       // 绑定不会丢（未判定的草稿跳过），但界面会看起来"掉了一截"，所以默认拒绝。
       if (info.pending > 0 && !force) throw new LibraryRequestError(409, "CATALOG_DRAFT_INCOMPLETE", { pending: info.pending, draftCards: info.cards });
       // 元数据可以直写；建卡/删卡/换文件必须带网页刚签发的那一次性凭证。
-      const structural = structuralChanges(catalog.draftDiff(id));
+      const target = approvalTarget(id);
+      let approvalId: string | null = null;
       if (approvalToken === undefined) {
-        if (structuralCount(structural) > 0) throw new LibraryRequestError(409, "CATALOG_APPROVAL_REQUIRED", { structural, draftCards: info.cards });
+        if (structuralCount(target.structural) > 0) throw new LibraryRequestError(409, "CATALOG_APPROVAL_REQUIRED", { structural: target.structural, draftCards: info.cards });
       } else {
-        consumeApproval(id, approvalToken);
+        approvalId = consumeApproval(id, approvalToken, target);
       }
       const groups = catalog.readDraft(id).map((card) => ({
         itemKey: card.itemKey,
@@ -924,10 +975,16 @@ export function createLibraryService(options: {
         files: card.children,
       }));
       const before = new Set(catalog.cardIds(id));
+      // 反向操作只在真的带了凭证的这次应用里记录：结构变更必须由那次批准可撤销。
+      const snapshotBefore = approvalId ? catalog.snapshotLibrary(id) : [];
       // 结构交给 upsertScan：身份认别、人工保护、孤儿行清理都在那边，一行都不重写。
       catalog.upsertScan(id, library.kind, groups, false);
       const applied = catalog.applyDraftDecisions(id);
       const created = catalog.cardIds(id).filter((cardId) => !before.has(cardId)).length;
+      if (approvalId) {
+        const undo = diffSnapshots(id, snapshotBefore, catalog.snapshotLibrary(id));
+        if (undo) catalog.setApprovalOutcome(approvalId, undo);
+      }
       for (const poster of applied.posters) await worker.cachePoster(poster.itemId, poster.url);
       return {
         libraryId: id,
@@ -937,21 +994,39 @@ export function createLibraryService(options: {
         skipped: applied.skipped,
         deferred: applied.deferred,
         posters: applied.posters.length,
-        structural,
+        structural: target.structural,
+        approvalId,
+        rollbackAvailable: Boolean(approvalId) && Boolean(approvalId ? catalog.readUndo(approvalId) : undefined),
         diff: catalog.draftDiff(id),
       };
     },
     catalogApprove(id, body, approvalSecretHeader) {
       requireLibrary(id);
       if (approvalSecret && !secretMatches(approvalSecretHeader, approvalSecret)) throw new LibraryRequestError(401, "CATALOG_APPROVAL_SECRET_REQUIRED");
+      const record = (body ?? {}) as Record<string, unknown>;
+      const approvedBy = typeof record.approvedBy === "string" && record.approvedBy.trim() ? record.approvedBy.trim().slice(0, 80) : "web";
+      const expiresAt = new Date(Date.now() + APPROVAL_TTL_MS).toISOString();
+      const token = randomBytes(24).toString("base64url");
+      // 回滚也要人再点一次：批准的是"把那次应用撤回去"这个动作，不是又一次盖库。
+      if (typeof record.rollbackOf === "string" && record.rollbackOf) {
+        const plan = rollbackPlan(id, record.rollbackOf);
+        const approvalId = catalog.createApproval({
+          tokenHash: tokenHashOf(token),
+          libraryId: id,
+          draftRevision: plan.draftRevision,
+          scanRevision: plan.scanRevision,
+          operationHash: plan.digest,
+          approvedBy,
+          expiresAt,
+          kind: "rollback",
+          targets: plan.undo ? record.rollbackOf : null,
+        });
+        return { libraryId: id, approvalId, approvalToken: token, expiresAt, approvedBy, rollback: plan.detail.rollback };
+      }
       const target = approvalTarget(id);
       if (structuralCount(target.structural) === 0) {
         throw new LibraryRequestError(409, "CATALOG_NOTHING_TO_APPROVE", { draftCards: catalog.draftInfo(id).cards });
       }
-      const token = randomBytes(24).toString("base64url");
-      const record = (body ?? {}) as Record<string, unknown>;
-      const approvedBy = typeof record.approvedBy === "string" && record.approvedBy.trim() ? record.approvedBy.trim().slice(0, 80) : "web";
-      const expiresAt = new Date(Date.now() + APPROVAL_TTL_MS).toISOString();
       const approvalId = catalog.createApproval({
         tokenHash: tokenHashOf(token),
         libraryId: id,
@@ -962,6 +1037,25 @@ export function createLibraryService(options: {
         expiresAt,
       });
       return { libraryId: id, approvalId, approvalToken: token, expiresAt, approvedBy, structural: target.structural };
+    },
+    async catalogRollback(id, body) {
+      requireLibrary(id);
+      const record = (body ?? {}) as Record<string, unknown>;
+      const targetId = typeof record.rollbackOf === "string" ? record.rollbackOf : "";
+      if (!targetId) throw draftInvalid();
+      const plan = rollbackPlan(id, targetId);
+      consumeApproval(id, approvalTokenOf(body), plan);
+      const outcome = catalog.restoreApplyUndo(plan.undo);
+      if ("conflict" in outcome) throw new LibraryRequestError(409, "CATALOG_ROLLBACK_CONFLICT", { rollbackOf: targetId, keys: outcome.conflict });
+      catalog.markRolledBack(targetId);
+      return {
+        libraryId: id,
+        rollbackOf: targetId,
+        restored: plan.undo.before.length,
+        removed: plan.undo.counts.created,
+        keys: plan.undo.keys,
+        diff: catalog.draftDiff(id),
+      };
     },
     catalogRevoke(id, body) {
       requireLibrary(id);

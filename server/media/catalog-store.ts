@@ -185,7 +185,77 @@ export type CatalogApproval = {
   expiresAt: string;
   usedAt: string | null;
   revokedAt: string | null;
+  /** apply = 批准一次结构应用；rollback = 批准一次回滚（targets 指向被回滚的那张 apply 记录）。 */
+  kind: "apply" | "rollback";
+  targets: string | null;
+  appliedAt: string | null;
+  rolledBackAt: string | null;
 };
+
+/**
+ * 一张卡的可还原快照。回滚不是恢复数据库备份，而是带并发检查的反向 patch：
+ * 所以旧值和新值都要记，孩子与候选也得一起记（级联删除会把它们带走）。
+ */
+export type CatalogCardSnapshot = {
+  id: string;
+  itemKey: string;
+  kind: string;
+  query: string;
+  rawName: string;
+  title: string;
+  originalTitle: string | null;
+  year: number | null;
+  overview: string | null;
+  externalDb: string | null;
+  externalId: string | null;
+  status: string;
+  lookupState: string;
+  confirmedBy: string | null;
+  subtitle: string | null;
+  children: Array<{ mediaId: string; name: string; season: number | null; episode: number | null; relPath: string | null }>;
+  candidates: Array<{ externalDb: string; externalId: string; title: string; year: number | null; score: number; payload: string }>;
+};
+
+/** 一次结构 apply 的反向操作：`before` 里没有的卡是这次建出来的，回滚要删；`after` 用于核对。 */
+export type ApplyUndo = {
+  libraryId: string;
+  before: CatalogCardSnapshot[];
+  after: CatalogCardSnapshot[];
+  keys: string[];
+  counts: { created: number; removed: number; changed: number };
+};
+
+export function rollbackDigest(input: { libraryId: string; approvalId: string; keys: string[] }): string {
+  return createHash("sha256").update(JSON.stringify(input)).digest("hex");
+}
+
+/** 只把真的变了的卡写进 undo：整库快照会让一条记录大到没法存，也让人看不出这次动了什么。 */
+export function diffSnapshots(libraryId: string, before: CatalogCardSnapshot[], after: CatalogCardSnapshot[]): ApplyUndo | null {
+  const stamp = (card: CatalogCardSnapshot) => JSON.stringify(card);
+  const beforeById = new Map(before.map((card) => [card.id, card]));
+  const afterById = new Map(after.map((card) => [card.id, card]));
+  const touched: string[] = [];
+  for (const [id, card] of afterById) {
+    const old = beforeById.get(id);
+    if (!old || stamp(old) !== stamp(card)) touched.push(id);
+  }
+  for (const [id, card] of beforeById) if (!afterById.has(id)) touched.push(id);
+  if (touched.length === 0) return null;
+  const keys = [...new Set(touched.map((id) => beforeById.get(id)?.itemKey ?? afterById.get(id)?.itemKey).filter((key): key is string => Boolean(key)))].sort();
+  let created = 0;
+  let removed = 0;
+  for (const id of touched) {
+    if (!beforeById.has(id)) created += 1;
+    else if (!afterById.has(id)) removed += 1;
+  }
+  return {
+    libraryId,
+    before: touched.map((id) => beforeById.get(id)).filter((card): card is CatalogCardSnapshot => Boolean(card)),
+    after: touched.map((id) => afterById.get(id)).filter((card): card is CatalogCardSnapshot => Boolean(card)),
+    keys,
+    counts: { created, removed, changed: touched.length - created - removed },
+  };
+}
 
 export type CatalogDetail = CatalogCard & {
   /** 卡片对应的分组键。界面要靠它把正式卡和草稿行对上（草稿的身份就是 itemKey）。 */
@@ -290,8 +360,26 @@ export type CatalogStore = {
    */
   draftImport(libraryId: string, itemKey: string, patch: DraftPatch): "ok" | "missing" | "protected";
   /** 签发一次性凭证：只存哈希，明文由调用方一次性带回网页。 */
-  createApproval(input: { tokenHash: string; libraryId: string; draftRevision: number; scanRevision: number; operationHash: string; approvedBy: string; expiresAt: string }): string;
+  createApproval(input: {
+    tokenHash: string;
+    libraryId: string;
+    draftRevision: number;
+    scanRevision: number;
+    operationHash: string;
+    approvedBy: string;
+    expiresAt: string;
+    kind?: "apply" | "rollback";
+    targets?: string | null;
+  }): string;
   findApproval(tokenHash: string): CatalogApproval | undefined;
+  findApprovalById(id: string): CatalogApproval | undefined;
+  listApprovals(libraryId: string): CatalogApproval[];
+  readUndo(id: string): ApplyUndo | undefined;
+  setApprovalOutcome(id: string, undo: ApplyUndo): void;
+  markRolledBack(id: string): boolean;
+  snapshotLibrary(libraryId: string): CatalogCardSnapshot[];
+  /** 带并发检查的反向 patch：任何一张卡与 apply 后不一致就整批不动。 */
+  restoreApplyUndo(undo: ApplyUndo): { applied: number } | { conflict: string[] };
   /** 原子消费：并发/重复提交时只有第一次成功。 */
   useApproval(tokenHash: string): boolean;
   revokeApproval(tokenHash: string): boolean;
@@ -439,6 +527,16 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       revoked_at TEXT
     );
   `);
+  // 回滚要"旧值 + 新值 + 反向操作"，但文档不让再立一套批次模型：这张轻量表就是批次身份。
+  for (const [column, ddl] of [
+    ["kind", "kind TEXT NOT NULL DEFAULT 'apply'"],
+    ["targets", "targets TEXT"],
+    ["undo_json", "undo_json TEXT"],
+    ["applied_at", "applied_at TEXT"],
+    ["rolled_back_at", "rolled_back_at TEXT"],
+  ] as const) {
+    if (!columnExists("catalog_approvals", column)) db.exec(`ALTER TABLE catalog_approvals ADD COLUMN ${ddl}`);
+  }
 
   const jobStmt = db.prepare("SELECT * FROM scrape_jobs WHERE library_id = ?");
   const runningStmt = db.prepare("SELECT * FROM scrape_jobs WHERE status = 'running' ORDER BY library_id");
@@ -452,6 +550,8 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
   const rejectionsStmt = db.prepare("SELECT external_db, external_id FROM catalog_rejections WHERE library_id = ? AND item_key = ?");
   const posterStmt = db.prepare("SELECT * FROM poster_files WHERE item_id = ?");
   const approvalByHash = db.prepare("SELECT * FROM catalog_approvals WHERE token_hash = ?");
+  const approvalById = db.prepare("SELECT * FROM catalog_approvals WHERE id = ?");
+  const approvalsForLibrary = db.prepare("SELECT * FROM catalog_approvals WHERE library_id = ? ORDER BY created_at DESC LIMIT 60");
 
   function nid(prefix: string): string {
     return `${prefix}_${randomBytes(9).toString("base64url")}`;
@@ -471,7 +571,49 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       expiresAt: text(row, "expires_at"),
       usedAt: typeof row.used_at === "string" ? row.used_at : null,
       revokedAt: typeof row.revoked_at === "string" ? row.revoked_at : null,
+      kind: row.kind === "rollback" ? "rollback" : "apply",
+      targets: typeof row.targets === "string" ? row.targets : null,
+      appliedAt: typeof row.applied_at === "string" ? row.applied_at : null,
+      rolledBackAt: typeof row.rolled_back_at === "string" ? row.rolled_back_at : null,
     };
+  }
+
+  /** 整库的卡快照（含孩子与候选）：apply 前后各读一次，差集就是这次的反向操作。 */
+  function readSnapshot(libraryId: string): CatalogCardSnapshot[] {
+    const childStmt = db.prepare("SELECT media_id, name, season, episode, rel_path FROM catalog_children WHERE item_id = ? ORDER BY sort_index");
+    const candStmt = db.prepare("SELECT external_db, external_id, title, year, score, payload FROM catalog_candidates WHERE item_id = ? ORDER BY score DESC, title");
+    return (itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>).map((row) => ({
+      id: text(row, "id"),
+      itemKey: text(row, "item_key"),
+      kind: text(row, "kind"),
+      query: text(row, "query"),
+      rawName: text(row, "raw_name"),
+      title: text(row, "title"),
+      originalTitle: typeof row.original_title === "string" ? row.original_title : null,
+      year: intOrNull(row, "year"),
+      overview: typeof row.overview === "string" ? row.overview : null,
+      externalDb: typeof row.external_db === "string" ? row.external_db : null,
+      externalId: typeof row.external_id === "string" ? row.external_id : null,
+      status: text(row, "status"),
+      lookupState: text(row, "lookup_state"),
+      confirmedBy: typeof row.confirmed_by === "string" ? row.confirmed_by : null,
+      subtitle: typeof row.subtitle === "string" ? row.subtitle : null,
+      children: (childStmt.all(text(row, "id")) as Array<Record<string, unknown>>).map((child) => ({
+        mediaId: text(child, "media_id"),
+        name: text(child, "name"),
+        season: intOrNull(child, "season"),
+        episode: intOrNull(child, "episode"),
+        relPath: typeof child.rel_path === "string" ? child.rel_path : null,
+      })),
+      candidates: (candStmt.all(text(row, "id")) as Array<Record<string, unknown>>).map((cand) => ({
+        externalDb: text(cand, "external_db"),
+        externalId: text(cand, "external_id"),
+        title: text(cand, "title"),
+        year: intOrNull(cand, "year"),
+        score: Number(cand.score),
+        payload: text(cand, "payload"),
+      })),
+    }));
   }
 
   /**
@@ -1463,12 +1605,101 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     createApproval(input) {
       const id = nid("appr");
       db.prepare(
-        "INSERT INTO catalog_approvals (id, token_hash, library_id, draft_revision, scan_revision, operation_hash, approved_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      ).run(id, input.tokenHash, input.libraryId, input.draftRevision, input.scanRevision, input.operationHash, input.approvedBy, now(), input.expiresAt);
+        "INSERT INTO catalog_approvals (id, token_hash, library_id, draft_revision, scan_revision, operation_hash, approved_by, created_at, expires_at, kind, targets) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(id, input.tokenHash, input.libraryId, input.draftRevision, input.scanRevision, input.operationHash, input.approvedBy, now(), input.expiresAt, input.kind ?? "apply", input.targets ?? null);
       return id;
     },
     findApproval(tokenHash) {
       return mapApproval(approvalByHash.get(tokenHash) as Record<string, unknown> | undefined);
+    },
+    findApprovalById(id) {
+      return mapApproval(approvalById.get(id) as Record<string, unknown> | undefined);
+    },
+    listApprovals(libraryId) {
+      return (approvalsForLibrary.all(libraryId) as Array<Record<string, unknown>>).flatMap((row) => {
+        const record = mapApproval(row);
+        return record ? [record] : [];
+      });
+    },
+    readUndo(id) {
+      const row = approvalById.get(id) as Record<string, unknown> | undefined;
+      if (!row || typeof row.undo_json !== "string") return undefined;
+      try {
+        return JSON.parse(row.undo_json) as ApplyUndo;
+      } catch {
+        return undefined;
+      }
+    },
+    setApprovalOutcome(id, undo) {
+      db.prepare("UPDATE catalog_approvals SET undo_json = ?, applied_at = ? WHERE id = ?").run(JSON.stringify(undo), now(), id);
+    },
+    markRolledBack(id) {
+      return db.prepare("UPDATE catalog_approvals SET rolled_back_at = ? WHERE id = ? AND rolled_back_at IS NULL").run(now(), id).changes === 1;
+    },
+    snapshotLibrary(libraryId) {
+      return readSnapshot(libraryId);
+    },
+    restoreApplyUndo(undo) {
+      const stamp = (card: CatalogCardSnapshot) => JSON.stringify(card);
+      const current = new Map(readSnapshot(undo.libraryId).map((card) => [card.id, card]));
+      const beforeById = new Map(undo.before.map((card) => [card.id, card]));
+      const afterById = new Map(undo.after.map((card) => [card.id, card]));
+      const conflicts: string[] = [];
+      // 核对：现在读到的必须正是当时写进去的。只要人在之后动过一张卡，就停手不猜。
+      for (const card of undo.after) {
+        const nowCard = current.get(card.id);
+        if (!nowCard) conflicts.push(`${card.itemKey}（这张卡后来被删了）`);
+        else if (stamp(nowCard) !== stamp(card)) conflicts.push(card.itemKey);
+      }
+      // 这次要恢复成"不存在"的卡，如果已经被别的卡占了同一路径，恢复会撞唯一索引。
+      const keepIds = new Set(undo.after.map((card) => card.id));
+      for (const card of undo.before) {
+        if (keepIds.has(card.id)) continue;
+        const taken = [...current.values()].find((other) => other.id !== card.id && other.itemKey === card.itemKey);
+        if (taken) conflicts.push(`${card.itemKey}（键位已被 ${taken.id} 占用）`);
+      }
+      for (const card of undo.before) {
+        const after = afterById.get(card.id);
+        if (!after) continue;
+        const clash = [...current.values()].find((other) => other.id !== card.id && other.itemKey === card.itemKey && after.itemKey !== card.itemKey);
+        if (clash) conflicts.push(`${card.itemKey}（改回原键位时与 ${clash.id} 冲突）`);
+      }
+      if (conflicts.length > 0) return { conflict: [...new Set(conflicts)] };
+
+      const writeCard = db.prepare(
+        `INSERT INTO catalog_items (id, library_id, item_key, kind, query, raw_name, title, original_title, year, overview,
+                                    external_db, external_id, status, lookup_state, subtitle, confirmed_by, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      const clearChildren = db.prepare("DELETE FROM catalog_children WHERE item_id = ?");
+      const clearCandidates = db.prepare("DELETE FROM catalog_candidates WHERE item_id = ?");
+      const insertChild = db.prepare("INSERT INTO catalog_children (id, item_id, media_id, name, season, episode, sort_index, rel_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+      const insertCandidate = db.prepare("INSERT INTO catalog_candidates (id, item_id, external_db, external_id, title, year, score, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+      db.exec("BEGIN");
+      try {
+        for (const card of undo.after) if (!beforeById.has(card.id)) {
+          clearChildren.run(card.id);
+          clearCandidates.run(card.id);
+          db.prepare("DELETE FROM catalog_items WHERE id = ?").run(card.id);
+        }
+        for (const card of undo.before) {
+          if (current.has(card.id)) {
+            clearChildren.run(card.id);
+            clearCandidates.run(card.id);
+            db.prepare("DELETE FROM catalog_items WHERE id = ?").run(card.id);
+          }
+          writeCard.run(card.id, undo.libraryId, card.itemKey, card.kind, card.query, card.rawName, card.title, card.originalTitle, card.year, card.overview, card.externalDb, card.externalId, card.status, card.lookupState, card.subtitle, card.confirmedBy, now());
+          card.children.forEach((child, index) => insertChild.run(nid("ch"), card.id, child.mediaId, child.name, child.season, child.episode, index, child.relPath));
+          for (const candidate of card.candidates) {
+            insertCandidate.run(nid("cand"), card.id, candidate.externalDb, candidate.externalId, candidate.title, candidate.year, candidate.score, candidate.payload);
+          }
+        }
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+      return { applied: undo.before.length + undo.after.filter((card) => !beforeById.has(card.id)).length };
     },
     useApproval(tokenHash) {
       return db.prepare("UPDATE catalog_approvals SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND revoked_at IS NULL").run(now(), tokenHash).changes === 1;

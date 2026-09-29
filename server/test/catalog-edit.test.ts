@@ -1427,3 +1427,81 @@ test("批准密钥：只有出示第二把密钥的那一方能批，凭证照�
     await backend.close();
   }
 });
+
+/** 回滚台账：结构应用记下旧值/新值，撤回时要当场核对"还是不是当时那个样子"。 */
+async function appliedWithApproval() {
+  const backend = await started({});
+  const api = async (route: string, body?: unknown) =>
+    json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/${route}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) }));
+  const wall = async () => (await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`))).body.items as Array<{ id: string; title: string }>;
+  await api("classify");
+  await api("judge");
+  const granted = await api("approval");
+  const applied = await api("apply-approved", { approvalToken: (granted.body as { approvalToken: string }).approvalToken });
+  return { backend, api, wall, applied: applied.body as { approvalId: string; rollbackAvailable: boolean; created: number }, status: applied.status };
+}
+
+test("回滚把那次结构应用原样撤回，撤回也要人再批一次", async () => {
+  const { backend, api, wall, applied, status } = await appliedWithApproval();
+  try {
+    assert.equal(status, 200);
+    assert.equal(applied.created, 1);
+    assert.equal(applied.rollbackAvailable, true, "带凭证的应用必须留下反向操作");
+    assert.equal((await wall()).length, 1);
+
+    const plan = await api("approval", { rollbackOf: applied.approvalId });
+    assert.equal(plan.status, 200);
+    assert.deepEqual(plan.body.rollback, { approvalId: applied.approvalId, keys: ["/Medalist"], counts: { created: 1, removed: 0, changed: 0 } });
+    assert.equal(plan.body.structural, undefined, "批准回滚时不该再带应用差异");
+
+    const done = await api("rollback", { rollbackOf: applied.approvalId, approvalToken: plan.body.approvalToken });
+    assert.equal(done.status, 200, JSON.stringify(done.body));
+    assert.deepEqual((done.body as { removed: number; restored: number }).removed, 1);
+    assert.equal((await wall()).length, 0, "新建的那张卡被撤掉了");
+    const again = await api("approval", { rollbackOf: applied.approvalId });
+    assert.equal(again.status, 409);
+    assert.equal((again.body as { code: string }).code, "CATALOG_ROLLBACK_ALREADY_DONE", "同一次应用不能撤两遍");
+  } finally {
+    await backend.close();
+  }
+});
+
+test("回滚前先核对现值：人在 apply 之后动过的卡，整批不动只报冲突", async () => {
+  const { backend, api, wall, applied, status } = await appliedWithApproval();
+  try {
+    assert.equal(status, 200);
+    const card = (await wall())[0];
+    await fetch(`${base(backend)}/api/media/catalog/${card.id}/rebind`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ externalDb: "bangumi", externalId: "999001", title: "人后来改的名字" }),
+    });
+    const plan = await api("approval", { rollbackOf: applied.approvalId });
+    const blocked = await api("rollback", { rollbackOf: applied.approvalId, approvalToken: plan.body.approvalToken });
+    assert.equal(blocked.status, 409);
+    assert.equal((blocked.body as { code: string }).code, "CATALOG_ROLLBACK_CONFLICT");
+    assert.deepEqual((blocked.body as { keys: string[] }).keys, ["/Medalist"]);
+    const still = await wall();
+    assert.equal(still.length, 1, "冲突时一张都不动");
+    assert.equal((await json(await fetch(`${base(backend)}/api/media/catalog/${card.id}`))).body.confirmedBy, "rebind", "人的后改不被回滚抹掉");
+  } finally {
+    await backend.close();
+  }
+});
+
+test("纯元数据的 apply 不留回滚台账（没消耗凭证，也就没有可撤的那一批）", async () => {
+  const { backend, wall, applied, status } = await appliedWithApproval();
+  try {
+    assert.equal(status, 200);
+    assert.equal((await wall()).length, 1);
+    // 草稿没变，再应用一次就只有元数据差异：不走凭证，approvalId 为空。
+    const second = await json(
+      await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/apply`, { method: "POST" }),
+    );
+    assert.equal(second.status, 200, JSON.stringify(second.body));
+    assert.equal((second.body as { approvalId: string | null; rollbackAvailable: boolean }).approvalId, null);
+    assert.equal((second.body as { rollbackAvailable: boolean }).rollbackAvailable, false);
+  } finally {
+    await backend.close();
+  }
+});

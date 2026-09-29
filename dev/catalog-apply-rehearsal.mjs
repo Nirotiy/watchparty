@@ -77,7 +77,22 @@ try {
       continue;
     }
     const body = result.body;
+    const ledger = (() => {
+      const reader = new DatabaseSync(path.join(workDir, "data", "watchparty-catalog.sqlite"), { readOnly: true });
+      try {
+        const row = reader.prepare("SELECT id, length(undo_json) bytes, undo_json FROM catalog_approvals WHERE library_id = ? AND used_at IS NOT NULL ORDER BY created_at DESC LIMIT 1").get(id);
+        if (!row || !row.bytes) return null;
+        const undo = JSON.parse(row.undo_json);
+        return { id: row.id, bytes: row.bytes, keys: undo.keys.length, created: undo.counts.created, removed: undo.counts.removed, changed: undo.counts.changed };
+      } finally {
+        reader.close();
+      }
+    })();
+    console.log(
+      `  回滚台账：${ledger ? `${ledger.id} ${Math.round(ledger.bytes / 1024)}KB，覆盖 ${ledger.keys} 个键位（建 ${ledger.created} / 删 ${ledger.removed} / 改 ${ledger.changed}）` : "本次没有结构变更，不留台账"}`,
+    );
     console.log(`  草稿 ${body.cards} 张 ⇒ 新建 ${body.created} / 写判定 ${body.updated} / 跳过人工 ${body.skipped} / 未判定不动绑定 ${body.deferred} / 待抓海报 ${body.posters}`);
+    console.log(ledger ? `  回滚台账 ${ledger.id}：${ledger.bytes} 字节，覆盖 ＋${ledger.created} －${ledger.removed} ✎${ledger.changed}` : "  这次没有结构变更，不留台账");
     const d = body.diff;
     console.log(`  应用后差异：一致 ${d.unchanged} ＋${d.added.length} －${d.dropped.length} ↔${d.moved.length} ✎${d.changed.length} ⚑${d.confirmedDrift.length}（自动确认 ${d.autoConfirmed}）`);
     const again = await call(`${id}/apply?force=1`);
