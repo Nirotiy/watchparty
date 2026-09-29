@@ -20,8 +20,25 @@ const dbFile = path.join(process.cwd(), "data", "watchparty-catalog.sqlite");
 const post = async (id, route) => {
   const response = await fetch(`${base}/api/admin/media-libraries/${id}/${route}`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   const body = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(`${id} ${route} → ${response.status} ${JSON.stringify(body)}`);
+  if (!response.ok && response.status !== 202) throw new Error(`${id} ${route} → ${response.status} ${JSON.stringify(body)}`);
   return body;
+};
+
+// 枚举/分类超过 8 秒宽限期时服务端回 202（还在跑），这里去轮询读接口直到落地。绝不重发 POST。
+const settle = async (id, route, readRoute) => {
+  const body = await post(id, route);
+  if (body?.status !== "accepted") return body;
+  process.stdout.write(`  ${route} 超过宽限期，轮询 ${readRoute} 直到落地`);
+  for (let attempt = 0; attempt < 240; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const state = await (await fetch(`${base}/api/admin/media-libraries/${id}/${readRoute}`)).json();
+    if (!state.running) {
+      process.stdout.write(` ✓\n`);
+      return readRoute === "scan" ? state : { ...state, polled: true };
+    }
+    process.stdout.write(".");
+  }
+  throw new Error(`${id} ${route} 轮询 240 秒还在跑`);
 };
 
 // 扫描会整批替换快照、草稿随之过期；重分类又是不可逆的（非 confirmed 行的候选与海报会被清）。
@@ -56,7 +73,7 @@ const sizeReport = () => {
 for (const id of ids) {
   const started = Date.now();
   if (rescan) {
-    const scan = await post(id, "scan");
+    const scan = await settle(id, "scan", "scan");
     console.log(`\n${id}：枚举 ${scan.files} 个文件，快照 rev → ${scan.rev}`);
   } else {
     console.log(`\n${id}：跳过枚举（--judge-only），草稿过期时 prepare 会自己重分类`);
@@ -66,7 +83,7 @@ for (const id of ids) {
       console.log("  --no-judge 配 --judge-only 无事可做，跳过");
       continue;
     }
-    const classified = await post(id, "classify");
+    const classified = await settle(id, "classify", "classify");
     const d = classified.diff;
     console.log(`  重分类：草稿 ${classified.cards} 张 ⇒ 一致 ${d.unchanged} ＋${d.added.length} －${d.dropped.length} ↔${d.moved.length} ✎${d.changed.length} ⚑${d.confirmedDrift.length}`);
     continue;

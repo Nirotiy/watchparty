@@ -249,6 +249,75 @@ async function started(options: Parameters<typeof createBackend>[0]): Promise<Ba
 const base = (backend: Backend) => `http://127.0.0.1:${backend.port}`;
 const json = async (response: Response) => ({ status: response.status, body: await response.json().catch(() => null) });
 
+test("枚举超过宽限期回 202 并让调用方轮询；跑完的照旧 200 + 完整结果", async () => {
+  const boot = async (graceMs: number, delayMs: number, fail = false) =>
+    started({
+      syncGraceMs: graceMs,
+      libraryClientFactory: () => {
+        const client = fakeTree();
+        return {
+          ...client,
+          list: async (dir: string) => {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+            if (fail) throw new Error("OPENLIST 挂了");
+            return client.list(dir);
+          },
+        };
+      },
+    });
+  const pollScan = async (url: string) => {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const body = (await json(await fetch(url))).body as { running: boolean; rev: number };
+      if (!body.running) return body;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    throw new Error("轮询 1.8s 还在 running");
+  };
+
+  // 热态：宽限期内跑完 ⇒ 状态码与字段都和改异步之前一样
+  const fast = await boot(5_000, 0);
+  try {
+    const done = await json(await fetch(`${base(fast)}/api/admin/media-libraries/lib_anime/scan`, { method: "POST" }));
+    assert.equal(done.status, 200, "跑完了就该是 200，老调用方不用改");
+    assert.equal((done.body as { status: string }).status, "done");
+    assert.equal((done.body as { running: boolean }).running, false);
+    assert.equal((done.body as { files: number }).files, 2);
+    assert.equal((done.body as { rev: number }).rev, 1);
+  } finally {
+    await fast.close();
+  }
+
+  // 冷态：超过宽限期 ⇒ 202 + 轮询，服务端继续跑完
+  const cold = await boot(60, 250);
+  const scanUrl = `${base(cold)}/api/admin/media-libraries/lib_anime/scan`;
+  try {
+    const accepted = await json(await fetch(scanUrl, { method: "POST" }));
+    assert.equal(accepted.status, 202);
+    assert.deepEqual(accepted.body, { status: "accepted", libraryId: "lib_anime", running: true });
+    const mid = (await json(await fetch(scanUrl))).body as { running: boolean; rev: number };
+    assert.equal(mid.running, true, "还在枚举时 GET 要报 running:true");
+    assert.equal(mid.rev, 0, "没落地前 rev 不动 —— 这就是界面判断\"还没好\"的依据");
+    const landed = await pollScan(scanUrl);
+    assert.equal(landed.running, false);
+    assert.equal(landed.rev, 1, "后台跑完了，轮询看得到");
+  } finally {
+    await cold.close();
+  }
+
+  // 后台失败：不能变成 unhandled rejection（那会带走进程），也只能靠"rev 不前进"看出来
+  const broken = await boot(60, 250, true);
+  const brokenUrl = `${base(broken)}/api/admin/media-libraries/lib_anime/scan`;
+  try {
+    const accepted = await json(await fetch(brokenUrl, { method: "POST" }));
+    assert.equal(accepted.status, 202);
+    const settled = await pollScan(brokenUrl);
+    assert.equal(settled.running, false, "失败也要收摊，不能让 running 永远挂着");
+    assert.equal(settled.rev, 0, "没写进快照 ⇒ 调用方据此知道这次没成");
+  } finally {
+    await broken.close();
+  }
+});
+
 test("并发 scan 并入同一次枚举；GET 报 running，库不存在是 404 不是空库", async () => {
   let listings = 0;
   const backend = await started({

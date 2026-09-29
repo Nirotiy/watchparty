@@ -211,10 +211,14 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
     }
   });
 
+  // 枚举/分类是"冷态 30–46 秒"的管理动作：8 秒宽限期内跑完就照旧 200 + 完整结果，
+  // 没跑完就 202 {status:"accepted", running:true}，调用方去轮询对应的 GET（都在白名单里，
+  // 不新增路由 ⇒ 桌面侧零管道成本）。绝不对这两条做 POST 重试 —— 那只会多走一遍网盘。
   app.post("/api/admin/media-libraries/:id/scan", async (req, res) => {
     if (!requireAdmin(library, req, res)) return;
     try {
-      res.json({ libraryId: paramId(req), ...(await library.catalogRefreshScan(paramId(req))) });
+      const outcome = await library.catalogRefreshScan(paramId(req));
+      res.status(outcome.status === "done" ? 200 : 202).json(outcome);
     } catch (error) {
       sendFailure(res, error);
     }
@@ -234,7 +238,8 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   app.post("/api/admin/media-libraries/:id/classify", async (req, res) => {
     if (!requireAdmin(library, req, res)) return;
     try {
-      res.json(await library.catalogClassify(paramId(req)));
+      const outcome = await library.catalogClassify(paramId(req));
+      res.status(outcome.status === "done" ? 200 : 202).json(outcome);
     } catch (error) {
       sendFailure(res, error);
     }

@@ -163,6 +163,18 @@ export type ApprovalIssue = {
   rollback?: RollbackPlanSummary;
 };
 
+/**
+ * `POST .../scan` 的回执。`accepted` = 超过同步宽限期还在跑（服务端继续跑完），调用方去轮询
+ * `GET .../scan` 直到 `running:false`。`done` 的字段与改成异步之前完全一样，老调用方不用动。
+ */
+export type CatalogScanOutcome =
+  | { status: "done"; libraryId: string; running: false; files: number; enumeratedAt: string | null; rev: number }
+  | { status: "accepted"; libraryId: string; running: true };
+/** `POST .../classify` 的回执，同上；`accepted` 时轮询 `GET .../classify`。 */
+export type CatalogClassifyOutcome =
+  | { status: "done"; libraryId: string; running: false; files: number; cards: number; rev: number; diff: CatalogDraftDiff }
+  | { status: "accepted"; libraryId: string; running: true };
+
 export type LibraryService = {
   close(): void;
   sourceCount(): number;
@@ -188,10 +200,13 @@ export type LibraryService = {
   /** 人工挑条目用的vendor搜索（卡片改绑时先搜后绑）。 */
   vendorSearch(body: unknown): Promise<Array<{ externalDb: string; externalId: string; title: string; originalTitle: string | null; year: number | null; episodes: number | null; imageUrl: string | null }>>;
   catalogScan(id: string): { files: number; enumeratedAt: string | null; rev: number; running: boolean };
-  /** 只枚举并刷新快照，不分组、不刮削、不动任何卡。 */
-  catalogRefreshScan(id: string): Promise<{ files: number; enumeratedAt: string | null }>;
-  /** 枚举（快照为空时）+ 分类。结果只进 catalog_draft，正式卡一行不动。 */
-  catalogClassify(id: string): Promise<{ libraryId: string; files: number; cards: number; rev: number; diff: CatalogDraftDiff }>;
+  /**
+   * 只枚举并刷新快照，不分组、不刮削、不动任何卡。
+   * `status:"accepted"` 表示超过宽限期还没跑完 —— 调用方去轮询 `GET .../scan` 直到 `running` 为假。
+   */
+  catalogRefreshScan(id: string): Promise<CatalogScanOutcome>;
+  /** 枚举（快照为空时）+ 分类。结果只进 catalog_draft，正式卡一行不动。超过宽限期同样回 accepted。 */
+  catalogClassify(id: string): Promise<CatalogClassifyOutcome>;
   /** 对草稿逐条查条目打分，结论只写草稿；maxLookups 限制本次处理几张（Bangumi 匿名限速）。 */
   catalogJudge(id: string, maxLookups?: number): Promise<{ libraryId: string; kind: LibraryKind; judged: number; confirmed: number; pending: number; items: string[]; diff: CatalogDraftDiff }>;
   /** 把草稿变成正式卡。rev 与当前快照不一致就 409，绝不拿过期结果盖库。
@@ -327,6 +342,8 @@ export function createLibraryService(options: {
   approvalSecret?: string;
   /** 凭证有效期 = 可撤回窗口（毫秒）；默认取 `WATCHPARTY_CATALOG_APPROVAL_TTL_MS`（48h）。 */
   approvalTtlMs?: number;
+  /** 管理动作（scan/classify）同步等待的宽限期；超过就发 202 让调用方轮询。默认 8s。 */
+  syncGraceMs?: number;
   bangumi?: MetadataSearcher;
   tmdb?: MetadataSearcher;
   fetchPoster?: (url: string) => Promise<{ contentType: string; bytes: Buffer } | undefined>;
@@ -396,6 +413,35 @@ export function createLibraryService(options: {
     });
     inFlight.set(key, promise);
     return promise;
+  }
+
+  /**
+   * 管理动作（枚举 / 分类）的"等到宽限期就回"：跑完了给完整结果，还在跑就让调用方去轮询读接口。
+   * 冷态一次 scan 要 30–46s，而桌面客户端的总预算是 15s —— 同步等下去必然红。宽限期取 8s 是
+   * 因为热态 2.1–5.5s 能在里面跑完（保持今天 200 + 完整结果的形状），冷态则改发 202。
+   * 注意：宽限期之后这条 promise 没人 await 了，失败必须留一行可 grep 的日志，而且绝不能变成
+   * unhandled rejection（那会把整个进程带走）。
+   */
+  const syncGraceMs = options.syncGraceMs ?? 8_000;
+  function withGrace<T>(kind: "scan" | "classify", libraryId: string, task: () => Promise<T>): Promise<{ done: true; value: T } | { done: false }> {
+    const started = Date.now();
+    const running = task();
+    running.catch((error) => {
+      console.error(`ASYNC_${kind.toUpperCase()}_FAILED ${libraryId} ${Math.round((Date.now() - started) / 1000)}s ${error instanceof Error ? error.message : String(error)}`);
+    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const grace = new Promise<{ done: false }>((resolve) => {
+      timer = setTimeout(() => resolve({ done: false }), syncGraceMs);
+    });
+    return Promise.race([
+      running.then((value) => {
+        if (Date.now() - started > syncGraceMs) console.log(`ASYNC_${kind.toUpperCase()}_DONE ${libraryId} ${Math.round((Date.now() - started) / 1000)}s`);
+        return { done: true as const, value };
+      }),
+      grace,
+    ]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
   }
 
   const sidecarRoot = options.catalogSidecarDir ?? defaultSidecarDir(cfg);
@@ -1016,15 +1062,21 @@ export function createLibraryService(options: {
     async catalogRefreshScan(id) {
       const library = store.getLibrary(id);
       if (!library) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
-      return oncePerLibrary(`scan:${id}`, async () => {
-        const files = library.kind === "other" ? [] : await collectLibraryFiles(library);
-        catalog.writeScan(id, files);
-        return catalog.scanInfo(id);
-      });
+      const settled = await withGrace("scan", id, () =>
+        oncePerLibrary(`scan:${id}`, async () => {
+          const files = library.kind === "other" ? [] : await collectLibraryFiles(library);
+          catalog.writeScan(id, files);
+          return catalog.scanInfo(id);
+        }),
+      );
+      if (!settled.done) return { status: "accepted" as const, libraryId: id, running: true as const };
+      return { status: "done" as const, libraryId: id, running: false as const, ...settled.value };
     },
     async catalogClassify(id) {
       const { library } = requireLibrary(id);
-      return oncePerLibrary(`classify:${id}`, () => classifyLibrary(library));
+      const settled = await withGrace("classify", id, () => oncePerLibrary(`classify:${id}`, () => classifyLibrary(library)));
+      if (!settled.done) return { status: "accepted", libraryId: id, running: true as const };
+      return { status: "done" as const, ...settled.value, running: false as const };
     },
     async catalogPrepare(id, maxLookups) {
       const { library } = requireLibrary(id);
@@ -1188,6 +1240,8 @@ export function createLibraryService(options: {
         files: info.files,
         pending: info.pending,
         classifiedAt: info.classifiedAt,
+        // 只说"这个库现在有没有在分类"，供 POST .../classify 收到 202 后轮询用。
+        running: inFlight.has(`classify:${id}`),
         scan: catalog.scanInfo(id),
         thresholds: judgeThresholds,
         // 列表投影：children 不在这里，展开某一张时走 catalogDraftCard。

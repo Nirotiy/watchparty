@@ -58,6 +58,8 @@ export type CreateBackendOptions = {
   bangumi?: import("./media/catalog-metadata.ts").MetadataSearcher;
   tmdb?: import("./media/catalog-metadata.ts").MetadataSearcher;
   fetchPoster?: (url: string) => Promise<{ contentType: string; bytes: Buffer } | undefined>;
+  /** 枚举/分类同步等待的宽限期（毫秒），超过就回 202。默认 8000。 */
+  syncGraceMs?: number;
 };
 
 export type Backend = {
@@ -160,6 +162,7 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
     ...(options.bangumi !== undefined ? { bangumi: options.bangumi } : {}),
     ...(options.tmdb !== undefined ? { tmdb: options.tmdb } : {}),
     ...(options.fetchPoster !== undefined ? { fetchPoster: options.fetchPoster } : {}),
+    ...(options.syncGraceMs !== undefined ? { syncGraceMs: options.syncGraceMs } : {}),
   });
   // Readiness keeps the original single-source media. Library ids are routed only to HTTP/native playback.
   const routedMedia = routeLibraryMedia(media, library);
