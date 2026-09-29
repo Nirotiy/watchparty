@@ -86,6 +86,21 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
   app.use(cors());
   app.use(express.json());
 
+  // 慢请求日志：桌面那条链路的客户端总超时是 15s（src-tauri/http.rs），所以"服务端到底在哪条
+  // 请求上花时间"必须能在服务端这边看到，否则偶发 NETWORK_ERROR 只能靠猜。默认 1s 起报，
+  // 设成 0 关掉。只打 path 不打 query —— item 键、凭据都可能出现在 query 里，而归属只需要路由。
+  const slowRequestMs = Number(process.env.WATCHPARTY_SLOW_REQUEST_MS ?? 1_000);
+  if (Number.isFinite(slowRequestMs) && slowRequestMs > 0) {
+    app.use((req, res, next) => {
+      const started = Date.now();
+      res.on("finish", () => {
+        const ms = Date.now() - started;
+        if (ms >= slowRequestMs) console.log(`SLOW_REQUEST ${req.method} ${req.path} ${res.statusCode} ${ms}ms`);
+      });
+      next();
+    });
+  }
+
   const httpServer: http.Server | https.Server =
     cfg.sslKeyFile && cfg.sslCrtFile
       ? https.createServer(

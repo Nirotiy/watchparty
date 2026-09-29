@@ -396,6 +396,8 @@ export function createLibraryService(options: {
     catalog,
     bangumi: bangumiSearcher,
     tmdb: options.tmdb ?? createTmdbClient(),
+    // 注入的口子只给测试用：生产走 fetchPosterBytes，那里已经带 BEST_EFFORT_TIMEOUT_MS 的上限。
+    // 自己传一个进来的话，超时归你负责 —— 海报抓取是 await 在 confirm/rebind 请求里的。
     fetchPoster: options.fetchPoster ?? ((url) => fetchPosterBytes(url)),
     listFiles: (library) => collectLibraryFiles(library),
     getLibrary: (id) => store.getLibrary(id),
