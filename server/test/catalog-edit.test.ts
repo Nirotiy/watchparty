@@ -1528,3 +1528,35 @@ test("疑似同作只读不并：同一外部条目的两张卡会被报出来�
     store.close();
   }
 });
+
+test("台账与疑似同作两个读接口回真形状，台账绝不带出 token", async () => {
+  const { backend, api, wall, applied, status } = await appliedWithApproval();
+  try {
+    assert.equal(status, 200);
+    const ledger = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/approvals`));
+    assert.equal(ledger.status, 200);
+    const rows = ledger.body.items as Array<Record<string, unknown>>;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].approvalId, applied.approvalId);
+    assert.equal(rows[0].kind, "apply");
+    assert.equal(rows[0].rollbackAvailable, true);
+    assert.deepEqual(rows[0].keys, ["/Medalist"]);
+    assert.equal(JSON.stringify(rows).includes("token"), false, "台账里不许出现 token，也不许出现它的哈希");
+
+    const dup = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/duplicates`));
+    assert.equal(dup.status, 200);
+    assert.equal(dup.body.readOnly, true);
+    assert.equal(dup.body.autoMerge, false);
+    assert.equal(dup.body.cards, 1, "墙上的卡数");
+    assert.equal(dup.body.groupedCards, 0, "进了组的卡数");
+    assert.deepEqual(dup.body.items, [], "墙上一张卡，谈不上疑似同作");
+    assert.equal(dup.body.scan.files, 2, "顺带报快照有多新（这里就是 fakeTree 的两个文件）");
+
+    // 再建一张绑到同一条目的卡，才会成组（这条只验读接口把分组带出来，判定本身在 duplicates 测试里钉）
+    const draft = await api("classify");
+    assert.equal(draft.status, 200);
+    assert.equal((await wall()).length, 1);
+  } finally {
+    await backend.close();
+  }
+});

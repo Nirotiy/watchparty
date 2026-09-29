@@ -247,7 +247,9 @@ export type LibraryService = {
     kind: LibraryKind;
     readOnly: true;
     autoMerge: false;
+    /** 墙上的卡数；`groupedCards` 是进了疑似组的卡数，两者别混成一个字段。 */
     cards: number;
+    groupedCards: number;
     groups: number;
     scan: { files: number; rev: number };
     items: DuplicateGroup[];
@@ -1154,7 +1156,8 @@ export function createLibraryService(options: {
         kind: library.kind,
         readOnly: true as const,
         autoMerge: false as const,
-        cards: items.reduce((total, group) => total + group.cards.length, 0),
+        cards: catalog.cardIds(id).length,
+        groupedCards: items.reduce((total, group) => total + group.cards.length, 0),
         groups: items.length,
         scan: { files: scan.files, rev: scan.rev },
         items,
