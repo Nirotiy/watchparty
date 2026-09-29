@@ -284,7 +284,7 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   app.post("/api/admin/media-libraries/:id/approval", (req, res) => {
     if (!requireAdmin(library, req, res)) return;
     try {
-      res.json(library.catalogApprove(paramId(req), req.body));
+      res.json(library.catalogApprove(paramId(req), req.body, headerValue(req, "x-watchparty-approval")));
     } catch (error) {
       sendFailure(res, error);
     }

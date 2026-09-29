@@ -1379,3 +1379,47 @@ test("结构 apply 的人工凭证：没批准不动结构，用过即废，内�
     await backend.close();
   }
 });
+
+test("dropped 差异要能说清为什么：几个文件的路径已经没了、它们现在落在哪张草稿卡", () => {
+  const { store } = openStore();
+  try {
+    // 人确认过的卡记着旧的库根路径；文件实际已经挪进 /Show，草稿按新路径成了另一张卡。
+    store.writeScan("lib_tv", [{ relativePath: "/Show/S01E01.mkv", name: "S01E01.mkv", mediaId: "m1" }]);
+    store.upsertScan("lib_tv", "tv", [
+      { itemKey: "/Old", query: "Old", queries: ["Old"], rawName: "Old", files: [{ mediaId: "m1", name: "S01E01.mkv", season: 1, episode: 1, relativePath: "/S01E01.mkv" }] },
+    ]);
+    store.writeDraft("lib_tv", [
+      { itemKey: "/Show", query: "Show", queries: ["Show"], rawName: "Show", files: [{ mediaId: "m1", name: "S01E01.mkv", season: 1, episode: 1, relativePath: "/Show/S01E01.mkv" }] },
+    ]);
+    const dropped = store.draftDiff("lib_tv").dropped;
+    assert.equal(dropped.length, 1);
+    assert.equal(dropped[0].missingPaths, 1, "这条差异的原因是路径没了，不是有人新增了卡");
+    assert.deepEqual(dropped[0].suggestedKeys, ["/Show"]);
+  } finally {
+    store.close();
+  }
+});
+
+test("批准密钥：只有出示第二把密钥的那一方能批，凭证照样一次性", async () => {
+  const secret = "only-the-web-session-has-this";
+  const backend = await started({ config: loadConfig({ NODE_ENV: "test", OPENLIST_PASSWORD: "secret-value", WATCHPARTY_CATALOG_APPROVAL_SECRET: secret }) });
+  const call = async (route: string, body?: unknown, headers?: Record<string, string>) =>
+    json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/${route}`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body ?? {}) }));
+  try {
+    const caps = await json(await fetch(`${base(backend)}/api/media/capabilities`));
+    assert.equal((caps.body as { catalogApproval: string }).catalogApproval, "secret", "能力位要如实报这是硬边界还是软边界");
+    await call("classify");
+    await call("judge");
+    assert.equal((await call("approval")).status, 401);
+    const missing = await call("approval");
+    assert.equal((missing.body as { code: string }).code, "CATALOG_APPROVAL_SECRET_REQUIRED");
+    assert.equal((await call("approval", {}, { "x-watchparty-approval": "wrong-value-here" })).status, 401);
+    const granted = await call("approval", {}, { "x-watchparty-approval": secret });
+    assert.equal(granted.status, 200);
+    const token = (granted.body as { approvalToken: string }).approvalToken;
+    assert.equal((await call("apply-approved", { approvalToken: token, force: 1 })).status, 200);
+    assert.equal((await call("apply-approved", { approvalToken: token, force: 1 })).status, 409);
+  } finally {
+    await backend.close();
+  }
+});

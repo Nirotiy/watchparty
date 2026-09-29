@@ -38,6 +38,7 @@ test("config status reports how each setting was provisioned, not the resolved v
   assert.deepEqual(bare.configStatus, {
     openlist: { url: "default", username: "default", password: "missing" },
     mediaIdKey: { mode: "ephemeral" },
+    catalogApproval: { mode: "loopback-admin" },
   });
 
   const chosen = loadConfig({
@@ -46,9 +47,12 @@ test("config status reports how each setting was provisioned, not the resolved v
     OPENLIST_USERNAME: "admin",
     OPENLIST_PASSWORD: "pw",
     WATCHPARTY_MEDIA_ID_KEY: "key",
+    WATCHPARTY_CATALOG_APPROVAL_SECRET: "only-the-web-has-this",
   });
   assert.deepEqual(chosen.configStatus, {
     openlist: { url: "explicit", username: "explicit", password: "explicit" },
     mediaIdKey: { mode: "persistent" },
+    catalogApproval: { mode: "secret" },
   });
+  assert.equal(chosen.catalogApprovalSecret, "only-the-web-has-this");
 });

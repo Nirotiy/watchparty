@@ -115,7 +115,12 @@ export type DraftJudgment = {
 export type CatalogDraftDiff = {
   /** 新卡从哪张正式卡接走文件（文件级证据）：`fromFiles` 是接走的个数。 */
   added: Array<{ itemKey: string; query: string; files: number; splitFromKey: string | null; fromFiles: number }>;
-  dropped: Array<{ id: string; itemKey: string; title: string; files: number }>;
+  /**
+   * 草稿里没有对应文件的正式卡 ⇒ 应用会被 upsertScan 处理掉（人工确认过的则受保护、留下）。
+   * `missingPaths` 是这张卡上已经不在快照里的文件数：>0 就说明"文件挪走/删掉了"，这张卡是
+   * 空壳，人可以直接把它并掉；`suggestedKeys` 按文件名找出这些文件现在落在哪些草稿卡上。
+   */
+  dropped: Array<{ id: string; itemKey: string; title: string; files: number; missingPaths: number; suggestedKeys: string[] }>;
   moved: Array<{ id: string; itemKey: string; fromKey: string; files: number }>;
   /** 同一张卡、文案（标题或集数行）会被改写：两个值都给出，看不出改的是哪一项不算差异。 */
   changed: Array<{ id: string; itemKey: string; from: { title: string; subtitle: string | null }; to: { title: string; subtitle: string | null }; splitIntoKeys: string[]; keepsBindingOnKey: string }>;
@@ -1354,6 +1359,12 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         }),
       );
       const formal = itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>;
+      const scanPaths = new Set((db.prepare("SELECT rel_path FROM catalog_scan WHERE library_id = ?").all(libraryId) as Array<Record<string, unknown>>).map((row) => text(row, "rel_path")));
+      const draftsByFileName = new Map<string, string[]>();
+      for (const draft of drafts) for (const filePath of draft.paths) {
+        const base = filePath.split("/").pop();
+        if (base) draftsByFileName.set(base, [...(draftsByFileName.get(base) ?? []), draft.itemKey]);
+      }
       const draftByKey = new Map(drafts.map((draft) => [draft.itemKey, draft]));
       const draftBySignature = new Map(drafts.map((draft) => [draft.signature, draft]));
       // 权威配对：一个文件今天在哪张卡上，就说明"新卡是从那张卡劈出来的"。
@@ -1389,7 +1400,15 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         const signature = signatureOf(children);
         const draft = (signature ? draftBySignature.get(signature) : undefined) ?? draftByKey.get(itemKey);
         if (!draft) {
-          diff.dropped.push({ id, itemKey, title, files: children.length });
+          const paths = children.map((child) => child.relativePath ?? `id:${child.mediaId}`);
+          diff.dropped.push({
+            id,
+            itemKey,
+            title,
+            files: children.length,
+            missingPaths: paths.filter((filePath) => !scanPaths.has(filePath)).length,
+            suggestedKeys: [...new Set(children.flatMap((child) => draftsByFileName.get(child.name) ?? []))],
+          });
           continue;
         }
         matchedDrafts.add(draft.itemKey);

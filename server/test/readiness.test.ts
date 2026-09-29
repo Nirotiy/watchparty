@@ -362,6 +362,7 @@ test("unset openlist url/credentials are reported as provisioning gaps with setu
   assert.deepEqual(body.config, {
     openlist: { url: "default", username: "default", password: "missing" },
     mediaIdKey: { mode: "persistent" },
+    catalogApproval: { mode: "loopback-admin" },
   });
   // Invariant shared with Go: components.*.code only ever holds a transport
   // code. Provisioning gaps belong to diagnostics[] — a caller that read

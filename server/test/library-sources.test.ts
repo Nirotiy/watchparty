@@ -107,8 +107,9 @@ const secondBody = {
 test("seeded libraries stay free of secrets and absolute browse paths", async () => {
   const backend = await boot();
   const base = origin(backend);
-  const capabilities = await (await fetch(`${base}/api/media/capabilities`)).json() as { libraries: boolean; artwork: boolean; catalog: boolean; mediaAdmin: boolean };
-  assert.deepEqual(capabilities, { libraries: true, artwork: true, catalog: true, mediaAdmin: true });
+  const capabilities = await (await fetch(`${base}/api/media/capabilities`)).json() as { libraries: boolean; artwork: boolean; catalog: boolean; mediaAdmin: boolean; catalogApproval: string };
+  // catalogApproval 如实报边界强度：没配第二把密钥就是 loopback-admin（软边界）。
+  assert.deepEqual(capabilities, { libraries: true, artwork: true, catalog: true, mediaAdmin: true, catalogApproval: "loopback-admin" });
   const listed = await (await fetch(`${base}/api/media/libraries`)).json() as { libraries: Array<{ id: string; name: string; kind: string; sourceId: string; health: string }> };
   assert.deepEqual(listed.libraries.map((library) => [library.id, library.name, library.kind, library.sourceId, library.health]), [
     ["lib_anime", "Anime", "anime", "src_default", "ok"],

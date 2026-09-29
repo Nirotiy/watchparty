@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { AppConfig } from "../config.ts";
 import { createOpenlistClient, OpenlistServiceError, type OpenlistClient } from "./openlist.ts";
 import { WATCHPARTY_ROOTS, type WatchpartyMedia, type ResolvedMedia, type ResolvedMpvMedia, type SubtitleTrack } from "./watchparty-media.ts";
@@ -131,6 +131,8 @@ export type LibraryService = {
     artwork: true;
     catalog: true;
     mediaAdmin: boolean;
+    /** secret = 批准结构变更要第二把密钥；loopback-admin = 只靠本机 admin 权限（软边界）。 */
+    catalogApproval: "secret" | "loopback-admin";
   };
   catalogList(libraryId: string, cursor?: string, query?: string): { items: CatalogCard[]; hasMore: boolean; nextCursor?: string };
   catalogDetail(id: string, includeEpisodeTitles?: boolean): Promise<CatalogDetail>;
@@ -152,8 +154,10 @@ export type LibraryService = {
   /** 把草稿变成正式卡。rev 与当前快照不一致就 409，绝不拿过期结果盖库。
    *  带结构变更（建卡/删卡/移动文件）时必须给人工签发的一次性 `approvalToken`。 */
   catalogApply(id: string, force?: boolean, approvalToken?: string): Promise<{ libraryId: string; cards: number; created: number; updated: number; skipped: number; deferred: number; posters: number; structural: StructuralChanges; diff: CatalogDraftDiff }>;
-  /** 网页批准当前草稿的结构变更，签发一次性凭证（48h）。明文只在这里回一次。 */
-  catalogApprove(id: string, body: unknown): { libraryId: string; approvalId: string; approvalToken: string; expiresAt: string; approvedBy: string; structural: StructuralChanges };
+  /** 网页批准当前草稿的结构变更，签发一次性凭证（48h）。明文只在这里回一次。
+   *  配了 WATCHPARTY_CATALOG_APPROVAL_SECRET 时，调用方必须出示它 —— 这才是"人是人、
+   *  Agent 是 Agent"的分界；没配就是软边界，任何 admin 权限都能批（capability 会如实报）。 */
+  catalogApprove(id: string, body: unknown, approvalSecret?: string): { libraryId: string; approvalId: string; approvalToken: string; expiresAt: string; approvedBy: string; structural: StructuralChanges };
   catalogRevoke(id: string, body: unknown): { libraryId: string; revoked: true };
   /** 带着凭证应用：`/apply` 遇到结构变更会 409，这里才是那条路。 */
   catalogApplyApproved(id: string, body: unknown): Promise<{ libraryId: string; cards: number; created: number; updated: number; skipped: number; deferred: number; posters: number; structural: StructuralChanges; diff: CatalogDraftDiff }>;
@@ -236,6 +240,8 @@ export function createLibraryService(options: {
   posterDir?: string;
   /** collection sidecar 的根目录（默认 `data/catalog-sidecars`）。 */
   catalogSidecarDir?: string;
+  /** 批准结构变更的第二把密钥；默认取 `WATCHPARTY_CATALOG_APPROVAL_SECRET`。 */
+  approvalSecret?: string;
   bangumi?: MetadataSearcher;
   tmdb?: MetadataSearcher;
   fetchPoster?: (url: string) => Promise<{ contentType: string; bytes: Buffer } | undefined>;
@@ -290,6 +296,13 @@ export function createLibraryService(options: {
 
   const catalog = openCatalogStore(options.catalogDbPath ?? defaultCatalogDbPath(cfg), options.posterDir ?? defaultPosterDir(cfg));
   const sidecarRoot = options.catalogSidecarDir ?? defaultSidecarDir(cfg);
+  const approvalSecret = options.approvalSecret ?? cfg.catalogApprovalSecret;
+  const secretMatches = (provided: string | undefined, expected: string) => {
+    if (typeof provided !== "string") return false;
+    const left = Buffer.from(provided);
+    const right = Buffer.from(expected);
+    return left.length === right.length && timingSafeEqual(left, right);
+  };
   const bangumiSearcher = options.bangumi ?? createBangumiClient();
   const episodeCache = new Map<string, Promise<Map<number, string>>>();
   const worker = createCatalogWorker({
@@ -615,7 +628,7 @@ export function createLibraryService(options: {
       return trustLoopback && isLoopbackAddress(ip);
     },
     capabilities(admin) {
-      return { libraries: true, artwork: true, catalog: true, mediaAdmin: admin };
+      return { libraries: true, artwork: true, catalog: true, mediaAdmin: admin, catalogApproval: approvalSecret ? "secret" : "loopback-admin" };
     },
     async libraries() {
       const sources = new Map(store.listSources().map((source) => [source.id, source]));
@@ -928,8 +941,9 @@ export function createLibraryService(options: {
         diff: catalog.draftDiff(id),
       };
     },
-    catalogApprove(id, body) {
+    catalogApprove(id, body, approvalSecretHeader) {
       requireLibrary(id);
+      if (approvalSecret && !secretMatches(approvalSecretHeader, approvalSecret)) throw new LibraryRequestError(401, "CATALOG_APPROVAL_SECRET_REQUIRED");
       const target = approvalTarget(id);
       if (structuralCount(target.structural) === 0) {
         throw new LibraryRequestError(409, "CATALOG_NOTHING_TO_APPROVE", { draftCards: catalog.draftInfo(id).cards });

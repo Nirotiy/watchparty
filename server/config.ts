@@ -28,6 +28,11 @@ export type AppConfig = {
   openlistPassword: string;
   openlistRequestTimeoutMs: number;
   watchPartyMediaIdKey: string;
+  /**
+   * 批准结构变更的第二把密钥。loopback 上"网页会话"和"任何 admin 进程"是同一个权限，
+   * 只有这个值能把人和 Agent 真正分开：没配就是软门禁（谁都能批），配了就必须带头。
+   */
+  catalogApprovalSecret: string;
   configStatus: ConfigStatus;
 };
 
@@ -74,6 +79,8 @@ export type ConfigStatus = {
   };
   /** persistent = WATCHPARTY_MEDIA_ID_KEY set; ephemeral = per-process random key. */
   mediaIdKey: { mode: "persistent" | "ephemeral" };
+  /** secret = 批准结构变更要第二把密钥；loopback-admin = 只靠本机 admin 权限（软边界）。 */
+  catalogApproval: { mode: "secret" | "loopback-admin" };
 };
 
 function envFact(
@@ -90,6 +97,7 @@ function envFact(
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const nodeEnv = envString(env, "NODE_ENV", "");
   const watchPartyMediaIdKey = envString(env, "WATCHPARTY_MEDIA_ID_KEY", "");
+  const catalogApprovalSecret = envString(env, "WATCHPARTY_CATALOG_APPROVAL_SECRET", "");
   if (!watchPartyMediaIdKey && nodeEnv === "production") {
     throw new Error("WATCHPARTY_MEDIA_ID_KEY is required when NODE_ENV=production; generate one with: node -e \"console.log(require('node:crypto').randomBytes(32).toString('base64url'))\"");
   }
@@ -111,6 +119,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     // Dev fallback: a per-process random key. Rooms are in-memory anyway, so
     // signed ids only need to survive within one process lifetime.
     watchPartyMediaIdKey: watchPartyMediaIdKey || randomBytes(32).toString("base64url"),
+    catalogApprovalSecret: envString(env, "WATCHPARTY_CATALOG_APPROVAL_SECRET", ""),
     configStatus: {
       openlist: {
         url: envFact(env, "OPENLIST_URL", true),
@@ -120,6 +129,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       },
       mediaIdKey: {
         mode: watchPartyMediaIdKey ? "persistent" : "ephemeral",
+      },
+      catalogApproval: {
+        mode: catalogApprovalSecret ? "secret" : "loopback-admin",
       },
     },
   };
