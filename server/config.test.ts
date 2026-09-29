@@ -39,6 +39,7 @@ test("config status reports how each setting was provisioned, not the resolved v
     openlist: { url: "default", username: "default", password: "missing" },
     mediaIdKey: { mode: "ephemeral" },
     catalogApproval: { mode: "loopback-admin" },
+    bangumi: { token: "missing" },
   });
 
   const chosen = loadConfig({
@@ -48,11 +49,13 @@ test("config status reports how each setting was provisioned, not the resolved v
     OPENLIST_PASSWORD: "pw",
     WATCHPARTY_MEDIA_ID_KEY: "key",
     WATCHPARTY_CATALOG_APPROVAL_SECRET: "only-the-web-has-this",
+    BANGUMI_TOKEN: "bgm-personal-token",
   });
   assert.deepEqual(chosen.configStatus, {
     openlist: { url: "explicit", username: "explicit", password: "explicit" },
     mediaIdKey: { mode: "persistent" },
     catalogApproval: { mode: "secret" },
+    bangumi: { token: "explicit" },
   });
   assert.equal(chosen.catalogApprovalSecret, "only-the-web-has-this");
 });

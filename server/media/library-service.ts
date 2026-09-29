@@ -390,7 +390,7 @@ export function createLibraryService(options: {
     const right = Buffer.from(expected);
     return left.length === right.length && timingSafeEqual(left, right);
   };
-  const bangumiSearcher = options.bangumi ?? createBangumiClient();
+  const bangumiSearcher = options.bangumi ?? createBangumiClient(fetch, cfg.bangumiToken);
   const episodeCache = new Map<string, Promise<Map<number, string>>>();
   const worker = createCatalogWorker({
     catalog,

@@ -27,6 +27,8 @@ export type AppConfig = {
   openlistUsername: string;
   openlistPassword: string;
   openlistRequestTimeoutMs: number;
+  /** Bangumi 个人 token（提升检索配额）。只进不出：任何接口都只报"配了没有"，不回显值。 */
+  bangumiToken: string;
   watchPartyMediaIdKey: string;
   /**
    * 批准结构变更的第二把密钥。loopback 上"网页会话"和"任何 admin 进程"是同一个权限，
@@ -85,6 +87,8 @@ export type ConfigStatus = {
   mediaIdKey: { mode: "persistent" | "ephemeral" };
   /** secret = 批准结构变更要第二把密钥；loopback-admin = 只靠本机 admin 权限（软边界）。 */
   catalogApproval: { mode: "secret" | "loopback-admin" };
+  /** 只报 provisioning 事实：token 的值永不出现在这里。 */
+  bangumi: { token: ConfigFact };
 };
 
 function envFact(
@@ -120,6 +124,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     openlistUsername: envString(env, "OPENLIST_USERNAME", "admin"),
     openlistPassword: envString(env, "OPENLIST_PASSWORD", ""),
     openlistRequestTimeoutMs: envNumber(env, "OPENLIST_REQUEST_TIMEOUT_MS", 10_000),
+    bangumiToken: envString(env, "BANGUMI_TOKEN", ""),
     // Dev fallback: a per-process random key. Rooms are in-memory anyway, so
     // signed ids only need to survive within one process lifetime.
     watchPartyMediaIdKey: watchPartyMediaIdKey || randomBytes(32).toString("base64url"),
@@ -138,6 +143,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       },
       catalogApproval: {
         mode: catalogApprovalSecret ? "secret" : "loopback-admin",
+      },
+      bangumi: {
+        token: envFact(env, "BANGUMI_TOKEN", false),
       },
     },
   };

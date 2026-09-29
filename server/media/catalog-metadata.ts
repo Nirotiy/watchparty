@@ -122,15 +122,15 @@ export function chooseMatch(ranked: RankedHit[]): { status: "confirmed" | "candi
   return { status: "unmatched", chosen: null, candidates: [] };
 }
 
-export function createBangumiClient(fetchImpl: typeof fetch = fetch): MetadataSearcher {
+export function createBangumiClient(fetchImpl: typeof fetch = fetch, token = ""): MetadataSearcher {
   return {
     async search(query) {
       const trimmed = query.trim();
       if (!trimmed) return [];
-      const anime = await bangumiSubjects(fetchImpl, trimmed, 2);
+      const anime = await bangumiSubjects(fetchImpl, trimmed, 2, token);
       let staged: MetadataHit[] = [];
       try {
-        staged = await bangumiSubjects(fetchImpl, trimmed, 6);
+        staged = await bangumiSubjects(fetchImpl, trimmed, 6, token);
       } catch {
         staged = [];
       }
@@ -149,7 +149,11 @@ export function createBangumiClient(fetchImpl: typeof fetch = fetch): MetadataSe
         let response: Response;
         try {
           response = await fetchImpl(url, {
-            headers: { accept: "application/json", "user-agent": "watchparty/0.1.0 (catalog episodes)" },
+            headers: {
+              accept: "application/json",
+              "user-agent": "watchparty/0.1.0 (catalog episodes)",
+              ...(token ? { authorization: `Bearer ${token}` } : {}),
+            },
             signal: AbortSignal.timeout(10_000),
           });
         } catch {
@@ -242,7 +246,7 @@ export async function fetchPosterBytes(url: string, fetchImpl: typeof fetch = fe
 }
 
 
-async function bangumiSubjects(fetchImpl: typeof fetch, keyword: string, type: number): Promise<MetadataHit[]> {
+async function bangumiSubjects(fetchImpl: typeof fetch, keyword: string, type: number, token: string): Promise<MetadataHit[]> {
   let response: Response;
   try {
     response = await fetchImpl("https://api.bgm.tv/v0/search/subjects", {
@@ -251,6 +255,8 @@ async function bangumiSubjects(fetchImpl: typeof fetch, keyword: string, type: n
         accept: "application/json",
         "content-type": "application/json",
         "user-agent": "watchparty/0.1.0 (catalog scrape)",
+        // 匿名额度是 ~60 请求/分钟，一轮判定动辄几百次；有个人 token 就带上。
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ keyword, filter: { type: [type] }, limit: 8 }),
       signal: AbortSignal.timeout(10_000),

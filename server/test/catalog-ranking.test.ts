@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
-import { chooseMatch, rankHits, variantKeys, type MetadataHit } from "../media/catalog-metadata.ts";
+import { chooseMatch, createBangumiClient, rankHits, variantKeys, type MetadataHit } from "../media/catalog-metadata.ts";
+import { loadConfig } from "../config.ts";
 import { scoreTitles, tokenizeTitle } from "../media/catalog-names.ts";
 
 /**
@@ -209,4 +210,32 @@ test("a japanese season suffix reads as an installment claim", () => {
   assert.ok(variantKeys("Machikado Mazoku 2-Choume").has("season:2"));
   assert.ok(variantKeys("街角魔族 ２丁目").has("season:2"), "full-width numbers must read as a season");
   assert.equal(variantKeys("Mobile Suit Gundam 00").size, 0, "a bare number in a title is not a season");
+});
+
+test("Bangumi 个人 token：带上就出 Authorization 头，不带就匿名，值永不出现在任何响应里", async () => {
+  const seen: Array<Record<string, string>> = [];
+  const fake = (async (_url: unknown, init?: RequestInit) => {
+    seen.push(init?.headers as Record<string, string>);
+    return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } });
+  }) as unknown as typeof fetch;
+  const hits = await createBangumiClient(fake, "bgm-secret-token").search("摇曳露营");
+  assert.deepEqual(hits, []);
+  assert.equal(seen.length, 2, "两次检索都要带头");
+  for (const headers of seen) {
+    assert.equal(headers.authorization, "Bearer bgm-secret-token");
+    assert.equal(headers["user-agent"], "watchparty/0.1.0 (catalog scrape)", "UA 不能被顶掉，Bangumi 按它限流");
+  }
+  const anonymous = [] as Array<Record<string, string>>;
+  const anonFetch = (async (_url: unknown, init?: RequestInit) => {
+    anonymous.push(init?.headers as Record<string, string>);
+    return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } });
+  }) as unknown as typeof fetch;
+  await createBangumiClient(anonFetch).search("摇曳露营");
+  assert.equal(anonymous[0]?.authorization, undefined, "没配 token 就维持匿名请求");
+
+  // 密钥只进不出：配置摘要里只出现 provisioning 事实
+  const status = loadConfig({ NODE_ENV: "test", BANGUMI_TOKEN: "bgm-secret-token" }).configStatus;
+  assert.equal(JSON.stringify(status).includes("bgm-secret-token"), false, "configStatus 里不得出现 token 值");
+  assert.deepEqual(status.bangumi, { token: "explicit" });
+  assert.equal(loadConfig({ NODE_ENV: "test" }).configStatus.bangumi.token, "missing");
 });

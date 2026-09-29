@@ -363,6 +363,7 @@ test("unset openlist url/credentials are reported as provisioning gaps with setu
     openlist: { url: "default", username: "default", password: "missing" },
     mediaIdKey: { mode: "persistent" },
     catalogApproval: { mode: "loopback-admin" },
+    bangumi: { token: "missing" },
   });
   // Invariant shared with Go: components.*.code only ever holds a transport
   // code. Provisioning gaps belong to diagnostics[] — a caller that read
