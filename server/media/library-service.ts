@@ -1010,13 +1010,18 @@ export function createLibraryService(options: {
       const before = new Set(catalog.cardIds(id));
       // 反向操作只在真的带了凭证的这次应用里记录：结构变更必须由那次批准可撤销。
       const snapshotBefore = approvalId ? catalog.snapshotLibrary(id) : [];
+      const postersBefore = approvalId ? catalog.posterRows(id) : [];
       // 结构交给 upsertScan：身份认别、人工保护、孤儿行清理都在那边，一行都不重写。
       catalog.upsertScan(id, library.kind, groups, false);
       const applied = catalog.applyDraftDecisions(id);
       const created = catalog.cardIds(id).filter((cardId) => !before.has(cardId)).length;
       if (approvalId) {
         const undo = diffSnapshots(id, snapshotBefore, catalog.snapshotLibrary(id));
-        if (undo) catalog.setApprovalOutcome(approvalId, undo);
+        if (undo) {
+          // 海报行必须在 apply 之前抄：卡被删时那一行是级联删的，事后查不到。
+          const touched = new Set([...undo.before, ...undo.after].map((card) => card.id));
+          catalog.setApprovalOutcome(approvalId, { ...undo, posters: postersBefore.filter((row) => touched.has(row.itemId)) });
+        }
       }
       for (const poster of applied.posters) await worker.cachePoster(poster.itemId, poster.url);
       return {

@@ -224,6 +224,12 @@ export type ApplyUndo = {
   after: CatalogCardSnapshot[];
   keys: string[];
   counts: { created: number; removed: number; changed: number };
+  /**
+   * 涉及卡的海报缓存行。卡删除时 `poster_files` 是 ON DELETE CASCADE 的，行会没，但磁盘上的
+   * 缓存文件（`posterDir/<卡 id>`）还在 —— 不一起记下来，撤回就会让人看到"卡回来了、海报没了"。
+   * 它是可选的：旧记录里没有就当没海报可还原。
+   */
+  posters?: Array<{ itemId: string; contentType: string; cachePath: string; byteSize: number }>;
 };
 
 export function rollbackDigest(input: { libraryId: string; approvalId: string; keys: string[] }): string {
@@ -255,6 +261,8 @@ export function diffSnapshots(libraryId: string, before: CatalogCardSnapshot[], 
     after: touched.map((id) => afterById.get(id)).filter((card): card is CatalogCardSnapshot => Boolean(card)),
     keys,
     counts: { created, removed, changed: touched.length - created - removed },
+    // 海报行在 apply 之前就得抄下来：卡被删时这行会被级联删掉，之后再查就空了。
+    posters: [],
   };
 }
 
@@ -379,6 +387,8 @@ export type CatalogStore = {
   setApprovalOutcome(id: string, undo: ApplyUndo): void;
   markRolledBack(id: string): boolean;
   snapshotLibrary(libraryId: string): CatalogCardSnapshot[];
+  /** 这个库现存的海报缓存行，回滚要按它把被级联删掉的行补回去。 */
+  posterRows(libraryId: string): Array<{ itemId: string; contentType: string; cachePath: string; byteSize: number }>;
   /** 墙上的疑似同作（handoff §9）：只报证据与建议，一行都不改。 */
   duplicateGroups(libraryId: string): DuplicateGroup[];
   /** 带并发检查的反向 patch：任何一张卡与 apply 后不一致就整批不动。 */
@@ -1670,6 +1680,14 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       });
       return findDuplicateGroups(cards);
     },
+    posterRows(libraryId) {
+      return (db.prepare("SELECT p.item_id, p.content_type, p.cache_path, p.byte_size FROM poster_files p JOIN catalog_items i ON i.id = p.item_id WHERE i.library_id = ?").all(libraryId) as Array<Record<string, unknown>>).map((row) => ({
+        itemId: text(row, "item_id"),
+        contentType: text(row, "content_type"),
+        cachePath: text(row, "cache_path"),
+        byteSize: Number(row.byte_size),
+      }));
+    },
     restoreApplyUndo(undo) {
       const stamp = (card: CatalogCardSnapshot) => JSON.stringify(card);
       const current = new Map(readSnapshot(undo.libraryId).map((card) => [card.id, card]));
@@ -1724,6 +1742,15 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
           for (const candidate of card.candidates) {
             insertCandidate.run(nid("cand"), card.id, candidate.externalDb, candidate.externalId, candidate.title, candidate.year, candidate.score, candidate.payload);
           }
+        }
+        // 海报：级联删的是行，磁盘缓存文件还在原位（`posterDir/<卡 id>`），所以能原样接回来。
+        // 文件已经不在（被外部清过）就跳过，宁可少一张海报也不写一条读不出来的行。
+        for (const poster of undo.posters ?? []) {
+          if (!fs.existsSync(poster.cachePath)) continue;
+          db.prepare(
+            `INSERT INTO poster_files (item_id, content_type, cache_path, byte_size) VALUES (?, ?, ?, ?)
+             ON CONFLICT(item_id) DO UPDATE SET content_type = excluded.content_type, cache_path = excluded.cache_path, byte_size = excluded.byte_size`,
+          ).run(poster.itemId, poster.contentType, poster.cachePath, poster.byteSize);
         }
         db.exec("COMMIT");
       } catch (error) {

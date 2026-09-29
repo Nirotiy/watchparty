@@ -6,7 +6,7 @@ import test from "node:test";
 import { createBackend, type Backend } from "../app.ts";
 import { loadConfig } from "../config.ts";
 import { episodeSubtitle, groupScanFiles, type CatalogGroup } from "../media/catalog-names.ts";
-import { openCatalogStore } from "../media/catalog-store.ts";
+import { diffSnapshots, openCatalogStore } from "../media/catalog-store.ts";
 import { MetadataUnavailable } from "../media/catalog-metadata.ts";
 import { WATCHPARTY_ROOTS } from "../media/watchparty-media.ts";
 import type { OpenlistClient } from "../media/openlist.ts";
@@ -1629,5 +1629,33 @@ test("台账与疑似同作两个只读接口的错码：403 ADMIN_FORBIDDEN、4
     }
   } finally {
     await backend.close();
+  }
+});
+
+test("撤回会把被级联删掉的海报行接回来：缓存文件本来就在原位", () => {
+  const { store, posterDir } = openStore();
+  try {
+    store.upsertScan("lib_tv", "tv", [group("/Clarks/Season 3", "荒原 S3", ["c1", "c2"]), group("/Clarks/Season 1", "Clarks Farm S1", ["c3", "c4"])]);
+    const before = store.snapshotLibrary("lib_tv");
+    const keep = before.find((card) => card.itemKey === "/Clarks/Season 1")!;
+    const dropped = before.find((card) => card.itemKey === "/Clarks/Season 3")!;
+    store.writePoster(dropped.id, "image/jpeg", Buffer.from("poster-bytes"));
+    // 生产路径就是在改动之前抄一次海报行。
+    const postersBefore = store.posterRows("lib_tv");
+    assert.deepEqual(postersBefore.map((row) => row.itemId), [dropped.id]);
+
+    assert.ok(store.mergeItems(keep.id, [dropped.id]));
+    assert.equal(store.readPoster(dropped.id), undefined, "卡删了，poster_files 那行被级联删掉");
+    assert.equal(fs.existsSync(path.join(posterDir, dropped.id)), true, "但磁盘上的缓存文件还在原位");
+
+    const undo = diffSnapshots("lib_tv", before, store.snapshotLibrary("lib_tv"));
+    assert.ok(undo);
+    const touched = new Set([...undo.before, ...undo.after].map((card) => card.id));
+    const outcome = store.restoreApplyUndo({ ...undo, posters: postersBefore.filter((row) => touched.has(row.itemId)) });
+    assert.ok(!("conflict" in outcome), JSON.stringify(outcome));
+    assert.equal(store.readPoster(dropped.id)?.bytes.toString(), "poster-bytes", "卡回来了，海报也必须回来");
+    assert.equal(store.readPoster(dropped.id)?.contentType, "image/jpeg");
+  } finally {
+    store.close();
   }
 });
