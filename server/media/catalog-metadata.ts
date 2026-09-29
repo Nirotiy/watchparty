@@ -51,6 +51,13 @@ export const judgeThresholds = { autoScore: AUTO_SCORE, autoGap: AUTO_GAP, candi
 const POSTER_CAP_BYTES = 2 * 1024 * 1024;
 const POSTER_HOSTS = new Set(["lain.bgm.tv", "image.tmdb.org"]);
 /**
+ * 界面请求里"顺手补一下"的那类抓取（海报字节、集数标题）必须远快过桌面侧 reqwest 的 15s 预算：
+ * 缺省的 10s 上限意味着一次慢图就能吃掉整条操作的三分之二，而 confirm/rebind 之后紧跟的
+ * 详情读还会再等一次 —— 表现就是"编辑到一半 NETWORK_ERROR"。拿不到只是少张海报、少一列集名，
+ * 不值得把用户刚点的那一下拖成失败。
+ */
+const BEST_EFFORT_TIMEOUT_MS = 4_000;
+/**
  * Which installment a name points at. `机动战士高达0079剧场版三部曲合集` scores
  * 0.900 against Bangumi's `机动战士高达` and used to confirm on its own - but the
  * folder is a trilogy collection and no such subject exists, so a person has to
@@ -154,7 +161,7 @@ export function createBangumiClient(fetchImpl: typeof fetch = fetch, token = "")
               "user-agent": "watchparty/0.1.0 (catalog episodes)",
               ...(token ? { authorization: `Bearer ${token}` } : {}),
             },
-            signal: AbortSignal.timeout(10_000),
+            signal: AbortSignal.timeout(BEST_EFFORT_TIMEOUT_MS),
           });
         } catch {
           throw new MetadataUnavailable();
@@ -219,7 +226,7 @@ export async function fetchPosterBytes(url: string, fetchImpl: typeof fetch = fe
   if (target.protocol !== "https:" || !POSTER_HOSTS.has(target.hostname) || target.username || target.password) return undefined;
   let response: Response;
   try {
-    response = await fetchImpl(target, { redirect: "manual", signal: AbortSignal.timeout(10_000) });
+    response = await fetchImpl(target, { redirect: "manual", signal: AbortSignal.timeout(BEST_EFFORT_TIMEOUT_MS) });
   } catch {
     return undefined;
   }
@@ -229,15 +236,21 @@ export async function fetchPosterBytes(url: string, fetchImpl: typeof fetch = fe
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
-  for (;;) {
-    const next = await reader.read();
-    if (next.done) break;
-    total += next.value.byteLength;
-    if (total > POSTER_CAP_BYTES) {
-      await reader.cancel();
-      return undefined;
+  try {
+    // 超时也可能落在读流中间：那时 read() 会 reject。海报是尽力而为的东西，
+    // 半途失败要变成"这次没有海报"，不能把用户刚点的那次确认/换绑整个弄成 500。
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > POSTER_CAP_BYTES) {
+        await reader.cancel();
+        return undefined;
+      }
+      chunks.push(next.value);
     }
-    chunks.push(next.value);
+  } catch {
+    return undefined;
   }
   const bytes = Buffer.concat(chunks);
   const contentType = sniffImage(bytes);

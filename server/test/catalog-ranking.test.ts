@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
-import { chooseMatch, createBangumiClient, rankHits, variantKeys, type MetadataHit } from "../media/catalog-metadata.ts";
+import { chooseMatch, createBangumiClient, fetchPosterBytes, rankHits, variantKeys, type MetadataHit } from "../media/catalog-metadata.ts";
 import { loadConfig } from "../config.ts";
 import { scoreTitles, tokenizeTitle } from "../media/catalog-names.ts";
 
@@ -238,4 +238,18 @@ test("Bangumi 个人 token：带上就出 Authorization 头，不带就匿名，
   assert.equal(JSON.stringify(status).includes("bgm-secret-token"), false, "configStatus 里不得出现 token 值");
   assert.deepEqual(status.bangumi, { token: "explicit" });
   assert.equal(loadConfig({ NODE_ENV: "test" }).configStatus.bangumi.token, "missing");
+});
+
+test("海报读到一半断流：算这次没有海报，不许把确认/换绑整个弄成失败", async () => {
+  const fake = (async () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("\u00ff\u00d8\u00ff\u00e0junk"));
+          controller.error(new Error("对端在传字节中途关掉连接"));
+        },
+      }),
+      { status: 200, headers: { "content-type": "image/jpeg" } },
+    )) as unknown as typeof fetch;
+  assert.equal(await fetchPosterBytes("https://lain.bgm.tv/p/1.jpg", fake), undefined, "半途失败要降级成\"没海报\"，不能抛出请求处理链");
 });
