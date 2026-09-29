@@ -491,13 +491,19 @@ export function collectionDiskPath(sidecarRoot: string, libraryId: string, sidec
 }
 
 /** 读一个 sidecar 根目录（`data/catalog-sidecars/<libraryId>`）。目录不存在 = 还没有输入。 */
-export function readCollectionRoot(sidecarRoot: string, libraryId: string): { collections: CollectionSidecar[]; errors: Array<{ sourceFile: string; errors: SidecarError[]; warnings: string[] }>; files: number } {
-  const root = path.join(sidecarRoot, ...safeSegments(libraryId));
-  const found = fs.existsSync(root) ? walk(root) : [];
+export type CollectionRead = {
+  collections: CollectionSidecar[];
+  errors: Array<{ sourceFile: string; errors: SidecarError[]; warnings: string[] }>;
+  files: number;
+};
+
+/** 读一个目录树：`prefix` 只用来在报错里说清这份文件是从哪一根读的。 */
+export function readCollectionDir(dir: string, prefix = ""): CollectionRead {
   const collections: CollectionSidecar[] = [];
-  const errors: Array<{ sourceFile: string; errors: SidecarError[]; warnings: string[] }> = [];
+  const errors: CollectionRead["errors"] = [];
+  const found = fs.existsSync(dir) ? walk(dir) : [];
   for (const filePath of found.sort()) {
-    const relative = path.relative(root, filePath).split(path.sep).join("/");
+    const relative = `${prefix}${path.relative(dir, filePath).split(path.sep).join("/")}`;
     let content: string;
     try {
       content = fs.readFileSync(filePath, "utf8");
@@ -510,6 +516,24 @@ export function readCollectionRoot(sidecarRoot: string, libraryId: string): { co
     else errors.push({ sourceFile: relative, errors: parsed.errors, warnings: parsed.warnings });
   }
   return { collections, errors, files: found.length };
+}
+
+/** 规范来源：服务端本地根目录，按库分一层。导出只往这里写。 */
+export function collectionRootFor(sidecarRoot: string, libraryId: string): string {
+  return path.join(sidecarRoot, ...safeSegments(libraryId));
+}
+
+export function readCollectionRoot(sidecarRoot: string, libraryId: string): CollectionRead {
+  return readCollectionDir(collectionRootFor(sidecarRoot, libraryId));
+}
+
+/**
+ * 开发期的旁挂来源：镜像目录里那一层就是库内相对路径（`<mirror>/<作品名>/.watchparty.collection.json`），
+ * 所以整棵树不加库 id 子目录。只读 —— 导出一律落服务端根目录，绝不往镜像里写。
+ */
+export function readCollectionMirror(mirrorRoot: string, libraryId: string): CollectionRead & { root: string } {
+  const dir = path.join(mirrorRoot, ...safeSegments(libraryId));
+  return { ...readCollectionDir(dir, "旁挂:"), root: dir };
 }
 
 const MAX_SIDECAR_BYTES = 256 * 1024;

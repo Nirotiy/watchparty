@@ -1659,3 +1659,51 @@ test("撤回会把被级联删掉的海报行接回来：缓存文件本来就�
     store.close();
   }
 });
+
+test("开发期旁挂：镜像根里的 sidecar 读得到，导出仍然只落服务端根目录", async () => {
+  const mirror = fs.mkdtempSync(path.join(os.tmpdir(), "wp-mirror-"));
+  const serverRoot = fs.mkdtempSync(path.join(os.tmpdir(), "wp-sidecar-server-"));
+  const dir = path.join(mirror, "lib_anime", "Medalist");
+  fs.mkdirSync(dir, { recursive: true });
+  const doc = {
+    schemaVersion: 1,
+    libraryId: "lib_anime",
+    basePath: "/Medalist",
+    title: "旁挂写的标题",
+    members: [{ path: "[VCB-Studio] Medalist [01][Ma10p_1080p].mkv" }, { path: "[VCB-Studio] Medalist [02][Ma10p_1080p].mkv" }],
+  };
+  fs.writeFileSync(path.join(dir, ".watchparty.collection.json"), JSON.stringify(doc));
+  const backend = await started({ catalogSidecarDir: serverRoot, config: loadConfig({ NODE_ENV: "test", OPENLIST_PASSWORD: "secret-value", WATCHPARTY_CATALOG_MIRROR_ROOT: mirror }) });
+  const api = async (route: string, body?: unknown) =>
+    json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/${route}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) }));
+  try {
+    assert.equal((await api("classify")).status, 200);
+    const preview = await api("import/preview");
+    assert.equal(preview.status, 200);
+    assert.deepEqual(preview.body.sources.map((row: { kind: string; collections: number }) => [row.kind, row.collections]), [["server", 0], ["mirror", 1]]);
+    assert.deepEqual(preview.body.written.map((row: { itemKey: string }) => row.itemKey), ["/Medalist"]);
+    const card = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/classify?item=%2FMedalist`));
+    assert.equal(card.body.card.title, "旁挂写的标题");
+
+    // export 只往服务端根写，镜像里还是那一个文件。
+    assert.equal((await api("import/export")).status, 200);
+    assert.equal(fs.readdirSync(dir).length, 1, "镜像目录被写过 —— 旁挂必须只读");
+    assert.ok(fs.existsSync(path.join(serverRoot, "lib_anime", "Medalist", ".watchparty.collection.json")), "导出的落点");
+
+    // 同一个集合在两处各有一份：不许各认一次，报 claimed-by-two，谁都不写。
+    fs.copyFileSync(path.join(serverRoot, "lib_anime", "Medalist", ".watchparty.collection.json"), path.join(dir, "dup.watchparty.collection.json"));
+    const doubled = await api("import/preview");
+    assert.equal(doubled.body.written.length, 0, "来源有歧义时一行都不写");
+    // 三份都抢同一批文件：镜像原件 + 镜像副本 + 刚导出到服务端根的那份。
+    assert.equal(doubled.body.collections, 3);
+    assert.deepEqual(
+      doubled.body.conflicts.map((row: { reason: string }) => row.reason),
+      ["claimed-by-two", "claimed-by-two", "claimed-by-two"],
+    );
+    assert.equal(doubled.body.ambiguous.length, 2, "两个文件各被抢一次");
+  } finally {
+    await backend.close();
+    fs.rmSync(mirror, { recursive: true, force: true });
+    fs.rmSync(serverRoot, { recursive: true, force: true });
+  }
+});

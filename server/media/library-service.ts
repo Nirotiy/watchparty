@@ -32,6 +32,8 @@ import {
 import {
   buildCollection,
   classifyPlacements,
+  collectionRootFor,
+  readCollectionMirror,
   readCollectionRoot,
   reconcileCollections,
   resolveMemberPaths,
@@ -103,6 +105,8 @@ export type ImportPreviewResult = {
   root: string;
   libraryName: string;
   sidecarFiles: number;
+  /** 这次从哪几根目录读的：规范来源是服务端根，旁挂镜像只读且永不写回。 */
+  sources: Array<{ kind: "server" | "mirror"; root: string; files: number; collections: number }>;
   collections: number;
   scannedFiles: number;
   scanRev: number;
@@ -307,6 +311,8 @@ export function createLibraryService(options: {
   posterDir?: string;
   /** collection sidecar 的根目录（默认 `data/catalog-sidecars`）。 */
   catalogSidecarDir?: string;
+  /** 开发期旁挂 sidecar 的镜像根，只读；默认取 `WATCHPARTY_CATALOG_MIRROR_ROOT`。 */
+  catalogMirrorDir?: string;
   /** 批准结构变更的第二把密钥；默认取 `WATCHPARTY_CATALOG_APPROVAL_SECRET`。 */
   approvalSecret?: string;
   bangumi?: MetadataSearcher;
@@ -363,6 +369,7 @@ export function createLibraryService(options: {
 
   const catalog = openCatalogStore(options.catalogDbPath ?? defaultCatalogDbPath(cfg), options.posterDir ?? defaultPosterDir(cfg));
   const sidecarRoot = options.catalogSidecarDir ?? defaultSidecarDir(cfg);
+  const mirrorRoot = options.catalogMirrorDir ?? cfg.catalogMirrorRoot;
   const approvalSecret = options.approvalSecret ?? cfg.catalogApprovalSecret;
   const secretMatches = (provided: string | undefined, expected: string) => {
     if (typeof provided !== "string") return false;
@@ -497,8 +504,16 @@ export function createLibraryService(options: {
     const { library } = requireLibrary(libraryId);
     const scan = catalog.readScan(libraryId);
     if (scan.length === 0) throw new LibraryRequestError(409, "CATALOG_SCAN_EMPTY");
-    const root = path.join(sidecarRoot, ...safeSegments(libraryId));
-    const read = readCollectionRoot(sidecarRoot, libraryId);
+    const root = collectionRootFor(sidecarRoot, libraryId);
+    const serverRead = readCollectionRoot(sidecarRoot, libraryId);
+    // 旁挂只读：镜像树里那一层就是库内相对路径。两处都有同一份时会被算成 claimed-by-two，
+    // 这是有意的 —— 一份输入只能有一个来源。
+    const mirrorRead = mirrorRoot ? readCollectionMirror(mirrorRoot, libraryId) : { collections: [], errors: [], files: 0, root: "" };
+    const read = {
+      collections: [...serverRead.collections, ...mirrorRead.collections],
+      errors: [...serverRead.errors, ...mirrorRead.errors],
+      files: serverRead.files + mirrorRead.files,
+    };
     const foreign = read.collections.filter((entry) => entry.libraryId && entry.libraryId !== libraryId);
     const mine = read.collections.filter((entry) => !entry.libraryId || entry.libraryId === libraryId);
     if (mine.length === 0) throw new LibraryRequestError(409, "SIDECAR_EMPTY", { root, files: read.files });
@@ -591,6 +606,10 @@ export function createLibraryService(options: {
       root,
       libraryName: library.name,
       sidecarFiles: read.files,
+      sources: [
+        { kind: "server" as const, root, files: serverRead.files, collections: serverRead.collections.length },
+        ...(mirrorRoot ? [{ kind: "mirror" as const, root: mirrorRead.root, files: mirrorRead.files, collections: mirrorRead.collections.length }] : []),
+      ],
       collections: mine.length,
       scannedFiles: scan.length,
       scanRev: snapshot.rev,

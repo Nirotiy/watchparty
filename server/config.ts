@@ -33,6 +33,8 @@ export type AppConfig = {
    * 只有这个值能把人和 Agent 真正分开：没配就是软门禁（谁都能批），配了就必须带头。
    */
   catalogApprovalSecret: string;
+  /** 开发期旁挂 sidecar 的镜像根（只读）。空 = 不读镜像。 */
+  catalogMirrorRoot: string;
   configStatus: ConfigStatus;
 };
 
@@ -120,6 +122,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     // signed ids only need to survive within one process lifetime.
     watchPartyMediaIdKey: watchPartyMediaIdKey || randomBytes(32).toString("base64url"),
     catalogApprovalSecret: envString(env, "WATCHPARTY_CATALOG_APPROVAL_SECRET", ""),
+    catalogMirrorRoot: envString(env, "WATCHPARTY_CATALOG_MIRROR_ROOT", ""),
     configStatus: {
       openlist: {
         url: envFact(env, "OPENLIST_URL", true),
