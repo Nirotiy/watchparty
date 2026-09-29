@@ -51,8 +51,12 @@ test("工具表面只有读、草稿写入和带凭证的应用，没有批准",
     "import_propose_structure",
     "import_apply_metadata",
     "import_apply_approved",
+    "catalog_duplicates_read",
+    "approvals_read",
+    "import_rollback",
   ]);
   // 真正的证据：把每个工具都跑一遍，看它们会打到哪些路由。
+  // 红线只有一条 —— 不许 POST 签发/撤销批准的接口；`GET .../approvals` 是读台账，不算。
   const hits: Array<{ name: string; method: string; route: string }> = [];
   for (const tool of CATALOG_TOOLS) {
     const call = async (method: string, route: string) => {
@@ -64,10 +68,13 @@ test("工具表面只有读、草稿写入和带凭证的应用，没有批准",
       itemKey: "/Medalist",
       title: "标题",
       approvalToken: "token",
+      rollbackOf: "appr_1",
       sourceFiles: ["Medalist/.watchparty.collection.json"],
     });
   }
-  assert.ok(hits.every((hit) => !hit.route.includes("/approval")), `MCP 侧出现了批准路由：${JSON.stringify(hits)}`);
+  const issuesApproval = (hit: { method: string; route: string }) =>
+    hit.method === "POST" && /^\/api\/admin\/media-libraries\/[^/]+\/approval(\/revoke)?$/.test(hit.route);
+  assert.ok(hits.every((hit) => !issuesApproval(hit)), `MCP 侧出现了批准接口：${JSON.stringify(hits.filter(issuesApproval))}`);
   assert.deepEqual(
     hits.map((hit) => [hit.name, hit.method, hit.route]),
     [
@@ -79,6 +86,9 @@ test("工具表面只有读、草稿写入和带凭证的应用，没有批准",
       ["import_propose_structure", "POST", "/api/admin/media-libraries/lib_anime/import/structure"],
       ["import_apply_metadata", "POST", "/api/admin/media-libraries/lib_anime/apply"],
       ["import_apply_approved", "POST", "/api/admin/media-libraries/lib_anime/apply-approved"],
+      ["catalog_duplicates_read", "GET", "/api/admin/media-libraries/lib_anime/duplicates"],
+      ["approvals_read", "GET", "/api/admin/media-libraries/lib_anime/approvals"],
+      ["import_rollback", "POST", "/api/admin/media-libraries/lib_anime/rollback"],
     ],
   );
   const apply = CATALOG_TOOLS.find((tool) => tool.name === "import_apply_approved");

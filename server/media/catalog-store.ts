@@ -3,6 +3,7 @@ import path from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { cleanTitle, episodeSubtitle, isVideoFileName, parseEpisode, titleCandidates, type CatalogGroup, type CatalogGroupFile, type ScanFile } from "./catalog-names.ts";
+import { findDuplicateGroups, type DuplicateEvidence, type DuplicateGroup } from "./catalog-duplicates.ts";
 import { compatibilityOf, extensionOf } from "./library-browser.ts";
 import type { MediaCompatibility } from "./watchparty-media.ts";
 import type { MetadataDb, RankedHit } from "./catalog-metadata.ts";
@@ -378,6 +379,8 @@ export type CatalogStore = {
   setApprovalOutcome(id: string, undo: ApplyUndo): void;
   markRolledBack(id: string): boolean;
   snapshotLibrary(libraryId: string): CatalogCardSnapshot[];
+  /** 墙上的疑似同作（handoff §9）：只报证据与建议，一行都不改。 */
+  duplicateGroups(libraryId: string): DuplicateGroup[];
   /** 带并发检查的反向 patch：任何一张卡与 apply 后不一致就整批不动。 */
   restoreApplyUndo(undo: ApplyUndo): { applied: number } | { conflict: string[] };
   /** 原子消费：并发/重复提交时只有第一次成功。 */
@@ -1638,6 +1641,34 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     },
     snapshotLibrary(libraryId) {
       return readSnapshot(libraryId);
+    },
+    duplicateGroups(libraryId) {
+      // 海报：正式卡没有 URL 列，缓存文件在不在才是"合并后还看得见海报"的真实依据。
+      const draftPoster = new Map(
+        (db.prepare("SELECT item_key, poster_url FROM catalog_draft WHERE library_id = ? AND poster_url IS NOT NULL").all(libraryId) as Array<Record<string, unknown>>).map((row) => [text(row, "item_key"), text(row, "poster_url")]),
+      );
+      const cached = new Set((db.prepare("SELECT item_id FROM poster_files").all() as Array<Record<string, unknown>>).map((row) => text(row, "item_id")));
+      const childStmt = db.prepare("SELECT rel_path, episode FROM catalog_children WHERE item_id = ? ORDER BY sort_index");
+      const cards: DuplicateEvidence[] = (itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>).map((row) => {
+        const id = text(row, "id");
+        const kids = childStmt.all(id) as Array<Record<string, unknown>>;
+        const folders = [...new Set(kids.map((kid) => path.posix.dirname(String(kid.rel_path ?? "/"))))].sort();
+        return {
+          id,
+          itemKey: text(row, "item_key"),
+          title: text(row, "title"),
+          originalTitle: typeof row.original_title === "string" ? row.original_title : null,
+          year: intOrNull(row, "year"),
+          externalDb: typeof row.external_db === "string" ? row.external_db : null,
+          externalId: typeof row.external_id === "string" ? row.external_id : null,
+          confirmedBy: typeof row.confirmed_by === "string" ? row.confirmed_by : null,
+          files: kids.length,
+          episodes: kids.filter((kid) => Number.isSafeInteger(kid.episode)).length,
+          folders,
+          poster: cached.has(id) ? `/api/media/catalog/${id}/poster` : (draftPoster.get(text(row, "item_key")) ?? null),
+        };
+      });
+      return findDuplicateGroups(cards);
     },
     restoreApplyUndo(undo) {
       const stamp = (card: CatalogCardSnapshot) => JSON.stringify(card);

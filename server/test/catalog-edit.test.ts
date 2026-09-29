@@ -1505,3 +1505,26 @@ test("纯元数据的 apply 不留回滚台账（没消耗凭证，也就没有�
     await backend.close();
   }
 });
+
+test("疑似同作只读不并：同一外部条目的两张卡会被报出来，卡数一行不变", () => {
+  const { store } = openStore();
+  try {
+    store.upsertScan("lib_anime", "tv", [group("/OVA 一期", "我们的恋人 OVA", ["a1", "a2", "a3"]), group("/别放这里/OVA 二期", "完全不像的名字", ["a4"])]);
+    const cards = store.listPending("lib_anime");
+    assert.equal(cards.length, 2);
+    const hit = { externalDb: "bangumi" as const, externalId: "587454", title: "我们的恋人", originalTitle: null, year: 2020, overview: null, imageUrl: null, episodes: null, score: 1 };
+    for (const card of cards) store.applyMatch(card, "confirmed", hit, []);
+    const before = store.cardIds("lib_anime").length;
+    const groups = store.duplicateGroups("lib_anime");
+    assert.equal(groups.length, 1, "两张卡绑在同一条目 ⇒ 一组疑似同作");
+    assert.equal(groups[0].reason, "same-subject");
+    assert.equal(groups[0].cards.length, 2);
+    assert.equal(groups[0].cards[0].files, 3, "文件多的那张当保留卡");
+    assert.equal(groups[0].suggestion.keepId, groups[0].cards[0].id);
+    assert.equal(groups[0].suggestion.dropIds.length, 1);
+    assert.equal(store.cardIds("lib_anime").length, before, "读一遍不改任何卡");
+    assert.equal(store.draftDiff("lib_anime").added.length, 0, "也没动差异");
+  } finally {
+    store.close();
+  }
+});

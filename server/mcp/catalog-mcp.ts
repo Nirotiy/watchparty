@@ -131,6 +131,41 @@ export const CATALOG_TOOLS: ToolSpec[] = [
       });
     },
   },
+  {
+    name: "catalog_duplicates_read",
+    description: "读取墙上的疑似同作（OVA/季度/SP 那类）：证据、建议保留的卡、合并后绑定/集数/海报的去向。服务端只读，不会自动合并。",
+    properties: { libraryId: id },
+    required: ["libraryId"],
+    async run(call, args) {
+      return call("GET", `/api/admin/media-libraries/${encodeURIComponent(String(args.libraryId))}/duplicates`);
+    },
+  },
+  {
+    name: "approvals_read",
+    description: "读取回滚台账：哪一次结构应用留下了可撤的记录、动了哪些键位。绝不返回凭证本体或其哈希。",
+    properties: { libraryId: id },
+    required: ["libraryId"],
+    async run(call, args) {
+      return call("GET", `/api/admin/media-libraries/${encodeURIComponent(String(args.libraryId))}/approvals`);
+    },
+  },
+  {
+    name: "import_rollback",
+    description:
+      "带着人工签发的回滚凭证撤掉一次结构应用。凭证来自网页上的 POST .../approval {rollbackOf}；服务端先核对现值，人在那之后动过的卡一张都不会被撤回。",
+    properties: {
+      libraryId: id,
+      rollbackOf: { type: "string", description: "要撤回的那次应用的 approvalId" },
+      approvalToken: { type: "string", description: "为这次撤回单独签发的一次性凭证" },
+    },
+    required: ["libraryId", "rollbackOf", "approvalToken"],
+    async run(call, args) {
+      return call("POST", `/api/admin/media-libraries/${encodeURIComponent(String(args.libraryId))}/rollback`, {
+        rollbackOf: args.rollbackOf,
+        approvalToken: args.approvalToken,
+      });
+    },
+  },
 ];
 
 export function createCatalogMcp(options: {

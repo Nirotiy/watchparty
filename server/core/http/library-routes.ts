@@ -309,6 +309,26 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
     }
   });
 
+  // 回滚台账（只读）：Agent 与界面都从这里知道"哪一次应用还能撤"。不含 token 也不含哈希。
+  app.get("/api/admin/media-libraries/:id/approvals", (req, res) => {
+    if (!requireAdmin(library, req, res)) return;
+    try {
+      res.json(library.catalogApprovals(paramId(req)));
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
+
+  // 疑似同作（OVA/季度/SP）：只报证据与建议，服务端一行都不改，也不自动合并。
+  app.get("/api/admin/media-libraries/:id/duplicates", (req, res) => {
+    if (!requireAdmin(library, req, res)) return;
+    try {
+      res.json(library.catalogDuplicates(paramId(req)));
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
+
   // 回滚 = 带并发检查的反向 patch：先由人批准这一次撤回（/approval {rollbackOf}），
   // 再带凭证执行。当前值与当时写入的不一致就整批不动，只报冲突 keys。
   app.post("/api/admin/media-libraries/:id/rollback", async (req, res) => {

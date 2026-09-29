@@ -41,6 +41,7 @@ import {
   type Placement,
 } from "./collection-sidecar.ts";
 import { createCatalogWorker } from "./catalog-worker.ts";
+import type { DuplicateGroup } from "./catalog-duplicates.ts";
 import {
   isLibraryKind,
   openLibraryStore,
@@ -221,6 +222,36 @@ export type LibraryService = {
   importPreview(id: string): ImportPreviewResult;
   /** 把 sidecar 的结构提案落到草稿（复用现有 draft merge/split），仍然只写草稿。 */
   importStructure(id: string, body: unknown): ImportPreviewResult;
+  /** 回滚台账：谁批的、动了哪些键位、用过没有、能不能撤。绝不返回 token 或其哈希。 */
+  catalogApprovals(id: string): {
+    libraryId: string;
+    items: Array<{
+      approvalId: string;
+      kind: "apply" | "rollback";
+      approvedBy: string;
+      createdAt: string;
+      expiresAt: string;
+      usedAt: string | null;
+      revokedAt: string | null;
+      appliedAt: string | null;
+      rolledBackAt: string | null;
+      targets: string | null;
+      keys?: string[];
+      counts?: { created: number; removed: number; changed: number };
+      rollbackAvailable: boolean;
+    }>;
+  };
+  /** 墙上的疑似同作（OVA/季度/SP 那类）。只读：不改卡、不合并、也不建任何待办。 */
+  catalogDuplicates(id: string): {
+    libraryId: string;
+    kind: LibraryKind;
+    readOnly: true;
+    autoMerge: false;
+    cards: number;
+    groups: number;
+    scan: { files: number; rev: number };
+    items: DuplicateGroup[];
+  };
   /** 读回草稿与它同正式卡的差异。 */
   catalogDraft(id: string): {
     libraryId: string;
@@ -1089,6 +1120,44 @@ export function createLibraryService(options: {
         // 列表投影：children 不在这里，展开某一张时走 catalogDraftCard。
         draft: catalog.draftList(id),
         diff: catalog.draftDiff(id),
+      };
+    },
+    catalogApprovals(id) {
+      requireLibrary(id);
+      return {
+        libraryId: id,
+        items: catalog.listApprovals(id).map((record) => {
+          const undo = record.kind === "apply" && record.usedAt && !record.rolledBackAt ? catalog.readUndo(record.id) : undefined;
+          return {
+            approvalId: record.id,
+            kind: record.kind,
+            approvedBy: record.approvedBy,
+            createdAt: record.createdAt,
+            expiresAt: record.expiresAt,
+            usedAt: record.usedAt,
+            revokedAt: record.revokedAt,
+            appliedAt: record.appliedAt,
+            rolledBackAt: record.rolledBackAt,
+            targets: record.targets,
+            ...(undo ? { keys: undo.keys, counts: undo.counts } : {}),
+            rollbackAvailable: Boolean(undo),
+          };
+        }),
+      };
+    },
+    catalogDuplicates(id) {
+      const { library } = requireLibrary(id);
+      const items = catalog.duplicateGroups(id);
+      const scan = catalog.scanInfo(id);
+      return {
+        libraryId: id,
+        kind: library.kind,
+        readOnly: true as const,
+        autoMerge: false as const,
+        cards: items.reduce((total, group) => total + group.cards.length, 0),
+        groups: items.length,
+        scan: { files: scan.files, rev: scan.rev },
+        items,
       };
     },
     catalogDraftCard(id, itemKey) {
