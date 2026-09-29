@@ -1562,11 +1562,16 @@ test("台账与疑似同作两个读接口回真形状，台账绝不带出 toke
 });
 
 /**
- * handoff §8 的验收里有一条"批准内容被修改后 approvalToken 必须失效"。现在实现只绑**结构**
- * 与两个 revision：批准之后人再改标题/绑定，凭证仍然有效、应用会把改后的值写进卡（人的决定
- * 本身不会被丢，但那次批准批的不是这份内容）。是否要按整张草稿做指纹还没定，这条先把现状钉住。
+ * 已定语义，不是缺口，别"顺手修好"（2026-09-29 与前端一起拍）：批准凭证只绑**结构差异 +
+ * 两个 revision**，元数据编辑不会让它失效。
+ *
+ * 为什么不按 handoff §8 字面意思做到"批准内容一变就失效"：`writeDraftJudgment` 会改草稿的
+ * title/status/candidates 而不动 `rev`，判定还可能经 `reclusterBySubject` 改文件集合。一旦把
+ * 内容指纹绑进 digest，**MCP 在另一个窗口跑一轮 `judge` 就会把人刚签的批准当场打死**（凭证先
+ * 消费后执行，失败即作废）。"人在批准弹层开着时顺手改名"在现实现里不存在（真模态 + 批准到
+ * 应用是两次连续请求）。要收紧只能挑"只有人工编辑才 bump 的第三个 revision"，别用内容指纹。
  */
-test("凭证只管结构失效：批准之后人再改元数据，应用仍放行且保住新标题", async () => {
+test("已定语义：凭证只管结构失效，元数据后改照样落卡", async () => {
   const { backend, api, applied, status } = await appliedWithApproval();
   try {
     assert.equal(status, 200);
@@ -1584,12 +1589,12 @@ test("凭证只管结构失效：批准之后人再改元数据，应用仍放�
 
     assert.equal((await api("draft/edit", { itemKey: "/Medalist", title: "批准之后人改的名字" })).status, 200);
     const outcome = await api("apply-approved", { approvalToken: token, force: 1 });
-    assert.equal(outcome.status, 200, "现状：元数据改动不会让凭证失效");
+    assert.equal(outcome.status, 200, "已定：元数据改动不会让凭证失效");
     const wall = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`));
     assert.equal((wall.body as { items: unknown[] }).items.length, 2);
     // 列表投影不带 itemKey（那是 CatalogDetail 上的），所以按标题找。
     const titles = (wall.body as { items: Array<{ title: string }> }).items.map((card) => card.title);
-    assert.ok(titles.includes("批准之后人改的名字"), `应用没有把人后来改的标题写进卡：${JSON.stringify(titles)}`);
+    assert.ok(titles.includes("批准之后人改的名字"), `人工后改的标题必须落卡（人的决定优先）：${JSON.stringify(titles)}`);
   } finally {
     await backend.close();
   }
