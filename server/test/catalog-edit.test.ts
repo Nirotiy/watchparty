@@ -1350,6 +1350,10 @@ test("结构 apply 的人工凭证：没批准不动结构，用过即废，内�
     );
     assert.equal(changed.status, 409);
     assert.equal((changed.body as { reason: string }).reason, "operations-changed", "批准之后又动了结构，旧凭证不能作数");
+    // 界面不缓存凭证也不缓存差异，所以失败时必须把**当前**结构带回去，否则批准单重画不出来。
+    const carried = (changed.body as { structural: { added: string[] } }).structural;
+    assert.equal(carried.added.length, 2, "409 必须带**当前**结构：拆分后是两张新卡，不是批准时那一张");
+    assert.ok(carried.added.some((key: string) => key.startsWith("#split")), `回来的应是拆分后的新键位，实际 ${JSON.stringify(carried.added)}`);
 
     const second = (await post("approval")) as { body: { approvalToken: string } };
     assert.equal((await post("approval/revoke", { approvalToken: second.body.approvalToken })).status, 200);
