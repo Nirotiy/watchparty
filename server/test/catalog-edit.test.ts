@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { createBackend, type Backend } from "../app.ts";
 import { loadConfig } from "../config.ts";
@@ -248,6 +249,46 @@ async function started(options: Parameters<typeof createBackend>[0]): Promise<Ba
 
 const base = (backend: Backend) => `http://127.0.0.1:${backend.port}`;
 const json = async (response: Response) => ({ status: response.status, body: await response.json().catch(() => null) });
+
+test("源被删掉后还在跑的枚举不许把快照写回去（不留孤儿行）", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wp-orphan-"));
+  const catalogFile = path.join(dir, "catalog.sqlite");
+  const backend = await started({
+    catalogDbPath: catalogFile,
+    syncGraceMs: 60,
+    libraryClientFactory: () => {
+      const client = fakeTree();
+      return {
+        ...client,
+        list: async (target: string) => {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          return client.list(target);
+        },
+      };
+    },
+  });
+  try {
+    const url = `${base(backend)}/api/admin/media-libraries/lib_anime/scan`;
+    const accepted = await fetch(url, { method: "POST" });
+    assert.equal(accepted.status, 202, "冷态：超过宽限期，服务端继续跑");
+    await accepted.json();
+    const removed = await fetch(`${base(backend)}/api/admin/media-sources/src_default`, { method: "DELETE" });
+    assert.ok(removed.status === 204 || removed.status === 200, `删源应该成功，实际 ${removed.status}`);
+    await new Promise((resolve) => setTimeout(resolve, 1200)); // 等后台那条枚举跑完
+    const probe = new DatabaseSync(catalogFile, { readOnly: true });
+    try {
+      const scan = probe.prepare("SELECT COUNT(*) n FROM catalog_scan WHERE library_id = 'lib_anime'").get() as { n: number };
+      const draft = probe.prepare("SELECT COUNT(*) n FROM catalog_draft WHERE library_id = 'lib_anime'").get() as { n: number };
+      assert.equal(scan.n, 0, "库已删除 ⇒ 快照一行都不许留下（真库上这样攒过 9 个库、10008 行）");
+      assert.equal(draft.n, 0, "草稿同理");
+    } finally {
+      probe.close();
+    }
+  } finally {
+    await backend.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("枚举超过宽限期回 202 并让调用方轮询；跑完的照旧 200 + 完整结果", async () => {
   const boot = async (graceMs: number, delayMs: number, fail = false) =>

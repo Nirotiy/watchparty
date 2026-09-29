@@ -48,7 +48,21 @@ fs.mkdirSync(backup, { recursive: true });
 for (const file of ["watchparty-catalog.sqlite", "watchparty-library.sqlite", "watchparty-catalog.sqlite-wal", "watchparty-catalog.sqlite-shm"]) {
   if (fs.existsSync(path.join(process.cwd(), "data", file))) fs.copyFileSync(path.join(process.cwd(), "data", file), path.join(backup, file));
 }
-console.log(`备份：${backup}`);
+// 目录名只记录"什么时候下的盘"，不记录"拍到的是什么状态"。所以拍完立刻回读关键状态写进
+// MANIFEST.txt 并打出来 —— 否则后来人（包括几分钟前的我自己）会把名字里的 "pre-rescan"
+// 当成"扫描前的退路"，而它可能是扫描之后才拍的，真出事退不回去。
+const captured = new DatabaseSync(path.join(backup, "watchparty-catalog.sqlite"), { readOnly: true });
+const state = [];
+try {
+  for (const row of captured.prepare("SELECT library_id, MAX(rev) rev, COUNT(*) files FROM catalog_scan GROUP BY library_id ORDER BY library_id").all())
+    state.push(`scan   ${row.library_id} rev=${row.rev} files=${row.files}`);
+  for (const row of captured.prepare("SELECT library_id, MAX(rev) rev, COUNT(*) cards, SUM(lookup_state <> 'pending') judged FROM catalog_draft GROUP BY library_id ORDER BY library_id").all())
+    state.push(`draft  ${row.library_id} rev=${row.rev} cards=${row.cards} judged=${row.judged}`);
+} finally {
+  captured.close();
+}
+fs.writeFileSync(path.join(backup, "MANIFEST.txt"), `${new Date().toISOString()} 由 catalog-rescan-and-judge.mjs 拍下。内容是这一刻的状态，不代表任何动作之前。\n${state.join("\n")}\n`, "utf8");
+console.log(`备份：${backup}\n  ${state.join("\n  ")}`);
 
 const sizeReport = () => {
   const reader = new DatabaseSync(dbFile, { readOnly: true });

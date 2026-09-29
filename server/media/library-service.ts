@@ -720,11 +720,21 @@ export function createLibraryService(options: {
     let files = current > 0 ? catalog.readScan(id) : [];
     if (files.length === 0) {
       files = library.kind === "other" ? [] : await collectLibraryFiles(library);
-      catalog.writeScan(id, files);
+      if (stillThere(id, "scan")) catalog.writeScan(id, files);
     }
     const groups = groupScanFiles(files, catalog.protectedKeys(id)).filter((group) => group.query);
-    const cards = catalog.writeDraft(id, groups);
+    const cards = stillThere(id, "draft") ? catalog.writeDraft(id, groups) : 0;
     return { libraryId: id, files: files.length, cards, rev: catalog.scanInfo(id).rev, diff: catalog.draftDiff(id) };
+  }
+
+  /**
+   * 枚举/分类是"客户端放弃后服务端还在跑"的长动作。源或库在这期间被删掉时，跑完不能再把
+   * 结果写回去 —— 那会留下界面上永远看不见的孤儿行（真库上已经因此攒了 9 个库、10008 行快照）。
+   */
+  function stillThere(libraryId: string, what: "scan" | "draft"): boolean {
+    if (store.getLibrary(libraryId)) return true;
+    console.log(`ASYNC_WRITE_DROPPED ${libraryId} ${what} 库已被删除，结果不落盘`);
+    return false;
   }
 
   async function collectLibraryFiles(library: StoredLibrary): Promise<ScanFile[]> {
@@ -1065,7 +1075,7 @@ export function createLibraryService(options: {
       const settled = await withGrace("scan", id, () =>
         oncePerLibrary(`scan:${id}`, async () => {
           const files = library.kind === "other" ? [] : await collectLibraryFiles(library);
-          catalog.writeScan(id, files);
+          if (stillThere(id, "scan")) catalog.writeScan(id, files);
           return catalog.scanInfo(id);
         }),
       );

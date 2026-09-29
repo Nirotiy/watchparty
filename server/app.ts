@@ -43,6 +43,8 @@ export type CreateBackendOptions = {
   openlistPingTimeoutMs?: number;
   /** sqlite file for media sources. Defaults to :memory: when NODE_ENV=test. */
   libraryDbPath?: string;
+  /** catalog 库路径；测试用临时文件，好让断言能直接读表（默认 `data/watchparty-catalog.sqlite`）。 */
+  catalogDbPath?: string;
   /** Test double for per-source OpenList clients. Production uses createOpenlistClient. */
   libraryClientFactory?: LibraryClientFactory;
   /** When false, admin routes require libraryAdminToken even from loopback. Default true. */
@@ -151,6 +153,7 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
   const library = createLibraryService({
     cfg,
     dbPath: options.libraryDbPath,
+    ...(options.catalogDbPath !== undefined ? { catalogDbPath: options.catalogDbPath } : {}),
     clientFactory: options.libraryClientFactory,
     trustLoopback: options.trustLibraryAdminLoopback,
     adminToken: options.libraryAdminToken,
