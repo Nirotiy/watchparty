@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { cleanTitle, episodeSubtitle, isVideoFileName, parseEpisode, titleCandidates, type CatalogGroup, type CatalogGroupFile, type ScanFile } from "./catalog-names.ts";
 import { compatibilityOf, extensionOf } from "./library-browser.ts";
@@ -133,6 +133,55 @@ export type CatalogDraftDiff = {
   formalCards: number;
 };
 
+/**
+ * 会改变**文件集合或卡片存亡**的那部分差异：绑定改不了人工卡（`applyDraftDecisions`
+ * 整张跳过），所以真正需要人批准的只有这些。文档 §1 的高风险清单落到代码上就是它。
+ */
+export type StructuralChanges = {
+  added: string[];
+  dropped: string[];
+  moved: string[];
+  /** 人工已确认的卡换掉了文件集合：标题与绑定动不了，但文件数动了。 */
+  drift: Array<{ itemKey: string; from: number; to: number }>;
+};
+
+export function structuralChanges(diff: CatalogDraftDiff): StructuralChanges {
+  const keys = (rows: Array<{ itemKey: string }>) => rows.map((row) => row.itemKey).sort();
+  return {
+    added: keys(diff.added),
+    dropped: keys(diff.dropped),
+    moved: keys(diff.moved),
+    drift: diff.confirmedDrift
+      .filter((row) => row.files.from !== row.files.to)
+      .map((row) => ({ itemKey: row.itemKey, from: row.files.from, to: row.files.to }))
+      .sort((left, right) => left.itemKey.localeCompare(right.itemKey)),
+  };
+}
+
+export function structuralCount(structural: StructuralChanges): number {
+  return structural.added.length + structural.dropped.length + structural.moved.length + structural.drift.length;
+}
+
+/** 批准凭证绑定的内容指纹：任一rev 或任一结构项变了就对不上，旧凭证即失效。 */
+export function approvalDigest(input: { libraryId: string; structural: StructuralChanges; scanRevision: number; draftRevision: number }): string {
+  return createHash("sha256").update(JSON.stringify(input)).digest("hex");
+}
+
+/** 一次人工批准。数据库里只有 `token_hash`，明文只在签发时回给网页一次。 */
+export type CatalogApproval = {
+  id: string;
+  tokenHash: string;
+  libraryId: string;
+  draftRevision: number;
+  scanRevision: number;
+  operationHash: string;
+  approvedBy: string;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
+  revokedAt: string | null;
+};
+
 export type CatalogDetail = CatalogCard & {
   /** 卡片对应的分组键。界面要靠它把正式卡和草稿行对上（草稿的身份就是 itemKey）。 */
   itemKey: string;
@@ -235,6 +284,12 @@ export type CatalogStore = {
    * 且不会把 `confirmed_by` 冒充成 `manual`。
    */
   draftImport(libraryId: string, itemKey: string, patch: DraftPatch): "ok" | "missing" | "protected";
+  /** 签发一次性凭证：只存哈希，明文由调用方一次性带回网页。 */
+  createApproval(input: { tokenHash: string; libraryId: string; draftRevision: number; scanRevision: number; operationHash: string; approvedBy: string; expiresAt: string }): string;
+  findApproval(tokenHash: string): CatalogApproval | undefined;
+  /** 原子消费：并发/重复提交时只有第一次成功。 */
+  useApproval(tokenHash: string): boolean;
+  revokeApproval(tokenHash: string): boolean;
   draftConfirm(libraryId: string, itemKey: string, choice?: { externalDb: string; externalId: string }): "ok" | "missing" | "no-candidate" | "unknown-candidate";
   draftUnconfirm(libraryId: string, itemKey: string): boolean;
   draftMerge(libraryId: string, keepKey: string, dropKeys: string[]): { error: "missing" | "conflict" | null; keys?: string[] };
@@ -363,6 +418,23 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     );
   `);
 
+  // 网页签发的一次性结构变更凭证。只存 token 哈希：数据库被读走也拿不到可用的凭证。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS catalog_approvals (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE,
+      library_id TEXT NOT NULL,
+      draft_revision INTEGER NOT NULL,
+      scan_revision INTEGER NOT NULL,
+      operation_hash TEXT NOT NULL,
+      approved_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      revoked_at TEXT
+    );
+  `);
+
   const jobStmt = db.prepare("SELECT * FROM scrape_jobs WHERE library_id = ?");
   const runningStmt = db.prepare("SELECT * FROM scrape_jobs WHERE status = 'running' ORDER BY library_id");
   const itemByKey = db.prepare("SELECT * FROM catalog_items WHERE library_id = ? AND item_key = ?");
@@ -374,9 +446,27 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
   const candidateById = db.prepare("SELECT * FROM catalog_candidates WHERE id = ?");
   const rejectionsStmt = db.prepare("SELECT external_db, external_id FROM catalog_rejections WHERE library_id = ? AND item_key = ?");
   const posterStmt = db.prepare("SELECT * FROM poster_files WHERE item_id = ?");
+  const approvalByHash = db.prepare("SELECT * FROM catalog_approvals WHERE token_hash = ?");
 
   function nid(prefix: string): string {
     return `${prefix}_${randomBytes(9).toString("base64url")}`;
+  }
+
+  function mapApproval(row: Record<string, unknown> | undefined): CatalogApproval | undefined {
+    if (!row) return undefined;
+    return {
+      id: text(row, "id"),
+      tokenHash: text(row, "token_hash"),
+      libraryId: text(row, "library_id"),
+      draftRevision: Number(row.draft_revision),
+      scanRevision: Number(row.scan_revision),
+      operationHash: text(row, "operation_hash"),
+      approvedBy: text(row, "approved_by"),
+      createdAt: text(row, "created_at"),
+      expiresAt: text(row, "expires_at"),
+      usedAt: typeof row.used_at === "string" ? row.used_at : null,
+      revokedAt: typeof row.revoked_at === "string" ? row.revoked_at : null,
+    };
   }
 
   /**
@@ -1350,6 +1440,22 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     },
     cardIds(libraryId) {
       return (itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>).map((row) => text(row, "id"));
+    },
+    createApproval(input) {
+      const id = nid("appr");
+      db.prepare(
+        "INSERT INTO catalog_approvals (id, token_hash, library_id, draft_revision, scan_revision, operation_hash, approved_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(id, input.tokenHash, input.libraryId, input.draftRevision, input.scanRevision, input.operationHash, input.approvedBy, now(), input.expiresAt);
+      return id;
+    },
+    findApproval(tokenHash) {
+      return mapApproval(approvalByHash.get(tokenHash) as Record<string, unknown> | undefined);
+    },
+    useApproval(tokenHash) {
+      return db.prepare("UPDATE catalog_approvals SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND revoked_at IS NULL").run(now(), tokenHash).changes === 1;
+    },
+    revokeApproval(tokenHash) {
+      return db.prepare("UPDATE catalog_approvals SET revoked_at = ? WHERE token_hash = ? AND used_at IS NULL AND revoked_at IS NULL").run(now(), tokenHash).changes === 1;
     },
     draftEdit(libraryId, itemKey, patch) {
       const row = readDraftRow(libraryId, itemKey);

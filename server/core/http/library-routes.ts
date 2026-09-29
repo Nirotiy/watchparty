@@ -280,6 +280,35 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
     }
   });
 
+  // 人工批准当前草稿的结构变更：签发一次性明文凭证（48h），数据库只留哈希。
+  app.post("/api/admin/media-libraries/:id/approval", (req, res) => {
+    if (!requireAdmin(library, req, res)) return;
+    try {
+      res.json(library.catalogApprove(paramId(req), req.body));
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
+
+  app.post("/api/admin/media-libraries/:id/approval/revoke", (req, res) => {
+    if (!requireAdmin(library, req, res)) return;
+    try {
+      res.json(library.catalogRevoke(paramId(req), req.body));
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
+
+  // 带凭证的那条应用路径：`/apply` 只会做元数据，结构变更到这里才放行。
+  app.post("/api/admin/media-libraries/:id/apply-approved", async (req, res) => {
+    if (!requireAdmin(library, req, res)) return;
+    try {
+      res.json(await library.catalogApplyApproved(paramId(req), req.body));
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
+
   // 草稿编辑：六个动作同一种形状（只写草稿、返回新摘要），所以表驱动注册。
   const draftEdits: Array<{ action: string; run: (id: string, body: unknown) => unknown }> = [
     { action: "edit", run: (id, body) => library.draftEdit(id, body) },

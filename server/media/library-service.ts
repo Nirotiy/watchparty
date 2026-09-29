@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { AppConfig } from "../config.ts";
 import { createOpenlistClient, OpenlistServiceError, type OpenlistClient } from "./openlist.ts";
 import { WATCHPARTY_ROOTS, type WatchpartyMedia, type ResolvedMedia, type ResolvedMpvMedia, type SubtitleTrack } from "./watchparty-media.ts";
@@ -13,7 +13,20 @@ import {
 } from "./library-browser.ts";
 import { groupScanFiles, isVideoFileName, type CatalogGroupFile, type ScanFile } from "./catalog-names.ts";
 import { createBangumiClient, createTmdbClient, fetchPosterBytes, judgeThresholds, type MetadataSearcher, type RankedHit } from "./catalog-metadata.ts";
-import { openCatalogStore, type CatalogCard, type CatalogDraftCard, type CatalogDraftDiff, type CatalogDraftRow, type CatalogDetail, type DraftPatch, type ManualBinding } from "./catalog-store.ts";
+import {
+  approvalDigest,
+  openCatalogStore,
+  structuralChanges,
+  structuralCount,
+  type CatalogCard,
+  type CatalogDraftCard,
+  type CatalogDraftDiff,
+  type CatalogDraftRow,
+  type CatalogDetail,
+  type DraftPatch,
+  type ManualBinding,
+  type StructuralChanges,
+} from "./catalog-store.ts";
 import {
   buildCollection,
   classifyPlacements,
@@ -136,8 +149,14 @@ export type LibraryService = {
   catalogClassify(id: string): Promise<{ libraryId: string; files: number; cards: number; rev: number; diff: CatalogDraftDiff }>;
   /** 对草稿逐条查条目打分，结论只写草稿；maxLookups 限制本次处理几张（Bangumi 匿名限速）。 */
   catalogJudge(id: string, maxLookups?: number): Promise<{ libraryId: string; kind: LibraryKind; judged: number; confirmed: number; pending: number; items: string[]; diff: CatalogDraftDiff }>;
-  /** 把草稿变成正式卡。rev 与当前快照不一致就 409，绝不拿过期结果盖库。 */
-  catalogApply(id: string, force?: boolean): Promise<{ libraryId: string; cards: number; created: number; updated: number; skipped: number; deferred: number; posters: number; diff: CatalogDraftDiff }>;
+  /** 把草稿变成正式卡。rev 与当前快照不一致就 409，绝不拿过期结果盖库。
+   *  带结构变更（建卡/删卡/移动文件）时必须给人工签发的一次性 `approvalToken`。 */
+  catalogApply(id: string, force?: boolean, approvalToken?: string): Promise<{ libraryId: string; cards: number; created: number; updated: number; skipped: number; deferred: number; posters: number; structural: StructuralChanges; diff: CatalogDraftDiff }>;
+  /** 网页批准当前草稿的结构变更，签发一次性凭证（48h）。明文只在这里回一次。 */
+  catalogApprove(id: string, body: unknown): { libraryId: string; approvalId: string; approvalToken: string; expiresAt: string; approvedBy: string; structural: StructuralChanges };
+  catalogRevoke(id: string, body: unknown): { libraryId: string; revoked: true };
+  /** 带着凭证应用：`/apply` 遇到结构变更会 409，这里才是那条路。 */
+  catalogApplyApproved(id: string, body: unknown): Promise<{ libraryId: string; cards: number; created: number; updated: number; skipped: number; deferred: number; posters: number; structural: StructuralChanges; diff: CatalogDraftDiff }>;
   /** 一条命令跑完"分类 + 判定"（只到草稿）：缺多少判多少，不擦上一轮的结果。 */
   catalogPrepare(id: string, maxLookups?: number): Promise<{
     libraryId: string;
@@ -203,6 +222,8 @@ export type LibraryService = {
 };
 
 const HEALTH_TTL_MS = 5000;
+/** 人工批准的结构变更凭证有效期（文档 §8：created_at + 48h）。 */
+const APPROVAL_TTL_MS = 48 * 60 * 60 * 1000;
 const SEEDED_SOURCE_ID = "src_default";
 
 export function createLibraryService(options: {
@@ -310,6 +331,52 @@ export function createLibraryService(options: {
     if (db === null && id === null) return { externalDb: null, externalId: null };
     if (typeof db !== "string" || !["bangumi", "tmdb"].includes(db) || typeof id !== "string" || !/^\d{1,12}$/.test(id)) throw draftInvalid();
     return { externalDb: db, externalId: id };
+  }
+
+  /** 凭证绑定"当前这份草稿的当前这套结构变更"：任一输入变了就对不上。 */
+  function approvalTarget(libraryId: string) {
+    const structural = structuralChanges(catalog.draftDiff(libraryId));
+    const draftRevision = catalog.draftInfo(libraryId).rev;
+    const scanRevision = catalog.scanInfo(libraryId).rev;
+    return { structural, digest: approvalDigest({ libraryId, structural, scanRevision, draftRevision }), scanRevision, draftRevision };
+  }
+
+  const tokenHashOf = (token: string) => createHash("sha256").update(token).digest("hex");
+
+  /**
+   * 校验并当场消费凭证：宁可"失败即作废"也不留下可重放的窗口（所以是先消费、后执行）。
+   * 结构指纹、两个 revision、过期、撤销、已用逐项都对得上才放行。
+   */
+  function consumeApproval(libraryId: string, token: string): string {
+    const tokenHash = tokenHashOf(token);
+    const record = catalog.findApproval(tokenHash);
+    const target = approvalTarget(libraryId);
+    const reason =
+      !record || record.libraryId !== libraryId
+        ? "unknown"
+        : record.revokedAt
+          ? "revoked"
+          : record.usedAt
+            ? "used"
+            : new Date(record.expiresAt).getTime() <= Date.now()
+              ? "expired"
+              : record.scanRevision !== target.scanRevision
+                ? "scan-revision"
+                : record.draftRevision !== target.draftRevision
+                  ? "draft-revision"
+                  : record.operationHash !== target.digest
+                    ? "operations-changed"
+                    : !catalog.useApproval(tokenHash)
+                      ? "used"
+                      : null;
+    if (reason || !record) throw new LibraryRequestError(409, "CATALOG_APPROVAL_INVALID", { reason: reason ?? "unknown", structural: target.structural });
+    return record.id;
+  }
+
+  function approvalTokenOf(body: unknown): string {
+    const value = (body as Record<string, unknown> | undefined)?.approvalToken;
+    if (typeof value !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(value)) throw new LibraryRequestError(401, "CATALOG_APPROVAL_REQUIRED");
+    return value;
   }
 
   /** 每次编辑都回同样的摘要：界面不必再猜 diff 变了什么。 */
@@ -821,7 +888,7 @@ export function createLibraryService(options: {
         diff: catalog.draftDiff(id),
       };
     },
-    async catalogApply(id, force) {
+    async catalogApply(id, force, approvalToken) {
       const { library } = requireLibrary(id);
       const info = catalog.draftInfo(id);
       if (info.cards === 0) throw new LibraryRequestError(409, "CATALOG_DRAFT_EMPTY", { draftCards: 0 });
@@ -829,6 +896,13 @@ export function createLibraryService(options: {
       // 没判完就应用：未确认的卡会被结构对齐重置成"未匹配"，候选列表也一起丢。
       // 绑定不会丢（未判定的草稿跳过），但界面会看起来"掉了一截"，所以默认拒绝。
       if (info.pending > 0 && !force) throw new LibraryRequestError(409, "CATALOG_DRAFT_INCOMPLETE", { pending: info.pending, draftCards: info.cards });
+      // 元数据可以直写；建卡/删卡/换文件必须带网页刚签发的那一次性凭证。
+      const structural = structuralChanges(catalog.draftDiff(id));
+      if (approvalToken === undefined) {
+        if (structuralCount(structural) > 0) throw new LibraryRequestError(409, "CATALOG_APPROVAL_REQUIRED", { structural, draftCards: info.cards });
+      } else {
+        consumeApproval(id, approvalToken);
+      }
       const groups = catalog.readDraft(id).map((card) => ({
         itemKey: card.itemKey,
         query: card.query,
@@ -850,8 +924,41 @@ export function createLibraryService(options: {
         skipped: applied.skipped,
         deferred: applied.deferred,
         posters: applied.posters.length,
+        structural,
         diff: catalog.draftDiff(id),
       };
+    },
+    catalogApprove(id, body) {
+      requireLibrary(id);
+      const target = approvalTarget(id);
+      if (structuralCount(target.structural) === 0) {
+        throw new LibraryRequestError(409, "CATALOG_NOTHING_TO_APPROVE", { draftCards: catalog.draftInfo(id).cards });
+      }
+      const token = randomBytes(24).toString("base64url");
+      const record = (body ?? {}) as Record<string, unknown>;
+      const approvedBy = typeof record.approvedBy === "string" && record.approvedBy.trim() ? record.approvedBy.trim().slice(0, 80) : "web";
+      const expiresAt = new Date(Date.now() + APPROVAL_TTL_MS).toISOString();
+      const approvalId = catalog.createApproval({
+        tokenHash: tokenHashOf(token),
+        libraryId: id,
+        draftRevision: target.draftRevision,
+        scanRevision: target.scanRevision,
+        operationHash: target.digest,
+        approvedBy,
+        expiresAt,
+      });
+      return { libraryId: id, approvalId, approvalToken: token, expiresAt, approvedBy, structural: target.structural };
+    },
+    catalogRevoke(id, body) {
+      requireLibrary(id);
+      if (!catalog.revokeApproval(tokenHashOf(approvalTokenOf(body)))) throw new LibraryRequestError(409, "CATALOG_APPROVAL_INVALID", { reason: "not-revocable" });
+      return { libraryId: id, revoked: true as const };
+    },
+    async catalogApplyApproved(id, body) {
+      requireLibrary(id);
+      const token = approvalTokenOf(body);
+      const force = /^(1|true|yes)$/i.test(String((body as Record<string, unknown> | undefined)?.force ?? ""));
+      return service.catalogApply(id, force, token);
     },
     async catalogJudge(id, maxLookups) {
       const { library } = requireLibrary(id);

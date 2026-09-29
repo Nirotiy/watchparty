@@ -724,9 +724,26 @@ async function draftToCards(backend: Backend): Promise<string> {
   const id = "lib_anime";
   await fetch(`${base(backend)}/api/admin/media-libraries/${id}/classify`, { method: "POST" });
   await fetch(`${base(backend)}/api/admin/media-libraries/${id}/judge`, { method: "POST" });
-  const applied = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply`, { method: "POST" }));
-  assert.equal(applied.status, 200);
+  const applied = await applyWithApproval(backend, id);
+  assert.equal(applied.status, 200, JSON.stringify(applied.body));
   return id;
+}
+
+/** 建卡/删卡/换文件都要人工凭证：测试里的"应用"= 先批准，再带凭证应用。 */
+async function applyWithApproval(backend: Backend, id: string, force = false) {
+  const direct = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply${force ? "?force=1" : ""}`, { method: "POST" }));
+  if ((direct.body as { code?: string } | null)?.code !== "CATALOG_APPROVAL_REQUIRED") return direct;
+  const approval = await json(
+    await fetch(`${base(backend)}/api/admin/media-libraries/${id}/approval`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }),
+  );
+  assert.equal(approval.status, 200);
+  return json(
+    await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply-approved`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ approvalToken: (approval.body as { approvalToken: string }).approvalToken, ...(force ? { force: 1 } : {}) }),
+    }),
+  );
 }
 
 test("apply 把草稿变成已确认的卡，再跑一遍不多一张", async () => {
@@ -768,8 +785,8 @@ test("apply 拒绝过期草稿，也不碰刮削作业行", async () => {
 
     // 重新分类到当前修订后就能应用了。
     await fetch(`${base(backend)}/api/admin/media-libraries/${id}/classify`, { method: "POST" });
-    const fresh = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply?force=1`, { method: "POST" }));
-    assert.equal(fresh.status, 200);
+    const fresh = await applyWithApproval(backend, id, true);
+    assert.equal(fresh.status, 200, JSON.stringify(fresh.body));
     assert.equal((fresh.body as { created: number }).created, 0);
   } finally {
     await backend.close();
@@ -1301,5 +1318,64 @@ test("两个 sidecar 抢同一个文件时谁都不许写，只报冲突", async
   } finally {
     await backend.close();
     fs.rmSync(sidecarDir, { recursive: true, force: true });
+  }
+});
+
+/** 凭证的生命周期：批准的是"当前这套结构变更"，动过内容、用过、撤过都得重新批准。 */
+test("结构 apply 的人工凭证：没批准不动结构，用过即废，内容变了即废", async () => {
+  const backend = await started({});
+  const id = "lib_anime";
+  const post = async (route: string, body?: unknown) =>
+    json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/${route}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) }));
+  try {
+    await post("classify");
+    await post("judge");
+    const blocked = await post("apply");
+    assert.equal(blocked.status, 409);
+    assert.equal((blocked.body as { code: string }).code, "CATALOG_APPROVAL_REQUIRED");
+    assert.deepEqual((blocked.body as { structural: { added: string[] } }).structural.added, ["/Medalist"]);
+    assert.equal((await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=${id}`))).body.items.length, 0, "被拒绝的应用什么都没写");
+
+    const first = await post("approval");
+    assert.equal(first.status, 200);
+    const token = (first.body as { approvalToken: string }).approvalToken;
+    assert.match(token, /^[A-Za-z0-9_-]{20,}$/);
+    assert.equal((first.body as { structural: { added: string[] } }).structural.added.length, 1);
+    assert.ok(new Date((first.body as { expiresAt: string }).expiresAt).getTime() - Date.now() > 47 * 3600 * 1000, "默认 48 小时有效");
+
+    const children = (await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/classify?item=%2FMedalist`))).body.children as Array<{ mediaId: string }>;
+    assert.equal((await post("draft/split", { itemKey: "/Medalist", keep: [children[0].mediaId] })).status, 200);
+    const changed = await json(
+      await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply-approved`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ approvalToken: token, force: 1 }) }),
+    );
+    assert.equal(changed.status, 409);
+    assert.equal((changed.body as { reason: string }).reason, "operations-changed", "批准之后又动了结构，旧凭证不能作数");
+
+    const second = (await post("approval")) as { body: { approvalToken: string } };
+    assert.equal((await post("approval/revoke", { approvalToken: second.body.approvalToken })).status, 200);
+    const revoked = await json(
+      await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply-approved`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ approvalToken: second.body.approvalToken, force: 1 }) }),
+    );
+    assert.equal((revoked.body as { reason: string }).reason, "revoked");
+
+    const third = (await post("approval")) as { body: { approvalToken: string } };
+    const applied = await json(
+      await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply-approved`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ approvalToken: third.body.approvalToken, force: 1 }) }),
+    );
+    assert.equal(applied.status, 200, JSON.stringify(applied.body));
+    assert.equal((applied.body as { created: number }).created, 2, "拆开的一张卡跟着建出来");
+    assert.equal((await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=${id}`))).body.items.length, 2);
+    const replay = await json(
+      await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply-approved`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ approvalToken: third.body.approvalToken, force: 1 }) }),
+    );
+    assert.equal((replay.body as { reason: string }).reason, "used", "一次性：用过就不能再用");
+
+    const nothing = await post("approval");
+    assert.equal(nothing.status, 409);
+    assert.equal((nothing.body as { code: string }).code, "CATALOG_NOTHING_TO_APPROVE", "已经没有结构要批准了");
+    const metadataOnly = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply?force=1`, { method: "POST" }));
+    assert.equal(metadataOnly.status, 200, "纯元数据的差异不必凭证");
+  } finally {
+    await backend.close();
   }
 });
