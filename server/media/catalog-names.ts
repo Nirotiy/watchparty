@@ -4,6 +4,11 @@ export type ScanFile = {
   relativePath: string;
   name: string;
   mediaId: string;
+  /**
+   * 字节数，来自列目录那一次请求（不是额外一次请求换的）。sidecar 靠它判断"同名文件
+   * 已经不是当初那个文件"。null = 这份快照是在 size 落库之前枚举的，只能当作不知道。
+   */
+  size?: number | null;
 };
 
 export type CatalogGroupFile = {

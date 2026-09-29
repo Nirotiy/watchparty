@@ -119,6 +119,11 @@ export type ImportPreviewResult = {
   conflicts: Array<{ sourceFile: string; reason: string; paths?: string[] }>;
   ambiguous: Array<{ relPath: string; sourceFiles: string[] }>;
   unlisted: Array<{ relPath: string; under: string }>;
+  /**
+   * size 校验的覆盖面。`unchecked` 不是失败：sidecar 没写或快照那侧没存 size 就没法比，
+   * 但必须说出来 —— 一个在旧快照上静默什么都不查的检查，比没有检查更糟。
+   */
+  sizeChecks: { compared: number; mismatched: number; unchecked: number };
   errors: Array<{ sourceFile: string; errors: Array<{ code: string; message: string }>; warnings: string[] }>;
   /** 明确写着别的库的 sidecar：不参与匹配，只报出来。 */
   foreign: Array<{ sourceFile: string; libraryId: string }>;
@@ -634,6 +639,7 @@ export function createLibraryService(options: {
       conflicts,
       ambiguous: reconciled.ambiguous,
       unlisted: reconciled.unlisted,
+      sizeChecks: reconciled.sizeChecks,
       errors: read.errors,
       foreign: foreign.map((entry) => ({ sourceFile: entry.sourceFile, libraryId: String(entry.libraryId) })),
       applied,
@@ -671,7 +677,7 @@ export function createLibraryService(options: {
         const page = await browserFor(source).list(library, relative, cursor);
         for (const item of page.items) {
           if (item.type === "dir") queue.push(item.relativePath);
-          else if (isVideoFileName(item.name)) files.push({ relativePath: item.relativePath, name: item.name, mediaId: item.id });
+          else if (isVideoFileName(item.name)) files.push({ relativePath: item.relativePath, name: item.name, mediaId: item.id, size: item.size ?? null });
         }
         cursor = page.hasMore ? page.nextCursor : undefined;
       } while (cursor);
@@ -1281,10 +1287,13 @@ export function createLibraryService(options: {
       const { library } = requireLibrary(id);
       const cards = catalog.readDraft(id);
       if (cards.length === 0) throw new LibraryRequestError(409, "CATALOG_DRAFT_EMPTY", { draftCards: 0 });
+      // size 来自快照，也就是列目录那一次请求已经拿到的东西；导出不额外打请求。
+      const sizeByPath = new Map(catalog.readScan(id).map((file) => [file.relativePath, file.size ?? null]));
       const sidecars = cards.map((card) =>
         buildCollection(id, library.name, {
           itemKey: card.itemKey,
           children: card.children,
+          sizeByPath,
           title: card.title ?? card.query,
           originalTitle: card.originalTitle,
           year: card.year,

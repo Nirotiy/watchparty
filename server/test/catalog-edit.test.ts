@@ -1789,3 +1789,61 @@ test("撤回窗口就是凭证有效期：过了就只能前滚，签发时顺�
     await backend.close();
   }
 });
+
+test("快照把 size 一起存下来，没存的读回来是 null 而不是 0", () => {
+  const { store } = openStore();
+  try {
+    store.writeScan("lib_anime", [
+      { relativePath: "/A/one.mkv", name: "one.mkv", mediaId: "m1", size: 1234 },
+      { relativePath: "/A/two.mkv", name: "two.mkv", mediaId: "m2" },
+    ]);
+    assert.deepEqual(
+      store.readScan("lib_anime").map((file) => [file.relativePath, file.size]),
+      [
+        ["/A/one.mkv", 1234],
+        ["/A/two.mkv", null],
+      ],
+    );
+    // 重新枚举整批替换：旧行留下的 size 不会被当成新快照的答案。
+    store.writeScan("lib_anime", [{ relativePath: "/A/one.mkv", name: "one.mkv", mediaId: "m1" }]);
+    assert.equal(store.readScan("lib_anime")[0]?.size, null);
+  } finally {
+    store.close();
+  }
+});
+
+test("size 校验的整条链：枚举存进快照 → 导出带上 → 改一个字节数就当冲突不写", async () => {
+  const serverRoot = fs.mkdtempSync(path.join(os.tmpdir(), "wp-sidecar-size-"));
+  const backend = await started({ catalogSidecarDir: serverRoot });
+  const api = async (route: string, body?: unknown) =>
+    json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/${route}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) }));
+  const file = path.join(serverRoot, "lib_anime", "Medalist", ".watchparty.collection.json");
+  try {
+    // fakeTree 的两个文件都报 size 10，所以枚举后快照里就该有 10。
+    assert.equal((await api("scan")).status, 200);
+    assert.equal((await api("classify")).status, 200);
+    assert.equal((await api("import/export")).status, 200);
+    const doc = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.deepEqual(doc.members.map((member: { size: number }) => member.size), [10, 10], "导出的 size 取自快照，不是额外一次请求");
+
+    const clean = await api("import/preview");
+    assert.deepEqual(clean.body.sizeChecks, { compared: 2, mismatched: 0, unchecked: 0 }, "比过了，而且报得出来比过");
+    assert.equal(clean.body.written.length, 1);
+
+    doc.title = "换了内容的标题";
+    doc.members[0].size = 999;
+    fs.writeFileSync(file, JSON.stringify(doc));
+    const tampered = await api("import/preview");
+    assert.equal(tampered.body.sizeChecks.mismatched, 1);
+    assert.deepEqual(
+      tampered.body.conflicts.map((row: { reason: string }) => row.reason),
+      ["size-mismatch"],
+    );
+    assert.deepEqual(tampered.body.conflicts[0].paths, ["/Medalist/[VCB-Studio] Medalist [01][Ma10p_1080p].mkv"]);
+    assert.equal(tampered.body.written.length, 0, "内容换了一份，谁旧谁新判不出来，一行都不写");
+    assert.equal((await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/classify?item=%2FMedalist`))).body.card.title, "Medalist");
+  } finally {
+    await backend.close();
+    fs.rmSync(serverRoot, { recursive: true, force: true });
+  }
+});

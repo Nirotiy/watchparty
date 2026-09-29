@@ -255,3 +255,68 @@ test("磁盘路径清洗：越界段和非法字符不会写到 sidecar 根外�
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+const sizedScan = [
+  { relativePath: "/作/one.mkv", name: "one.mkv", mediaId: "1", size: 1000 },
+  { relativePath: "/作/two.mkv", name: "two.mkv", mediaId: "2", size: 2000 },
+  { relativePath: "/作/three.mkv", name: "three.mkv", mediaId: "3", size: null },
+];
+
+test("成员 size 是辅助校验：坏值当「不知道」并警告，不把整份文件判废", () => {
+  const parsed = parseCollection(
+    "s",
+    JSON.stringify({
+      schemaVersion: 1,
+      basePath: "/作",
+      members: [{ path: "one.mkv", size: 1000 }, { path: "two.mkv", size: -5 }, { path: "three.mkv", size: "big" }],
+    }),
+  );
+  assert.deepEqual(parsed.errors, []);
+  assert.deepEqual(parsed.warnings, ["bad-size:two.mkv", "bad-size:three.mkv"]);
+  assert.deepEqual(parsed.sidecar!.members.map((member) => member.size), [1000, null, null]);
+});
+
+test("对账比 size：对得上、对不上、没法比，三种分得清", () => {
+  const good = sidecarOf("ok", { schemaVersion: 1, basePath: "/作", members: [{ path: "one.mkv", size: 1000 }] });
+  const off = sidecarOf("off", { schemaVersion: 1, basePath: "/作", members: [{ path: "two.mkv", size: 1999 }] });
+  const blind = sidecarOf("blind", { schemaVersion: 1, basePath: "/作", members: [{ path: "three.mkv", size: 7 }] });
+  const noSize = sidecarOf("nosize", { schemaVersion: 1, basePath: "/作", members: [{ path: "one.mkv" }] });
+  const result = reconcileCollections([good, off, blind, noSize], sizedScan);
+  assert.deepEqual(result.sizeChecks, { compared: 2, mismatched: 1, unchecked: 2 });
+  assert.deepEqual(result.shapes[1]!.sizeMismatch, [{ relPath: "/作/two.mkv", declared: 1999, actual: 2000 }]);
+  // 快照那侧没存 size（旧库）与 sidecar 没写 size，都只算没查，不算不符。
+  assert.deepEqual(result.shapes[2]!.sizeMismatch, []);
+  assert.equal(result.shapes[2]!.sizeUnchecked, 1);
+  assert.equal(result.shapes[3]!.sizeUnchecked, 1);
+});
+
+test("尺寸不符是冲突：不写元数据，把对不上的文件报出来", () => {
+  const off = sidecarOf("off", { schemaVersion: 1, basePath: "/作", members: [{ path: "one.mkv", size: 1000 }, { path: "two.mkv", size: 999 }] });
+  const cards = [{ itemKey: "/作", paths: ["/作/one.mkv", "/作/two.mkv"], confirmedBy: null }];
+  const placements = classifyPlacements(reconcileCollections([off], sizedScan).shapes, cards);
+  assert.deepEqual(placements.map((row) => [row.kind, (row as { reason?: string }).reason]), [["conflict", "size-mismatch"]]);
+  assert.deepEqual((placements[0] as { paths: string[] }).paths, ["/作/two.mkv"]);
+});
+
+test("导出把当前快照的字节数写进成员，没有的不写字段", () => {
+  const sidecar = buildCollection("lib_anime", null, {
+    itemKey: "/作",
+    sizeByPath: new Map([["/作/one.mkv", 1000], ["/作/two.mkv", null]]),
+    children: [
+      { relativePath: "/作/one.mkv", name: "one.mkv", season: 1, episode: 1 },
+      { relativePath: "/作/two.mkv", name: "two.mkv", season: 1, episode: 2 },
+    ],
+    title: "作",
+    originalTitle: null,
+    year: null,
+    overview: null,
+    posterUrl: null,
+    externalDb: null,
+    externalId: null,
+  });
+  assert.deepEqual(sidecar.members.map((member) => member.size), [1000, null]);
+  const json = collectionJson(sidecar);
+  assert.ok(json.includes('"size": 1000'), "有数值的写出来");
+  assert.equal(json.split('"size"').length - 1, 1, "没数值的连字段都不出现，别让人误读成 0 字节");
+  assert.deepEqual(sidecarOf("round", json).members.map((member) => member.size), [1000, null]);
+});

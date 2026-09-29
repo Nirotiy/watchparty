@@ -26,6 +26,8 @@ export type CollectionMember = {
   episode: number | null;
   title: string | null;
   role: CollectionRole;
+  /** 导出那一刻库里报的字节数；null = 谁都不知道（旧快照没存 size 就是这个）。 */
+  size: number | null;
 };
 
 export type CollectionSidecar = {
@@ -188,6 +190,8 @@ export function parseCollection(sourceFile: string, content: string): Collection
     }
     const season = item ? intOrNull(item.season) : null;
     const episode = item ? intOrNull(item.episode) : null;
+    const declared = item ? intOrNull(item.size) : null;
+    if (item?.size !== undefined && item?.size !== null && (declared === null || Number.isNaN(declared) || declared < 0)) warnings.push(`bad-size:${rawPath}`);
     if (item?.season !== undefined && item?.season !== null && Number.isNaN(season)) warnings.push(`bad-season:${rawPath}`);
     if (item?.episode !== undefined && item?.episode !== null && Number.isNaN(episode)) warnings.push(`bad-episode:${rawPath}`);
     members.push({
@@ -196,6 +200,7 @@ export function parseCollection(sourceFile: string, content: string): Collection
       episode: Number.isNaN(episode) ? null : episode,
       title: item ? str(item.title, 200) : null,
       role,
+      size: declared !== null && !Number.isNaN(declared) && declared >= 0 ? declared : null,
     });
   }
   if (rawMembers && members.length === 0) errors.push({ code: "members-required", message: "没有一条 members 可用" });
@@ -253,12 +258,18 @@ export function resolveMemberPaths(sidecar: CollectionSidecar): { paths: string[
   return { paths, unsafe };
 }
 
+export type SizeMismatch = { relPath: string; declared: number; actual: number };
+
 export type CollectionShape = {
   sourceFile: string;
   sidecar: CollectionSidecar;
   paths: string[];
   missing: string[];
   unsafe: string[];
+  /** 同名同路径但字节数对不上：内容已经不是导出时那份了。 */
+  sizeMismatch: SizeMismatch[];
+  /** 有多少个成员根本没法比（sidecar 没写 size，或快照那侧没存 size）。 */
+  sizeUnchecked: number;
 };
 
 export type ReconcileResult = {
@@ -267,6 +278,8 @@ export type ReconcileResult = {
   ambiguous: Array<{ relPath: string; sourceFiles: string[] }>;
   /** sidecar 目录下没被任何集合认领的快照文件（说明这套 sidecar 不完整）。 */
   unlisted: Array<{ relPath: string; under: string }>;
+  /** size 校验的整体状况：比过几处、几处对不上、几处没法比。 */
+  sizeChecks: { compared: number; mismatched: number; unchecked: number };
   errors: Array<{ sourceFile: string; errors: SidecarError[]; warnings: string[] }>;
   scannedFiles: number;
 };
@@ -287,6 +300,8 @@ export function reconcileCollections(collections: CollectionSidecar[], scan: Sca
     const { paths, unsafe } = resolveMemberPaths(sidecar);
     const kept: string[] = [];
     const missing: string[] = [];
+    const sizeMismatch: SizeMismatch[] = [];
+    let sizeUnchecked = 0;
     for (const relPath of paths) {
       // 带 root 前缀的写法（`/Anime/作品/x.mkv`）在快照里对不上时，去掉那一层再试一次。
       if (index.has(relPath)) kept.push(relPath);
@@ -296,12 +311,20 @@ export function reconcileCollections(collections: CollectionSidecar[], scan: Sca
         else missing.push(relPath);
       }
     }
+    const declaredByPath = new Map(sidecar.members.map((member) => [collectionPath(sidecar.basePath, member.path), member.size]));
     for (const relPath of kept) {
       claims.set(relPath, [...(claims.get(relPath) ?? []), sidecar.sourceFile]);
       touchedDirs.add(path.posix.dirname(relPath));
+      const declaredSize = declaredByPath.get(relPath) ?? null;
+      const actual = index.get(relPath)?.size;
+      if (declaredSize === null || actual === undefined || actual === null) {
+        sizeUnchecked += 1;
+        continue;
+      }
+      if (declaredSize !== actual) sizeMismatch.push({ relPath, declared: declaredSize, actual });
     }
     touchedDirs.add(sidecar.basePath);
-    shapes.push({ sourceFile: sidecar.sourceFile, sidecar, paths: kept, missing, unsafe });
+    shapes.push({ sourceFile: sidecar.sourceFile, sidecar, paths: kept, missing, unsafe, sizeMismatch, sizeUnchecked });
   }
   const ambiguous: Array<{ relPath: string; sourceFiles: string[] }> = [];
   for (const [relPath, sourceFiles] of claims) {
@@ -319,7 +342,15 @@ export function reconcileCollections(collections: CollectionSidecar[], scan: Sca
     }
   }
   unlisted.sort((left, right) => left.relPath.localeCompare(right.relPath));
-  return { shapes, ambiguous, unlisted, errors, scannedFiles: scan.length };
+  const sizeChecks = shapes.reduce(
+    (total, shape) => ({
+      compared: total.compared + shape.paths.length - shape.sizeUnchecked,
+      mismatched: total.mismatched + shape.sizeMismatch.length,
+      unchecked: total.unchecked + shape.sizeUnchecked,
+    }),
+    { compared: 0, mismatched: 0, unchecked: 0 },
+  );
+  return { shapes, ambiguous, unlisted, errors, sizeChecks, scannedFiles: scan.length };
 }
 
 /** 草稿卡的文件集合形状（路径身份），用来判断一个集合落在哪张卡上。 */
@@ -356,6 +387,12 @@ export function classifyPlacements(shapes: CollectionShape[], cards: DraftShape[
     }
     if (shape.missing.length > 0) {
       out.push({ kind: "conflict", sourceFile: shape.sourceFile, reason: "missing-files", paths: shape.missing });
+      continue;
+    }
+    // 字节数对不上 = 内容已经换了一份，谁旧谁新判不出来：不写，交人看。
+    // 反过来，两边都没 size 时不算不符（只算没查），这点必须分清楚。
+    if (shape.sizeMismatch.length > 0) {
+      out.push({ kind: "conflict", sourceFile: shape.sourceFile, reason: "size-mismatch", paths: shape.sizeMismatch.map((row) => row.relPath) });
       continue;
     }
     const members = shape.paths;
@@ -395,6 +432,8 @@ export function classifyPlacements(shapes: CollectionShape[], cards: DraftShape[
 
 export type CollectionSource = {
   itemKey: string;
+  /** 库内相对路径 → 当前快照报的字节数，导出时按这个填 `members[].size`。 */
+  sizeByPath?: Map<string, number | null>;
   children: Array<{ relativePath?: string; name: string; season: number | null; episode: number | null; bonus?: boolean; mediaId?: string }>;
   title: string | null;
   originalTitle: string | null;
@@ -432,6 +471,7 @@ export function buildCollection(libraryId: string, root: string | null, source: 
       episode: child.episode,
       title: null,
       role: child.bonus ? "bonus" : child.season !== null && child.episode !== null ? "episode" : "other",
+      size: source.sizeByPath?.get(relPath) ?? null,
     };
   });
   return {
@@ -472,6 +512,7 @@ export function collectionJson(sidecar: CollectionSidecar): string {
         ...(member.season === null ? {} : { season: member.season }),
         ...(member.episode === null ? {} : { episode: member.episode }),
         ...(member.title === null ? {} : { title: member.title }),
+        ...(member.size === null ? {} : { size: member.size }),
         role: member.role,
       })),
     },

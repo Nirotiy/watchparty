@@ -679,6 +679,13 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     db.exec("ALTER TABLE catalog_scan ADD COLUMN rev INTEGER NOT NULL DEFAULT 0");
   }
   /**
+   * 文件大小：sidecar 的辅助校验得有可比的东西。旧库里读回来是 NULL，就当作"不知道",
+   * 不当 0 —— 当 0 会把每一次导入都判成大小不符。
+   */
+  if (!columnExists("catalog_scan", "size")) {
+    db.exec("ALTER TABLE catalog_scan ADD COLUMN size INTEGER");
+  }
+  /**
    * 一张卡一个键位。历史上 upsertScan 的改名会让两张卡写到同一个 item_key（表现为后一个
    * 分组覆盖前一个分组的子文件，静默丢文件），唯一索引让这种写入当场失败。
    * 已有重复键位的旧库跳过：一次数据卫生检查不该把整个应用挡住。
@@ -1336,9 +1343,9 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       try {
         const next = ((db.prepare("SELECT COALESCE(MAX(rev), 0) rev FROM catalog_scan WHERE library_id = ?").get(libraryId) as { rev: number }).rev ?? 0) + 1;
         db.prepare("DELETE FROM catalog_scan WHERE library_id = ?").run(libraryId);
-        const insert = db.prepare("INSERT OR IGNORE INTO catalog_scan (library_id, rel_path, media_id, name, enumerated_at, rev) VALUES (?, ?, ?, ?, ?, ?)");
+        const insert = db.prepare("INSERT OR IGNORE INTO catalog_scan (library_id, rel_path, media_id, name, enumerated_at, rev, size) VALUES (?, ?, ?, ?, ?, ?, ?)");
         const stamp = now();
-        for (const file of files) insert.run(libraryId, file.relativePath, file.mediaId, file.name, stamp, next);
+        for (const file of files) insert.run(libraryId, file.relativePath, file.mediaId, file.name, stamp, next, typeof file.size === "number" && Number.isSafeInteger(file.size) ? file.size : null);
         db.exec("COMMIT");
       } catch (error) {
         db.exec("ROLLBACK");
@@ -1353,10 +1360,11 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       return new Set(rows.map((row) => text(row, "item_key")));
     },
     readScan(libraryId) {
-      return (db.prepare("SELECT rel_path, name, media_id FROM catalog_scan WHERE library_id = ? ORDER BY rel_path").all(libraryId) as Array<Record<string, unknown>>).map((row) => ({
+      return (db.prepare("SELECT rel_path, name, media_id, size FROM catalog_scan WHERE library_id = ? ORDER BY rel_path").all(libraryId) as Array<Record<string, unknown>>).map((row) => ({
         relativePath: text(row, "rel_path"),
         name: text(row, "name"),
         mediaId: text(row, "media_id"),
+        size: Number.isSafeInteger(row.size) ? (row.size as number) : null,
       }));
     },
     scanInfo(libraryId) {
