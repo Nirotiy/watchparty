@@ -1560,3 +1560,65 @@ test("台账与疑似同作两个读接口回真形状，台账绝不带出 toke
     await backend.close();
   }
 });
+
+/**
+ * handoff §8 的验收里有一条"批准内容被修改后 approvalToken 必须失效"。现在实现只绑**结构**
+ * 与两个 revision：批准之后人再改标题/绑定，凭证仍然有效、应用会把改后的值写进卡（人的决定
+ * 本身不会被丢，但那次批准批的不是这份内容）。是否要按整张草稿做指纹还没定，这条先把现状钉住。
+ */
+test("凭证只管结构失效：批准之后人再改元数据，应用仍放行且保住新标题", async () => {
+  const { backend, api, applied, status } = await appliedWithApproval();
+  try {
+    assert.equal(status, 200);
+    // 文件集合一致的草稿只剩元数据：不该再要凭证，也就没有"批准后被改"的窗口。
+    const metadataOnly = await api("apply");
+    assert.equal(metadataOnly.status, 200);
+    assert.deepEqual((metadataOnly.body as { structural: unknown }).structural, { added: [], dropped: [], moved: [], drift: [] });
+    assert.equal((await api("approval")).status, 409, "没有结构差异时不签发凭证");
+
+    const children = (await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/classify?item=%2FMedalist`))).body.children as Array<{ mediaId: string }>;
+    assert.equal((await api("draft/split", { itemKey: "/Medalist", keep: [children[0].mediaId] })).status, 200);
+    const granted = await api("approval");
+    assert.equal(granted.status, 200);
+    const token = (granted.body as { approvalToken: string }).approvalToken;
+
+    assert.equal((await api("draft/edit", { itemKey: "/Medalist", title: "批准之后人改的名字" })).status, 200);
+    const outcome = await api("apply-approved", { approvalToken: token, force: 1 });
+    assert.equal(outcome.status, 200, "现状：元数据改动不会让凭证失效");
+    const wall = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`));
+    assert.equal((wall.body as { items: unknown[] }).items.length, 2);
+    // 列表投影不带 itemKey（那是 CatalogDetail 上的），所以按标题找。
+    const titles = (wall.body as { items: Array<{ title: string }> }).items.map((card) => card.title);
+    assert.ok(titles.includes("批准之后人改的名字"), `应用没有把人后来改的标题写进卡：${JSON.stringify(titles)}`);
+  } finally {
+    await backend.close();
+  }
+});
+
+/** 前端对台账行的策略是"读不到就静默降级"，所以它能遇到哪些错码必须钉住、不能靠猜。 */
+test("台账与疑似同作两个只读接口的错码：403 ADMIN_FORBIDDEN、404 MEDIA_NOT_FOUND", async () => {
+  const backend = await started({ trustLibraryAdminLoopback: false, libraryAdminToken: "sekret-token" });
+  const read = async (libraryId: string, route: string, token?: string) =>
+    json(await fetch(`${base(backend)}/api/admin/media-libraries/${libraryId}/${route}`, { headers: token ? { "x-watchparty-admin": token } : {} }));
+  try {
+    for (const route of ["approvals", "duplicates"]) {
+      const denied = await read("lib_anime", route);
+      assert.equal(denied.status, 403, `${route} 无凭证必须 403（不是 401：管理面一律 ADMIN_FORBIDDEN）`);
+      assert.equal((denied.body as { code: string }).code, "ADMIN_FORBIDDEN", `${route} 的拒绝码是 ADMIN_FORBIDDEN`);
+
+      const wrong = await read("lib_anime", route, "not-the-token");
+      assert.equal(wrong.status, 403);
+      assert.equal((wrong.body as { code: string }).code, "ADMIN_FORBIDDEN");
+
+      const missing = await read("lib_nope", route, "sekret-token");
+      assert.equal(missing.status, 404, `${route} 查不存在的库必须 404`);
+      assert.equal((missing.body as { code: string }).code, "MEDIA_NOT_FOUND");
+
+      const ok = await read("lib_anime", route, "sekret-token");
+      assert.equal(ok.status, 200);
+      assert.ok(Array.isArray((ok.body as { items: unknown[] }).items), `${route} 成功时 items 一定是数组`);
+    }
+  } finally {
+    await backend.close();
+  }
+});
