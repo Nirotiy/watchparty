@@ -249,7 +249,7 @@ async function started(options: Parameters<typeof createBackend>[0]): Promise<Ba
 const base = (backend: Backend) => `http://127.0.0.1:${backend.port}`;
 const json = async (response: Response) => ({ status: response.status, body: await response.json().catch(() => null) });
 
-test("同一个库的并发 scan 只走一遍网盘：第二条并入第一条，不重复枚举", async () => {
+test("并发 scan 并入同一次枚举；GET 报 running，库不存在是 404 不是空库", async () => {
   let listings = 0;
   const backend = await started({
     libraryClientFactory: () => {
@@ -265,16 +265,23 @@ test("同一个库的并发 scan 只走一遍网盘：第二条并入第一条�
     },
   });
   try {
-    const [first, second] = await Promise.all([
-      fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/scan`, { method: "POST" }),
-      fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/scan`, { method: "POST" }),
-    ]);
+    const scanUrl = `${base(backend)}/api/admin/media-libraries/lib_anime/scan`;
+    const firstPost = fetch(scanUrl, { method: "POST" });
+    const secondPost = fetch(scanUrl, { method: "POST" });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const mid = await json(await fetch(scanUrl));
+    const [first, second] = await Promise.all([firstPost, secondPost]);
     const a = await json(first);
     const b = await json(second);
+    const after = await json(await fetch(scanUrl));
     assert.equal(a.status, 200);
     assert.equal(b.status, 200);
     assert.equal(listings, 2, "根目录 + 作品目录各一次；两条并发请求不该把它变成 4 次");
     assert.deepEqual(b.body, a.body, "两条拿到同一份快照结果（rev 只 +1，不是各写一次）");
+    assert.equal((mid.body as { running: boolean }).running, true, "枚举在跑的时候 GET 要报 running:true");
+    assert.equal((after.body as { running: boolean }).running, false, "落地之后回到 false");
+    const missing = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_gone/scan`));
+    assert.equal(missing.status, 404, "库不存在要 404 —— 回 200 加一串 0 会让人以为库是空的");
   } finally {
     await backend.close();
   }

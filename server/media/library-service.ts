@@ -187,7 +187,7 @@ export type LibraryService = {
   catalogSplit(id: string, body: unknown): CatalogDetail[];
   /** 人工挑条目用的vendor搜索（卡片改绑时先搜后绑）。 */
   vendorSearch(body: unknown): Promise<Array<{ externalDb: string; externalId: string; title: string; originalTitle: string | null; year: number | null; episodes: number | null; imageUrl: string | null }>>;
-  catalogScan(id: string): { files: number; enumeratedAt: string | null };
+  catalogScan(id: string): { files: number; enumeratedAt: string | null; rev: number; running: boolean };
   /** 只枚举并刷新快照，不分组、不刮削、不动任何卡。 */
   catalogRefreshScan(id: string): Promise<{ files: number; enumeratedAt: string | null }>;
   /** 枚举（快照为空时）+ 分类。结果只进 catalog_draft，正式卡一行不动。 */
@@ -1006,7 +1006,12 @@ export function createLibraryService(options: {
       }));
     },
     catalogScan(id) {
-      return catalog.scanInfo(id);
+      // 库不存在就 404：以前这里回 200 加一串 0，读的人会以为"这个库是空的"，
+      // 而真相是 id 写错了或者库被删了。对 agent 尤其重要 —— 猜不出来的错不该伪装成空。
+      const { library } = requireLibrary(id);
+      // running 只说一件事：这个库现在有没有在枚举。上次扫过什么、成功还是失败，
+      // 是别的字段的事，混进来界面就会拿它当那个用。
+      return { ...catalog.scanInfo(library.id), running: inFlight.has(`scan:${library.id}`) };
     },
     async catalogRefreshScan(id) {
       const library = store.getLibrary(id);
