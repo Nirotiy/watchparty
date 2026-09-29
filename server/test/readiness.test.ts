@@ -74,6 +74,10 @@ async function boot(options: {
   const config = loadConfig({
     ...process.env,
     NODE_ENV: "test",
+    // 本机 .env 里的可选密钥不许渗进断言：这些测试要的是"没配"的那个世界。
+    // 少了这两行，谁配了 BANGUMI_TOKEN 谁就看见 readiness 红。
+    BANGUMI_TOKEN: "",
+    WATCHPARTY_CATALOG_APPROVAL_SECRET: "",
     OPENLIST_URL: options.openlistUrl,
     OPENLIST_USERNAME: "probe-user",
     OPENLIST_PASSWORD: "sekret-pass-123",
@@ -285,6 +289,8 @@ test("probe cache honors ttl and single-flight (shared checkedAt)", async () => 
       password: "explicit",
     },
     mediaIdKey: { mode: "persistent" },
+    catalogApproval: { mode: "loopback-admin" },
+    bangumi: { token: "missing" },
   } as const;
   const media = createWatchpartyMedia(createOpenlistClient(config), {
     mediaIdKey: "test-key",

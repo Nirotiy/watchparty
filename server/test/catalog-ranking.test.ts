@@ -218,7 +218,7 @@ test("Bangumi 个人 token：带上就出 Authorization 头，不带就匿名，
     seen.push(init?.headers as Record<string, string>);
     return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } });
   }) as unknown as typeof fetch;
-  const hits = await createBangumiClient(fake, "bgm-secret-token").search("摇曳露营");
+  const hits = await createBangumiClient(fake, "bgm-secret-token").search("摇曳露营", "anime");
   assert.deepEqual(hits, []);
   assert.equal(seen.length, 2, "两次检索都要带头");
   for (const headers of seen) {
@@ -230,7 +230,7 @@ test("Bangumi 个人 token：带上就出 Authorization 头，不带就匿名，
     anonymous.push(init?.headers as Record<string, string>);
     return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } });
   }) as unknown as typeof fetch;
-  await createBangumiClient(anonFetch).search("摇曳露营");
+  await createBangumiClient(anonFetch).search("摇曳露营", "anime");
   assert.equal(anonymous[0]?.authorization, undefined, "没配 token 就维持匿名请求");
 
   // 密钥只进不出：配置摘要里只出现 provisioning 事实

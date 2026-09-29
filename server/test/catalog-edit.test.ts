@@ -6,7 +6,7 @@ import test from "node:test";
 import { createBackend, type Backend } from "../app.ts";
 import { loadConfig } from "../config.ts";
 import { episodeSubtitle, groupScanFiles, type CatalogGroup } from "../media/catalog-names.ts";
-import { diffSnapshots, openCatalogStore } from "../media/catalog-store.ts";
+import { diffSnapshots, openCatalogStore, structuralChanges, structuralCount } from "../media/catalog-store.ts";
 import { MetadataUnavailable } from "../media/catalog-metadata.ts";
 import { WATCHPARTY_ROOTS } from "../media/watchparty-media.ts";
 import type { OpenlistClient } from "../media/openlist.ts";
@@ -20,7 +20,7 @@ import type { OpenlistClient } from "../media/openlist.ts";
  */
 
 /** `dirs` says where the files really sit, which can differ from the card's key after a roll-up. */
-function group(itemKey: string, query: string, mediaIds: string[], dirs?: Record<string, string>): CatalogGroup {
+function group(itemKey: string, query: string, mediaIds: string[], dirs?: Record<string, string>, episodes?: Record<string, number>): CatalogGroup {
   return {
     itemKey,
     query,
@@ -28,7 +28,7 @@ function group(itemKey: string, query: string, mediaIds: string[], dirs?: Record
     rawName: itemKey.split("/").filter(Boolean).pop() ?? itemKey,
     files: mediaIds.map((mediaId) => {
       const dir = dirs?.[mediaId] ?? itemKey;
-      return { mediaId, name: `${mediaId}.mkv`, season: null, episode: null, relativePath: `${dir}/${mediaId}.mkv` };
+      return { mediaId, name: `${mediaId}.mkv`, season: null, episode: episodes?.[mediaId] ?? null, relativePath: `${dir}/${mediaId}.mkv` };
     }),
   };
 }
@@ -604,6 +604,36 @@ test("草稿差异按文件集合认身份：换 key 是 moved", () => {
     assert.equal(diff.unchanged, 0);
     assert.equal(diff.changed.length, 1, "顺带报出文案差异");
     assert.deepEqual(diff.changed[0].from, { title: "Show", subtitle: "2 集" });
+  } finally {
+    store.close();
+  }
+});
+
+test("集号覆盖变了不再报一致：进 changed / 漂移，但不算结构变更（不触批准门）", () => {
+  const { store } = openStore();
+  try {
+    // 卡上的孩子行带着集号，重算后的草稿丢了集号：文件集合、标题、集数行全一样。
+    // 以前这种"卡片静默落后"在 diff 里是"一致"，谁也不会去跑那次 apply。
+    store.upsertScan("lib_anime", "anime", [
+      group("/Show", "Show", ["s1", "s2"], undefined, { s1: 1, s2: 2 }),
+      group("/Human", "人挑的", ["h1", "h2"], undefined, { h1: 3, h2: 4 }),
+    ]);
+    const human = store.listPending("lib_anime").find((item) => item.itemKey === "/Human");
+    assert.ok(human);
+    store.rebind(human.id, { externalDb: "bangumi", externalId: "9", title: "人挑的", originalTitle: null, year: null });
+    store.writeDraft("lib_anime", [group("/Show", "Show", ["s1", "s2"]), group("/Human", "人挑的", ["h1", "h2"])]);
+
+    const diff = store.draftDiff("lib_anime");
+    assert.equal(diff.unchanged, 0, "只有集号覆盖变了，也不许报一致");
+    const shown = diff.changed.find((row) => row.itemKey === "/Show");
+    assert.deepEqual(shown?.episodes, { from: 2, to: 0 });
+    assert.equal(shown?.from.subtitle, shown?.to.subtitle, "差异只该来自集号，不是文案");
+    assert.equal(shown?.from.title ?? shown?.to.title, "Show", "也不是标题");
+    assert.deepEqual(diff.confirmedDrift.find((row) => row.itemKey === "/Human")?.episodes, { from: 2, to: 0 }, "人已确认的卡走漂移桶");
+
+    const structural = structuralChanges(diff);
+    assert.equal(structuralCount(structural), 0, "集号变化不是结构变更，不该逼人多批一次");
+    assert.deepEqual(structural.drift, [], "文件数没动的漂移行不进批准清单");
   } finally {
     store.close();
   }

@@ -123,15 +123,17 @@ export type CatalogDraftDiff = {
    */
   dropped: Array<{ id: string; itemKey: string; title: string; files: number; missingPaths: number; suggestedKeys: string[] }>;
   moved: Array<{ id: string; itemKey: string; fromKey: string; files: number }>;
-  /** 同一张卡、文案（标题或集数行）会被改写：两个值都给出，看不出改的是哪一项不算差异。 */
-  changed: Array<{ id: string; itemKey: string; from: { title: string; subtitle: string | null }; to: { title: string; subtitle: string | null }; splitIntoKeys: string[]; keepsBindingOnKey: string }>;
+  /** 同一张卡、文案（标题或集数行）会被改写：两个值都给出，看不出改的是哪一项不算差异。
+   *  `episodes` 是"孩子行里带集号的条数"：文件集合没动但解析层认出的集号变了，apply 一样会重写
+   *  孩子行 —— 不报出来就是"假一致"（卡片静默落后，而 diff 说什么都没变）。它不算结构变更。 */
+  changed: Array<{ id: string; itemKey: string; from: { title: string; subtitle: string | null }; to: { title: string; subtitle: string | null }; episodes: { from: number; to: number }; splitIntoKeys: string[]; keepsBindingOnKey: string }>;
   /**
    * 已确认的卡：标题与绑定动不了（`confirmed_by` 的保护规则），应用时只会刷子文件和
    * 集数行——所以这里只报那两样，报标题漂移是噪音（人挑的中文名本来就 ≠ 罗马字猜测）。
    */
   /** `keepsBindingOnKey`：应用后这张卡的绑定跟着哪一份草稿走。劈卡时这是关键 ——
    *  人合并过的卡重新分类会分成两半，绑定只会留在其中一半上（另一半变新卡）。 */
-  confirmedDrift: Array<{ id: string; itemKey: string; title: string; subtitle: { from: string | null; to: string | null }; files: { from: number; to: number }; splitIntoKeys: string[]; keepsBindingOnKey: string }>;
+  confirmedDrift: Array<{ id: string; itemKey: string; title: string; subtitle: { from: string | null; to: string | null }; files: { from: number; to: number }; episodes: { from: number; to: number }; splitIntoKeys: string[]; keepsBindingOnKey: string }>;
   unchanged: number;
   /** 应用后会自动确认的张数（草稿里 status=confirmed 且 confirmed_by=auto）。 */
   autoConfirmed: number;
@@ -1513,18 +1515,23 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     },
     draftDiff(libraryId) {
       const drafts = (db.prepare("SELECT item_key, signature, query, title, subtitle, files, status, confirmed_by, carries_key, children FROM catalog_draft WHERE library_id = ? ORDER BY item_key").all(libraryId) as Array<Record<string, unknown>>).map(
-        (row) => ({
-          itemKey: text(row, "item_key"),
-          signature: text(row, "signature"),
-          query: text(row, "query"),
-          // 判定过后草稿的"标题"是条目名，没判定过才用查询词。
-          title: typeof row.title === "string" ? row.title : text(row, "query"),
-          subtitle: typeof row.subtitle === "string" ? row.subtitle : null,
-          files: Number(row.files),
-          paths: (JSON.parse(String(row.children ?? "[]")) as CatalogGroupFile[]).map((file) => file.relativePath ?? `id:${file.mediaId}`),
-          carriesKey: typeof row.carries_key === "string" ? row.carries_key : null,
-          autoConfirmed: text(row, "status") === "confirmed" && text(row, "confirmed_by") === "auto",
-        }),
+        (row) => {
+          const kids = JSON.parse(String(row.children ?? "[]")) as CatalogGroupFile[];
+          return {
+            itemKey: text(row, "item_key"),
+            signature: text(row, "signature"),
+            query: text(row, "query"),
+            // 判定过后草稿的"标题"是条目名，没判定过才用查询词。
+            title: typeof row.title === "string" ? row.title : text(row, "query"),
+            subtitle: typeof row.subtitle === "string" ? row.subtitle : null,
+            files: Number(row.files),
+            paths: kids.map((file) => file.relativePath ?? `id:${file.mediaId}`),
+            // 带集号的孩子条数：文件集合相同、集号覆盖变了，也是"应用会真的改到东西"。
+            episodes: kids.filter((file) => Number.isInteger(file.episode)).length,
+            carriesKey: typeof row.carries_key === "string" ? row.carries_key : null,
+            autoConfirmed: text(row, "status") === "confirmed" && text(row, "confirmed_by") === "auto",
+          };
+        },
       );
       const formal = itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>;
       const scanPaths = new Set((db.prepare("SELECT rel_path FROM catalog_scan WHERE library_id = ?").all(libraryId) as Array<Record<string, unknown>>).map((row) => text(row, "rel_path")));
@@ -1591,18 +1598,20 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         const carrier = drafts.find((other) => other.carriesKey === itemKey);
         const keepsBindingOnKey = carrier?.itemKey ?? draft.itemKey;
         if (confirmed) {
-          if (draft.subtitle === subtitle && draft.files === children.length) {
+          const cardEpisodes = children.filter((child) => Number.isInteger(child.episode)).length;
+          if (draft.subtitle === subtitle && draft.files === children.length && draft.episodes === cardEpisodes) {
             diff.unchanged += 1;
             continue;
           }
-          diff.confirmedDrift.push({ id, itemKey, title, subtitle: { from: subtitle, to: draft.subtitle }, files: { from: children.length, to: draft.files }, splitIntoKeys, keepsBindingOnKey });
+          diff.confirmedDrift.push({ id, itemKey, title, subtitle: { from: subtitle, to: draft.subtitle }, files: { from: children.length, to: draft.files }, episodes: { from: cardEpisodes, to: draft.episodes }, splitIntoKeys, keepsBindingOnKey });
           continue;
         }
-        if (draft.title === title && draft.subtitle === subtitle) {
+        const cardEpisodes = children.filter((child) => Number.isInteger(child.episode)).length;
+        if (draft.title === title && draft.subtitle === subtitle && draft.episodes === cardEpisodes) {
           diff.unchanged += 1;
           continue;
         }
-        diff.changed.push({ id, itemKey: draft.itemKey, from: { title, subtitle }, to: { title: draft.title, subtitle: draft.subtitle }, splitIntoKeys, keepsBindingOnKey });
+        diff.changed.push({ id, itemKey: draft.itemKey, from: { title, subtitle }, to: { title: draft.title, subtitle: draft.subtitle }, episodes: { from: cardEpisodes, to: draft.episodes }, splitIntoKeys, keepsBindingOnKey });
       }
       for (const draft of drafts) {
         if (!matchedDrafts.has(draft.itemKey)) {
