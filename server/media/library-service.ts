@@ -380,6 +380,24 @@ export function createLibraryService(options: {
   }
 
   const catalog = openCatalogStore(options.catalogDbPath ?? defaultCatalogDbPath(cfg), options.posterDir ?? defaultPosterDir(cfg));
+
+  /**
+   * 同一个库的枚举/分类只跑一次：并发进来的请求并入正在跑的那一次，而不是各走一遍网盘。
+   * 真库实测两条并发 scan 互相拖到 46.5s / 31.1s，而桌面客户端的总预算是 15s —— 对这种
+   * 请求做重试不会更快，只会多一次遍历。快照写入本身是事务（后写的整份覆盖），所以并入
+   * 同一次不改变"谁赢"，只是不再白跑。
+   */
+  const inFlight = new Map<string, Promise<unknown>>();
+  function oncePerLibrary<T>(key: string, task: () => Promise<T>): Promise<T> {
+    const running = inFlight.get(key);
+    if (running) return running as Promise<T>;
+    const promise = task().finally(() => {
+      inFlight.delete(key);
+    });
+    inFlight.set(key, promise);
+    return promise;
+  }
+
   const sidecarRoot = options.catalogSidecarDir ?? defaultSidecarDir(cfg);
   const mirrorRoot = options.catalogMirrorDir ?? cfg.catalogMirrorRoot;
   const approvalSecret = options.approvalSecret ?? cfg.catalogApprovalSecret;
@@ -993,13 +1011,15 @@ export function createLibraryService(options: {
     async catalogRefreshScan(id) {
       const library = store.getLibrary(id);
       if (!library) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
-      const files = library.kind === "other" ? [] : await collectLibraryFiles(library);
-      catalog.writeScan(id, files);
-      return catalog.scanInfo(id);
+      return oncePerLibrary(`scan:${id}`, async () => {
+        const files = library.kind === "other" ? [] : await collectLibraryFiles(library);
+        catalog.writeScan(id, files);
+        return catalog.scanInfo(id);
+      });
     },
     async catalogClassify(id) {
       const { library } = requireLibrary(id);
-      return classifyLibrary(library);
+      return oncePerLibrary(`classify:${id}`, () => classifyLibrary(library));
     },
     async catalogPrepare(id, maxLookups) {
       const { library } = requireLibrary(id);

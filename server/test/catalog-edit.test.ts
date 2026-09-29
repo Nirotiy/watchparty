@@ -249,6 +249,37 @@ async function started(options: Parameters<typeof createBackend>[0]): Promise<Ba
 const base = (backend: Backend) => `http://127.0.0.1:${backend.port}`;
 const json = async (response: Response) => ({ status: response.status, body: await response.json().catch(() => null) });
 
+test("同一个库的并发 scan 只走一遍网盘：第二条并入第一条，不重复枚举", async () => {
+  let listings = 0;
+  const backend = await started({
+    libraryClientFactory: () => {
+      const client = fakeTree();
+      return {
+        ...client,
+        list: async (dir: string) => {
+          listings += 1;
+          await new Promise((resolve) => setTimeout(resolve, 60)); // 拖住第一条，保证第二条真的撞进在跑的那次
+          return client.list(dir);
+        },
+      };
+    },
+  });
+  try {
+    const [first, second] = await Promise.all([
+      fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/scan`, { method: "POST" }),
+      fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/scan`, { method: "POST" }),
+    ]);
+    const a = await json(first);
+    const b = await json(second);
+    assert.equal(a.status, 200);
+    assert.equal(b.status, 200);
+    assert.equal(listings, 2, "根目录 + 作品目录各一次；两条并发请求不该把它变成 4 次");
+    assert.deepEqual(b.body, a.body, "两条拿到同一份快照结果（rev 只 +1，不是各写一次）");
+  } finally {
+    await backend.close();
+  }
+});
+
 test("the editing endpoints answer, and the snapshot reports what enumeration stored", async () => {
   const backend = await started({});
   try {
