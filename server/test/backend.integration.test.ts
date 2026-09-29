@@ -85,6 +85,13 @@ test("health and room lifecycle use the new API contract", async () => {
   assert.equal((await fetch(`${origin(backend)}/api/rooms/missing`)).status, 404);
 });
 
+test("HTTP 空闲窗口比桌面侧车的连接池长：服务端不许先悄悄关掉 keep-alive", async () => {
+  const backend = await boot();
+  // reqwest/hyper 的池默认留 90s 空闲连接；服务端比它短，客户端就会把请求写到一条已被关掉的连接上。
+  assert.ok(backend.httpServer.keepAliveTimeout >= 90_000, `keepAliveTimeout 只有 ${backend.httpServer.keepAliveTimeout}ms，会撞"隔几秒再打就超时"`);
+  assert.ok(backend.httpServer.headersTimeout > backend.httpServer.keepAliveTimeout, "headersTimeout 必须大于 keepAliveTimeout，否则请求头还没收全就被掐");
+});
+
 test("media resolve requires room access and reports an unreachable OpenList safely", async () => {
   const backend = await boot({ WATCHPARTY_MEDIA_ID_KEY: "test-key" });
   const created = await createRoom(backend);

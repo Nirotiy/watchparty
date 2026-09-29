@@ -97,6 +97,13 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
         )
       : new http.Server(app);
 
+  // 桌面那条链路用的是 reqwest，池里空闲连接默认留 90s；Node 的 keepAliveTimeout 缺省只有 5s。
+  // 服务端先悄悄关掉连接、客户端却不知道，下一条请求就写到一条死连接上 —— 表现是"隔几秒再打
+  // 就 15s 超时"（harness 里 scan/delete 之后那条请求）。让服务端的空闲窗口比客户端长，
+  // 客户端先关就没这个竞争。headersTimeout 必须更大，否则请求头还没收全就先被掐。
+  httpServer.keepAliveTimeout = 120_000;
+  httpServer.headersTimeout = 125_000;
+
   const io: CoreServer = new Server<
     ClientToServerEvents,
     ServerToClientEvents,
