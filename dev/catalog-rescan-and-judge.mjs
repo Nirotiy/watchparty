@@ -1,7 +1,8 @@
 // 重扫 → 重分类 → 判定跑到干净，一条命令。开跑前自动整份备份两个 sqlite。
 // 前置：OpenList 得在跑（.env 的 OPENLIST_URL）。跑法：
-//   NO_PROXY=127.0.0.1,localhost,::1 node --experimental-strip-types dev/catalog-rescan-and-judge.mjs [lib_anime ...] [--max=20] [--no-judge]
+//   NO_PROXY=127.0.0.1,localhost,::1 node --experimental-strip-types dev/catalog-rescan-and-judge.mjs [lib_anime ...] [--max=20] [--no-judge] [--judge-only]
 // 判定分批是因为 Bangumi 有配额（个人 token 也只是配额更高，不是不限）；默认一轮 20 张。
+// --judge-only 跳过枚举：扫描会把快照 rev +1 并整批替换草稿，判完再扫一次就白跑。
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -10,6 +11,7 @@ const args = process.argv.slice(2);
 const maxFlag = args.find((arg) => arg.startsWith("--max="));
 const perRound = maxFlag ? Number(maxFlag.split("=")[1]) : 20;
 const judge = !args.includes("--no-judge");
+const rescan = !args.includes("--judge-only");
 const libraries = args.filter((arg) => !arg.startsWith("--"));
 const ids = libraries.length > 0 ? libraries : ["lib_anime", "lib_tv", "lib_film"];
 const base = process.env.WATCHPARTY_API_BASE ?? "http://127.0.0.1:8080";
@@ -53,9 +55,17 @@ const sizeReport = () => {
 
 for (const id of ids) {
   const started = Date.now();
-  const scan = await post(id, "scan");
-  console.log(`\n${id}：枚举 ${scan.files} 个文件，快照 rev → ${scan.rev}`);
+  if (rescan) {
+    const scan = await post(id, "scan");
+    console.log(`\n${id}：枚举 ${scan.files} 个文件，快照 rev → ${scan.rev}`);
+  } else {
+    console.log(`\n${id}：跳过枚举（--judge-only），草稿过期时 prepare 会自己重分类`);
+  }
   if (!judge) {
+    if (!rescan) {
+      console.log("  --no-judge 配 --judge-only 无事可做，跳过");
+      continue;
+    }
     const classified = await post(id, "classify");
     const d = classified.diff;
     console.log(`  重分类：草稿 ${classified.cards} 张 ⇒ 一致 ${d.unchanged} ＋${d.added.length} －${d.dropped.length} ↔${d.moved.length} ✎${d.changed.length} ⚑${d.confirmedDrift.length}`);
