@@ -1267,12 +1267,36 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     unconfirm(itemId) {
       const item = itemById.get(itemId) as Record<string, unknown> | undefined;
       if (!item) return undefined;
-      db.prepare(
-        `UPDATE catalog_items
-         SET status = 'unmatched', external_db = NULL, external_id = NULL, original_title = NULL, year = NULL,
-             overview = NULL, title = query, lookup_state = 'pending', confirmed_by = NULL, updated_at = ?
-         WHERE id = ?`,
-      ).run(now(), itemId);
+      const libraryId = text(item, "library_id");
+      const itemKey = text(item, "item_key");
+      // 撤销必须同时落到草稿：apply 读的是草稿里那份判定，只改正式卡的话下一次 apply
+      // 会把绑定原样写回去 —— 等于机器撤销了人的动作。落哪个桶照抄 draftUnconfirm 的
+      // 口径（候选还在→candidate，审阅页「待人工」；否则 unmatched），条目与候选都留着，
+      // 重新确认仍是一键。
+      const draftRow = db
+        .prepare("SELECT candidates FROM catalog_draft WHERE library_id = ? AND item_key = ?")
+        .get(libraryId, itemKey) as Record<string, unknown> | undefined;
+      const hasCandidates = draftRow !== undefined && (JSON.parse(String(draftRow.candidates ?? "[]")) as unknown[]).length > 0;
+      db.exec("BEGIN");
+      try {
+        db.prepare(
+          `UPDATE catalog_items
+           SET status = 'unmatched', external_db = NULL, external_id = NULL, original_title = NULL, year = NULL,
+               overview = NULL, title = query, lookup_state = 'pending', confirmed_by = NULL, updated_at = ?
+           WHERE id = ?`,
+        ).run(now(), itemId);
+        if (draftRow) {
+          db.prepare("UPDATE catalog_draft SET status = ?, confirmed_by = NULL, lookup_state = 'done' WHERE library_id = ? AND item_key = ?").run(
+            hasCandidates ? "candidate" : "unmatched",
+            libraryId,
+            itemKey,
+          );
+        }
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
       return readDetail(itemId);
     },
     rebind(itemId, choice) {

@@ -1107,6 +1107,60 @@ test("草稿拆分：只传留下的那批，其余自动成新卡并回到待�
   }
 });
 
+test("撤销确认是粘的：草稿那份判定一起降级，再跑 apply 不会把绑定悄悄写回去", () => {
+  const { store } = openStore();
+  try {
+    const hit = { externalDb: "bangumi" as const, externalId: "1", title: "机器挑的名", originalTitle: null, year: 2020, overview: null, imageUrl: null, episodes: null, score: 0.9 };
+    store.upsertScan("lib_anime", "anime", [group("/A", "A", ["a1", "a2"])]);
+    store.writeDraft("lib_anime", [group("/A", "A", ["a1", "a2"])]);
+    store.writeDraftJudgment("lib_anime", "/A", { status: "confirmed", candidates: [hit], chosen: hit });
+    store.applyDraftDecisions("lib_anime");
+    const card = store.listCards("lib_anime", undefined, undefined).items.find((row) => store.getDetail(row.id)?.itemKey === "/A");
+    assert.ok(card);
+    assert.equal(store.getDetail(card.id)?.status, "confirmed", "前提：这张卡是草稿判定落下去的");
+
+    store.unconfirm(card.id);
+    const draft = store.readDraft("lib_anime").find((row) => row.itemKey === "/A");
+    assert.equal(draft?.status, "candidate", "候选还在 ⇒ 落「待人工」，与 draftUnconfirm 同口径");
+    assert.equal(draft?.confirmedBy, null, "草稿里那份\"人确认过\"也一起撤掉");
+    assert.equal(draft?.lookupState, "done", "不许被下一轮判定重新捡起来确认回去");
+    assert.ok(draft && draft.candidates.length > 0, "候选与条目都留着：重新确认是一键的事");
+
+    const again = store.applyDraftDecisions("lib_anime");
+    assert.ok(again.updated >= 1, "apply 确实动过这张卡，不是没跑");
+    assert.equal(store.getDetail(card.id)?.status, "candidate", "撤销后 apply 只能把它推到\"有候选、待人工\"");
+    assert.equal(store.getDetail(card.id)?.externalId, null, "绑定没有被写回来（撤销是粘的）");
+    assert.equal(store.getDetail(card.id)?.confirmedBy ?? null, null, "也不算任何人确认过的");
+  } finally {
+    store.close();
+  }
+});
+
+test("撤销确认在没有候选、或草稿里根本没这一行时也不炸", () => {
+  const { store } = openStore();
+  try {
+    const hit = { externalDb: "bangumi" as const, externalId: "7", title: "条目", originalTitle: null, year: null, overview: null, imageUrl: null, episodes: null, score: 0.8 };
+    store.upsertScan("lib_anime", "anime", [group("/A", "A", ["a1"]), group("/NoDraft", "NoDraft", ["z1"])]);
+    store.writeDraft("lib_anime", [group("/A", "A", ["a1"])]);
+    store.writeDraftJudgment("lib_anime", "/A", { status: "candidate", candidates: [hit], chosen: hit });
+    store.draftConfirm("lib_anime", "/A", hit);
+    store.applyDraftDecisions("lib_anime");
+    const rows = store.listCards("lib_anime", undefined, undefined).items;
+    const withCandidates = rows.find((row) => store.getDetail(row.id)?.itemKey === "/A");
+    const orphan = rows.find((row) => store.getDetail(row.id)?.itemKey === "/NoDraft");
+    assert.ok(withCandidates && orphan);
+
+    // 人直接确认的（草稿不是 confirmed）：撤销后草稿落回它本来的桶，不报错
+    assert.ok(store.unconfirm(withCandidates.id));
+    assert.equal(store.readDraft("lib_anime").find((row) => row.itemKey === "/A")?.status, "candidate");
+    // 草稿里没有这一行的卡（正式表里躺着、草稿没写）：撤销只动卡，不许抛
+    assert.ok(store.unconfirm(orphan.id));
+    assert.equal(store.getDetail(orphan.id)?.status, "unmatched");
+  } finally {
+    store.close();
+  }
+});
+
 test("绑定承接：人可以选择让哪一半留住条目，应用时按这个决定搬绑定", () => {
   const store = draftStore();
   try {
