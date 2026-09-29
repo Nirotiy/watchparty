@@ -1163,3 +1163,143 @@ test("绑定承接可以复位，也不会被反向调用点成环", () => {
     store.close();
   }
 });
+
+test("sidecar 元数据写入：可以覆盖字段，但不冒充人工决定，也不动人工决定的行", () => {
+  const store = draftStore();
+  try {
+    assert.equal(store.draftEdit("lib_anime", "/Other", { title: "人起的名字" }), true);
+    assert.equal(store.draftImport("lib_anime", "/Nope", { title: "x" }), "missing");
+    assert.equal(store.draftImport("lib_anime", "/Other", { title: "sidecar 想改" }), "protected");
+    assert.equal(store.readDraft("lib_anime").find((row) => row.itemKey === "/Other")?.title, "人起的名字", "人工决定优先");
+    assert.equal(store.draftImport("lib_anime", "/W", { title: "侧车标题", year: 1999, externalDb: "bangumi", externalId: "4242" }), "ok");
+    const row = store.readDraft("lib_anime").find((entry) => entry.itemKey === "/W");
+    assert.equal(row?.title, "侧车标题");
+    assert.equal(row?.year, 1999);
+    assert.equal(row?.externalId, "4242");
+    assert.equal(row?.status, "confirmed");
+    assert.equal(row?.lookupState, "done", "sidecar 给出了条目，判定这一轮不必再跑");
+    assert.equal(row?.confirmedBy, null, "导入不是人的决定：保护规则不能因为它失效");
+    assert.equal(store.cardIds("lib_anime").length, 0, "一行正式卡都不写");
+  } finally {
+    store.close();
+  }
+});
+
+/** sidecar 三条接口 + 单卡读取都要同一个前缀，两个用例共用一个助手。 */
+function sidecarApi(backend: Backend) {
+  const api = async (route: string, body?: unknown) =>
+    json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/${route}`, { method: "POST", headers: { "content-type": "application/json" }, body: body === undefined ? "{}" : JSON.stringify(body) }));
+  const card = async (itemKey: string) =>
+    json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/classify?item=${encodeURIComponent(itemKey)}`));
+  return { api, card };
+}
+
+test("collection sidecar 闭环：导出可读回，元数据写草稿，结构提案要显式落", async () => {
+  const sidecarDir = fs.mkdtempSync(path.join(os.tmpdir(), "wp-sidecar-"));
+  const backend = await started({ catalogSidecarDir: sidecarDir });
+  const { api, card } = sidecarApi(backend);
+  try {
+    assert.equal((await api("classify")).status, 200);
+    const exported = await api("import/export");
+    assert.equal(exported.status, 200);
+    assert.deepEqual(exported.body.written, ["Medalist/.watchparty.collection.json"]);
+    const file = path.join(sidecarDir, "lib_anime", "Medalist", ".watchparty.collection.json");
+    const doc = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.equal(doc.libraryId, "lib_anime");
+    assert.equal(doc.basePath, "/Medalist");
+    assert.deepEqual(doc.members.map((member: { path: string }) => member.path), [
+      "[VCB-Studio] Medalist [01][Ma10p_1080p].mkv",
+      "[VCB-Studio] Medalist [02][Ma10p_1080p].mkv",
+    ]);
+
+    doc.title = "メダリスト";
+    doc.year = 2025;
+    doc.external = { db: "bangumi", id: "430699" };
+    fs.writeFileSync(file, JSON.stringify(doc));
+    const preview = await api("import/preview");
+    assert.equal(preview.status, 200);
+    assert.deepEqual(preview.body.written.map((entry: { itemKey: string }) => entry.itemKey), ["/Medalist"]);
+    assert.deepEqual(preview.body.proposals, [], "文件集合一致，不该提出任何结构变更");
+    const row = await card("/Medalist");
+    assert.equal(row.body.card.title, "メダリスト");
+    assert.equal(row.body.card.externalId, "430699");
+    assert.equal(row.body.card.confirmedBy, null);
+
+    assert.equal((await api("draft/edit", { itemKey: "/Medalist", title: "人起的名字" })).status, 200);
+    const again = await api("import/preview");
+    assert.deepEqual(again.body.protectedCards.map((entry: { itemKey: string }) => entry.itemKey), ["/Medalist"]);
+    assert.deepEqual(again.body.written, []);
+    assert.equal((await card("/Medalist")).body.card.title, "人起的名字");
+
+    // 一个目录住两部作品：先只出提案，structure 之后才落到草稿。
+    fs.rmSync(file);
+    const dir = path.join(sidecarDir, "lib_anime", "Medalist");
+    const half = (name: string, episode: number, title: string) =>
+      fs.writeFileSync(
+        path.join(dir, name),
+        JSON.stringify({
+          schemaVersion: 1,
+          libraryId: "lib_anime",
+          basePath: "/Medalist",
+          title,
+          members: [{ path: `[VCB-Studio] Medalist [0${episode}][Ma10p_1080p].mkv`, season: 1, episode, role: "episode" }],
+        }),
+      );
+    half("part-1.watchparty.collection.json", 1, "第一部");
+    half("part-2.watchparty.collection.json", 2, "第二部");
+    const staged = await api("import/preview");
+    assert.deepEqual(staged.body.applied, [], "preview 不执行结构");
+    assert.deepEqual(staged.body.proposals.map((entry: { kind: string }) => entry.kind), ["split", "split"]);
+    assert.equal((await card("/Medalist")).body.card.files, 2, "提案没落地前草稿还是两张文件");
+
+    const structure = await api("import/structure", {});
+    assert.equal(structure.status, 200);
+    assert.deepEqual(
+      structure.body.applied.map((entry: { result: string }) => entry.result),
+      ["ok", "skipped"],
+      "第一条拆完，第二条的文件集合已经正好等于新卡",
+    );
+    assert.deepEqual((await api("import/preview")).body.proposals, []);
+    const applied = await api("import/preview");
+    assert.equal(applied.body.draftCards, 2, "一个目录两张卡");
+    assert.equal(applied.body.written.length, 1, "人改过的那半不许机器改名");
+    assert.deepEqual(applied.body.protectedCards.map((entry: { itemKey: string }) => entry.itemKey), ["/Medalist"]);
+    assert.equal((await card("/Medalist")).body.card.title, "人起的名字");
+    const moved = applied.body.written[0].itemKey as string;
+    assert.notEqual(moved, "/Medalist");
+    assert.equal((await card(moved)).body.card.title, "第二部");
+    assert.equal((await card(moved)).body.card.files, 1);
+    const formal = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`));
+    assert.equal(formal.body.items.length, 0, "结构只到草稿：正式卡要等 apply");
+  } finally {
+    await backend.close();
+    fs.rmSync(sidecarDir, { recursive: true, force: true });
+  }
+});
+
+test("两个 sidecar 抢同一个文件时谁都不许写，只报冲突", async () => {
+  const sidecarDir = fs.mkdtempSync(path.join(os.tmpdir(), "wp-sidecar-"));
+  const backend = await started({ catalogSidecarDir: sidecarDir });
+  const { api, card } = sidecarApi(backend);
+  const dir = path.join(sidecarDir, "lib_anime", "Medalist");
+  fs.mkdirSync(dir, { recursive: true });
+  for (const name of ["one.watchparty.collection.json", "two.watchparty.collection.json"]) {
+    fs.writeFileSync(
+      path.join(dir, name),
+      JSON.stringify({ schemaVersion: 1, libraryId: "lib_anime", basePath: "/Medalist", title: `抢 ${name}`, members: [{ path: "[VCB-Studio] Medalist [01][Ma10p_1080p].mkv" }] }),
+    );
+  }
+  try {
+    assert.equal((await api("classify")).status, 200);
+    const preview = await api("import/preview");
+    assert.equal(preview.status, 200);
+    assert.deepEqual(preview.body.written, []);
+    assert.deepEqual(preview.body.conflicts.map((entry: { reason: string }) => entry.reason), ["claimed-by-two", "claimed-by-two"]);
+    assert.equal(preview.body.ambiguous.length, 1);
+    assert.equal((await card("/Medalist")).body.card.files, 2, "冲突不许动草稿");
+    assert.equal((await card("/Medalist")).body.card.title, "Medalist", "也没人替它改名");
+  } finally {
+    await backend.close();
+    fs.rmSync(sidecarDir, { recursive: true, force: true });
+  }
+});

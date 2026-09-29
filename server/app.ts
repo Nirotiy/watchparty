@@ -53,6 +53,8 @@ export type CreateBackendOptions = {
   catalogDelayMs?: number;
   catalogMaxLookups?: number;
   posterDir?: string;
+  /** collection sidecar 根目录；测试用临时目录，默认 `data/catalog-sidecars`。 */
+  catalogSidecarDir?: string;
   bangumi?: import("./media/catalog-metadata.ts").MetadataSearcher;
   tmdb?: import("./media/catalog-metadata.ts").MetadataSearcher;
   fetchPoster?: (url: string) => Promise<{ contentType: string; bytes: Buffer } | undefined>;
@@ -132,6 +134,7 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
     ...(options.catalogDelayMs !== undefined ? { catalogDelayMs: options.catalogDelayMs } : {}),
     ...(options.catalogMaxLookups !== undefined ? { catalogMaxLookups: options.catalogMaxLookups } : {}),
     ...(options.posterDir !== undefined ? { posterDir: options.posterDir } : {}),
+    ...(options.catalogSidecarDir !== undefined ? { catalogSidecarDir: options.catalogSidecarDir } : {}),
     ...(options.bangumi !== undefined ? { bangumi: options.bangumi } : {}),
     ...(options.tmdb !== undefined ? { tmdb: options.tmdb } : {}),
     ...(options.fetchPoster !== undefined ? { fetchPoster: options.fetchPoster } : {}),

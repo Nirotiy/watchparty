@@ -13,7 +13,18 @@ import {
 } from "./library-browser.ts";
 import { groupScanFiles, isVideoFileName, type CatalogGroupFile, type ScanFile } from "./catalog-names.ts";
 import { createBangumiClient, createTmdbClient, fetchPosterBytes, judgeThresholds, type MetadataSearcher, type RankedHit } from "./catalog-metadata.ts";
-import { openCatalogStore, type CatalogCard, type CatalogDraftCard, type CatalogDraftDiff, type CatalogDraftRow, type CatalogDetail, type ManualBinding } from "./catalog-store.ts";
+import { openCatalogStore, type CatalogCard, type CatalogDraftCard, type CatalogDraftDiff, type CatalogDraftRow, type CatalogDetail, type DraftPatch, type ManualBinding } from "./catalog-store.ts";
+import {
+  buildCollection,
+  classifyPlacements,
+  readCollectionRoot,
+  reconcileCollections,
+  resolveMemberPaths,
+  safeSegments,
+  writeCollectionRoot,
+  type DraftShape,
+  type Placement,
+} from "./collection-sidecar.ts";
 import { createCatalogWorker } from "./catalog-worker.ts";
 import {
   isLibraryKind,
@@ -70,6 +81,32 @@ export type DraftEditResult = {
   diff: CatalogDraftDiff;
 };
 
+/** 每次 sidecar 导入的回执：写了什么、为什么没写、结构提案、以及现在长什么样的 diff。 */
+export type ImportPreviewResult = {
+  libraryId: string;
+  root: string;
+  libraryName: string;
+  sidecarFiles: number;
+  collections: number;
+  scannedFiles: number;
+  scanRev: number;
+  draftRev: number;
+  draftCards: number;
+  written: Array<{ sourceFile: string; itemKey: string; fields: string[] }>;
+  /** 人工决定优先：这些卡的文件集合对上了，但 `confirmed_by` 是人的，一行都没改。 */
+  protectedCards: Array<{ sourceFile: string; itemKey: string; reason: "human-confirmed" }>;
+  proposals: Array<Exclude<Placement, { kind: "metadata" }>>;
+  conflicts: Array<{ sourceFile: string; reason: string; paths?: string[] }>;
+  ambiguous: Array<{ relPath: string; sourceFiles: string[] }>;
+  unlisted: Array<{ relPath: string; under: string }>;
+  errors: Array<{ sourceFile: string; errors: Array<{ code: string; message: string }>; warnings: string[] }>;
+  /** 明确写着别的库的 sidecar：不参与匹配，只报出来。 */
+  foreign: Array<{ sourceFile: string; libraryId: string }>;
+  /** 只有 import/structure 会填：每条提案的执行结果。 */
+  applied: Array<{ sourceFile: string; kind: string; result: string; detail?: string }>;
+  diff: CatalogDraftDiff;
+};
+
 export type LibraryService = {
   close(): void;
   sourceCount(): number;
@@ -121,6 +158,12 @@ export type LibraryService = {
   draftMerge(id: string, body: unknown): DraftEditResult;
   draftSplit(id: string, body: unknown): DraftEditResult & { createdKeys: string[] };
   draftKeepBinding(id: string, body: unknown): DraftEditResult;
+  /** 把当前草稿导出成 WatchParty collection sidecar（只写服务端本地根目录，绝不回写网盘）。 */
+  importExport(id: string): { libraryId: string; root: string; cards: number; written: string[] };
+  /** 读 sidecar 根目录 → 与快照对账 → 落点分类 → 把元数据写进草稿。结构变更只出提案。 */
+  importPreview(id: string): ImportPreviewResult;
+  /** 把 sidecar 的结构提案落到草稿（复用现有 draft merge/split），仍然只写草稿。 */
+  importStructure(id: string, body: unknown): ImportPreviewResult;
   /** 读回草稿与它同正式卡的差异。 */
   catalogDraft(id: string): {
     libraryId: string;
@@ -170,6 +213,8 @@ export function createLibraryService(options: {
   adminToken?: string;
   catalogDbPath?: string;
   posterDir?: string;
+  /** collection sidecar 的根目录（默认 `data/catalog-sidecars`）。 */
+  catalogSidecarDir?: string;
   bangumi?: MetadataSearcher;
   tmdb?: MetadataSearcher;
   fetchPoster?: (url: string) => Promise<{ contentType: string; bytes: Buffer } | undefined>;
@@ -223,6 +268,7 @@ export function createLibraryService(options: {
   }
 
   const catalog = openCatalogStore(options.catalogDbPath ?? defaultCatalogDbPath(cfg), options.posterDir ?? defaultPosterDir(cfg));
+  const sidecarRoot = options.catalogSidecarDir ?? defaultSidecarDir(cfg);
   const bangumiSearcher = options.bangumi ?? createBangumiClient();
   const episodeCache = new Map<string, Promise<Map<number, string>>>();
   const worker = createCatalogWorker({
@@ -276,6 +322,129 @@ export function createLibraryService(options: {
       files: info.files,
       pending: info.pending,
       diff: catalog.draftDiff(id),
+    };
+  }
+
+  /**
+   * sidecar → 草稿的唯一一条写入路径。`sourceFiles` 给了就把这些集合的结构提案也落到
+   * 草稿（走现有 draft merge/split），否则只写元数据、结构只出提案。两种模式都碰不到
+   * 正式卡：那是 apply 的事，而带结构的 apply 要人工签发的一次性凭证。
+   */
+  function importCollections(libraryId: string, structure: string[] | "all" | null): ImportPreviewResult {
+    const { library } = requireLibrary(libraryId);
+    const scan = catalog.readScan(libraryId);
+    if (scan.length === 0) throw new LibraryRequestError(409, "CATALOG_SCAN_EMPTY");
+    const root = path.join(sidecarRoot, ...safeSegments(libraryId));
+    const read = readCollectionRoot(sidecarRoot, libraryId);
+    const foreign = read.collections.filter((entry) => entry.libraryId && entry.libraryId !== libraryId);
+    const mine = read.collections.filter((entry) => !entry.libraryId || entry.libraryId === libraryId);
+    if (mine.length === 0) throw new LibraryRequestError(409, "SIDECAR_EMPTY", { root, files: read.files });
+    if (catalog.readDraft(libraryId).length === 0) throw new LibraryRequestError(409, "CATALOG_DRAFT_EMPTY", { draftCards: 0 });
+    const bySource = new Map(mine.map((entry) => [entry.sourceFile, entry]));
+    const draftShapes = (): DraftShape[] =>
+      catalog.readDraft(libraryId).map((card) => ({
+        itemKey: card.itemKey,
+        paths: card.children.map((file) => file.relativePath ?? `id:${file.mediaId}`),
+        confirmedBy: card.confirmedBy,
+      }));
+    /** 每轮都按当前草稿重算：上一条结构操作会改变后面每条的落点。 */
+    const current = () => {
+      const reconciled = reconcileCollections(mine, scan);
+      const claimed = new Set(reconciled.ambiguous.flatMap((entry) => entry.sourceFiles));
+      return classifyPlacements(reconciled.shapes, draftShapes()).map((placement) =>
+        placement.kind !== "conflict" && claimed.has(placement.sourceFile)
+          ? { kind: "conflict" as const, sourceFile: placement.sourceFile, reason: "claimed-by-two", paths: reconciled.ambiguous.filter((entry) => entry.sourceFiles.includes(placement.sourceFile)).map((entry) => entry.relPath) }
+          : placement,
+      );
+    };
+    const applied: ImportPreviewResult["applied"] = [];
+    if (structure) {
+      let list = current();
+      const targets = structure === "all" ? list.filter((entry) => entry.kind === "split" || entry.kind === "merge").map((entry) => entry.sourceFile) : structure;
+      for (const sourceFile of targets) {
+        const placement = list.find((entry) => entry.sourceFile === sourceFile);
+        if (!placement) continue;
+        if (placement.kind !== "merge" && placement.kind !== "split") {
+          applied.push({ sourceFile, kind: placement.kind, result: "skipped" });
+          continue;
+        }
+        // 落点算出来的卡可能已经被上一条操作并走了：那是重算的事，不是错误。
+        if (!draftShapes().some((shape) => shape.itemKey === placement.itemKey)) {
+          applied.push({ sourceFile, kind: placement.kind, result: "skipped" });
+          continue;
+        }
+        if (placement.kind === "merge") {
+          const outcome = catalog.draftMerge(libraryId, placement.itemKey, placement.dropKeys);
+          applied.push({ sourceFile, kind: placement.kind, result: outcome.error ? `rejected:${outcome.error}` : "ok" });
+          list = current();
+          continue;
+        }
+        const collection = bySource.get(sourceFile);
+        const keep = new Set(collection ? resolveMemberPaths(collection).paths : []);
+        const children = catalog.draftChildren(libraryId, placement.itemKey) ?? [];
+        const keepIds = children.filter((file) => keep.has(file.relativePath ?? `id:${file.mediaId}`)).map((file) => file.mediaId);
+        const outcome = catalog.draftSplit(libraryId, placement.itemKey, keepIds);
+        applied.push({ sourceFile, kind: placement.kind, result: outcome.error ? `rejected:${outcome.error}` : "ok", detail: outcome.created?.join(", ") });
+        list = current();
+      }
+    }
+    const list = current();
+    const written: ImportPreviewResult["written"] = [];
+    const protectedCards: ImportPreviewResult["protectedCards"] = [];
+    const conflicts: ImportPreviewResult["conflicts"] = [];
+    for (const placement of list) {
+      const sidecar = bySource.get(placement.sourceFile);
+      if (!sidecar) continue;
+      if (placement.kind === "conflict") {
+        conflicts.push({ sourceFile: placement.sourceFile, reason: placement.reason, paths: placement.paths });
+        continue;
+      }
+      if (placement.kind !== "metadata") continue;
+      const patch: DraftPatch = {
+        ...(sidecar.title ? { title: sidecar.title } : {}),
+        ...(sidecar.originalTitle ? { originalTitle: sidecar.originalTitle } : {}),
+        ...(sidecar.year !== null ? { year: sidecar.year } : {}),
+        ...(sidecar.overview ? { overview: sidecar.overview } : {}),
+        ...(sidecar.poster ? { posterUrl: sidecar.poster } : {}),
+        ...(sidecar.externalId ? { externalDb: sidecar.externalDb, externalId: sidecar.externalId } : {}),
+      };
+      if (Object.keys(patch).length === 0) continue;
+      const outcome = catalog.draftImport(libraryId, placement.itemKey, patch);
+      if (outcome === "protected") {
+        protectedCards.push({ sourceFile: placement.sourceFile, itemKey: placement.itemKey, reason: "human-confirmed" });
+        continue;
+      }
+      if (outcome === "missing") {
+        conflicts.push({ sourceFile: placement.sourceFile, reason: "draft-card-missing", paths: [placement.itemKey] });
+        continue;
+      }
+      written.push({ sourceFile: placement.sourceFile, itemKey: placement.itemKey, fields: Object.keys(patch).sort() });
+    }
+    const info = catalog.draftInfo(libraryId);
+    const snapshot = catalog.scanInfo(libraryId);
+    const reconciled = reconcileCollections(mine, scan);
+    return {
+      libraryId,
+      root,
+      libraryName: library.name,
+      sidecarFiles: read.files,
+      collections: mine.length,
+      scannedFiles: scan.length,
+      scanRev: snapshot.rev,
+      draftRev: info.rev,
+      draftCards: info.cards,
+      written,
+      protectedCards,
+      proposals: list
+        .filter((placement): placement is Exclude<Placement, { kind: "metadata" }> => placement.kind !== "metadata")
+        .map((placement) => ({ ...placement })),
+      conflicts,
+      ambiguous: reconciled.ambiguous,
+      unlisted: reconciled.unlisted,
+      errors: read.errors,
+      foreign: foreign.map((entry) => ({ sourceFile: entry.sourceFile, libraryId: String(entry.libraryId) })),
+      applied,
+      diff: catalog.draftDiff(libraryId),
     };
   }
 
@@ -779,6 +948,37 @@ export function createLibraryService(options: {
       if (!catalog.draftCarryBinding(id, itemKey, keepsBindingOnKey)) throw draftError("DRAFT_EDIT_INVALID", 400, { reason: "bad-carrier" });
       return draftSummary(id, itemKey);
     },
+    importExport(id) {
+      const { library } = requireLibrary(id);
+      const cards = catalog.readDraft(id);
+      if (cards.length === 0) throw new LibraryRequestError(409, "CATALOG_DRAFT_EMPTY", { draftCards: 0 });
+      const sidecars = cards.map((card) =>
+        buildCollection(id, library.name, {
+          itemKey: card.itemKey,
+          children: card.children,
+          title: card.title ?? card.query,
+          originalTitle: card.originalTitle,
+          year: card.year,
+          overview: card.overview,
+          posterUrl: card.posterUrl,
+          externalDb: card.externalDb,
+          externalId: card.externalId,
+        }),
+      );
+      return { libraryId: id, root: path.join(sidecarRoot, ...safeSegments(id)), cards: sidecars.length, written: writeCollectionRoot(sidecarRoot, id, sidecars) };
+    },
+    importPreview(id) {
+      return importCollections(id, null);
+    },
+    importStructure(id, body) {
+      requireLibrary(id);
+      const raw = (body as Record<string, unknown> | undefined)?.sourceFiles;
+      if (raw === undefined) return importCollections(id, "all");
+      if (!Array.isArray(raw) || raw.some((entry) => typeof entry !== "string" || !entry || entry.length > 600)) {
+        throw draftError("DRAFT_EDIT_INVALID", 400, { reason: "bad-source-files" });
+      }
+      return importCollections(id, raw as string[]);
+    },
     catalogPoster(id) {
       return catalog.readPoster(id);
     },
@@ -830,6 +1030,12 @@ function defaultCatalogDbPath(cfg: AppConfig): string {
 function defaultPosterDir(cfg: AppConfig): string {
   if (cfg.nodeEnv === "test") return fs.mkdtempSync(path.join(os.tmpdir(), "wp-posters-"));
   return path.join(process.cwd(), "data", "poster-cache");
+}
+
+/** sidecar 的规范来源永远在服务端本地，不回写 OpenList 目录。 */
+function defaultSidecarDir(cfg: AppConfig): string {
+  if (cfg.nodeEnv === "test") return fs.mkdtempSync(path.join(os.tmpdir(), "wp-sidecars-"));
+  return path.join(process.cwd(), "data", "catalog-sidecars");
 }
 
 function publicJob(job: { libraryId: string; status: string; total: number; scanned: number; matched: number; lastError: string | null }) {

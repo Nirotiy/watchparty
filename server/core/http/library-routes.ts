@@ -300,6 +300,25 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
     });
   }
 
+  // sidecar 导入：草稿是唯一真相源，所以这里只有"写草稿"的口子。export 把当前草稿落成
+  // `.watchparty.collection.json`（服务端本地根目录，绝不回写网盘）；preview 读回来按文件
+  // 集合对账；structure 把结构提案也落进草稿。正式卡仍然只有 apply 能动。
+  const imports: Array<{ action: string; run: (id: string, body: unknown) => unknown }> = [
+    { action: "export", run: (id) => library.importExport(id) },
+    { action: "preview", run: (id) => library.importPreview(id) },
+    { action: "structure", run: (id, body) => library.importStructure(id, body) },
+  ];
+  for (const { action, run } of imports) {
+    app.post(`/api/admin/media-libraries/:id/import/${action}`, (req, res) => {
+      if (!requireAdmin(library, req, res)) return;
+      try {
+        res.json(run(paramId(req), req.body));
+      } catch (error) {
+        sendFailure(res, error);
+      }
+    });
+  }
+
   // One call for the whole local loop: classify what is missing, judge what is not
   // yet judged, and stop at the draft. `?max=` caps this run's lookups.
   app.post("/api/admin/media-libraries/:id/prepare", async (req, res) => {

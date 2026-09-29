@@ -230,6 +230,11 @@ export type CatalogStore = {
   draftDiff(libraryId: string): CatalogDraftDiff;
   /** 以下六个只改草稿：正式卡要等 apply，判定不会盖掉人工编辑（confirmed_by=manual）。 */
   draftEdit(libraryId: string, itemKey: string, patch: DraftPatch): boolean;
+  /**
+   * sidecar / MCP 的元数据写入：字段可覆盖，但人工决定过的行返回 `protected` 不动，
+   * 且不会把 `confirmed_by` 冒充成 `manual`。
+   */
+  draftImport(libraryId: string, itemKey: string, patch: DraftPatch): "ok" | "missing" | "protected";
   draftConfirm(libraryId: string, itemKey: string, choice?: { externalDb: string; externalId: string }): "ok" | "missing" | "no-candidate" | "unknown-candidate";
   draftUnconfirm(libraryId: string, itemKey: string): boolean;
   draftMerge(libraryId: string, keepKey: string, dropKeys: string[]): { error: "missing" | "conflict" | null; keys?: string[] };
@@ -500,6 +505,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     posterUrl: string | null;
     confirmedBy: string | null;
     status: string;
+    lookupState: string;
     subtitle: string | null;
     files: number;
     rev: number;
@@ -525,6 +531,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       posterUrl: typeof row.poster_url === "string" ? row.poster_url : null,
       confirmedBy: typeof row.confirmed_by === "string" ? row.confirmed_by : null,
       status: text(row, "status") || "unmatched",
+      lookupState: typeof row.lookup_state === "string" ? row.lookup_state : "pending",
       subtitle: typeof row.subtitle === "string" ? row.subtitle : null,
       files: Number(row.files),
       rev: Number(row.rev ?? 0),
@@ -1368,6 +1375,36 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         itemKey,
       );
       return true;
+    },
+    draftImport(libraryId, itemKey, patch) {
+      const row = readDraftRow(libraryId, itemKey);
+      if (!row) return "missing" as const;
+      if (row.confirmedBy === "manual" || row.confirmedBy === "rebind" || row.confirmedBy === "unknown") return "protected" as const;
+      const externalDb = patch.externalDb === undefined ? row.externalDb : patch.externalDb;
+      const externalId = patch.externalId === undefined ? row.externalId : patch.externalId;
+      const bound = Boolean(externalId);
+      // 导入不是人的决定：confirmed_by 保持原样（null/auto），否则下一次重扫就再也
+      // 改不动这行，界面也会把它显示成"人工已确认"。
+      db.prepare(
+        `UPDATE catalog_draft
+         SET title = ?, original_title = COALESCE(?, original_title), year = COALESCE(?, year),
+             overview = COALESCE(?, overview), poster_url = COALESCE(?, poster_url),
+             external_db = ?, external_id = ?, status = ?, lookup_state = ?
+         WHERE library_id = ? AND item_key = ?`,
+      ).run(
+        patch.title ?? row.title ?? row.query,
+        patch.originalTitle ?? null,
+        patch.year ?? null,
+        patch.overview ?? null,
+        patch.posterUrl ?? null,
+        externalDb,
+        externalId,
+        bound ? "confirmed" : row.status,
+        bound ? "done" : row.lookupState,
+        libraryId,
+        itemKey,
+      );
+      return "ok" as const;
     },
     draftConfirm(libraryId, itemKey, choice) {
       const row = readDraftRow(libraryId, itemKey);
