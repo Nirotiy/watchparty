@@ -45,8 +45,24 @@ const settle = async (id, route, readRoute) => {
 const stamp = new Date().toISOString().replace(/[:.]/g, "").slice(0, 15);
 const backup = path.join(process.cwd(), "data", `backup-pre-rescan-${stamp}`);
 fs.mkdirSync(backup, { recursive: true });
-for (const file of ["watchparty-catalog.sqlite", "watchparty-library.sqlite", "watchparty-catalog.sqlite-wal", "watchparty-catalog.sqlite-shm"]) {
-  if (fs.existsSync(path.join(process.cwd(), "data", file))) fs.copyFileSync(path.join(process.cwd(), "data", file), path.join(backup, file));
+// 备份用 VACUUM INTO，不用 cp：活着的 SQLite 文件被外部 cp 可能拍到事务中途的状态
+// （本机 journal_mode 是 delete，没有 -wal，但"撕页"这件事跟 journal 模式无关 —— 保护的是
+// SQLite 自己，不是旁边那个 cp）。VACUUM INTO 是官方的在线一致性快照。
+const snapshotTo = (source, target) => {
+  if (!fs.existsSync(source)) return false;
+  if (target.includes("'")) throw new Error(`路径里有引号，不能拼进 VACUUM INTO：${target}`);
+  fs.rmSync(target, { force: true });
+  const from = new DatabaseSync(source);
+  try {
+    from.exec(`VACUUM INTO '${target}'`);
+  } finally {
+    from.close();
+  }
+  return true;
+};
+const snapshotted = [];
+for (const [name, file] of [["catalog", "watchparty-catalog.sqlite"], ["library", "watchparty-library.sqlite"]]) {
+  if (snapshotTo(path.join(process.cwd(), "data", file), path.join(backup, file))) snapshotted.push(name);
 }
 // 目录名只记录"什么时候下的盘"，不记录"拍到的是什么状态"。所以拍完立刻回读关键状态写进
 // MANIFEST.txt 并打出来 —— 否则后来人（包括几分钟前的我自己）会把名字里的 "pre-rescan"
@@ -54,6 +70,8 @@ for (const file of ["watchparty-catalog.sqlite", "watchparty-library.sqlite", "w
 const captured = new DatabaseSync(path.join(backup, "watchparty-catalog.sqlite"), { readOnly: true });
 const state = [];
 try {
+  // 回读时顺手做一次 integrity_check：备份没验证过 restore，就只是一张希望。
+  state.push(`integrity ${JSON.stringify(captured.prepare("PRAGMA integrity_check").get())}`);
   for (const row of captured.prepare("SELECT library_id, MAX(rev) rev, COUNT(*) files FROM catalog_scan GROUP BY library_id ORDER BY library_id").all())
     state.push(`scan   ${row.library_id} rev=${row.rev} files=${row.files}`);
   for (const row of captured.prepare("SELECT library_id, MAX(rev) rev, COUNT(*) cards, SUM(lookup_state <> 'pending') judged FROM catalog_draft GROUP BY library_id ORDER BY library_id").all())
@@ -61,7 +79,11 @@ try {
 } finally {
   captured.close();
 }
-fs.writeFileSync(path.join(backup, "MANIFEST.txt"), `${new Date().toISOString()} 由 catalog-rescan-and-judge.mjs 拍下。内容是这一刻的状态，不代表任何动作之前。\n${state.join("\n")}\n`, "utf8");
+fs.writeFileSync(
+  path.join(backup, "MANIFEST.txt"),
+  `${new Date().toISOString()} 由 catalog-rescan-and-judge.mjs 用 VACUUM INTO 拍下（含 ${snapshotted.join(" + ")}）。内容是这一刻的状态，不代表任何动作之前。海报缓存不在备份里。\n${state.join("\n")}\n`,
+  "utf8",
+);
 console.log(`备份：${backup}\n  ${state.join("\n  ")}`);
 
 const sizeReport = () => {
