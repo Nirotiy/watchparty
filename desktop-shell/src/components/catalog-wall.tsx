@@ -88,7 +88,7 @@ export function CatalogRail({ detail, controlEnabled, queueEnabled, onPlay, onEn
     return (
       <section className="catalog-detail-page catalog-detail-loading" aria-label="标题详情" aria-busy="true">
         <div className="catalog-detail-loading-bar">
-          <Button size="sm" variant="ghost" onClick={onClose} aria-label="返回标题墙" title="返回标题墙">
+          <Button size="icon-sm" variant="ghost" onClick={onClose} aria-label="返回标题墙" title="返回标题墙">
             <ArrowLeftRegular />
           </Button>
           <span>正在读取作品详情…</span>
@@ -164,8 +164,9 @@ function DetailHero({ detail, onClose, firstPlayable, controlEnabled, onPlay, co
       <div className="catalog-detail-hero-shade" />
       <div className="catalog-detail-hero-layout">
         <div className="catalog-detail-hero-content">
-          <Button size="sm" variant="ghost" className="catalog-detail-back" onClick={onClose} aria-label="返回标题墙" title="返回标题墙">
-            <ArrowLeftRegular />返回标题墙
+          {/* 只留箭头：文字交给 title/aria-label，形状与加载态那颗同款（icon-sm ghost）。 */}
+          <Button size="icon-sm" variant="ghost" className="catalog-detail-back" onClick={onClose} aria-label="返回标题墙" title="返回标题墙">
+            <ArrowLeftRegular />
           </Button>
           <RailHead detail={detail} />
         </div>

@@ -516,7 +516,7 @@ body {
 }
 .catalog-detail-hero-shade { position: absolute; inset: 0; }
 .catalog-detail-hero-layout { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr) 190px; align-items: end; gap: 24px; min-height: 280px; padding: 20px 24px; }
-.catalog-detail-back { align-self: start; margin-bottom: 14px; padding-left: 0; color: var(--on-media); }
+.catalog-detail-back { align-self: start; margin-bottom: 14px; color: var(--on-media); }
 .catalog-detail-hero-content { min-width: 0; max-width: 720px; }
 .catalog-detail-hero-content .catalog-rail-title b { font-size: 28px; line-height: 1.15; }
 .catalog-hero-play { width: 190px; min-height: 64px; margin-bottom: 4px; color: var(--on-media); background: #202020; border-color: #ffffff66; box-shadow: var(--f2-shadow8); }
