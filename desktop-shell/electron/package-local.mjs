@@ -1,4 +1,4 @@
-import { cp, copyFile, mkdir, readFile, writeFile, rename, readdir } from 'node:fs/promises'
+import { cp, copyFile, mkdir, readFile, writeFile, rename, readdir, stat } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -7,6 +7,27 @@ import { join } from 'node:path'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const directory = fileURLToPath(new URL('.', import.meta.url))
+const sidecarPath = join(directory, 'native', 'watchparty-native-sidecar.exe')
+async function newestMtime(folder) {
+  let newest = { mtimeMs: 0, file: '' }
+  for (const entry of await readdir(folder, { withFileTypes: true })) {
+    const file = join(folder, entry.name)
+    const candidate = entry.isDirectory() ? await newestMtime(file) : { mtimeMs: (await stat(file)).mtimeMs, file }
+    if (candidate.mtimeMs > newest.mtimeMs) newest = candidate
+  }
+  return newest
+}
+// A sidecar older than the Rust sources ships green gates around code that is not in the binary.
+// Checked before anything is created so a rejected run leaves no half-made package directory.
+const watched = [await newestMtime(join(root, 'src-tauri', 'src')), ...(await Promise.all(
+  ['Cargo.toml', 'Cargo.lock'].map(async file => ({ mtimeMs: (await stat(join(root, 'src-tauri', file))).mtimeMs, file: join(root, 'src-tauri', file) }))
+))]
+const newestSource = watched.sort((a, b) => b.mtimeMs - a.mtimeMs)[0]
+const sidecarStat = await stat(sidecarPath).catch(() => null)
+if (!sidecarStat) throw new Error(`sidecar_missing: ${sidecarPath} — run npm run electron:build`)
+if (sidecarStat.mtimeMs < newestSource.mtimeMs) {
+  throw new Error(`sidecar_stale: ${newestSource.file} changed after ${sidecarPath} was built — run npm run electron:build`)
+}
 // Electron no longer runs a postinstall: index.js fetches dist/ on first
 // require, which must happen before dist/ is copied below.
 createRequire(import.meta.url)('electron')
