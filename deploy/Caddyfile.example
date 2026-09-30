@@ -4,7 +4,10 @@ watch.example.test {
   # Gate 1 / Basic Auth option A: keep the site-wide auth boundary.
   # DesktopSession supplies this credential in native memory for API and /p/*
   # fallback requests; it is never passed to the WebView or placed in a URL.
-  basic_auth {
+  # Approval endpoints have their own administrator authentication in Next.
+  # Do not turn that credential into the site-wide password or an MCP environment value.
+  @siteAuth not path /api/catalog-approval/*
+  basic_auth @siteAuth {
     alice $2a$14$REPLACE_WITH_CADDY_HASH
   }
 
@@ -23,6 +26,10 @@ watch.example.test {
   # This includes browser, MPV, and desktop handoff/session endpoints.
   # Do not exempt /api/desktop/* from this site-wide auth without revising the
   # native credential contract and its security review.
+  handle /api/catalog-approval/* {
+    reverse_proxy 127.0.0.1:3000
+  }
+
   handle /api/* {
     reverse_proxy 127.0.0.1:8080 {
       header_up -Authorization

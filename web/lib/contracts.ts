@@ -140,6 +140,8 @@ export interface MediaCapabilities {
   artwork: boolean;
   catalog: boolean;
   mediaAdmin: boolean;
+  /** 结构 apply 的批准边界：配了第二把密钥是 "secret"，否则是"本机 admin 就能批"的软边界。 */
+  catalogApproval: "secret" | "loopback-admin";
 }
 
 export type CompatibilityStatus = "supported" | "maybe" | "unsupported";
@@ -323,6 +325,17 @@ export interface DraftErrorData {
   draftCards?: number;
   draftRev?: number;
   scanRev?: number;
+  /** 批准门的四类清单（§10.1：409 一定带**当前**的 structural，detail 里没有 diff）。 */
+  structural?: CatalogStructuralChanges;
+  /** CATALOG_APPROVAL_INVALID 的原因（§10.1 七个 + 兜底）。 */
+  reason?: string;
+  /** CATALOG_ROLLBACK_CONFLICT / DRAFT_EDIT_* 的冲突键位名。 */
+  keys?: string[];
+  rollbackOf?: string;
+  approvalId?: string;
+  expiresAt?: string;
+  pruned?: number;
+  rolledBackAt?: string;
 }
 
 /** 阈值由服务端下发（§8.5）。 */
@@ -343,6 +356,10 @@ export interface DraftDiffItem {
   /** 劈卡：这张新卡从哪张正式卡接走文件、接走几个（权威字段，2026-09-28 §8.3）。 */
   splitFromKey?: string | null;
   fromFiles?: number;
+  /** 只在 dropped 行：这张卡上有多少个文件的路径已经不在快照里（§10.4）。 */
+  missingPaths?: number;
+  /** 只在 dropped 行：同名文件现在落在哪些草稿卡上（§10.4）。 */
+  suggestedKeys?: string[];
 }
 
 /** changed 的形状与 confirmedDrift 不同：from/to 各自带 title 与 subtitle。 */
@@ -355,6 +372,8 @@ export interface DraftChangedItem {
   splitIntoKeys: string[];
   /** 应用后人的绑定跟着哪一份草稿走（含自己）。 */
   keepsBindingOnKey: string;
+  /** 「孩子行里带集号的条数」（§16）：变了要重新应用，但**不算结构变更**（不用批准）。 */
+  episodes?: { from: number; to: number };
 }
 
 /** 已确认卡漂移：subtitle 可能不变而 files 变，两个都要展示。 */
@@ -364,6 +383,8 @@ export interface DraftDriftItem {
   title: string;
   subtitle: { from: string | null; to: string | null };
   files: { from: number; to: number };
+  /** 「孩子行里带集号的条数」（§16）：变了要重新应用，但**不算结构变更**（不用批准）。 */
+  episodes?: { from: number; to: number };
   /** 这张卡的文件被哪些草稿卡接走了（劈卡；空数组=没劈）。 */
   splitIntoKeys: string[];
   /** 应用后人的绑定跟着哪一份草稿走（含自己；人合并过的卡重分类会拆成几份）。 */
@@ -383,13 +404,14 @@ export interface DraftDiff {
 }
 
 export interface DraftState {
+  running?: boolean;
   libraryId: string;
   cards: number;
   files: number;
   pending: number;
   classifiedAt: string | null;
   thresholds: DraftThresholds | null;
-  scan: { files: number; enumeratedAt: string | null; rev: number } | null;
+  scan: { files: number; enumeratedAt: string | null; rev: number; running?: boolean } | null;
   draft: DraftItem[];
   diff: DraftDiff | null;
 }
@@ -415,6 +437,63 @@ export interface DraftApplyResult {
   posters: number;
   /** 本次按 keep-binding 搬走了几张绑定（§9）。 */
   transferred?: number;
+  /** 这次应用留下的台账 id（纯元数据应用为 null，§11）。 */
+  approvalId?: string | null;
+  /** 这次应用能不能撤回——**唯一判据**，别用 created>0 猜（§11）。 */
+  rollbackAvailable?: boolean;
+  /** 本次实际动到的结构（apply/apply-approved 都会回，§10.1）。 */
+  structural?: CatalogStructuralChanges;
+}
+
+/** 会改变文件集合或卡片存亡的那部分差异（§10）：批准门看的就这四类。 */
+export interface CatalogStructuralChanges {
+  added: string[];
+  dropped: string[];
+  moved: string[];
+  /** 人工确认过的卡换掉了文件集合（from/to 是**文件数**，集数行不在此列）。 */
+  drift: Array<{ itemKey: string; from: number; to: number }>;
+}
+
+/** `/approval` 的返回：apply 模式回 structural，rollback 模式回 rollback（两者互斥，§11.1）。 */
+export interface CatalogApprovalIssue {
+  libraryId: string;
+  approvalId: string;
+  /** 明文只在这里回一次，界面拿到就用、不落盘不显示（§10.1）。 */
+  approvalToken: string;
+  expiresAt: string;
+  approvedBy: string;
+  /** 签发这一刻顺手回收掉的过期 undo 条数（不用展示，只用于日志/诊断）。 */
+  pruned?: number;
+  structural?: CatalogStructuralChanges;
+  rollback?: { approvalId: string; keys: string[]; counts: { created: number; removed: number; changed: number } };
+}
+
+/** 台账一行（`GET .../approvals`，不含 token/哈希）。判"能不能撤"只看 rollbackAvailable。 */
+export interface CatalogApprovalLedgerRow {
+  approvalId: string;
+  kind: "apply" | "rollback";
+  approvedBy: string;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
+  revokedAt: string | null;
+  appliedAt: string | null;
+  rolledBackAt: string | null;
+  targets: string | null;
+  keys?: string[];
+  counts?: { created: number; removed: number; changed: number };
+  rollbackAvailable: boolean;
+  /** 用过、没撤过、但读不到 undo（窗口过了**或**那次根本没留台账）——文案要中性，别说"已过 48 小时"。 */
+  windowClosed: boolean;
+}
+
+export interface CatalogRollbackResult {
+  libraryId: string;
+  rollbackOf: string;
+  restored: number;
+  removed: number;
+  keys: string[];
+  diff: DraftDiff | null;
 }
 
 // 14. 草稿编辑（§9 的六个接口）

@@ -1,23 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { Loader2, Search } from "lucide-react";
 
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { BangumiHit, DraftApplyResult, DraftCandidate, DraftChild, DraftItem, DraftState } from "@/lib/contracts";
+import type { BangumiHit, CatalogApprovalLedgerRow, CatalogStructuralChanges, DraftApplyResult, DraftCandidate, DraftChild, DraftItem, DraftState } from "@/lib/contracts";
 import {
   applyHeadline,
   applyPlan,
   applyResultText,
   applySideEffects,
+  approvalErrorText,
   bindingLabel,
   bindingMoveText,
   carrierKeyOf,
   draftEditErrorText,
+  episodeNote,
   emptyKind,
+  rollbackLine,
+  rollbackSheet,
   splitSummary,
+  structuralSheet,
   bucketOfItem,
   draftBuckets,
   draftErrorCode,
@@ -28,10 +34,29 @@ import {
   judgeProgress,
   scoreTone,
   type DraftFilterKey,
+  type RollbackLine,
+  type StructuralSheet,
 } from "@/lib/draft-view";
 
 // 服务端 ?max 上限 20，超了直接 400（§8.2）。
 const JUDGE_BATCH = Math.min(6, DRAFT_BATCH_MAX);
+
+/** 服务端只落"人是从哪一端点的"，不落用户体系（§10.4）。 */
+const APPROVED_BY = "网页";
+
+/**
+ * 批准单（§10.1）：结构变更要人在本页换一张一次性凭证；撤回走同一个组件（§11.1）。
+ * token 不落盘、不进状态、不显示。
+ */
+interface ApprovalSheet {
+  mode: "apply" | "rollback";
+  structural?: CatalogStructuralChanges;
+  rollbackOf?: string;
+  keys: string[];
+  counts: { created: number; removed: number; changed: number };
+  force: boolean;
+  failed?: string;
+}
 
 const CONFIRMED_LABEL: Record<string, string> = { auto: "机器匹配", manual: "人工确认", rebind: "人工指定", unknown: "来源未知" };
 
@@ -76,12 +101,27 @@ export function CatalogDraft({ libraryId, libraryName }: { libraryId: string; li
   const [hits, setHits] = useState<BangumiHit[]>([]);
   const [splitting, setSplitting] = useState<string | null>(null);
   const [keepIds, setKeepIds] = useState<string[]>([]);
+  // 批准门：台账（判"能不能撤"只看 rollbackAvailable）、能力位（软边界标注）、批准单。
+  const [ledger, setLedger] = useState<CatalogApprovalLedgerRow[]>([]);
+  const [approvalMode, setApprovalMode] = useState<"secret" | "loopback-admin" | null>(null);
+  const [sheet, setSheet] = useState<ApprovalSheet | null>(null);
 
   const load = useCallback(async () => {
     if (!libraryId) return
     try {
-      const next = await api.getDraft(libraryId)
+      // 台账与能力位都是"读不到也不用弹错"的旁路数据（§11.4）。
+      const [next, approvals, caps] = await Promise.all([
+        api.getDraft(libraryId),
+        api.catalogApprovals(libraryId).catch((failure) => {
+          const code = (failure as { code?: string } | null)?.code ?? "unknown"
+          if (code === "ADMIN_FORBIDDEN") console.warn("[catalog] 批准台账读取被拒（403）：检查 admin 门")
+          return null
+        }),
+        api.getMediaCapabilities().catch(() => null),
+      ])
       setState(next)
+      setLedger(approvals?.items ?? [])
+      setApprovalMode(caps?.catalogApproval ?? null)
       setError("")
     } catch (failure) {
       setState(null)
@@ -103,6 +143,12 @@ export function CatalogDraft({ libraryId, libraryName }: { libraryId: string; li
   const plan = useMemo(() => applyPlan(state), [state]);
   // 「由你定过」的卡（manual/rebind/unknown）：应用会整张跳过、不动绑定。
   const humanConfirmedCount = useMemo(() => (state?.draft ?? []).filter((item) => item.confirmedBy && item.confirmedBy !== "auto").length, [state]);
+  // 撤回行：只认台账里的 rollbackAvailable（windowClosed 不冒充可撤回，§13.1）。
+  const rollback = useMemo(() => rollbackLine(ledger), [ledger]);
+  const approvalSheet = useMemo(
+    () => (sheet?.structural ? structuralSheet(sheet.structural, state?.draft ?? [], state?.diff ?? null) : null),
+    [sheet, state],
+  );
 
   async function run(label: string, work: () => Promise<void>) {
     setBusy(label);
@@ -266,14 +312,12 @@ export function CatalogDraft({ libraryId, libraryName }: { libraryId: string; li
       try {
         const result = await api.scanLibrary(libraryId);
         setNotice(`已扫描：${result.files} 个文件（rev ${result.rev}）。接着做分类。`);
-        try {
-          await api.classifyDraft(libraryId);
-          await load();
-        } catch {
-          setError("CATALOG_DRAFT_EMPTY");
-        }
+        setBusy("classify");
+        await api.classifyDraft(libraryId);
+        await load();
+        setNotice(`已扫描并分类：${result.files} 个文件（rev ${result.rev}）。请重新判定。`);
       } catch (failure) {
-        setNotice(draftErrorText(failure, "扫描失败"));
+        setNotice(draftErrorText(failure, "扫描或分类失败"));
       }
     });
   }
@@ -290,6 +334,13 @@ export function CatalogDraft({ libraryId, libraryName }: { libraryId: string; li
         const code = draftErrorCode(failure);
         const data = errorData(failure);
         setNotice(draftErrorText(failure));
+        // 结构变更要人批准（§10.1）：原地换批准单；409 只带 structural，标题/missingPaths 得另读 classify。
+        if (code === "CATALOG_APPROVAL_REQUIRED" && data.structural) {
+          setDialog(null);
+          setSheet({ mode: "apply", structural: data.structural, keys: [], counts: { created: 0, removed: 0, changed: 0 }, force });
+          await load();
+          return;
+        }
         if (code === "CATALOG_DRAFT_INCOMPLETE") {
           setDialog("force");
           // 用错误体里的数字（§8.3），别拿上次 GET 的近似值。
@@ -297,6 +348,51 @@ export function CatalogDraft({ libraryId, libraryName }: { libraryId: string; li
         } else setDialog(null);
         if (code === "CATALOG_STALE_SCAN") setStale({ draftRev: data.draftRev, scanRev: data.scanRev });
         if (code === "CATALOG_DRAFT_EMPTY") setError(code);
+      }
+    });
+  }
+
+  function openRollback(line: RollbackLine) {
+    setNotice("");
+    setSheet({ mode: "rollback", rollbackOf: line.approvalId, keys: line.keys, counts: line.counts, force: false });
+  }
+
+  /**
+   * 批准 + 立刻执行：一次点击里的两个连续请求，token 不落盘、不进状态、不显示（§10.1）。
+   * 失败即烧掉那张凭证（先消费后执行），所以每次点都重新走 /approval。
+   */
+  async function approveAndRun() {
+    if (!sheet) return;
+    const target = sheet;
+    await run(target.mode === "apply" ? "approval" : "rollback", async () => {
+      try {
+        const issued = await api.catalogApproval(libraryId, { approvedBy: APPROVED_BY, rollbackOf: target.rollbackOf }, approvalMode ?? "secret");
+        if (target.mode === "apply") {
+          const result = await api.catalogApplyApproved(libraryId, { approvalToken: issued.approvalToken, force: target.force });
+          setLastApply(result);
+          setSheet(null);
+          setNotice(target.force ? "已批准并应用（强行应用）。" : "已批准并应用：草稿落到正式卡。");
+        } else {
+          const done = await api.catalogRollback(libraryId, { rollbackOf: target.rollbackOf ?? "", approvalToken: issued.approvalToken });
+          setSheet(null);
+          setNotice(`已撤回：还原 ${done.restored} 张，撤销 ${done.removed} 张新建。`);
+        }
+        await load();
+      } catch (failure) {
+        const code = draftErrorCode(failure);
+        const data = errorData(failure);
+        const text = approvalErrorText(failure);
+        setNotice(text);
+        if (code === "CATALOG_APPROVAL_INVALID" && target.mode === "apply" && data.structural) {
+          // 原地重画：409 带的是**当前** structural，清单不清空、按钮回到「批准并应用」。
+          setSheet({ ...target, structural: data.structural, failed: text });
+        } else if (code === "CATALOG_ROLLBACK_CONFLICT") {
+          setSheet({ ...target, failed: text });
+        } else {
+          // 结构已经没了 / 窗口关了 / 找不到 / 已撤：这份清单不再成立，关掉重刷。
+          setSheet(null);
+        }
+        await load();
       }
     });
   }
@@ -348,7 +444,7 @@ export function CatalogDraft({ libraryId, libraryName }: { libraryId: string; li
   }
 
   return (
-    <section className="grid gap-2.5" aria-label="草稿审阅">
+    <section className="grid gap-2.5" aria-label="草稿审阅" inert={sheet !== null || dialog !== null}>
       <header className="flex flex-wrap items-center gap-2">
         <div className="grid gap-0.5">
           <b className="text-sm">{libraryName} · 草稿</b>
@@ -410,6 +506,17 @@ export function CatalogDraft({ libraryId, libraryName }: { libraryId: string; li
       {(state.diff?.dropped.length ?? 0) > 0 ? (
         <div className="flex items-center gap-2 rounded-md border border-l-2 border-border border-l-amber-500 bg-amber-500/5 px-2.5 py-1.5 text-xs">
           <span>{state.diff?.dropped.length} 张库里有、草稿没有：机器确认的会被删，人工碰过的保留。</span>
+        </div>
+      ) : null}
+      {rollback ? (
+        <div className="flex items-center gap-2 rounded-md border border-l-2 border-border border-l-sky-500 bg-sky-500/5 px-2.5 py-1.5 text-xs">
+          <span>
+            {rollback.text}
+            {rollback.label ? <span className="text-muted-foreground">（{rollback.label}）</span> : null}
+          </span>
+          <Button size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => openRollback(rollback)}>
+            {busy === "rollback" ? "正在撤回…" : "撤回这次…"}
+          </Button>
         </div>
       ) : null}
 
@@ -489,7 +596,29 @@ export function CatalogDraft({ libraryId, libraryName }: { libraryId: string; li
       {notice ? <p className="rounded-md border border-border bg-black px-2.5 py-1.5 text-xs" role="status">{notice}</p> : null}
       {lastApply ? <p className="rounded-md border border-border bg-black px-2.5 py-1.5 text-xs" role="status">{applyResultText(lastApply)}</p> : null}
 
-      {dialog ? (
+      {sheet ? (
+        <ApplyDialog
+          plan={plan}
+          pending={serverPending ?? progress.pending}
+          humanConfirmed={humanConfirmedCount}
+          draft={state.draft}
+          drift={state.diff?.confirmedDrift ?? []}
+          added={state.diff?.added ?? []}
+          force={sheet.force}
+          busy={Boolean(busy)}
+          onCancel={() => setSheet(null)}
+          onConfirm={() => void approveAndRun()}
+          keepBinding={keepBinding}
+          approval={{
+            mode: sheet.mode,
+            sheet: approvalSheet,
+            failed: sheet.failed,
+            force: sheet.force,
+            softBoundary: approvalMode === "loopback-admin",
+            rollback: sheet.mode === "rollback" ? { keys: sheet.keys, counts: sheet.counts } : null,
+          }}
+        />
+      ) : dialog ? (
         <ApplyDialog
           plan={plan}
           pending={serverPending ?? progress.pending}
@@ -762,7 +891,123 @@ function groupByDir(itemKey: string, children: DraftChild[]): Array<{ dir: strin
   }));
 }
 
-function ApplyDialog({ plan, pending, humanConfirmed, draft, drift, added, force, busy, onCancel, onConfirm, keepBinding }: {
+function ApplyDialog({ plan, pending, humanConfirmed, draft, drift, added, force, busy, onCancel, onConfirm, keepBinding, approval }: {
+  plan: ReturnType<typeof applyPlan>;
+  pending: number;
+  humanConfirmed: number;
+  draft: DraftItem[];
+  drift: NonNullable<DraftState["diff"]>["confirmedDrift"];
+  added: NonNullable<DraftState["diff"]>["added"];
+  force: boolean;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (force: boolean) => void;
+  keepBinding: (row: { itemKey: string }, next: string) => Promise<void>;
+  /** 批准单模式（§10.1）：同一个组件，换标题与主文案；撤回走它时 mode="rollback"。 */
+  approval?: ApprovalView | null;
+}) {
+  if (approval) return <ApprovalDialog view={approval} busy={busy} onCancel={onCancel} onConfirm={() => onConfirm(false)} />;
+  return <ApplyPlanDialog plan={plan} pending={pending} humanConfirmed={humanConfirmed} draft={draft} drift={drift} added={added} force={force} busy={busy} onCancel={onCancel} onConfirm={onConfirm} keepBinding={keepBinding} />;
+}
+
+interface ApprovalView {
+  mode: "apply" | "rollback";
+  sheet: StructuralSheet | null;
+  failed?: string;
+  force: boolean;
+  softBoundary: boolean;
+  rollback: { keys: string[]; counts: { created: number; removed: number; changed: number } } | null;
+}
+
+/**
+ * 批准单（§10.1/§11.1）：结构变更与撤回都要人在这一屏上换一张一次性凭证。
+ * 清单只有 itemKey（409 不带 diff），名字与空壳原因从草稿/差异里 join；join 不到退 itemKey 末段。
+ */
+function ApprovalDialog({ view, busy, onCancel, onConfirm }: { view: ApprovalView; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
+  const { sheet, mode } = view;
+  const groups: Array<{ title: string; rows: Array<{ key: string; label: string; note?: string }> }> = sheet ? [
+    { title: `新建 ${sheet.added.length} 张`, rows: sheet.added },
+    { title: `删除 ${sheet.dropped.length} 张`, rows: sheet.dropped },
+    { title: `移动 ${sheet.moved.length} 张（只换目录，绑定与标题不动）`, rows: sheet.moved },
+  ].filter((group) => group.rows.length > 0) : [];
+  const rollbackLines = mode === "rollback" && view.rollback ? rollbackSheet(view.rollback) : [];
+  const rollbackKeys = view.rollback?.keys ?? [];
+  return createPortal(
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-black/60 p-5" role="dialog" aria-modal="true" aria-label={mode === "rollback" ? "批准撤回" : "批准结构变更"}>
+      <div className="grid w-full max-w-[560px] gap-2 rounded-xl border border-border bg-[var(--fill-menu)] p-3.5 shadow-2xl">
+        {mode === "rollback" ? (
+          <>
+            <h4 className="text-sm font-semibold"><span className={tag("warn")}>撤回上次应用</span></h4>
+            <ul className="grid gap-1.5 text-xs">
+              {rollbackLines.map((line) => (
+                <li key={line} className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-2.5"><b className="text-muted-foreground">·</b><span>{line}</span></li>
+              ))}
+            </ul>
+            {rollbackKeys.length ? (
+              <p className="text-xs text-muted-foreground">
+                涉及 {rollbackKeys.length} 张卡：{rollbackKeys.slice(0, 6).join("、")}{rollbackKeys.length > 6 ? ` 等 ${rollbackKeys.length} 张` : ""}
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <h4 className="text-sm font-semibold">这次会动到 {sheet?.total ?? 0} 张卡，需要批准</h4>
+            <p className="text-xs text-muted-foreground">
+              批准是一次性的：只对「现在这份结构差异」有效，期间又改过草稿就要重新批；成功即消耗。
+            </p>
+            {sheet && sheet.total === 0 ? (
+              <p className="text-xs text-muted-foreground">结构差异已经变成 0 了——关掉这一层直接「应用」即可。</p>
+            ) : sheet ? (
+              <div className="grid max-h-[46vh] gap-2 overflow-auto">
+                {groups.map((group) => (
+                  <section key={group.title} className="grid gap-0.5">
+                    <h5 className="text-[11.5px] font-semibold text-muted-foreground">{group.title}</h5>
+                    <ul className="grid gap-0.5 text-xs">
+                      {group.rows.map((row) => (
+                        <li key={row.key} className="flex items-baseline justify-between gap-2">
+                          <span className="min-w-0 truncate">{row.label}</span>
+                          {row.note ? <span className="shrink-0 text-[11.5px] text-muted-foreground">{row.note}</span> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+                {sheet.drift.length ? (
+                  <section className="grid gap-0.5">
+                    <h5 className="text-[11.5px] font-semibold text-muted-foreground">已确认卡换掉了文件集合 {sheet.drift.length} 张</h5>
+                    <ul className="grid gap-0.5 text-xs">
+                      {sheet.drift.map((row) => (
+                        <li key={row.key} className="flex items-baseline justify-between gap-2">
+                          <span className="min-w-0 truncate">{row.label}</span>
+                          <span className="shrink-0 text-[11.5px] text-muted-foreground">文件 {row.from} → {row.to}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">清单读不到（草稿可能刚被重分过）——刷新后再看一次。</p>
+            )}
+            {view.softBoundary ? (
+              <p className="text-xs text-muted-foreground">当前是软边界：服务端没配第二把批准密钥，本机管理员就能批。</p>
+            ) : null}
+          </>
+        )}
+        {view.failed ? <p className="text-xs text-red-300">{view.failed}</p> : null}
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="ghost" disabled={busy} onClick={onCancel}>取消</Button>
+          <Button size="sm" variant="default" disabled={busy} onClick={onConfirm}>
+            {busy ? "正在执行…" : mode === "rollback" ? "批准并撤回" : view.force ? "批准并应用（强行）" : "批准并应用"}
+          </Button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function ApplyPlanDialog({ plan, pending, humanConfirmed, draft, drift, added, force, busy, onCancel, onConfirm, keepBinding }: {
   plan: ReturnType<typeof applyPlan>;
   pending: number;
   humanConfirmed: number;
@@ -809,6 +1054,7 @@ function ApplyDialog({ plan, pending, humanConfirmed, draft, drift, added, force
                     return (
                       <li key={row.id} className="grid gap-0.5">
                         <span>{row.title}：文件 {split.equation ? <b>{split.equation}</b> : <>从 {row.files.from} → <b>{row.files.to}</b></>}</span>
+                        {episodeNote(row.episodes) ? <span className="text-[11.5px] text-muted-foreground">{episodeNote(row.episodes)}（只刷集号，不算结构变更、不用批准）</span> : null}
                         {split.equation ? (
                           <span className="text-[11.5px] text-muted-foreground">＋ 新卡：{split.labels.join(" / ")}（接走 {split.movedFiles} 个文件）</span>
                         ) : null}

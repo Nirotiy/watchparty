@@ -31,6 +31,7 @@ import { mediaErrorText } from "@/lib/media-error-text";
 import { isNonMedia, scrapeSummary, toDetail, toWall, type Wall, type WallDetail } from "@/lib/catalog-view";
 import { CatalogRail, CatalogWall, UnmatchedLine } from "@/components/catalog-wall";
 import { CatalogDraft } from "@/components/catalog-draft";
+import { ApprovalSecretSetting } from "@/components/approval-secret-setting";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -697,6 +698,7 @@ export function OpenListModal({
 
         {mode === "draft" ? (
           <div className="flex-1 overflow-y-auto p-4">
+            {mediaAdmin ? <ApprovalSecretSetting /> : null}
             {activeLibraryId && mediaAdmin ? <CatalogDraft key={activeLibraryId} libraryId={activeLibraryId} libraryName={activeLibrary?.name ?? activeLibraryId} /> : (
               <p className="text-xs text-muted-foreground">只有本机或管理员能审阅与应用草稿。</p>
             )}

@@ -14,13 +14,14 @@ const nextConfig: NextConfig = {
   // resources for that host, leaving the server-rendered page unhydrated.
   allowedDevOrigins: ["127.0.0.1"],
   outputFileTracingRoot: webRoot,
+  distDir: process.env.WATCHPARTY_NEXT_DIST_DIR ?? ".next",
   async rewrites() {
-    return [
+    return { fallback: [
       {
         source: "/api/:path*",
         destination: `${backendOrigin}/api/:path*`,
       },
-    ];
+    ] };
   },
 };
 

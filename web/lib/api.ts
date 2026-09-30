@@ -3,6 +3,8 @@
  * 严格按照 UNIVERSAL_ALIGNMENT_SPEC.md 规范实现
  */
 
+import { refreshCatalog, type CatalogAccepted, type CatalogScan } from "../../desktop-shell/shared/catalog-refresh";
+
 import {
   CreateRoomRequest,
   CreateRoomResponse,
@@ -12,6 +14,9 @@ import {
   CatalogDetail,
   CatalogPage,
   BangumiHit,
+  CatalogApprovalIssue,
+  CatalogApprovalLedgerRow,
+  CatalogRollbackResult,
   DraftApplyResult,
   DraftCardDetail,
   DraftEditInput,
@@ -48,6 +53,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const error = new Error(errBody.message || "请求失败");
     (error as Error & { code?: string; status?: number }).code = errBody.code;
     (error as Error & { code?: string; status?: number }).status = res.status;
+    // 错误体原样带上：批准门的 409 要读 structural / reason / keys（§10.1）。
+    (error as Error & { data?: unknown }).data = errBody;
     throw error;
   }
 
@@ -55,6 +62,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
+  approvalSecretStatus: (): Promise<{ configured: boolean; mask: string | null }> => request("/api/catalog-approval/settings"),
+  setApprovalSecret: (secret: string): Promise<{ configured: boolean; mask: string | null }> => request("/api/catalog-approval/settings", { method: "POST", body: JSON.stringify({ secret }) }),
   // 1. 创建房间 (带 clientId 与可选 pin)
   createRoom: (req: CreateRoomRequest): Promise<CreateRoomResponse> =>
     request<CreateRoomResponse>("/api/rooms", {
@@ -142,7 +151,9 @@ export const api = {
     request<DraftCardDetail>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/classify?item=${encodeURIComponent(itemKey)}`),
 
   classifyDraft: (libraryId: string): Promise<DraftState> =>
-    request<DraftState>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/classify`, { method: "POST" }),
+    refreshCatalog(() => api.getDraft(libraryId),
+      () => request<CatalogAccepted | { status: "done"; running: false }>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/classify`, { method: "POST" }),
+      (current, before) => current.classifiedAt !== null && current.classifiedAt !== before.classifiedAt),
 
   judgeDraft: (libraryId: string, max: number): Promise<DraftJudgeResult> =>
     request<DraftJudgeResult>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/judge?max=${max}`, { method: "POST" }),
@@ -169,12 +180,32 @@ export const api = {
   keepDraftBinding: (libraryId: string, input: { itemKey: string; keepsBindingOnKey: string }): Promise<DraftEditResult> =>
     request<DraftEditResult>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/draft/keep-binding`, { method: "POST", body: JSON.stringify(input) }),
 
+  /**
+   * 批准门（§10.1/§11.1）：签发 / 带凭证应用 / 撤回 / 台账。
+   * 明文 token 只在这里回一次，调用方拿到就立刻用掉，不落盘、不显示。
+   */
+  catalogApproval: (libraryId: string, input: { approvedBy?: string; rollbackOf?: string } = {}, mode: "secret" | "loopback-admin" = "secret"): Promise<CatalogApprovalIssue> =>
+    request<CatalogApprovalIssue>(mode === "loopback-admin"
+      ? `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/approval`
+      : `/api/catalog-approval/libraries/${encodeURIComponent(libraryId)}/approval`, { method: "POST", body: JSON.stringify(input) }),
+
+  catalogApplyApproved: (libraryId: string, input: { approvalToken: string; force?: boolean }): Promise<DraftApplyResult> =>
+    request<DraftApplyResult>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/apply-approved`, { method: "POST", body: JSON.stringify(input) }),
+
+  catalogRollback: (libraryId: string, input: { rollbackOf: string; approvalToken: string }): Promise<CatalogRollbackResult> =>
+    request<CatalogRollbackResult>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/rollback`, { method: "POST", body: JSON.stringify(input) }),
+
+  catalogApprovals: (libraryId: string): Promise<{ libraryId: string; items: CatalogApprovalLedgerRow[] }> =>
+    request<{ libraryId: string; items: CatalogApprovalLedgerRow[] }>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/approvals`),
+
   /** 人工挑条目（刮削提不出正确条目时的出口）——草稿换条目与正式卡换绑共用这个搜索端点。 */
   bangumiSearch: (q: string): Promise<{ items: BangumiHit[] }> =>
     request<{ items: BangumiHit[] }>(`/api/media/bangumi/search?q=${encodeURIComponent(q)}`),
 
-  scanLibrary: (libraryId: string): Promise<{ libraryId: string; files: number; enumeratedAt: string; rev: number }> =>
-    request(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/scan`, { method: "POST" }),
+  scanLibrary: (libraryId: string): Promise<CatalogScan> =>
+    refreshCatalog(() => request<CatalogScan>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/scan`),
+      () => request<CatalogScan | CatalogAccepted>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/scan`, { method: "POST" }),
+      (current, before) => current.rev > before.rev),
 
   getScrapeStatus: (libraryId: string): Promise<ScrapeJob> =>
     request<ScrapeJob>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/scrape`),

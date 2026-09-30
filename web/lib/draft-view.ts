@@ -1,4 +1,4 @@
-import type { DraftDiff, DraftDiffItem, DraftErrorData, DraftItem, DraftState, DraftThresholds } from "@/lib/contracts";
+import type { CatalogApprovalLedgerRow, CatalogStructuralChanges, DraftDiff, DraftDiffItem, DraftErrorData, DraftItem, DraftState, DraftThresholds } from "@/lib/contracts";
 
 /**
  * 草稿审阅（方案 B：按卡片 + 过滤器/搜索）的纯视图模型。
@@ -129,10 +129,144 @@ const DRAFT_ERROR_TEXT: Record<string, string> = {
   ADMIN_FORBIDDEN: "只有本机或管理员能审阅与应用草稿。",
   MEDIA_NOT_FOUND: "这个库已经不在了，刷新一下列表。",
   INVALID_REQUEST: "请求不合法（库 id 或参数不对）。",
+  // 批准门（§10.1）。这几个码本身不带人话，界面按码给动作；INVALID 的细分理由在 approvalInvalidText。
+  CATALOG_APPROVAL_REQUIRED: "这次会动到卡片结构（建卡/删卡/移动文件），要人在本页批准一次。",
+  CATALOG_NOTHING_TO_APPROVE: "没有需要批准的结构变更——直接「应用」就行。",
+  CATALOG_APPROVAL_SECRET_REQUIRED: "服务端配了第二把批准密钥，本机没有出示（或出示的不对）。先把密钥配好再来批。",
+  APPROVAL_ADMIN_REQUIRED: "请使用独立的批准管理员账号验证身份。",
+  APPROVAL_CONFIG_UNAVAILABLE: "网页批准管理员尚未配置，请配置服务端批准文件。",
+  APPROVAL_SECRET_MISSING: "网页批准密钥未配置，请在媒体库设置中保存密钥。",
+  APPROVAL_ORIGIN_DENIED: "网页地址与批准配置不一致，请检查服务端网页 Origin。",
+  APPROVAL_UPSTREAM_UNAVAILABLE: "批准服务暂时不可达，请稍后再试。",
+  APPROVAL_UPSTREAM_REDIRECT: "批准接口发生重定向，请检查后端地址。",
+  CATALOG_APPROVAL_INVALID: "批准失效了，请重新批准。",
+  // 回滚的四个前置码 + 窗口（§11.1/§11.4）。
+  CATALOG_ROLLBACK_TARGET_NOT_FOUND: "找不到那次应用（可能已经被清理）。",
+  CATALOG_ROLLBACK_TARGET_NOT_APPLY: "那不是一次应用记录，撤不了。",
+  CATALOG_ROLLBACK_WINDOW_CLOSED: "撤回窗口已经关了（48 小时）。这次改动已经落地，要调整就再改一次草稿。",
+  CATALOG_ROLLBACK_NOT_RECORDED: "那次应用没留下反向记录，撤不了。",
+  CATALOG_ROLLBACK_ALREADY_DONE: "这次应用已经撤过了。",
+  CATALOG_ROLLBACK_CONFLICT: "你改动过涉及这次撤回的卡，整批没有动。",
 };
+
+/** `CATALOG_APPROVAL_INVALID` 的七个 reason + 兜底（§b 的文案表，两端同表）。 */
+const APPROVAL_REASON_TEXT: Record<string, string> = {
+  unknown: "这张批准不是本机签发的（服务端换过密钥或换了机器）——重新批准",
+  used: "这张批准已经用过了（一次性，上一次失败也会消耗它）——重新批准",
+  revoked: "这张批准已被撤销——重新批准",
+  expired: "这张批准过期了（48 小时）——重新批准",
+  "scan-revision": "批准之后库又扫了一遍——先「重新分类」再批准",
+  "draft-revision": "批准之后草稿重分了——先「重新分类」再批准",
+  "operations-changed": "批准之后差异变了（期间又改过草稿）——按新的差异重新批准",
+};
+
+export function approvalInvalidText(reason: string): string {
+  return APPROVAL_REASON_TEXT[reason] ?? DRAFT_ERROR_TEXT.CATALOG_APPROVAL_INVALID;
+}
+
+/** 批准/撤回这条链上的错误文案：先认 reason，再认码，最后兜底。 */
+export function approvalErrorText(error: unknown, fallback = "批准没成功"): string {
+  const code = draftErrorCode(error);
+  const data = errorData(error);
+  if (code === "CATALOG_APPROVAL_INVALID" && data.reason) return approvalInvalidText(data.reason);
+  if (code === "CATALOG_ROLLBACK_CONFLICT") {
+    const count = data.keys?.length ?? 0;
+    return count
+      ? `这些卡在撤回之前被人改过（${count} 张）：${data.keys?.slice(0, 4).join("、")}${count > 4 ? " 等" : ""}——请逐张确认后再试；整批没有动。`
+      : DRAFT_ERROR_TEXT.CATALOG_ROLLBACK_CONFLICT;
+  }
+  return DRAFT_ERROR_TEXT[code] ?? fallback;
+}
+
+/** 批准单的四类清单（§10.1）：`structural` 只给 itemKey，名字与细节从草稿/差异里 join。 */
+export interface StructuralSheetRow {
+  key: string;
+  label: string;
+  /** 副行：空壳原因、接走几个文件、文件现在落在哪。 */
+  note?: string;
+}
+
+export interface StructuralSheet {
+  added: StructuralSheetRow[];
+  dropped: StructuralSheetRow[];
+  moved: StructuralSheetRow[];
+  drift: Array<{ key: string; label: string; from: number; to: number }>;
+  total: number;
+}
+
+export function structuralSheet(
+  structural: CatalogStructuralChanges,
+  draft: Array<{ itemKey: string; title?: string | null; query?: string; rawName?: string }>,
+  diff: DraftDiff | null,
+): StructuralSheet {
+  const droppedRows = diff?.dropped ?? [];
+  const driftRows = diff?.confirmedDrift ?? [];
+  const addedRows = diff?.added ?? [];
+  const nameOf = (key: string, fallbackTitle?: string | null) => (fallbackTitle ?? "").trim() || keyLabel(key, draft);
+  return {
+    added: structural.added.map((key) => {
+      const row = addedRows.find((entry) => entry.itemKey === key);
+      const moved = row?.fromFiles;
+      const from = row?.splitFromKey ? nameOf(row.splitFromKey) : null;
+      const note = moved && from ? `从「${from}」接走 ${moved} 个文件` : moved ? `接走 ${moved} 个文件` : undefined;
+      return { key, label: nameOf(key, row?.title ?? row?.query), note };
+    }),
+    dropped: structural.dropped.map((key) => {
+      const row = droppedRows.find((entry) => entry.itemKey === key);
+      const bits: string[] = [];
+      if (row?.missingPaths) bits.push(`空壳：${row.missingPaths} 个文件已不在快照`);
+      if (row?.suggestedKeys?.length) bits.push(`文件现在落在：${row.suggestedKeys.slice(0, 3).map((other) => nameOf(other)).join("、")}`);
+      return { key, label: nameOf(key, row?.title), note: bits.length ? bits.join("；") : undefined };
+    }),
+    moved: structural.moved.map((key) => {
+      const row = (diff?.moved ?? []).find((entry) => entry.itemKey === key);
+      return { key, label: nameOf(key, row?.title ?? row?.query) };
+    }),
+    drift: structural.drift.map((row) => {
+      const match = driftRows.find((entry) => entry.itemKey === row.itemKey);
+      return { key: row.itemKey, label: nameOf(row.itemKey, match?.title), from: row.from, to: row.to };
+    }),
+    total: structural.added.length + structural.dropped.length + structural.moved.length + structural.drift.length,
+  };
+}
+
+/** 撤回行（审阅页一行）：只认 `rollbackAvailable`，不自己推窗口（§13.1）。 */
+export interface RollbackLine {
+  approvalId: string;
+  text: string;
+  label: string;
+  keys: string[];
+  counts: { created: number; removed: number; changed: number };
+}
+
+export function rollbackLine(items: CatalogApprovalLedgerRow[]): RollbackLine | null {
+  const row = items.find((item) => item.kind === "apply" && item.rollbackAvailable);
+  if (!row) return null;
+  const counts = row.counts ?? { created: 0, removed: 0, changed: 0 };
+  const cards = row.keys?.length ?? 0;
+  const text = `上次应用：＋${counts.created} −${counts.removed}${counts.changed ? `（${counts.changed} 张改写）` : ""} · ${cards} 张卡`;
+  return {
+    approvalId: row.approvalId,
+    text,
+    label: `${row.approvedBy || "网页"} · ${row.appliedAt ? row.appliedAt.slice(0, 16).replace("T", " ") : ""}`.trim(),
+    keys: row.keys ?? [],
+    counts,
+  };
+}
+
+/** 撤回批准单上的代价清单（§11.1：撤回是真逆，海报行会被接回来，别再写"可重抓"）。 */
+export function rollbackSheet(input: { keys: string[]; counts: { created: number; removed: number; changed: number } }): string[] {
+  const lines = [`这次撤回会还原 ${input.keys.length} 张卡：恢复 ${input.counts.removed} 张被删的、撤掉 ${input.counts.created} 张新建的`];
+  if (input.counts.changed) lines.push(`${input.counts.changed} 张改写过的卡按记录改回去`);
+  lines.push("海报会一起接回来；任何一张卡在应用之后被人动过，整批都不会动");
+  lines.push("这张批准是一次性的，成功即消耗");
+  return lines;
+}
 
 export function draftErrorText(error: unknown, fallback = "草稿操作失败"): string {
   const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+  if (code === "CATALOG_REFRESH_NOT_LANDED") return "后台任务已结束，但结果未更新。请检查服务端日志。";
+  if (code === "CATALOG_REFRESH_TIMEOUT") return "等待后台任务超时，任务可能仍在运行。请稍后读取结果。";
   return DRAFT_ERROR_TEXT[code] ?? fallback;
 }
 
@@ -157,12 +291,19 @@ export function droppedRows(state: DraftState | null): DraftDiffItem[] {
   return state?.diff?.dropped ?? [];
 }
 
+/** 集号覆盖的人话（§16）：集号变了要重新应用，但**不算结构变更**（不会多出批准单）。 */
+export function episodeNote(episodes?: { from: number; to: number } | null): string | null {
+  if (!episodes || episodes.from === episodes.to) return null;
+  return `集号 ${episodes.from} → ${episodes.to}`;
+}
+
 /** 应用结果文案（§8.6 给的口径）：skipped 是「你定过的」，deferred 是「还没判定的」。 */
-export function applyResultText(result: { created: number; updated: number; skipped: number; deferred: number; posters: number }): string {
+export function applyResultText(result: { created: number; updated: number; skipped: number; deferred: number; posters: number; rollbackAvailable?: boolean }): string {
   const parts = [`新建 ${result.created}`, `更新 ${result.updated}`];
   if (result.skipped) parts.push(`${result.skipped} 张由你定过，未改动`);
   if (result.deferred) parts.push(`${result.deferred} 张还没判定，本次未改其绑定`);
   if (result.posters) parts.push(`海报 ${result.posters} 张`);
+  if (result.rollbackAvailable) parts.push("可撤回（审阅页顶部）");
   return `已应用：${parts.join(" · ")}`;
 }
 
