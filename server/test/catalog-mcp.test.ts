@@ -43,6 +43,7 @@ const rpc = (idValue: number, method: string, params?: Record<string, unknown>) 
 test("工具表面只有读、草稿写入和带凭证的应用，没有批准", async () => {
   const names = CATALOG_TOOLS.map((tool) => tool.name);
   assert.deepEqual(names, [
+    "catalog_exclusions", "catalog_exclude", "catalog_unexclude",
     "catalog_read",
     "catalog_scan_read",
     "draft_status",
@@ -78,6 +79,9 @@ test("工具表面只有读、草稿写入和带凭证的应用，没有批准",
   assert.deepEqual(
     hits.map((hit) => [hit.name, hit.method, hit.route]),
     [
+      ["catalog_exclusions", "GET", "/api/admin/media-libraries/lib_anime/exclusions"],
+      ["catalog_exclude", "POST", "/api/admin/media-libraries/lib_anime/draft/exclude"],
+      ["catalog_unexclude", "POST", "/api/admin/media-libraries/lib_anime/draft/unexclude"],
       ["catalog_read", "GET", "/api/media/catalog?libraryId=lib_anime"],
       ["catalog_scan_read", "GET", "/api/admin/media-libraries/lib_anime/scan"],
       ["draft_status", "GET", "/api/admin/media-libraries/lib_anime/classify?item=%2FMedalist"],

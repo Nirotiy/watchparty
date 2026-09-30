@@ -1,4 +1,5 @@
 import type { CatalogCandidate, CatalogCard, CatalogChild, CatalogDetail, CatalogPage, CatalogStatus } from "@/lib/contracts"
+import { exclusionText } from "../../desktop-shell/shared/catalog-exclusions"
 
 /**
  * 标题墙的视图模型。与桌面壳那份（`desktop-shell/src/lib/catalog-view.ts`）同语义、不同文件：
@@ -190,9 +191,10 @@ export function toDetail(detail: CatalogDetail): WallDetail {
   }
 }
 
-export function scrapeSummary(job: { status: string; total: number; scanned: number; matched: number; lastError: string | null }): string {
+export function scrapeSummary(job: { status: string; total: number; scanned: number; matched: number; lastError: string | null; reviewRequired?: boolean }): string {
   if (job.status === "running") return `正在刮削：已扫 ${job.scanned} / ${job.total}，命中 ${job.matched}`
   if (job.status === "failed") return `刮削失败：${job.lastError ?? "未知原因"}`
+  if (job.reviewRequired) return exclusionText.review
   return `标题库已更新：${job.total} 组，命中 ${job.matched}`
 }
 

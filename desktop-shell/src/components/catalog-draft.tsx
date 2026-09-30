@@ -17,6 +17,9 @@ import {
   type DraftFilterKey, type RollbackLine, type StructuralSheet,
 } from "@/lib/draft-view"
 import { cn } from "@/lib/utils"
+import { ExcludeFiles, ExclusionList } from "./catalog-exclusion-controls"
+import { mediaCatalogExclusions, mediaDraftExclusion } from "@/lib/ipc"
+const exclusionApi = { read: mediaCatalogExclusions, write: mediaDraftExclusion }
 
 const JUDGE_BATCH = 6
 /** 服务端只落"人是从哪一端点的"，不落用户体系（§10.4）。 */
@@ -408,6 +411,7 @@ export function CatalogDraft({ libraryId, libraryName, admin }: { libraryId: str
 
   return (
     <section className="draft" aria-label="草稿审阅" inert={sheet !== null || dialog !== null}>
+      {admin ? <ExclusionList libraryId={libraryId} api={exclusionApi} reload={load} classify={classify} version={state} /> : null}
       <header className="draft-bar">
         <div className="draft-bar-title">
           <b>{libraryName} · 草稿</b>
@@ -510,7 +514,7 @@ export function CatalogDraft({ libraryId, libraryName, admin }: { libraryId: str
                 setOpenKey(nextOpen ? item.itemKey : null)
                 if (nextOpen) void loadDetail(item.itemKey)
               }}
-              edit={{ busy, titleDraft, searchFor, searchQuery, hits, splitting, keepIds, setTitleDraft, setSearchFor, setSearchQuery, setSplitting, setKeepIds, searchEntries, editTitle, pickEntry, bindSearchEntry, confirmTop, unconfirmDraft, splitItem }}
+              edit={{ busy, titleDraft, searchFor, searchQuery, hits, splitting, keepIds, setTitleDraft, setSearchFor, setSearchQuery, setSplitting, setKeepIds, searchEntries, editTitle, pickEntry, bindSearchEntry, confirmTop, unconfirmDraft, splitItem, reload: async () => { setDetailCache({}); setOpenKey(null); await load() } }}
             />
           ))}
           {dropped.map(row => (
@@ -563,6 +567,7 @@ export function CatalogDraft({ libraryId, libraryName, admin }: { libraryId: str
 }
 
 interface RowEdit {
+  reload: () => Promise<void>
   busy: string
   titleDraft: Record<string, string>
   searchFor: string | null
@@ -691,6 +696,7 @@ function DraftRow({ item, state, open, justJudged, detail, picked, onPick, onTog
                     </Button>
                   ) : null}
                 </div>
+                {children ? <ExcludeFiles libraryId={state.libraryId} files={children} api={exclusionApi} reload={edit.reload} /> : null}
                 {edit.splitting === item.itemKey && children ? (
                   <div className="draft-split">
                     <p className="draft-hint">勾选<b>留在原卡</b>的文件（默认全勾 = 不拆）；没勾的按父目录自动成新卡（待判定）。</p>

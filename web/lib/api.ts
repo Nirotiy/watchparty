@@ -177,6 +177,12 @@ export const api = {
   splitDraft: (libraryId: string, input: { itemKey: string; keep: string[] }): Promise<DraftEditResult> =>
     request<DraftEditResult>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/draft/split`, { method: "POST", body: JSON.stringify(input) }),
 
+  catalogExclusions: (libraryId: string): Promise<import("../../desktop-shell/shared/catalog-exclusions").CatalogExclusions> =>
+    request(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/exclusions`),
+
+  draftExclusion: (libraryId: string, action: "exclude" | "unexclude", paths: string[]): Promise<import("../../desktop-shell/shared/catalog-exclusions").CatalogExclusions> =>
+    request(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/draft/${action}`, { method: "POST", body: JSON.stringify({ paths }) }),
+
   keepDraftBinding: (libraryId: string, input: { itemKey: string; keepsBindingOnKey: string }): Promise<DraftEditResult> =>
     request<DraftEditResult>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/draft/keep-binding`, { method: "POST", body: JSON.stringify(input) }),
 

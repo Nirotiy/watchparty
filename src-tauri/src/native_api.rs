@@ -806,7 +806,7 @@ fn media_route_allowed(method: &str, path: &str) -> bool {
             id_ok(id)
                 && matches!(
                     *action,
-                    "edit" | "confirm" | "unconfirm" | "merge" | "split" | "keep-binding"
+                    "edit" | "confirm" | "unconfirm" | "merge" | "split" | "keep-binding" | "exclude" | "unexclude"
                 )
         }
         // 批准门（§10.1/§11.1）：签发、撤销、带凭证应用、撤回，外加两条只读台账。
@@ -816,6 +816,7 @@ fn media_route_allowed(method: &str, path: &str) -> bool {
         | ("POST", ["", "api", "admin", "media-libraries", id, "apply-approved"])
         | ("POST", ["", "api", "admin", "media-libraries", id, "rollback"]) => id_ok(id),
         ("GET", ["", "api", "admin", "media-libraries", id, "approvals"])
+        | ("GET", ["", "api", "admin", "media-libraries", id, "exclusions"])
         | ("GET", ["", "api", "admin", "media-libraries", id, "duplicates"]) => id_ok(id),
         _ => false,
     }
@@ -1030,6 +1031,9 @@ mod tests {
             ("POST", "/api/admin/media-libraries/lib_anime/draft/unconfirm"),
             ("POST", "/api/admin/media-libraries/lib_anime/draft/merge"),
             ("POST", "/api/admin/media-libraries/lib_anime/draft/split"),
+            ("POST", "/api/admin/media-libraries/lib_anime/draft/exclude"),
+            ("POST", "/api/admin/media-libraries/lib_anime/draft/unexclude"),
+            ("GET", "/api/admin/media-libraries/lib_anime/exclusions"),
             ("POST", "/api/admin/media-libraries/lib_anime/draft/keep-binding"),
             // 批准门（§10.1/§11.1）：签发 / 撤销 / 带凭证应用 / 撤回 + 两条只读台账
             ("POST", "/api/admin/media-libraries/lib_anime/approval"),

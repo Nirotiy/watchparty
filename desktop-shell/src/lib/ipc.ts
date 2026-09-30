@@ -453,6 +453,7 @@ export interface CatalogPage {
 }
 
 export interface ScrapeJob {
+  reviewRequired?: boolean
   libraryId: string
   status: "running" | "done" | "failed"
   total: number
@@ -635,7 +636,7 @@ export interface DraftState {
   pending: number
   classifiedAt: string | null
   thresholds: DraftThresholds | null
-  scan: { files: number; enumeratedAt: string | null; rev: number; running?: boolean } | null
+  scan: { files: number; enumeratedAt: string | null; rev: number; running?: boolean; excluded?: number } | null
   draft: DraftItem[]
   diff: DraftDiff | null
 }
@@ -974,6 +975,14 @@ export function mediaDraftMerge(input: { libraryId: string; keepKey: string; dro
 /** 拆分草稿卡：`keep` 是留在原卡的那批 mediaId，其余按父目录自动成新卡。 */
 export function mediaDraftSplit(input: { libraryId: string; itemKey: string; keep: string[] }): Promise<DraftEditResult> {
   return mediaRequest<DraftEditResult>("POST", `/api/admin/media-libraries/${encodeURIComponent(input.libraryId)}/draft/split`, { body: input })
+}
+
+export function mediaCatalogExclusions(libraryId: string): Promise<import("../../shared/catalog-exclusions").CatalogExclusions> {
+  return mediaRequest("GET", `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/exclusions`)
+}
+
+export function mediaDraftExclusion(libraryId: string, action: "exclude" | "unexclude", paths: string[]): Promise<import("../../shared/catalog-exclusions").CatalogExclusions> {
+  return mediaRequest("POST", `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/draft/${action}`, { body: { paths } })
 }
 
 /** 绑定改由另一份草稿承接（apply 时才搬；目标卡已有人工答案会跳过；原卡变 unmatched）。 */

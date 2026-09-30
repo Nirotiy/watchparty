@@ -21,6 +21,7 @@ function config(extra: Record<string, string> = {}): AppConfig {
   return loadConfig({
     ...process.env,
     NODE_ENV: "test",
+    WATCHPARTY_CATALOG_APPROVAL_SECRET: "",
     OPENLIST_URL: "http://primary.example",
     OPENLIST_USERNAME: "admin",
     OPENLIST_PASSWORD: "seed-secret",

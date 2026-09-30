@@ -392,8 +392,10 @@ export function applySideEffects(input: { pending: number; humanConfirmed: numbe
  * 空态判定：后端在"还没扫过"时给的是 **200 + 空草稿**（cards 0 / scan.rev 0），
  * 不是 409 CATALOG_DRAFT_EMPTY（那个码留给了别的路径）。所以按数据判，别只认码。
  */
+export { exclusionText } from "../../desktop-shell/shared/catalog-exclusions";
+
 export function emptyKind(state: DraftState | null): "never-scanned" | "scanned-not-classified" | null {
-  if (!state || state.draft.length > 0) return null;
+  if (!state || state.draft.length > 0 || state.classifiedAt) return null;
   return (state.scan?.rev ?? 0) > 0 ? "scanned-not-classified" : "never-scanned";
 }
 

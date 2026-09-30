@@ -345,8 +345,10 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
     }
   });
 
-  // 草稿编辑：六个动作同一种形状（只写草稿、返回新摘要），所以表驱动注册。
+  // 草稿编辑动作同一种形状（只写草稿、返回新摘要），所以表驱动注册。
   const draftEdits: Array<{ action: string; run: (id: string, body: unknown) => unknown }> = [
+    { action: "exclude", run: (id, body) => library.draftExclude(id, body) },
+    { action: "unexclude", run: (id, body) => library.draftUnexclude(id, body) },
     { action: "edit", run: (id, body) => library.draftEdit(id, body) },
     { action: "confirm", run: (id, body) => library.draftConfirm(id, body) },
     { action: "unconfirm", run: (id, body) => library.draftUnconfirm(id, body) },
@@ -354,6 +356,11 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
     { action: "split", run: (id, body) => library.draftSplit(id, body) },
     { action: "keep-binding", run: (id, body) => library.draftKeepBinding(id, body) },
   ];
+  app.get("/api/admin/media-libraries/:id/exclusions", (req, res) => {
+    if (!requireAdmin(library, req, res)) return;
+    try { res.json(library.catalogExclusions(paramId(req))); }
+    catch (error) { sendFailure(res, error); }
+  });
   for (const { action, run } of draftEdits) {
     app.post(`/api/admin/media-libraries/:id/draft/${action}`, (req, res) => {
       if (!requireAdmin(library, req, res)) return;

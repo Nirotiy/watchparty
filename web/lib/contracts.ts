@@ -231,6 +231,7 @@ export interface CatalogPage {
 }
 
 export interface ScrapeJob {
+  reviewRequired?: boolean;
   libraryId: string;
   status: "running" | "done" | "failed";
   total: number;
@@ -411,7 +412,7 @@ export interface DraftState {
   pending: number;
   classifiedAt: string | null;
   thresholds: DraftThresholds | null;
-  scan: { files: number; enumeratedAt: string | null; rev: number; running?: boolean } | null;
+  scan: { files: number; enumeratedAt: string | null; rev: number; running?: boolean; excluded?: number } | null;
   draft: DraftItem[];
   diff: DraftDiff | null;
 }

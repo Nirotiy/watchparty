@@ -7,7 +7,7 @@ import test from "node:test";
 import { createBackend, type Backend } from "../app.ts";
 import { loadConfig } from "../config.ts";
 import { episodeSubtitle, groupScanFiles, type CatalogGroup } from "../media/catalog-names.ts";
-import { diffSnapshots, openCatalogStore, structuralChanges, structuralCount } from "../media/catalog-store.ts";
+import { diffSnapshots, openCatalogStore, structuralChanges, structuralCount, type CatalogDetail } from "../media/catalog-store.ts";
 import { MetadataUnavailable } from "../media/catalog-metadata.ts";
 import { WATCHPARTY_ROOTS } from "../media/watchparty-media.ts";
 import type { OpenlistClient } from "../media/openlist.ts";
@@ -249,6 +249,120 @@ async function started(options: Parameters<typeof createBackend>[0]): Promise<Ba
 
 const base = (backend: Backend) => `http://127.0.0.1:${backend.port}`;
 const json = async (response: Response) => ({ status: response.status, body: await response.json().catch(() => null) });
+
+test("排除标记保留扫描事实，分组与草稿文件/集号同步缩小，正式卡等待应用", () => {
+  const { store } = openStore();
+  try {
+    const original = group("/Show", "Show", ["m1", "m2"], undefined, { m1: 1, m2: 2 });
+    store.writeScan("lib", original.files.map(file => ({ ...file, relativePath: file.relativePath! })));
+    store.upsertScan("lib", "tv", [original]);
+    store.rebind(store.cardIds("lib")[0], { externalDb: "bangumi", externalId: "1", title: "Show" });
+    store.writeDraft("lib", [original]);
+    store.markExcluded("lib", ["/Show/m2.mkv"], "混入文件");
+    assert.equal(store.scanInfo("lib").files, 2);
+    assert.equal(store.scanInfo("lib").excluded, 1);
+    assert.equal(groupScanFiles(store.activeScan("lib")).flatMap(group => group.files).length, 1);
+    assert.equal(store.draftInfo("lib").files, 1);
+    const drift = store.draftDiff("lib").confirmedDrift[0];
+    assert.deepEqual(drift.files, { from: 2, to: 1 });
+    assert.deepEqual(drift.episodes, { from: 2, to: 1 });
+    assert.equal(structuralCount(structuralChanges(store.draftDiff("lib"))), 1);
+    assert.equal(store.getDetail(store.cardIds("lib")[0])?.children.length, 2);
+    store.upsertScan("lib", "tv", [original], false);
+    assert.equal(store.getDetail(store.cardIds("lib")[0])?.children.length, 1);
+    assert.equal(store.getDetail(store.cardIds("lib")[0])?.subtitle, episodeSubtitle(original.files.slice(0, 1), "/Show"));
+  } finally { store.close(); }
+});
+
+test("撤标无需重扫，重分类恢复文件；标记活过重扫，改名后显式失效", () => {
+  const { store } = openStore();
+  try {
+    const files = group("/Show", "Show", ["m1", "m2"]).files.map(file => ({ ...file, relativePath: file.relativePath! }));
+    store.writeScan("lib", files);
+    store.markExcluded("lib", [files[1].relativePath], "");
+    store.writeScan("lib", files);
+    assert.equal(store.activeScan("lib").length, 1);
+    const rev = store.scanInfo("lib").rev;
+    store.clearExcluded("lib", [files[1].relativePath]);
+    assert.equal(store.exclusionReviewRequired("lib"), true, "clearing marks must keep legacy scrape behind review");
+    store.writeDraft("lib", groupScanFiles(store.activeScan("lib")));
+    assert.equal(store.draftInfo("lib").files, 2);
+    assert.equal(store.scanInfo("lib").rev, rev);
+    store.markExcluded("lib", [files[1].relativePath], "");
+    store.writeScan("lib", [files[0], { ...files[1], relativePath: "/Show/renamed.mkv" }]);
+    assert.equal(store.exclusions("lib").stale, 1);
+    assert.equal(store.exclusions("lib").excluded, 0);
+    assert.equal(store.activeScan("lib").length, 2);
+    store.forgetLibrary("lib");
+    assert.deepEqual(store.exclusions("lib"), { items: [], excluded: 0, stale: 0 });
+    assert.equal(store.exclusionReviewRequired("lib"), false);
+  } finally { store.close(); }
+});
+
+test("排空人工卡成为 dropped，批准应用才能删除；撤回不清意图", () => {
+  const { store } = openStore();
+  try {
+    const original = group("/Show", "Show", ["m1"]);
+    store.writeScan("lib", original.files.map(file => ({ ...file, relativePath: file.relativePath! })));
+    store.upsertScan("lib", "tv", [original]);
+    store.rebind(store.cardIds("lib")[0], { externalDb: "bangumi", externalId: "1", title: "Show" });
+    store.writeDraft("lib", [original]);
+    const before = store.snapshotLibrary("lib");
+    store.markExcluded("lib", ["/Show/m1.mkv"], "");
+    assert.equal(store.draftInfo("lib").cards, 0);
+    assert.ok(store.draftInfo("lib").classifiedAt);
+    assert.equal(store.draftInfo("lib").rev, store.scanInfo("lib").rev);
+    assert.equal(store.draftDiff("lib").dropped.length, 1);
+    assert.equal(structuralCount(structuralChanges(store.draftDiff("lib"))), 1);
+    assert.equal(store.cardIds("lib").length, 1);
+    store.upsertScan("lib", "tv", [], false);
+    assert.equal(store.cardIds("lib").length, 0);
+    const undo = diffSnapshots("lib", before, store.snapshotLibrary("lib"));
+    assert.ok(undo);
+    assert.ok("applied" in store.restoreApplyUndo(undo));
+    assert.equal(store.getDetail(store.cardIds("lib")[0])?.children.length, 1);
+    assert.equal(store.exclusions("lib").excluded, 1);
+  } finally { store.close(); }
+});
+
+test("排除路由与 worker/classify 两入口一致，旧 scrape 不绕批准改正式卡", async () => {
+  const backend = await started({});
+  const url = `${base(backend)}/api/admin/media-libraries/lib_anime`;
+  const post = (suffix: string, body = {}) => fetch(`${url}/${suffix}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  try {
+    assert.equal((await post("scrape")).status, 200);
+    const cards = (await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`))).body as { items: Array<{ id: string }> };
+    const id = cards.items[0].id;
+    const formal = (await json(await fetch(`${base(backend)}/api/media/catalog/${id}`))).body as CatalogDetail;
+    const paths = formal.children.map(child => `${child.relDir}/${child.name}`);
+    assert.equal((await post("draft/exclude", { paths: ["missing"] })).status, 404);
+    assert.equal((await post("draft/exclude", { paths: [] })).status, 400);
+    assert.equal((await post("draft/exclude", { paths: [paths[1]] })).status, 200);
+    assert.equal((await post("classify")).status, 200);
+    assert.equal((await json(await fetch(`${url}/classify`))).body.files, 1);
+    assert.equal((await post("scrape")).status, 200);
+    assert.equal((await json(await fetch(`${url}/classify`))).body.files, 1);
+    assert.equal((await json(await fetch(`${base(backend)}/api/media/catalog/${id}`))).body.children.length, 2);
+    assert.equal((await post("apply", {})).status, 409);
+    assert.equal((await post("draft/exclude", { paths: [paths[0]] })).status, 200);
+    const required = await json(await post("apply"));
+    assert.equal(required.status, 409);
+    assert.equal(required.body.code, "CATALOG_APPROVAL_REQUIRED");
+    const approved = await json(await post("approval", { approvedBy: "test" }));
+    assert.equal(approved.status, 200);
+    assert.equal((await post("apply-approved", { approvalToken: approved.body.approvalToken })).status, 200);
+    assert.equal((await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`))).body.items.length, 0);
+    assert.equal((await post("draft/unexclude", { paths })).status, 200);
+    const rescrape = await json(await post("scrape"));
+    assert.equal(rescrape.status, 200);
+    assert.equal(rescrape.body.reviewRequired, true);
+    assert.equal((await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`))).body.items.length, 0, "clearing all marks must not let legacy scrape recreate formal cards");
+    assert.equal((await post("classify")).status, 200);
+    assert.equal((await json(await fetch(`${url}/classify`))).body.files, 2);
+    const exclusions = await json(await fetch(`${url}/exclusions`));
+    assert.deepEqual(exclusions.body, { items: [], excluded: 0, stale: 0 });
+  } finally { await backend.close(); }
+});
 
 test("源被删掉后还在跑的枚举不许把快照写回去（不留孤儿行）", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wp-orphan-"));
@@ -1151,7 +1265,7 @@ test("forgetLibrary 清掉这个库的快照与草稿（删库不留孤儿行）
     store.writeDraft("lib_anime", [group("/Show", "Show", ["m1", "m2"])]);
     store.writeScan("lib_tv", [{ relativePath: "/Other/x.mkv", name: "x.mkv", mediaId: "x" }]);
     assert.deepEqual(store.forgetLibrary("lib_anime"), { scan: 3, draft: 1 }, "返回的是删掉的行数");
-    assert.deepEqual(store.scanInfo("lib_anime"), { files: 0, enumeratedAt: null, rev: 0 });
+    assert.deepEqual(store.scanInfo("lib_anime"), { files: 0, enumeratedAt: null, rev: 0, excluded: 0 });
     assert.equal(store.draftInfo("lib_anime").cards, 0);
     assert.equal(store.scanInfo("lib_tv").files, 1, "别的库不受影响");
   } finally {

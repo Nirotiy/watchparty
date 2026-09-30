@@ -25,6 +25,7 @@ import {
   type CatalogDraftDiff,
   type CatalogDraftRow,
   type CatalogDetail,
+  type CatalogStore,
   type DraftPatch,
   type ManualBinding,
   type StructuralChanges,
@@ -199,7 +200,10 @@ export type LibraryService = {
   catalogSplit(id: string, body: unknown): CatalogDetail[];
   /** 人工挑条目用的vendor搜索（卡片改绑时先搜后绑）。 */
   vendorSearch(body: unknown): Promise<Array<{ externalDb: string; externalId: string; title: string; originalTitle: string | null; year: number | null; episodes: number | null; imageUrl: string | null }>>;
-  catalogScan(id: string): { files: number; enumeratedAt: string | null; rev: number; running: boolean };
+  catalogScan(id: string): { files: number; enumeratedAt: string | null; rev: number; running: boolean; excluded: number };
+  catalogExclusions(id: string): ReturnType<CatalogStore["exclusions"]>;
+  draftExclude(id: string, body: unknown): ReturnType<CatalogStore["exclusions"]>;
+  draftUnexclude(id: string, body: unknown): ReturnType<CatalogStore["exclusions"]>;
   /**
    * 只枚举并刷新快照，不分组、不刮削、不动任何卡。
    * `status:"accepted"` 表示超过宽限期还没跑完 —— 调用方去轮询 `GET .../scan` 直到 `running` 为假。
@@ -297,8 +301,8 @@ export type LibraryService = {
   /** 展开某一张草稿卡时才取它的文件列表。 */
   catalogDraftCard(id: string, itemKey: string): { libraryId: string; card: CatalogDraftRow; children: CatalogGroupFile[]; candidates: RankedHit[] };
   catalogPoster(id: string): { contentType: string; bytes: Buffer } | undefined;
-  adminScrape(libraryId: string): Promise<{ libraryId: string; status: string; total: number; scanned: number; matched: number; lastError: string | null }>;
-  adminScrapeStatus(libraryId: string): { libraryId: string; status: string; total: number; scanned: number; matched: number; lastError: string | null };
+  adminScrape(libraryId: string): Promise<{ libraryId: string; status: string; total: number; scanned: number; matched: number; lastError: string | null; reviewRequired?: boolean }>;
+  adminScrapeStatus(libraryId: string): { libraryId: string; status: string; total: number; scanned: number; matched: number; lastError: string | null; reviewRequired?: boolean };
   libraries(): Promise<Array<{
     id: string;
     name: string;
@@ -584,7 +588,7 @@ export function createLibraryService(options: {
    */
   function importCollections(libraryId: string, structure: string[] | "all" | null): ImportPreviewResult {
     const { library } = requireLibrary(libraryId);
-    const scan = catalog.readScan(libraryId);
+    const scan = catalog.activeScan(libraryId);
     if (scan.length === 0) throw new LibraryRequestError(409, "CATALOG_SCAN_EMPTY");
     const root = collectionRootFor(sidecarRoot, libraryId);
     const serverRead = readCollectionRoot(sidecarRoot, libraryId);
@@ -722,7 +726,7 @@ export function createLibraryService(options: {
       files = library.kind === "other" ? [] : await collectLibraryFiles(library);
       if (stillThere(id, "scan")) catalog.writeScan(id, files);
     }
-    const groups = groupScanFiles(files, catalog.protectedKeys(id)).filter((group) => group.query);
+    const groups = groupScanFiles(catalog.activeScan(id), catalog.protectedKeys(id)).filter((group) => group.query);
     const cards = stillThere(id, "draft") ? catalog.writeDraft(id, groups) : 0;
     return { libraryId: id, files: files.length, cards, rev: catalog.scanInfo(id).rev, diff: catalog.draftDiff(id) };
   }
@@ -1069,6 +1073,29 @@ export function createLibraryService(options: {
       // 是别的字段的事，混进来界面就会拿它当那个用。
       return { ...catalog.scanInfo(library.id), running: inFlight.has(`scan:${library.id}`) };
     },
+    catalogExclusions(id) {
+      requireLibrary(id);
+      return catalog.exclusions(id);
+    },
+    draftExclude(id, body) {
+      requireLibrary(id);
+      const record = asRecord(body);
+      const paths = record?.paths;
+      if (!Array.isArray(paths) || paths.length === 0 || paths.length > 500 || paths.some(value => typeof value !== "string" || !value || value.length > 4000)) throw draftInvalid();
+      const scanned = new Set(catalog.readScan(id).map(file => file.relativePath));
+      if (paths.some(value => !scanned.has(value))) throw draftNotFound();
+      const reason = typeof record?.reason === "string" ? record.reason.trim() : "";
+      if (reason.length > 500) throw draftInvalid();
+      catalog.markExcluded(id, paths, reason);
+      return catalog.exclusions(id);
+    },
+    draftUnexclude(id, body) {
+      requireLibrary(id);
+      const paths = asRecord(body)?.paths;
+      if (!Array.isArray(paths) || paths.length === 0 || paths.length > 500 || paths.some(value => typeof value !== "string" || !value || value.length > 4000)) throw draftInvalid();
+      catalog.clearExcluded(id, paths);
+      return catalog.exclusions(id);
+    },
     async catalogRefreshScan(id) {
       const library = store.getLibrary(id);
       if (!library) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
@@ -1112,7 +1139,7 @@ export function createLibraryService(options: {
     async catalogApply(id, force, approvalToken) {
       const { library } = requireLibrary(id);
       const info = catalog.draftInfo(id);
-      if (info.cards === 0) throw new LibraryRequestError(409, "CATALOG_DRAFT_EMPTY", { draftCards: 0 });
+      if (info.cards === 0 && (!info.classifiedAt || catalog.draftDiff(id).dropped.length === 0)) throw new LibraryRequestError(409, "CATALOG_DRAFT_EMPTY", { draftCards: 0 });
       if (info.rev !== catalog.scanInfo(id).rev) throw new LibraryRequestError(409, "CATALOG_STALE_SCAN", { draftRev: info.rev, scanRev: catalog.scanInfo(id).rev, draftCards: info.cards });
       // 没判完就应用：未确认的卡会被结构对齐重置成"未匹配"，候选列表也一起丢。
       // 绑定不会丢（未判定的草稿跳过），但界面会看起来"掉了一截"，所以默认拒绝。
@@ -1414,13 +1441,13 @@ export function createLibraryService(options: {
     async adminScrape(libraryId) {
       const job = await worker.start(libraryId);
       if (!job) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
-      return publicJob(job);
+      return { ...publicJob(job), ...(catalog.exclusionReviewRequired(libraryId) ? { reviewRequired: true } : {}) };
     },
     adminScrapeStatus(libraryId) {
       if (!store.getLibrary(libraryId)) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
       const job = catalog.getJob(libraryId);
       if (!job) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
-      return publicJob(job);
+      return { ...publicJob(job), ...(catalog.exclusionReviewRequired(libraryId) ? { reviewRequired: true } : {}) };
     },
   };
   worker.resumeIncomplete();

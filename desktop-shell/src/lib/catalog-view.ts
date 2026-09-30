@@ -1,9 +1,10 @@
 import type { CatalogCandidate, CatalogCard, CatalogChild, CatalogDetail, CatalogPage, CatalogStatus } from "@/lib/ipc"
 import type { MediaCompatibility } from "@/lib/contracts"
+import { exclusionText } from "../../shared/catalog-exclusions.ts"
 
 /**
  * View model for the title wall (phase 3). Pure on purpose: the React layer only renders,
- * and the unit test transpiles this file with zero runtime imports.
+ * and the unit test imports it without any transport dependencies.
  */
 export interface WallCard {
   id: string
@@ -217,9 +218,10 @@ export function catalogErrorText(error: unknown, fallback: string): string {
   return ERROR_TEXT[code] ?? fallback
 }
 
-export function scrapeSummary(job: { status: string; total: number; scanned: number; matched: number; lastError: string | null }): string {
+export function scrapeSummary(job: { status: string; total: number; scanned: number; matched: number; lastError: string | null; reviewRequired?: boolean }): string {
   if (job.status === "running") return `正在刮削：已扫 ${job.scanned} / ${job.total}，命中 ${job.matched}`
   if (job.status === "failed") return `刮削失败：${job.lastError ?? "未知原因"}`
+  if (job.reviewRequired) return exclusionText.review
   return `标题库已更新：${job.total} 组，命中 ${job.matched}`
 }
 

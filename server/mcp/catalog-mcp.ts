@@ -15,7 +15,7 @@ const PROTOCOL_VERSION = "2024-11-05";
 type ToolSpec = {
   name: string;
   description: string;
-  properties: Record<string, { type: string; description?: string }>;
+  properties: Record<string, { type: string; description?: string; items?: { type: string } }>;
   required?: string[];
   run: (call: ApiCall, args: Record<string, unknown>) => Promise<unknown>;
 };
@@ -35,6 +35,17 @@ const stringFields = {
 };
 
 export const CATALOG_TOOLS: ToolSpec[] = [
+  {
+    name: "catalog_exclusions", description: "读取文件不入库标记及失效路径。", properties: { libraryId: id }, required: ["libraryId"],
+    async run(call, args) { return call("GET", `/api/admin/media-libraries/${encodeURIComponent(String(args.libraryId))}/exclusions`); },
+  },
+  ...(["exclude", "unexclude"] as const).map(action => ({
+    name: `catalog_${action}`,
+    description: action === "exclude" ? "按扫描路径标记文件不入库，只写意图与草稿；正式卡须人工批准应用。" : "撤销文件不入库标记，重新分类即可恢复草稿，不需重扫。",
+    properties: { libraryId: id, paths: { type: "array", items: { type: "string" } }, reason: { type: "string" } },
+    required: ["libraryId", "paths"],
+    async run(call: ApiCall, args: Record<string, unknown>) { return call("POST", `/api/admin/media-libraries/${encodeURIComponent(String(args.libraryId))}/draft/${action}`, { paths: args.paths, reason: args.reason }); },
+  })),
   {
     name: "catalog_read",
     description: "读取正式卡（标题墙）：列表或单卡详情。只读。",

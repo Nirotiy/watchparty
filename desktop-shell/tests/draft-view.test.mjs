@@ -3,6 +3,11 @@ import { test } from 'node:test'
 
 const view = await import('../src/lib/draft-view.ts')
 
+test('已分类的空草稿仍显示审阅与排除清单入口', () => {
+  assert.equal(view.emptyKind({ draft: [], classifiedAt: '2026-09-30T00:00:00Z', scan: { rev: 4 }, diff: { dropped: [{ id: 'emptied' }] } }), null)
+  assert.equal(view.emptyKind({ draft: [], classifiedAt: '2026-09-30T00:00:00Z', scan: { rev: 4 }, diff: { dropped: [] } }), null)
+})
+
 const item = (over = {}) => ({
   itemKey: '/Show A', query: 'Show A', rawName: 'Show A', subtitle: '12 集', files: 12, rev: 1,
   status: 'unmatched', lookupState: 'pending', title: 'Show A', originalTitle: null, year: null,

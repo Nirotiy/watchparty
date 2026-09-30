@@ -1,9 +1,6 @@
-import { readFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import ts from 'typescript'
-const js = ts.transpile(readFileSync(new URL('../src/lib/catalog-view.ts', import.meta.url), 'utf8'), { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 })
-const { catalogStatusLabel, confirmedBySource, groupSeasons, posterHue, scrapeSummary, titleInitial, toDetail, toWall, wallCard, UNCONFIRM_NOTICE } = await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`)
+const { catalogStatusLabel, confirmedBySource, groupSeasons, posterHue, scrapeSummary, titleInitial, toDetail, toWall, wallCard, UNCONFIRM_NOTICE } = await import('../src/lib/catalog-view.ts')
 
 const resolve = itemId => `http://asset.test/artwork/poster/${itemId}`
 
@@ -141,6 +138,7 @@ test('poster-less cards get a stable colour and a single-character mark', () => 
 })
 
 test('labels and scrape wording', () => {
+  assert.equal(scrapeSummary({ status: 'done', total: 71, scanned: 71, matched: 16, lastError: null, reviewRequired: true }), '草稿已更新，请到审阅页批准应用')
   assert.equal(catalogStatusLabel('unmatched'), '未匹配')
   assert.equal(catalogStatusLabel('surprise'), 'surprise', '未知状态原样显示，不猜')
   assert.match(scrapeSummary({ status: 'running', total: 71, scanned: 12, matched: 3, lastError: null }), /已扫 12 \/ 71/)

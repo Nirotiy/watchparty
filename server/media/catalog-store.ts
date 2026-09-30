@@ -346,7 +346,12 @@ export type CatalogStore = {
   /** 人工决定过的目录：分组时不许折叠或删除它们。 */
   protectedKeys(libraryId: string): Set<string>;
   readScan(libraryId: string): ScanFile[];
-  scanInfo(libraryId: string): { files: number; enumeratedAt: string | null; rev: number };
+  activeScan(libraryId: string): ScanFile[];
+  exclusionReviewRequired(libraryId: string): boolean;
+  markExcluded(libraryId: string, paths: string[], reason: string): void;
+  clearExcluded(libraryId: string, paths: string[]): void;
+  exclusions(libraryId: string): { items: Array<{ relativePath: string; reason: string; createdAt: string; stale: boolean }>; excluded: number; stale: number };
+  scanInfo(libraryId: string): { files: number; enumeratedAt: string | null; rev: number; excluded: number };
   /** 分类落草稿：只读快照、只写 catalog_draft，正式表一行都不动。 */
   writeDraft(libraryId: string, groups: CatalogGroup[]): number;
   readDraft(libraryId: string): CatalogDraftCard[];
@@ -499,6 +504,16 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       name TEXT NOT NULL,
       enumerated_at TEXT NOT NULL,
       PRIMARY KEY (library_id, rel_path)
+    );
+    CREATE TABLE IF NOT EXISTS catalog_exclusions (
+      library_id TEXT NOT NULL, rel_path TEXT NOT NULL, reason TEXT NOT NULL,
+      created_at TEXT NOT NULL, PRIMARY KEY (library_id, rel_path)
+    );
+    CREATE TABLE IF NOT EXISTS catalog_exclusion_libraries (
+      library_id TEXT PRIMARY KEY
+    );
+    CREATE TABLE IF NOT EXISTS catalog_draft_runs (
+      library_id TEXT PRIMARY KEY, rev INTEGER NOT NULL, classified_at TEXT NOT NULL
     );
   `);
 
@@ -1006,6 +1021,8 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       db.prepare("UPDATE scrape_jobs SET status = 'running', last_error = NULL, updated_at = ? WHERE library_id = ?").run(now(), libraryId);
     },
     upsertScan(libraryId, kind, groups, touchJob = true) {
+      const excluded = new Set(this.exclusions(libraryId).items.map(item => item.relativePath));
+      groups = groups.map(group => ({ ...group, files: group.files.filter(file => !excluded.has(file.relativePath ?? "")) })).filter(group => group.files.length > 0);
       const existing = itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>;
       const byKey = new Map(existing.map((row) => [text(row, "item_key"), row]));
       // Second chance at identity: a card the human merged or split no longer sits
@@ -1085,7 +1102,8 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
           // subfolder folded into the work card) would otherwise linger as an orphan
           // holding files that now live elsewhere. Only the machine's own answers
           // may be dropped this way; anything a person touched stays.
-          if (text(row, "confirmed_by") === "auto") db.prepare("DELETE FROM catalog_items WHERE id = ?").run(id);
+          // Exclusion intent alone never changes formal cards. Approved apply may remove an emptied card.
+          if (text(row, "confirmed_by") === "auto" || (!touchJob && childrenOf(id).every(child => excluded.has(child.relativePath ?? "")))) db.prepare("DELETE FROM catalog_items WHERE id = ?").run(id);
         }
         const confirmed = (itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>).filter((row) => text(row, "status") === "confirmed").length;
         if (touchJob) {
@@ -1393,11 +1411,53 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         size: Number.isSafeInteger(row.size) ? (row.size as number) : null,
       }));
     },
+    activeScan(libraryId) {
+      const excluded = new Set(this.exclusions(libraryId).items.map(item => item.relativePath));
+      return this.readScan(libraryId).filter(file => !excluded.has(file.relativePath));
+    },
+    exclusionReviewRequired(libraryId) {
+      return Boolean(db.prepare("SELECT 1 FROM catalog_exclusion_libraries WHERE library_id = ?").get(libraryId));
+    },
+    exclusions(libraryId) {
+      const items = (db.prepare(`SELECT e.*, NOT EXISTS (SELECT 1 FROM catalog_scan s WHERE s.library_id = e.library_id AND s.rel_path = e.rel_path) stale FROM catalog_exclusions e WHERE e.library_id = ? ORDER BY e.rel_path`).all(libraryId) as Array<Record<string, unknown>>)
+        .map(row => ({ relativePath: text(row, "rel_path"), reason: text(row, "reason"), createdAt: text(row, "created_at"), stale: Boolean(row.stale) }));
+      return { items, excluded: items.filter(item => !item.stale).length, stale: items.filter(item => item.stale).length };
+    },
+    markExcluded(libraryId, paths, reason) {
+      const info = this.draftInfo(libraryId);
+      db.exec("BEGIN");
+      try {
+        if (info.classifiedAt) db.prepare("INSERT OR IGNORE INTO catalog_draft_runs (library_id, rev, classified_at) VALUES (?, ?, ?)").run(libraryId, info.rev, info.classifiedAt);
+        // Clearing every mark must not let legacy scrape restore excluded children without approval.
+        db.prepare("INSERT OR IGNORE INTO catalog_exclusion_libraries (library_id) VALUES (?)").run(libraryId);
+        const insert = db.prepare("INSERT INTO catalog_exclusions (library_id, rel_path, reason, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(library_id, rel_path) DO UPDATE SET reason = excluded.reason");
+        for (const filePath of paths) insert.run(libraryId, filePath, reason, now());
+        const excluded = new Set(this.exclusions(libraryId).items.map(item => item.relativePath));
+        for (const row of db.prepare("SELECT item_key, children FROM catalog_draft WHERE library_id = ?").all(libraryId) as Array<Record<string, unknown>>) {
+          const key = text(row, "item_key");
+          const files = (JSON.parse(String(row.children)) as CatalogGroupFile[]).filter(file => !excluded.has(file.relativePath ?? ""));
+          if (files.length === 0) db.prepare("DELETE FROM catalog_draft WHERE library_id = ? AND item_key = ?").run(libraryId, key);
+          else db.prepare("UPDATE catalog_draft SET children = ?, files = ?, signature = ?, subtitle = ? WHERE library_id = ? AND item_key = ?").run(JSON.stringify(files), files.length, signatureOf(files), episodeSubtitle(files, key), libraryId, key);
+        }
+        db.exec("COMMIT");
+      } catch (error) { db.exec("ROLLBACK"); throw error; }
+    },
+    clearExcluded(libraryId, paths) {
+      // Rollback restores formal data, never exclusion intent. Only this explicit action clears it.
+      const remove = db.prepare("DELETE FROM catalog_exclusions WHERE library_id = ? AND rel_path = ?");
+      db.exec("BEGIN");
+      try {
+        for (const filePath of paths) remove.run(libraryId, filePath);
+        db.exec("COMMIT");
+      } catch (error) { db.exec("ROLLBACK"); throw error; }
+    },
     scanInfo(libraryId) {
       const row = db.prepare("SELECT COUNT(*) files, MAX(enumerated_at) at, MAX(rev) rev FROM catalog_scan WHERE library_id = ?").get(libraryId) as { files: number; at: string | null; rev: number | null };
-      return { files: row.files, enumeratedAt: row.at ?? null, rev: row.rev ?? 0 };
+      return { files: row.files, enumeratedAt: row.at ?? null, rev: row.rev ?? 0, excluded: this.exclusions(libraryId).excluded };
     },
     writeDraft(libraryId, groups) {
+      const excluded = new Set(this.exclusions(libraryId).items.map(item => item.relativePath));
+      groups = groups.map(group => ({ ...group, files: group.files.filter(file => !excluded.has(file.relativePath ?? "")) })).filter(group => group.files.length > 0);
       const stamp = now();
       const scan = db.prepare("SELECT MAX(enumerated_at) at, MAX(rev) rev FROM catalog_scan WHERE library_id = ?").get(libraryId) as { at: string | null; rev: number | null };
       const enumerated = scan.at ?? stamp;
@@ -1407,6 +1467,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         // Drafts are disposable by definition: replace the whole set, never merge into
         // it, or a folder that disappeared would keep proposing a card forever.
         db.prepare("DELETE FROM catalog_draft WHERE library_id = ?").run(libraryId);
+        db.prepare("INSERT INTO catalog_draft_runs (library_id, rev, classified_at) VALUES (?, ?, ?) ON CONFLICT(library_id) DO UPDATE SET rev = excluded.rev, classified_at = excluded.classified_at").run(libraryId, rev, stamp);
         const insert = db.prepare(
           "INSERT INTO catalog_draft (library_id, item_key, signature, query, raw_name, subtitle, files, children, enumerated_at, classified_at, rev, title) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         );
@@ -1498,7 +1559,8 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       const row = db
         .prepare("SELECT COUNT(*) cards, COALESCE(SUM(files), 0) files, MAX(classified_at) at, MAX(rev) rev, SUM(lookup_state = 'pending') pending FROM catalog_draft WHERE library_id = ?")
         .get(libraryId) as { cards: number; files: number; at: string | null; rev: number | null; pending: number | null };
-      return { cards: row.cards, files: row.files, classifiedAt: row.at ?? null, rev: row.rev ?? 0, pending: row.pending ?? 0 };
+      const run = db.prepare("SELECT rev, classified_at FROM catalog_draft_runs WHERE library_id = ?").get(libraryId) as { rev: number; classified_at: string } | undefined;
+      return { cards: row.cards, files: row.files, classifiedAt: row.at ?? run?.classified_at ?? null, rev: row.rev ?? run?.rev ?? 0, pending: row.pending ?? 0 };
     },
     listPendingDrafts(libraryId) {
       return (db.prepare("SELECT item_key, query, raw_name, children FROM catalog_draft WHERE library_id = ? AND lookup_state = 'pending' ORDER BY files DESC, item_key").all(libraryId) as Array<
@@ -1651,6 +1713,9 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       try {
         const scan = db.prepare("DELETE FROM catalog_scan WHERE library_id = ?").run(libraryId) as { changes?: number };
         const draft = db.prepare("DELETE FROM catalog_draft WHERE library_id = ?").run(libraryId) as { changes?: number };
+        db.prepare("DELETE FROM catalog_exclusions WHERE library_id = ?").run(libraryId);
+        db.prepare("DELETE FROM catalog_exclusion_libraries WHERE library_id = ?").run(libraryId);
+        db.prepare("DELETE FROM catalog_draft_runs WHERE library_id = ?").run(libraryId);
         db.exec("COMMIT");
         return { scan: Number(scan.changes ?? 0), draft: Number(draft.changes ?? 0) };
       } catch (error) {

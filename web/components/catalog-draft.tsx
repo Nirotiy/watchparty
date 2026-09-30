@@ -7,6 +7,8 @@ import { Loader2, Search } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { ExcludeFiles, ExclusionList } from "./catalog-exclusion-controls";
+const exclusionApi = { read: api.catalogExclusions, write: api.draftExclusion };
 import type { BangumiHit, CatalogApprovalLedgerRow, CatalogStructuralChanges, DraftApplyResult, DraftCandidate, DraftChild, DraftItem, DraftState } from "@/lib/contracts";
 import {
   applyHeadline,
@@ -444,7 +446,8 @@ export function CatalogDraft({ libraryId, libraryName }: { libraryId: string; li
   }
 
   return (
-    <section className="grid gap-2.5" aria-label="草稿审阅" inert={sheet !== null || dialog !== null}>
+    <section className="grid min-w-0 grid-cols-1 gap-2.5" aria-label="草稿审阅" inert={sheet !== null || dialog !== null}>
+      <ExclusionList libraryId={libraryId} api={exclusionApi} reload={load} classify={classify} version={state} />
       <header className="flex flex-wrap items-center gap-2">
         <div className="grid gap-0.5">
           <b className="text-sm">{libraryName} · 草稿</b>
@@ -537,6 +540,7 @@ export function CatalogDraft({ libraryId, libraryName }: { libraryId: string; li
         </div>
       ) : null}
 
+      <div className="min-w-0 overflow-x-auto">
       <table className="w-full border-collapse text-xs">
         <thead>
           <tr>
@@ -565,7 +569,7 @@ export function CatalogDraft({ libraryId, libraryName }: { libraryId: string; li
                 setOpenKey(nextOpen ? item.itemKey : null);
                 if (nextOpen) void loadDetail(item.itemKey);
               }}
-              edit={{ busy, titleDraft, searchFor, searchQuery, hits, splitting, keepIds, setTitleDraft, setSearchFor, setSearchQuery, setSplitting, setKeepIds, searchEntries, editTitle, pickEntry, bindSearchEntry, confirmTop, unconfirmDraft, splitItem }}
+              edit={{ busy, titleDraft, searchFor, searchQuery, hits, splitting, keepIds, setTitleDraft, setSearchFor, setSearchQuery, setSplitting, setKeepIds, searchEntries, editTitle, pickEntry, bindSearchEntry, confirmTop, unconfirmDraft, splitItem, reload: async () => { setDetailCache({}); setOpenKey(null); await load(); } }}
             />
           ))}
           {(state.diff?.dropped ?? []).map((row) => (
@@ -587,6 +591,7 @@ export function CatalogDraft({ libraryId, libraryName }: { libraryId: string; li
           ) : null}
         </tbody>
       </table>
+      </div>
 
       <p className="text-[11.5px] text-muted-foreground">
         共 {state.draft.length} 行草稿（另有 {state.diff?.dropped.length ?? 0} 行来自正式库）。「一致」按正式卡算是 {state.diff?.unchanged ?? 0} 张；
@@ -639,6 +644,7 @@ export function CatalogDraft({ libraryId, libraryName }: { libraryId: string; li
 
 /** 展开面板要的编辑能力：由 CatalogDraft 持有的那批状态与回调（一个 bundle 少传十几根线）。 */
 interface RowEdit {
+  reload: () => Promise<void>;
   busy: string;
   titleDraft: Record<string, string>;
   searchFor: string | null;
@@ -779,6 +785,7 @@ function DraftRow({ item, state, open, justJudged, detail, picked, onPick, onTog
               </div>
 
               {/* 拆分：勾「留在原卡」的那批，其余按父目录自动分组各成新卡。 */}
+              {children ? <ExcludeFiles libraryId={state.libraryId} files={children} api={exclusionApi} reload={edit.reload} /> : null}
               {edit.splitting === item.itemKey && children ? (
                 <div className="grid gap-1.5 rounded-md border border-border p-2">
                   <p className="text-xs">勾选<b>留在原卡</b>的文件；没勾的按父目录自动分组，各立一张未判定新卡。</p>
