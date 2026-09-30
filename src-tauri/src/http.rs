@@ -394,21 +394,43 @@ impl DesktopHttpTransport {
         query: Option<&str>,
         body: Option<&serde_json::Value>,
     ) -> Result<(u16, String), TransportError> {
+        self.media_request_with_approval(method, path, query, body, None)
+    }
+
+    pub fn media_request_with_approval(
+        &self, method: &str, path: &str, query: Option<&str>,
+        body: Option<&serde_json::Value>, approval_secret: Option<&str>,
+    ) -> Result<(u16, String), TransportError> {
+        // Redirects could carry this custom header onto a different route or origin.
+        let client = if approval_secret.is_some() {
+            Client::builder().connect_timeout(Duration::from_secs(5)).timeout(Duration::from_secs(15))
+                .redirect(reqwest::redirect::Policy::none()).build()
+                .map_err(|_| TransportError::Protocol("approval transport unavailable".into()))?
+        } else { self.client.clone() };
         let url = match query {
             Some(query) if !query.is_empty() => format!("{}{}?{}", self.base_url, path, query),
             _ => format!("{}{}", self.base_url, path),
         };
         let builder = match method {
-            "GET" => self.client.get(url),
-            "POST" => self.client.post(url),
-            "PATCH" => self.client.patch(url),
-            "DELETE" => self.client.delete(url),
+            "GET" => client.get(url),
+            "POST" => client.post(url),
+            "PATCH" => client.patch(url),
+            "DELETE" => client.delete(url),
             _ => return Err(TransportError::Protocol("unsupported media method".into())),
         };
         let builder = match body {
             Some(body) => builder.json(body),
             None => builder,
         };
+        let builder = if let Some(secret) = approval_secret {
+            if !crate::approval::is_approval_route(method, path) {
+                return Err(TransportError::Protocol("approval header route denied".into()));
+            }
+            let mut header = HeaderValue::from_str(secret)
+                .map_err(|_| TransportError::Protocol("invalid approval configuration".into()))?;
+            header.set_sensitive(true);
+            builder.header("x-watchparty-approval", header)
+        } else { builder };
         let response = self
             .headers(builder, None)
             .send()
@@ -993,6 +1015,58 @@ mod tests {
         assert_eq!(report.service_version, "0.1.0");
         assert!(report.capabilities.create_room && report.capabilities.join_room);
         assert!(report.capabilities.media_search && report.capabilities.media_queue);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn approval_header_is_request_scoped_on_the_wire() {
+        use std::{io::{BufRead, BufReader, Write}, net::TcpListener};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let mut present = Vec::new();
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+                let mut reader = BufReader::new(&stream);
+                let mut has_approval = false;
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    if line == "\r\n" || line.is_empty() { break; }
+                    if line.to_ascii_lowercase().starts_with("x-watchparty-approval:") { has_approval = true; }
+                }
+                present.push(has_approval);
+                stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").unwrap();
+            }
+            present
+        });
+        let transport = DesktopHttpTransport::new(origin).unwrap();
+        transport.media_request_with_approval("POST", "/api/admin/media-libraries/lib_x/approval", None, None, Some("test-only-key")).unwrap();
+        transport.media_request("POST", "/api/admin/media-libraries/lib_x/apply-approved", None, None).unwrap();
+        transport.media_request("GET", "/api/media/capabilities", None, None).unwrap();
+        assert!(transport.media_request_with_approval("POST", "/api/admin/media-libraries/lib_x/approval/revoke", None, None, Some("test-only-key")).is_err());
+        assert_eq!(server.join().unwrap(), vec![true, false, false]);
+    }
+
+    #[test]
+    fn approval_request_does_not_follow_redirects() {
+        use std::{io::{BufRead, BufReader, Write}, net::TcpListener};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(&stream);
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" || line.is_empty() { break; }
+            }
+            stream.write_all(b"HTTP/1.1 302 Found\r\nLocation: /api/admin/media-libraries/lib_x/scan\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+        });
+        let transport = DesktopHttpTransport::new(origin).unwrap();
+        let (status, _) = transport.media_request_with_approval("POST", "/api/admin/media-libraries/lib_x/approval", None, None, Some("test-only-key")).unwrap();
+        assert_eq!(status, 302);
         server.join().unwrap();
     }
 

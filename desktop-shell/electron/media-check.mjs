@@ -23,7 +23,25 @@ async function openlistLogin() {
  *   node electron/launch.mjs --media-check
  *
  * Env: WATCHPARTY_MEDIA_CHECK_ORIGIN (default http://127.0.0.1:8080).
+ *
+ * **代价（2026-09-29 后端复验时点出来的）**：默认 origin 就是活的后端 + 真库，所以
+ * `draft-approval-api` 与 `draft-states` 的批准步会写 `catalog_approvals`（每跑一次 2 行台账 +
+ * 一份 undo，临时库整本草稿 60 张 ⇒ ≈667KB；台账行按设计永久留着，undo 靠**全局**
+ * `pruneExpiredUndo` 过期回收，不会无界长）。**这两步默认不跑**，要验就开
+ * `WATCHPARTY_MEDIA_CHECK_REVIEW=1`（和 titles-edit 的写半步同一把闸）。
+ * 要真隔离：把 `WATCHPARTY_MEDIA_CHECK_ORIGIN` 指到隔离服务实例。
  */
+/** 右栏的高级区（候选列表 / 撤销确认 / 换绑）2026-09-28 起收在「更多」后面：读之前先展开。 */
+async function openRailAdvanced(js) {
+  return js(`(() => {
+    if (document.querySelector('.catalog-candidates') || document.querySelector('.catalog-edit')) return { alreadyOpen: true }
+    const more = Array.from(document.querySelectorAll('button')).find(node => node.textContent.trim().startsWith('更多'))
+    if (!more) return { alreadyOpen: false, found: false }
+    more.click()
+    return { alreadyOpen: false, found: true }
+  })()`)
+}
+
 export async function runMediaCheck(window, native) {
   const invoke = (command, args = {}) => window.webContents.executeJavaScript(`window.watchpartyDesktop.invoke(${JSON.stringify(command)}, ${JSON.stringify(args)})`)
   const js = source => window.webContents.executeJavaScript(source)
@@ -33,6 +51,16 @@ export async function runMediaCheck(window, native) {
     throw new Error(label)
   }
   const origin = process.env.WATCHPARTY_MEDIA_CHECK_ORIGIN?.trim() || 'http://127.0.0.1:8080'
+  // 慢请求归因（2026-09-30）：>1s 的媒体请求把 method/path/ms 打出来（**不打 query**，免得带凭据）。
+  const timedInvoke = async (command, args = {}) => {
+    if (command !== 'mediaRequest') return invoke(command, args)
+    const started = Date.now()
+    try { return await invoke(command, args) }
+    finally {
+      const ms = Date.now() - started
+      if (ms > 1000) console.log('MEDIA_REQUEST_SLOW ' + JSON.stringify({ method: args.method, path: args.path, ms }))
+    }
+  }
   const step = async (label, work) => {
     try { const value = await work(); console.log('MEDIA_CHECK_STEP ' + JSON.stringify({ label, ok: true })); return value }
     catch (error) { console.log('MEDIA_CHECK_STEP ' + JSON.stringify({ label, ok: false, code: error?.code ?? null, message: error?.message ?? String(error) })); throw error }
@@ -45,6 +73,19 @@ export async function runMediaCheck(window, native) {
     playerPreferences: settings.playerPreferences, setupCompleted: true,
   } }))
   await step('verifyBackend', () => invoke('verifyBackend'))
+  // Isolated secret-mode runs provision native storage from a server-only test file.
+  // Only the filename is inherited by the harness; secret values never enter shell environment or logs.
+  if (process.env.WATCHPARTY_MEDIA_CHECK_APPROVAL_FILE) {
+    await step('approval-secret-channel', async () => {
+      const config = JSON.parse(await readFile(process.env.WATCHPARTY_MEDIA_CHECK_APPROVAL_FILE, 'utf8'))
+      const status = await invoke('setCatalogApprovalSecret', { secret: config.secret })
+      const readback = await invoke('catalogApprovalSecretStatus')
+      assert.ok(status.configured && readback.configured, 'native approval secret was not configured')
+      assert.equal(readback.mask, '••••••••', 'native approval readback must be a fixed mask')
+      assert.deepEqual(Object.keys(readback).sort(), ['configured', 'mask'])
+      console.log('MEDIA_APPROVAL_SECRET_CHANNEL ' + JSON.stringify({ configured: readback.configured, masked: true }))
+    })
+  }
   // 上一轮跑挂在中途时可能留下测试源：先清干净，这一轮的行数断言才有意义。
   await purgeTestSources(invoke)
   // 写设置是异步进 React 的（native 广播 desktop://settings），大厅得等它换掉向导。
@@ -151,7 +192,8 @@ export async function runMediaCheck(window, native) {
   await runTitlesCheck({ window, js, invoke, until, step })
   await runSourceFormCheck({ window, js, invoke, until, step })
   await runDraftCheck({ window, js, invoke, until, step })
-  await runDraftEditCheck({ js, invoke, until, step, origin })
+  await runDraftEditCheck({ js, invoke: timedInvoke, until, step, origin })
+  await runDraftApprovalCheck({ invoke: timedInvoke, step })
   await runSourceIsolationCheck({ js, invoke, until, step, origin })
   await runPlayCheck({ window, js, until, step })
 }
@@ -392,6 +434,11 @@ async function runTitlesCheck({ window, js, invoke, until, step }) {
       console.log('MEDIA_TITLES_REVIEW_SKIPPED ' + JSON.stringify({ reason: '墙上没有待确认的卡（这一轮判定已把候选确认完）' }))
       return
     }
+    // 候选列表在「更多」后面（2026-09-28 起）：等右栏先渲染完再展开，否则 更多 按钮还不存在。
+    await until(() => js(`Boolean(document.querySelector('.catalog-rail-title b') || document.querySelector('.catalog-detail-page'))`), 'rail after card click', 20000)
+    await wait(600)
+    const advanced = await openRailAdvanced(js)
+    console.log('MEDIA_TITLES_REVIEW_ADVANCED ' + JSON.stringify({ picked, advanced }))
     await until(() => js(`document.querySelectorAll('.catalog-candidate').length > 0`), 'candidate list', 25000)
     const before = await js(`(() => ({
       title: document.querySelector('.catalog-rail-title b')?.textContent?.trim() ?? null,
@@ -415,7 +462,12 @@ async function runTitlesCheck({ window, js, invoke, until, step }) {
     }
     // 确认第一个候选：标题应当换成候选标题，状态变已确认。
     await js(`document.querySelector('.catalog-candidate .acts button').click()`)
-    await until(() => js(`document.querySelector('.catalog-rail-title b')?.textContent?.trim() !== ${JSON.stringify(before.title)}`), 'confirm rewrote the title', 25000)
+    // 等待条件必须要求"非空且变了"：右栏在换库/重取期间会短暂清空，旧写法（只要不等于旧标题）
+    // 会把 null 当成"变了"直接放行，然后在下一行断言里红成"状态不对"（09-30 在慢实例上踩到）。
+    await until(() => js(`(() => {
+      const text = document.querySelector('.catalog-rail-title b')?.textContent?.trim() ?? null
+      return Boolean(text) && text !== ${JSON.stringify(before.title)}
+    })()`), 'confirm rewrote the title', 25000)
     await wait(500)
     const after = await js(`(() => ({
       title: document.querySelector('.catalog-rail-title b')?.textContent?.trim() ?? null,
@@ -441,7 +493,15 @@ async function runTitlesCheck({ window, js, invoke, until, step }) {
       for (const card of (list.items ?? []).filter(item => item.status === 'confirmed')) {
         const detail = await get('/api/media/catalog/' + card.id, null)
         const dirs = [...new Set((detail.children ?? []).map(child => child.relDir))]
-        if (dirs.length >= 2 && (detail.children ?? []).length >= 3) return { id: card.id, title: card.title, dirs: dirs.length, children: detail.children.length }
+        if (dirs.length >= 2 && (detail.children ?? []).length >= 3) return {
+          id: card.id, title: card.title, dirs: dirs.length, children: detail.children.length,
+          // 撤销确认之后卡会离开标题墙（裁决 ③）：UI 里没有回去的路，所以要把原绑定抄下来，
+          // 走 rebind 接口把它恢复原样（这也是这条写半步对 rebind 端点的覆盖）。
+          restore: { externalDb: detail.externalDb, externalId: detail.externalId, title: detail.title, originalTitle: detail.originalTitle, year: detail.year, overview: detail.overview },
+          // 正式卡身份键：撤销现在会连草稿那份判定一起降级（后端 74cb3af2），所以恢复要把两边都写回去，
+          // 否则真库会留下一条"卡已确认、草稿还是候选"的差异。
+          itemKey: detail.itemKey ?? null,
+        }
       }
       return null
     })()`)
@@ -473,9 +533,43 @@ async function runTitlesCheck({ window, js, invoke, until, step }) {
     }
 
     // 1) 撤销确认
-    await js(`Array.from(document.querySelectorAll('.catalog-edit button')).find(node => node.textContent.trim() === '撤销确认')?.click()`)
+    // 右栏的编辑区（撤销确认 / 换绑条目）2026-09-28 起收在「更多」开关后面：先展开，
+    // 否则 `.catalog-edit` 整个不渲染（这条写半步之前一直没跑，静默坏了）。
+    const openedPanel = await openRailAdvanced(js)
+    await until(() => js(`Boolean(document.querySelector('.catalog-edit'))`), 'rebind panel open', 10000)
+    const unconfirmButton = await js(`(() => {
+      const button = Array.from(document.querySelectorAll('.catalog-edit button')).find(node => node.textContent.trim() === '撤销确认')
+      if (!button) return { found: false, editButtons: Array.from(document.querySelectorAll('.catalog-edit button')).map(node => node.textContent.trim()) }
+      button.click()
+      return { found: true, disabled: button.disabled }
+    })()`)
+    // 两步确认（09-30 起）：第一步只出提醒（卡会离开标题墙、落点在审阅页「待人工」），第二步才真发。
+    // 用 `>` 限定直系子元素：`.catalog-rebind` 里那个搜索消息也挂 `.catalog-edit-note`。
+    const unconfirmConfirm = await js(`(() => {
+      const note = document.querySelector('.catalog-edit > .catalog-edit-note')
+      const button = Array.from(document.querySelectorAll('.catalog-edit button')).find(node => node.textContent.trim() === '确认撤销')
+      if (!button) return { found: false, note: note?.textContent ?? null, editButtons: Array.from(document.querySelectorAll('.catalog-edit button')).map(node => node.textContent.trim()) }
+      const text = note?.textContent?.trim() ?? ''
+      button.click()
+      return { found: true, note: text }
+    })()`)
+    console.log('MEDIA_EDIT_UNCONFIRM_NOTICE ' + JSON.stringify(unconfirmConfirm))
+    assert.equal(unconfirmConfirm.found, true, `两步确认的「确认撤销」没出现: ${JSON.stringify(unconfirmConfirm)}`)
+    assert.ok(unconfirmConfirm.note.includes('标题墙') && unconfirmConfirm.note.includes('待人工'), `提醒文案不达意: ${JSON.stringify(unconfirmConfirm.note)}`)
     // 后端把撤销后的状态打回 unmatched（重新排队判定），不是 candidate。
-    await until(() => js(`!Array.from(document.querySelectorAll('.catalog-rail-meta .catalog-badge')).some(n => n.textContent.trim() === '已确认')`), 'status leaves confirmed', 25000)
+    try {
+      await until(() => js(`!Array.from(document.querySelectorAll('.catalog-rail-meta .catalog-badge')).some(n => n.textContent.trim() === '已确认')`), 'status leaves confirmed', 25000)
+    } catch (error) {
+      // 2026-09-29 晚第一次以 REVIEW=1 跑时这条红了：把现场（按钮/徽标/状态行）一起打出来。
+      const dump = await js(`(() => ({
+        badges: Array.from(document.querySelectorAll('.catalog-rail-meta .catalog-badge')).map(n => n.textContent.trim()),
+        title: document.querySelector('.catalog-rail-title b')?.textContent?.trim() ?? null,
+        status: document.querySelector('.desktop-page [role="status"]')?.textContent?.trim() ?? null,
+        editButtons: Array.from(document.querySelectorAll('.catalog-edit button')).map(n => ({ text: n.textContent.trim(), disabled: n.disabled })),
+      }))()`)
+      console.log('MEDIA_EDIT_UNCONFIRM_STUCK ' + JSON.stringify({ target, openedPanel, button: unconfirmButton, ...dump }))
+      throw error
+    }
     const unconfirmed = await js(`(() => ({
       title: document.querySelector('.catalog-rail-title b')?.textContent?.trim() ?? null,
       status: Array.from(document.querySelectorAll('.catalog-rail-meta .catalog-badge')).map(n => n.textContent.trim()),
@@ -483,32 +577,46 @@ async function runTitlesCheck({ window, js, invoke, until, step }) {
       children: document.querySelectorAll('.catalog-ep').length,
       message: document.querySelector('.desktop-page [role="status"]')?.textContent?.trim() ?? null,
     }))()`)
-    console.log('MEDIA_EDIT_UNCONFIRM ' + JSON.stringify(unconfirmed))
+    console.log('MEDIA_EDIT_UNCONFIRM ' + JSON.stringify({ ...unconfirmed, note: '卡离开标题墙（裁决 ③：未匹配不进墙），右栏随之清空' }))
     assert.equal(unconfirmed.status.includes('已确认'), false, `撤销确认后状态不对: ${JSON.stringify(unconfirmed)}`)
-    assert.equal(unconfirmed.children, before.children, '撤销确认不该丢文件')
+    // 文件数从接口核（DOM 里那张卡已经不在墙上了）。
+    const afterUnconfirm = await window.webContents.executeJavaScript(`(async () => {
+      const reply = await window.watchpartyDesktop.invoke('mediaRequest', { method: 'GET', path: '/api/media/catalog/' + ${JSON.stringify('__ID__')}, query: null, body: null })
+      return JSON.parse(reply.body)
+    })()`.replace('__ID__', target.id))
+    assert.equal((afterUnconfirm.children ?? []).length, target.children, `撤销确认丢了文件: ${(afterUnconfirm.children ?? []).length} vs ${target.children}`)
+    assert.equal(afterUnconfirm.status, 'unmatched', `撤销确认后服务端状态不是 unmatched: ${JSON.stringify(afterUnconfirm.status)}`)
 
-    // 2) 换绑：搜 Bangumi 再绑第一个命中
-    await js(`Array.from(document.querySelectorAll('.catalog-edit button')).find(node => node.textContent.trim() === '换绑条目…')?.click()`)
-    await until(() => js(`Boolean(document.querySelector('.catalog-rebind-search input'))`), 'rebind search box', 15000)
-    await js(`Array.from(document.querySelectorAll('.catalog-rebind-search button')).find(node => node.textContent.trim() === '搜索')?.click()`)
-    await until(() => js(`document.querySelectorAll('.catalog-hit').length > 0`), 'bangumi hits', 25000)
-    const hits = await js(`Array.from(document.querySelectorAll('.catalog-hit')).slice(0, 3).map(node => node.textContent.replace(/\\s+/g, ' ').trim().slice(0, 40))`)
-    console.log('MEDIA_EDIT_SEARCH ' + JSON.stringify(hits))
-    await js(`document.querySelector('.catalog-hit button')?.click()`)
-    await until(() => js(`Array.from(document.querySelectorAll('.catalog-rail-meta .catalog-badge')).some(n => n.textContent.trim() === '已确认')`), 'rebind confirmed', 30000)
-    await wait(800)
-    const rebound = await js(`(() => ({
-      title: document.querySelector('.catalog-rail-title b')?.textContent?.trim() ?? null,
-      status: Array.from(document.querySelectorAll('.catalog-rail-meta .catalog-badge')).map(n => n.textContent.trim()),
-      source: document.querySelector('.catalog-rail-meta .catalog-source')?.textContent?.trim() ?? null,
-      children: document.querySelectorAll('.catalog-ep').length,
-      poster: Boolean(document.querySelector('.catalog-rail img, .catalog-wall .catalog-card.on img')),
-    }))()`)
-    console.log('MEDIA_EDIT_REBIND ' + JSON.stringify(rebound))
-    assert.equal(rebound.status.includes('已确认'), true, `换绑后状态不对: ${JSON.stringify(rebound)}`)
-    assert.equal(rebound.source, '人工指定', `换绑后的来源角标不是「人工指定」: ${JSON.stringify(rebound)}`)
-    assert.equal(rebound.children, before.children, '换绑不该丢文件')
-    assert.notEqual(rebound.title, unconfirmed.title, '换绑后标题应该变了（换到了人挑的条目）')
+    // 2) 恢复：UI 里没有回头路（未匹配卡不进墙、墙下那行只通 Files），所以用 rebind 把原绑定写回去
+    //    ——顺带就是这条写半步对 rebind 端点的覆盖。恢复后卡回到墙上，下面的分节检查才有对象。
+    const restored = await window.webContents.executeJavaScript(`(async () => {
+      const reply = await window.watchpartyDesktop.invoke('mediaRequest', { method: 'POST', path: '/api/media/catalog/' + ${JSON.stringify(target.id)} + '/rebind', query: null, body: ${JSON.stringify(target.restore)} })
+      return { status: reply.status, body: (() => { try { return JSON.parse(reply.body) } catch { return reply.body } })() }
+    })()`)
+    console.log('MEDIA_EDIT_RESTORE ' + JSON.stringify({ http: restored.status, status: restored.body?.status, confirmedBy: restored.body?.confirmedBy, title: restored.body?.title, children: (restored.body?.children ?? []).length, restoreFrom: { externalDb: target.restore.externalDb, externalId: target.restore.externalId } }))
+    assert.equal(restored.status, 200, `恢复（rebind）失败: ${JSON.stringify(restored).slice(0, 240)}`)
+    assert.equal(restored.body?.status, 'confirmed', `恢复后状态不是 confirmed: ${JSON.stringify(restored.body?.status)}`)
+    assert.equal(restored.body?.confirmedBy, 'rebind', `恢复后 confirmedBy 不是 rebind: ${JSON.stringify(restored.body?.confirmedBy)}`)
+    assert.equal((restored.body?.children ?? []).length, target.children, '恢复后文件数不对')
+    // 卡恢复了不算完：撤销（`74cb3af2` 起）把**草稿那份判定**也降级了，不写回去真库会留一条
+    // "卡已确认 / 草稿还是候选"的差异，下一次 apply 还会把绑定再抹掉。用草稿的 `edit` 把行写回 confirmed
+    // （`edit` 不要求绑条在候选里，`confirm` 要求 —— 人工 rebind 过的绑定常常不在候选里）。
+    if (target.itemKey) {
+      const draftRestore = await window.webContents.executeJavaScript(`(async () => {
+        const reply = await window.watchpartyDesktop.invoke('mediaRequest', { method: 'POST', path: '/api/admin/media-libraries/lib_anime/draft/edit', query: null, body: { itemKey: ${JSON.stringify(target.itemKey)}, title: ${JSON.stringify(target.restore.title)}, externalDb: ${JSON.stringify(target.restore.externalDb)}, externalId: ${JSON.stringify(target.restore.externalId)} } })
+        return { status: reply.status, body: (() => { try { return JSON.parse(reply.body) } catch { return reply.body } })() }
+      })()`)
+      console.log('MEDIA_EDIT_DRAFT_RESTORE ' + JSON.stringify({ http: draftRestore.status, itemKey: target.itemKey, status: draftRestore.body?.card?.status, confirmedBy: draftRestore.body?.card?.confirmedBy, title: draftRestore.body?.card?.title }))
+      assert.equal(draftRestore.status, 200, `草稿行恢复失败: ${JSON.stringify(draftRestore).slice(0, 240)}`)
+    } else {
+      console.log('MEDIA_EDIT_DRAFT_RESTORE_SKIPPED ' + JSON.stringify({ reason: '详情没带 itemKey（老接口），草稿行没恢复', id: target.id }))
+    }
+    // 恢复走的是接口，墙不会自己知道：切到「文件」再切回「点播」逼它重取一次。
+    await js(`Array.from(document.querySelectorAll('.seg-item')).find(node => node.textContent.trim() === '文件')?.click()`)
+    await until(() => js(`document.querySelectorAll('.media-card').length > 0`), 'files grid after restore', 20000)
+    await js(`Array.from(document.querySelectorAll('.seg-item')).find(node => node.textContent.trim() === '点播')?.click()`)
+    await until(() => js(`document.querySelectorAll('.catalog-card').length > 0`), 'wall reloaded after restore', 25000)
+    await wait(600)
 
     // 3) 多目录卡的分节（换绑后这张卡上仍然看得到）
     await js(`Array.from(document.querySelectorAll('.catalog-card')).find(node => node.textContent.includes(${JSON.stringify('__TITLE2__')}))?.click()`.replace('__TITLE2__', target.title.slice(0, 24)))
@@ -893,7 +1001,12 @@ async function runDraftCheck({ window, js, invoke, until, step }) {
     if (expected.pending > 0) assert.match(ui.applyLabel ?? '', /张未判定/, `应用按钮没提示未判定: ${JSON.stringify(ui)}`)
 
     // 展开一条移动过的卡：详情里要能看到「键位更新」与来源目录。
-    await js(`(() => { const chip = Array.from(document.querySelectorAll('.draft-chips .draft-chip')).find(node => node.textContent.includes('移动')); chip?.click(); return Boolean(chip) })()`)
+    // 库状态会变：没有移动卡时退回「全部」，别让整步卡在一个空的筛选上。
+    await js(`(() => {
+      const chip = Array.from(document.querySelectorAll('.draft-chips .draft-chip')).find(node => node.textContent.includes('移动') && !node.textContent.startsWith('0'))
+        ?? Array.from(document.querySelectorAll('.draft-chips .draft-chip')).find(node => node.textContent.includes('全部'));
+      chip?.click(); return Boolean(chip)
+    })()`)
     await wait(300)
     await js(`document.querySelector('.draft-table tbody tr.draft-row .draft-open')?.click()`)
     await until(() => js(`Boolean(document.querySelector('.draft-detail'))`), 'draft row expanded', 15000)
@@ -1010,10 +1123,46 @@ async function runDraftEditCheck({ js, invoke, until, step, origin }) {
     }
     let keepKey = null
     let droppedIds = []
+    // scan/classify 是**管理动作**，不该和界面读共用 15s 预算：真库 1112 个文件分布在 80+ 个目录
+    // ⇒ 服务端要列 80+ 次目录（每次上限 10s，`OPENLIST_REQUEST_TIMEOUT_MS`，config.ts:126）。
+    // 2026-09-30 取证（同一轮：客户端两条 15003/15005ms 超时，`data/backend-rescan.log` 里
+    // `SLOW_REQUEST POST …/scan 200 46530ms` 与 `… 200 31059ms`）：**服务端不会因客户端放弃而停手**，
+    // 而且重发同一个 POST 会让两次扫描重叠、把两条一起拖慢 ⇒ 改成「POST 一次 + 轮询读接口直到落地」。
+    const admin = async (path, label, landed) => {
+      let failure = null
+      try {
+        const reply = await draft('POST', path)
+        // 只在编辑步这一处注入：`WATCHPARTY_MEDIA_CHECK_FORCE_POLL=1` 时**假装**客户端超预算放弃
+        // （POST 其实已在服务端跑完）⇒ 用来真走一遍轮询分支，而不是让它只在运气好时被动验证。
+        if (process.env.WATCHPARTY_MEDIA_CHECK_FORCE_POLL === '1') throw Object.assign(new Error('注入：假装客户端超 15s 预算放弃'), { code: 'NETWORK_ERROR' })
+        // 202 = 超出服务端 8s 同步宽限期（`be6528e3`）：动作还在跑，响应体里没有结果，改轮询等落地。
+        if (reply?.status !== 202) return reply
+        console.log('MEDIA_ADMIN_ACCEPTED ' + JSON.stringify({ label, path, note: '服务端回 202（超出 8s 同步宽限期）：改轮询等落地' }))
+      } catch (error) {
+        failure = error
+        console.log('MEDIA_ADMIN_POLL ' + JSON.stringify({ label, path, code: error?.code ?? null, note: '管理动作没有同步落地（超预算或 202），轮询读接口直到落地；不重发 POST' }))
+      }
+      const startedAt = Date.now()
+      const deadline = startedAt + 120_000
+      let landedOk = false
+      while (!landedOk && Date.now() < deadline) {
+        await wait(2000)
+        landedOk = await landed().catch(() => false)
+      }
+      if (!landedOk) throw failure ?? Object.assign(new Error(`202 之后 ${label} 一直没落地`), { code: 'MEDIA_ADMIN_NOT_LANDED' })
+      console.log('MEDIA_ADMIN_POLL_OK ' + JSON.stringify({ label, waitedMs: Date.now() - startedAt }))
+    }
+    const readDraft = async () => JSON.parse((await draft('GET', `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/classify`)).body)
+    // 落地判据要比"变了多少"，不能比"有没有"（后端 09-30 提醒，我核过代码）：
+    // `scan.rev` 每次成功枚举才 +1（`catalog-store.ts:1370`），重扫已有库时它本来就 >0；
+    // `writeDraft` 每次都把 `classified_at` 盖成新时间戳（`:1401/:1424`），所以相等=还没落地。
+    // 一次性临时库里两条恰好等价，但这条模式别在已有库上抄。
     try {
-      await draft('POST', `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/scan`)
-      await draft('POST', `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/classify`)
-      const list = JSON.parse((await draft('GET', `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/classify`)).body)
+      const preScanRev = (await readDraft().catch(() => ({}))).scan?.rev ?? 0
+      await admin(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/scan`, 'scan', async () => (await readDraft()).scan?.rev > preScanRev)
+      const preClassifiedAt = (await readDraft().catch(() => ({}))).classifiedAt ?? null
+      await admin(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/classify`, 'classify', async () => ((await readDraft()).classifiedAt ?? null) !== preClassifiedAt)
+      const list = await readDraft()
       const before = list.draft.length
       assert.ok(before >= 3, `临时库的草稿太少（${before} 张），编辑用例跑不出合并/拆分`)
 
@@ -1089,7 +1238,21 @@ async function runDraftEditCheck({ js, invoke, until, step, origin }) {
     }
 
     // 6) keep-binding：需要"劈卡"场景，只在 lib_anime 上翻一下再翻回来（一翻一还原，日志留痕）
-    const anime = JSON.parse((await invoke('mediaRequest', { method: 'GET', path: '/api/admin/media-libraries/lib_anime/classify', query: null, body: null })).body)
+    // 已知客户端传输偶发（2026-09-29 取证：8 次跑里 4 次落在"临时源 DELETE 之后的第一条请求"，
+    // 15s 超时档；用 curl 量同一序列是 0.1s ⇒ 不是服务端慢，疑似连接池复用竞态，在 `src-tauri/http.rs`）。
+    // 只对这一条重试一次，并大声打日志——别让它看起来像"绿了"。
+    let anime = null
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        anime = JSON.parse((await invoke('mediaRequest', { method: 'GET', path: '/api/admin/media-libraries/lib_anime/classify', query: null, body: null })).body)
+        if (attempt > 0) console.log('MEDIA_DRAFT_EDIT_RETRY_OK ' + JSON.stringify({ attempt, note: '删除临时源后的第一条 GET 偶发 15s 超时（客户端传输层），重试一次即过' }))
+        break
+      } catch (error) {
+        if (attempt === 1) throw error
+        console.log('MEDIA_DRAFT_EDIT_RETRY ' + JSON.stringify({ code: error?.code ?? null, note: '第一次失败，重试；真因见脚本头与该行日志' }))
+        await wait(500)
+      }
+    }
     const driftRow = (anime.diff?.confirmedDrift ?? []).find(row => (row.splitIntoKeys ?? []).length > 0)
     // 2026-09-28 后端修过复位语义（`keepsBindingOnKey === itemKey` = 不搬/复位，200），
     // 所以这里可以真翻一次再翻回来；两边都断言，跑完库里 carries_key 必须回到原样。
@@ -1131,11 +1294,146 @@ async function runDraftEditCheck({ js, invoke, until, step, origin }) {
   })
 }
 
+/**
+ * 批准门（§10.1/§11.1）真走查——在**一次性临时库**上造结构差，跑完整的
+ * `409 → /approval → /apply-approved → 200 → 重放被拒 → 台账 → 批准撤回 → /rollback`。
+ * 真库现在结构差恒为 0（裸 /apply 直接 200），所以这里不碰任何真库。
+ *
+ * **默认不跑**：这条会写 `catalog_approvals`（每跑一次 2 行台账 + 一份 undo，临时库整本草稿
+ * 60 张 ⇒ ≈667KB；台账行永久留着、undo 靠全局 pruneExpiredUndo 回收），和 titles-edit 的写半步
+ * 同一把闸——要验就开 `WATCHPARTY_MEDIA_CHECK_REVIEW=1`。
+ */
+async function runDraftApprovalCheck({ invoke, step }) {
+  await step('draft-approval-api', async () => {
+    if (process.env.WATCHPARTY_MEDIA_CHECK_REVIEW !== '1') {
+      console.log('MEDIA_DRAFT_APPROVAL_API_SKIPPED ' + JSON.stringify({ reason: '这条会往活库的 catalog_approvals 写台账行与 undo，开 WATCHPARTY_MEDIA_CHECK_REVIEW=1 才跑', wouldRun: '409→/approval→/apply-approved→重放被拒→台账→批准撤回→/rollback' }))
+      return
+    }
+    const login = await openlistLogin()
+    const created = await invoke('mediaRequest', {
+      method: 'POST', path: '/api/admin/media-sources', query: null,
+      body: { name: 'Approval check', internalBaseUrl: 'http://127.0.0.1:5349', publicBaseUrl: 'http://127.0.0.1:5349', username: login.username, password: login.password, libraries: [{ name: 'Approval lib', kind: 'anime', path: '/media/openlist-bdyun/Multimedia/Anime' }] },
+    })
+    const source = JSON.parse(created.body)
+    const libraryId = source.libraries?.[0]?.id
+    assert.ok(libraryId, `审批临时库没建起来: ${created.body?.slice(0, 200)}`)
+    // `?force=1` 必须走 query：Rust 白名单禁 `?` 出现在路径段里（塞进 path 会被 MEDIA_ROUTE_DENIED）。
+    const call = async (method, path, body, query = null) => {
+      const reply = await invoke('mediaRequest', { method, path, query, body: body ?? null })
+      return { status: reply.status, body: (() => { try { return JSON.parse(reply.body) } catch { return reply.body } })() }
+    }
+    const base = `/api/admin/media-libraries/${encodeURIComponent(libraryId)}`
+    // 同上：临时库的 scan 也是 80+ 次列目录，管理动作超预算（或服务端回 202）就轮询落地（不重发 POST）。
+    const admin = async (path, label, landed) => {
+      let failure = null
+      try {
+        const reply = await call('POST', path)
+        if (reply?.status !== 202) return reply
+        console.log('MEDIA_ADMIN_ACCEPTED ' + JSON.stringify({ label, path, note: '服务端回 202（超出 8s 同步宽限期）：改轮询等落地' }))
+      } catch (error) {
+        failure = error
+        console.log('MEDIA_ADMIN_POLL ' + JSON.stringify({ label, path, code: error?.code ?? null, note: '管理动作没有同步落地（超预算或 202），轮询读接口直到落地；不重发 POST' }))
+      }
+      const startedAt = Date.now()
+      const deadline = startedAt + 120_000
+      let landedOk = false
+      while (!landedOk && Date.now() < deadline) {
+        await wait(2000)
+        landedOk = await landed().catch(() => false)
+      }
+      if (!landedOk) throw failure ?? Object.assign(new Error(`202 之后 ${label} 一直没落地`), { code: 'MEDIA_ADMIN_NOT_LANDED' })
+      console.log('MEDIA_ADMIN_POLL_OK ' + JSON.stringify({ label, waitedMs: Date.now() - startedAt }))
+    }
+    const readDraft = async () => (await call('GET', `${base}/classify`)).body
+    try {
+      // 落地判据同编辑步：比"变了"而不是比"有没有"（重扫已有库时 rev 本来就 >0）。
+      const preScanRev = (await readDraft().catch(() => ({}))).scan?.rev ?? 0
+      await admin(`${base}/scan`, 'scan', async () => (await readDraft()).scan?.rev > preScanRev)
+      const preClassifiedAt = (await readDraft().catch(() => ({}))).classifiedAt ?? null
+      await admin(`${base}/classify`, 'classify', async () => ((await readDraft()).classifiedAt ?? null) !== preClassifiedAt)
+      const caps = await call('GET', '/api/media/capabilities')
+      assert.ok(['secret', 'loopback-admin'].includes(caps.body?.catalogApproval), `能力位没报批准边界: ${JSON.stringify(caps.body)}`)
+
+      // ① 裸 /apply：这个库还没判定 ⇒ 闸的顺序里 DRAFT_INCOMPLETE 先说话（不是批准门）。
+      const incomplete = await call('POST', `${base}/apply`)
+      assert.equal(incomplete.status, 409, `没判完的库应该 409: ${JSON.stringify(incomplete).slice(0, 200)}`)
+      assert.equal(incomplete.body.code, 'CATALOG_DRAFT_INCOMPLETE', `闸的顺序变了（先撞的不是 INCOMPLETE）: ${JSON.stringify(incomplete.body?.code)}`)
+
+      // ② force 之后撞批准门：409 必须带**当前** structural（没有任何 diff 字段）。
+      const required = await call('POST', `${base}/apply`, undefined, 'force=1')
+      assert.equal(required.status, 409, `结构差没触发批准门: ${JSON.stringify(required).slice(0, 240)}`)
+      assert.equal(required.body.code, 'CATALOG_APPROVAL_REQUIRED', `错误码不是 APPROVAL_REQUIRED: ${JSON.stringify(required.body?.code)}`)
+      const structural = required.body.structural
+      assert.ok(structural && Array.isArray(structural.added) && Array.isArray(structural.dropped) && Array.isArray(structural.moved) && Array.isArray(structural.drift), `409 的 structural 形状不对: ${JSON.stringify(structural)}`)
+      assert.ok(structural.added.length > 0, `新建库应该有 added: ${JSON.stringify(structural)}`)
+      assert.equal(required.body.diff, undefined, `409 里不该有 diff（界面要另读一次 classify）: ${JSON.stringify(Object.keys(required.body))}`)
+
+      // ③ 签发 → 立刻应用（force 跟着走）→ 200。
+      const issued = await call('POST', `${base}/approval`, { approvedBy: '桌面端' })
+      assert.equal(issued.status, 200, `签发失败: ${JSON.stringify(issued.body).slice(0, 240)}`)
+      assert.ok(issued.body.approvalToken, '签发没回 token')
+      assert.ok(issued.body.approvalId, '签发没回台账 id')
+      const applied = await call('POST', `${base}/apply-approved`, { approvalToken: issued.body.approvalToken, force: true })
+      assert.equal(applied.status, 200, `带凭证应用失败: ${JSON.stringify(applied.body).slice(0, 240)}`)
+      assert.equal(applied.body.rollbackAvailable, true, `结构应用后应当可撤回: ${JSON.stringify(applied.body?.rollbackAvailable)}`)
+
+      // ④ 重放同一张凭证：先消费后执行 ⇒ 409 used（不是 unknown/expired）。
+      const replay = await call('POST', `${base}/apply-approved`, { approvalToken: issued.body.approvalToken, force: true })
+      assert.equal(replay.status, 409, `重放没有被拒: ${JSON.stringify(replay).slice(0, 200)}`)
+      assert.equal(replay.body.code, 'CATALOG_APPROVAL_INVALID', `重放错误码不对: ${JSON.stringify(replay.body?.code)}`)
+      assert.equal(replay.body.reason, 'used', `重放的 reason 不是 used: ${JSON.stringify(replay.body?.reason)}`)
+
+      // ⑤ 台账：能撤的那行必须 rollbackAvailable=true，且带 keys/counts（不含 token/哈希）。
+      const ledger = await call('GET', `${base}/approvals`)
+      assert.equal(ledger.status, 200, `台账读不到: ${JSON.stringify(ledger).slice(0, 160)}`)
+      assert.ok(Array.isArray(ledger.body.items), `items 必须是数组: ${JSON.stringify(ledger.body?.items)}`)
+      const row = ledger.body.items.find(item => item.approvalId === issued.body.approvalId)
+      assert.ok(row, '台账里找不到刚签发的那行')
+      assert.equal(row.rollbackAvailable, true, `台账说这次不能撤: ${JSON.stringify(row)}`)
+      assert.ok((row.keys ?? []).length > 0, `可撤的行没带 keys: ${JSON.stringify(row)}`)
+      assert.equal('approvalToken' in row || 'tokenHash' in row, false, `台账泄漏了凭证字段: ${JSON.stringify(Object.keys(row))}`)
+
+      // ⑥ 撤回也要再批一次：/approval{rollbackOf} 回 rollback（不是 structural）→ /rollback。
+      const approveRollback = await call('POST', `${base}/approval`, { approvedBy: '桌面端', rollbackOf: issued.body.approvalId })
+      assert.equal(approveRollback.status, 200, `撤回批准失败: ${JSON.stringify(approveRollback.body).slice(0, 240)}`)
+      assert.ok(approveRollback.body.rollback, `撤回批准没回 rollback: ${JSON.stringify(Object.keys(approveRollback.body ?? {}))}`)
+      assert.equal(approveRollback.body.structural, undefined, `撤回批准不该回 structural（两者互斥）: ${JSON.stringify(Object.keys(approveRollback.body ?? {}))}`)
+      const rolled = await call('POST', `${base}/rollback`, { rollbackOf: issued.body.approvalId, approvalToken: approveRollback.body.approvalToken })
+      assert.equal(rolled.status, 200, `撤回失败: ${JSON.stringify(rolled.body).slice(0, 240)}`)
+      assert.ok(rolled.body.keys.length > 0, `撤回没报涉及哪些卡: ${JSON.stringify(rolled.body)}`)
+
+      // ⑦ 撤完：台账那行变成"撤过"，再批准同一次 → ALREADY_DONE（不是 INVALID）。
+      const after = await call('GET', `${base}/approvals`)
+      const rowAfter = (after.body.items ?? []).find(item => item.approvalId === issued.body.approvalId)
+      assert.equal(rowAfter?.rollbackAvailable, false, `撤过之后还能撤: ${JSON.stringify(rowAfter)}`)
+      assert.ok(rowAfter?.rolledBackAt, `撤过之后没有 rolledBackAt: ${JSON.stringify(rowAfter)}`)
+      const again = await call('POST', `${base}/approval`, { approvedBy: '桌面端', rollbackOf: issued.body.approvalId })
+      assert.equal(again.status, 409, `第二次撤回批准没被拒: ${JSON.stringify(again).slice(0, 200)}`)
+      assert.equal(again.body.code, 'CATALOG_ROLLBACK_ALREADY_DONE', `第二次撤回的错误码不对: ${JSON.stringify(again.body?.code)}`)
+
+      // ⑧ 撤完之后结构差异回到原样（卡都撤掉了 ⇒ added 又等于整份草稿）。
+      const diffAfter = await call('GET', `${base}/classify`)
+      assert.ok((diffAfter.body.diff?.added ?? []).length >= structural.added.length, `撤回后结构没回到原样: ${JSON.stringify(diffAfter.body.diff?.added?.length)}`)
+
+      console.log('MEDIA_DRAFT_APPROVAL_API ' + JSON.stringify({
+        library: libraryId, approvalMode: caps.body.catalogApproval,
+        structural: { added: structural.added.length, dropped: structural.dropped.length, moved: structural.moved.length, drift: structural.drift.length },
+        applied: { created: applied.body.created, rollbackAvailable: applied.body.rollbackAvailable },
+        replay: replay.body.reason, ledgerKeys: row.keys.length, rollback: { restored: rolled.body.restored, removed: rolled.body.removed, keys: rolled.body.keys.length },
+        afterRollbackAdded: diffAfter.body.diff?.added?.length ?? null,
+      }))
+    } finally {
+      await invoke('mediaRequest', { method: 'DELETE', path: `/api/admin/media-sources/${encodeURIComponent(source.id)}`, query: null, body: null })
+      console.log('MEDIA_DRAFT_APPROVAL_CLEANUP ' + JSON.stringify({ source: source.id, note: '临时源已删（连同这次应用出来的正式卡）' }))
+    }
+  })
+}
+
 /** 只删本 harness 用例会建的源名，绝不碰用户自己的源。 */
 async function purgeTestSources(invoke) {
   const list = await invoke('mediaRequest', { method: 'GET', path: '/api/admin/media-sources', query: null, body: null })
   const sources = (() => { try { return JSON.parse(list.body).sources ?? [] } catch { return [] } })()
-  const junk = sources.filter(source => ['Isolation check', 'Second check', 'Dead check'].includes(source.name))
+  const junk = sources.filter(source => ['Isolation check', 'Second check', 'Dead check', 'Approval check', 'Edit check'].includes(source.name))
   for (const source of junk) {
     await invoke('mediaRequest', { method: 'DELETE', path: `/api/admin/media-sources/${source.id}`, query: null, body: null })
   }
@@ -1183,6 +1481,30 @@ async function runSourceFormCheck({ window, js, invoke, until, step }) {
 
   await step('form-open', async () => {
     await openSettingsMedia()
+    if (process.env.WATCHPARTY_MEDIA_CHECK_APPROVAL_FILE) {
+      await until(() => js(`document.querySelector('.fluent-settings-content')?.textContent.includes('已配置 · ••••••••')`), 'approval mask in settings', 15000)
+      const inputType = await js(`(() => {
+        Array.from(document.querySelectorAll('.fluent-settings-content button')).find(node => node.textContent.includes('替换密钥'))?.click()
+        return true
+      })()`)
+      assert.ok(inputType)
+      await until(() => js(`Boolean(document.querySelector('input[autocomplete="new-password"]'))`), 'approval secret input')
+      assert.equal(await js(`document.querySelector('input[autocomplete="new-password"]').type`), 'password')
+      const config = JSON.parse(await readFile(process.env.WATCHPARTY_MEDIA_CHECK_APPROVAL_FILE, 'utf8'))
+      await js(`(() => {
+        const input = document.querySelector('input[autocomplete="new-password"]')
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(config.secret)})
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        return true
+      })()`)
+      await until(() => js(`Array.from(document.querySelectorAll('.fluent-settings-content button')).some(node => node.textContent.trim() === '保存' && !node.disabled)`), 'approval save enabled')
+      await js(`(() => { Array.from(document.querySelectorAll('.fluent-settings-content button')).find(node => node.textContent.trim() === '保存')?.click(); return true })()`)
+      await until(() => js(`!document.querySelector('input[autocomplete="new-password"]')`), 'approval input cleared after save')
+      const shot = join(tmpdir(), 'watchparty-media-check', 'approval-secret-settings.png')
+      await wait(300)
+      await writeFile(shot, (await window.webContents.capturePage()).toPNG())
+      console.log('MEDIA_APPROVAL_SECRET_SETTINGS ' + JSON.stringify({ masked: true, passwordInput: true, clearedAfterSave: true, shot }))
+    }
     const before = await sourceRows()
     const visible = await js(`(() => {
       const button = Array.from(document.querySelectorAll('.fluent-settings-content button')).find(node => node.textContent.trim() === '添加媒体源')
@@ -1307,7 +1629,7 @@ async function runSourceFormCheck({ window, js, invoke, until, step }) {
 
         // 扫描 + 分类（只写草稿）：这一张新库会停在"全部未判定"，正好是部分判定的中间态。
         await js(`Array.from(document.querySelectorAll('.draft-empty button')).find(node => node.textContent.includes('开始扫描'))?.click()`)
-        await until(() => js(`document.querySelectorAll('.draft-table tbody tr.draft-row').length > 0`), 'fresh draft rows', 40000)
+        await until(() => js(`document.querySelectorAll('.draft-table tbody tr.draft-row').length > 0`), 'fresh draft rows', 150000)
         await wait(400)
         const partial = await js(`(() => ({
           rows: document.querySelectorAll('.draft-table tbody tr.draft-row').length,
@@ -1336,6 +1658,81 @@ async function runSourceFormCheck({ window, js, invoke, until, step }) {
         assert.match(force.text ?? '', /候选列表会被清空/, `force 弹层没写代价: ${JSON.stringify(force)}`)
         assert.match(force.text ?? '', /已经确认的绑定不会丢/, `force 弹层没写保护: ${JSON.stringify(force)}`)
         assert.ok(force.buttons.some(text => text.includes('仍然应用')), `force 弹层缺危险按钮: ${JSON.stringify(force)}`)
+
+        // ==== ⑥ 批准单：点「仍然应用（危险）」→ 服务端 409 APPROVAL_REQUIRED → 原地换成批准单 ====
+        // 默认不跑：这一步会真应用（写正式卡 + 台账 + undo），和 titles-edit 的写半步同一把闸。
+        if (process.env.WATCHPARTY_MEDIA_CHECK_REVIEW !== '1') {
+          console.log('MEDIA_DRAFT_APPROVAL_UI_SKIPPED ' + JSON.stringify({ reason: '批准并应用会写正式卡与 catalog_approvals，开 WATCHPARTY_MEDIA_CHECK_REVIEW=1 才跑', wouldRun: '批准单截图/断言→批准并应用→撤回行→撤回单→撤回完成' }))
+          await js(`Array.from(document.querySelectorAll('.draft-dialog-actions button')).find(node => node.textContent.trim() === '取消')?.click()`)
+          await js(`Array.from(document.querySelectorAll('.draft-lib-chip')).find(node => node.textContent.includes('Anime'))?.click()`)
+          await until(() => js(`Boolean(document.querySelector('.draft-table tbody tr.draft-row'))`), 'back on lib_anime', 25000)
+          return
+        }
+        await js(`Array.from(document.querySelectorAll('.draft-dialog-actions button')).find(node => node.textContent.includes('仍然应用'))?.click()`)
+        await until(() => js(`Boolean(document.querySelector('.draft-dialog.approval'))`), 'approval sheet', 30000)
+        await wait(300)
+        const approvalShot = join(dir, 'catalog-draft-approval.png')
+        await writeFile(approvalShot, (await window.webContents.capturePage()).toPNG())
+        const caps = JSON.parse((await invoke('mediaRequest', { method: 'GET', path: '/api/media/capabilities', query: null, body: null })).body)
+        const sheet = await js(`(() => ({
+          title: document.querySelector('.draft-dialog.approval h4')?.textContent?.trim() ?? null,
+          groups: Array.from(document.querySelectorAll('.draft-dialog.approval h5')).map(node => node.textContent.trim()),
+          rows: document.querySelectorAll('.draft-dialog.approval .draft-approval-group li').length,
+          persist: document.querySelector('.draft-dialog.approval')?.textContent?.includes('成功即消耗') ?? null,
+          soft: document.querySelector('.draft-dialog.approval')?.textContent?.includes('当前是软边界') ?? null,
+          buttons: Array.from(document.querySelectorAll('.draft-dialog.approval .draft-dialog-actions button')).map(node => node.textContent.trim()),
+          tableInert: document.querySelector('section.draft')?.hasAttribute('inert') ?? null,
+        }))()`)
+        console.log('MEDIA_DRAFT_APPROVAL_SHEET ' + JSON.stringify({ library: picked, ...sheet, shot: approvalShot }))
+        assert.match(sheet.title ?? '', /需要批准/, `批准单标题不对: ${JSON.stringify(sheet.title)}`)
+        assert.ok((sheet.groups ?? []).some(text => /新建 \d+ 张/.test(text)), `批准单没列新建清单: ${JSON.stringify(sheet.groups)}`)
+        assert.ok(sheet.rows >= 1, `批准单清单是空的: ${JSON.stringify(sheet)}`)
+        assert.equal(sheet.persist, true, `批准单没写一次性: ${JSON.stringify(sheet)}`)
+        assert.equal(sheet.soft, caps.catalogApproval === 'loopback-admin', `软边界提示与能力位不一致（${caps.catalogApproval}）: ${JSON.stringify(sheet)}`)
+        assert.ok(sheet.buttons.some(text => text.includes('批准并应用')), `批准单主按钮不对: ${JSON.stringify(sheet.buttons)}`)
+        // 弹层期间面板必须 inert（键盘也进不去，§a 的前提）。
+        assert.equal(sheet.tableInert, true, `弹层开着时面板没有 inert: ${JSON.stringify(sheet)}`)
+
+        // 批准 → 立刻应用 → 200；抬头出现「可撤回」一行。
+        await js(`Array.from(document.querySelectorAll('.draft-dialog.approval .draft-dialog-actions button')).find(node => node.textContent.includes('批准并应用'))?.click()`)
+        await until(() => js(`document.body.innerText.includes('已批准并应用')`), 'approved notice', 40000)
+        await until(() => js(`Boolean(document.querySelector('.draft-banner.rollback'))`), 'rollback row', 30000)
+        // 面板是滚动的：截图前把这一行滚到视口里，否则图上看不到（DOM 断言不受影响）。
+        await js(`document.querySelector('.draft-banner.rollback')?.scrollIntoView({ block: 'center' })`)
+        await wait(300)
+        const rowShot = join(dir, 'catalog-draft-rollback-row.png')
+        await writeFile(rowShot, (await window.webContents.capturePage()).toPNG())
+        const rowUi = await js(`(() => ({
+          text: document.querySelector('.draft-banner.rollback')?.textContent?.replace(/\\s+/g, ' ').trim().slice(0, 160) ?? null,
+          buttons: Array.from(document.querySelectorAll('.draft-banner.rollback button')).map(node => node.textContent.trim()),
+        }))()`)
+        console.log('MEDIA_DRAFT_ROLLBACK_ROW ' + JSON.stringify({ ...rowUi, shot: rowShot }))
+        assert.match(rowUi.text ?? '', /上次应用：＋\d+ −\d+/, `撤回行没写清这次应用改了什么: ${JSON.stringify(rowUi)}`)
+        assert.ok(rowUi.buttons.some(text => text.includes('撤回这次')), `撤回行缺按钮: ${JSON.stringify(rowUi)}`)
+
+        // 撤回也要再批一次：撤回批准单 → 批准并撤回 → 撤回行消失。
+        await js(`Array.from(document.querySelectorAll('.draft-banner.rollback button')).find(node => node.textContent.includes('撤回这次'))?.click()`)
+        await until(() => js(`document.querySelector('.draft-dialog.approval')?.textContent?.includes('撤回上次应用') ?? false`), 'rollback approval sheet', 20000)
+        await wait(200)
+        const rollbackShot = join(dir, 'catalog-draft-rollback-sheet.png')
+        await writeFile(rollbackShot, (await window.webContents.capturePage()).toPNG())
+        const rollbackSheet = await js(`(() => ({
+          text: document.querySelector('.draft-dialog.approval')?.textContent?.replace(/\\s+/g, ' ').trim().slice(0, 260) ?? null,
+          buttons: Array.from(document.querySelectorAll('.draft-dialog.approval .draft-dialog-actions button')).map(node => node.textContent.trim()),
+        }))()`)
+        console.log('MEDIA_DRAFT_ROLLBACK_SHEET ' + JSON.stringify({ ...rollbackSheet, shot: rollbackShot }))
+        assert.match(rollbackSheet.text ?? '', /海报会一起接回来/, `撤回单没说清海报不丢: ${JSON.stringify(rollbackSheet)}`)
+        assert.match(rollbackSheet.text ?? '', /一次性/, `撤回单没写一次性: ${JSON.stringify(rollbackSheet)}`)
+        assert.doesNotMatch(rollbackSheet.text ?? '', /可重抓/, `撤回单又写了"可重抓"（后端已修）: ${JSON.stringify(rollbackSheet)}`)
+        await js(`Array.from(document.querySelectorAll('.draft-dialog.approval .draft-dialog-actions button')).find(node => node.textContent.includes('批准并撤回'))?.click()`)
+        await until(() => js(`document.body.innerText.includes('已撤回')`), 'rolled back notice', 40000)
+        await until(() => js(`!document.querySelector('.draft-banner.rollback')`), 'rollback row gone', 20000)
+        const afterRollback = await js(`(() => ({
+          notice: document.body.innerText.split(String.fromCharCode(10)).find(line => line.includes('已撤回')) ?? null,
+          rows: document.querySelectorAll('.draft-table tbody tr.draft-row').length,
+        }))()`)
+        console.log('MEDIA_DRAFT_ROLLBACK_DONE ' + JSON.stringify({ library: picked, ...afterRollback }))
+        assert.ok(afterRollback.rows > 0, `撤回后草稿表空了: ${JSON.stringify(afterRollback)}`)
         await js(`Array.from(document.querySelectorAll('.draft-dialog-actions button')).find(node => node.textContent.trim() === '取消')?.click()`)
         // 回到正式库，别把后面的步骤留在临时库上。
         await js(`Array.from(document.querySelectorAll('.draft-lib-chip')).find(node => node.textContent.includes('Anime'))?.click()`)

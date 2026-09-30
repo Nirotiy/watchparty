@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import type { BangumiHit } from "@/lib/ipc"
-import { posterHue, titleInitial, type WallCard, type WallChild, type WallDetail } from "@/lib/catalog-view"
+import { posterHue, titleInitial, UNCONFIRM_NOTICE, type WallCard, type WallChild, type WallDetail } from "@/lib/catalog-view"
 
 /**
  * The title wall from the 2026-09-26 mockup (option B): posters on the left, the selected
@@ -202,6 +202,10 @@ function RebindPanel({ detail, busy, onUnconfirm, onSearchBangumi, onRebind }: {
   const [hits, setHits] = useState<BangumiHit[] | null>(null)
   const [searching, setSearching] = useState(false)
   const [message, setMessage] = useState("")
+  // 两步确认：撤销会让卡立刻离开标题墙（粘住的落点在审阅页「待人工」），先提醒再动手。
+  // 用 id 记而不是布尔，切换卡片时自动复位，不需要 effect（本仓禁 effect 里 setState）。
+  const [confirmingId, setConfirmingId] = useState<string | null>(null)
+  const confirming = confirmingId === detail.id
   // 没有文件就没什么可绑的。
   if (detail.seasons.every(season => season.children.length === 0)) return null
   async function search() {
@@ -219,9 +223,19 @@ function RebindPanel({ detail, busy, onUnconfirm, onSearchBangumi, onRebind }: {
   return (
     <div className="catalog-edit">
       <div className="catalog-edit-row">
-        {detail.status === "confirmed" ? <Button size="sm" variant="ghost" disabled={busy} onClick={onUnconfirm}>撤销确认</Button> : null}
+        {detail.status === "confirmed" ? (
+          confirming ? (
+            <>
+              <Button size="sm" variant="accent" disabled={busy} onClick={() => { setConfirmingId(null); onUnconfirm() }}>确认撤销</Button>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmingId(null)}>取消</Button>
+            </>
+          ) : (
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmingId(detail.id)}>撤销确认</Button>
+          )
+        ) : null}
         <Button size="sm" variant="ghost" aria-expanded={open} onClick={() => { setOpen(value => !value); setMessage("") }}>换绑条目…</Button>
       </div>
+      {detail.status === "confirmed" && confirming ? <p className="catalog-edit-note" role="status">{UNCONFIRM_NOTICE}</p> : null}
       {open ? (
         <div className="catalog-rebind">
           <div className="catalog-rebind-search">

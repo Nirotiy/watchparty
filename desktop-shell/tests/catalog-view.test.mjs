@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import ts from 'typescript'
 const js = ts.transpile(readFileSync(new URL('../src/lib/catalog-view.ts', import.meta.url), 'utf8'), { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 })
-const { catalogStatusLabel, confirmedBySource, groupSeasons, posterHue, scrapeSummary, titleInitial, toDetail, toWall, wallCard } = await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`)
+const { catalogStatusLabel, confirmedBySource, groupSeasons, posterHue, scrapeSummary, titleInitial, toDetail, toWall, wallCard, UNCONFIRM_NOTICE } = await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`)
 
 const resolve = itemId => `http://asset.test/artwork/poster/${itemId}`
 
@@ -146,4 +146,11 @@ test('labels and scrape wording', () => {
   assert.match(scrapeSummary({ status: 'running', total: 71, scanned: 12, matched: 3, lastError: null }), /已扫 12 \/ 71/)
   assert.match(scrapeSummary({ status: 'done', total: 71, scanned: 71, matched: 16, lastError: null }), /71 组，命中 16/)
   assert.match(scrapeSummary({ status: 'failed', total: 0, scanned: 0, matched: 0, lastError: 'BANGUMI_UNAVAILABLE' }), /BANGUMI_UNAVAILABLE/)
+})
+test('the unconfirm step tells you the card leaves the wall and where it goes', () => {
+  // 后端 74cb3af2 起撤销是粘的：卡离开标题墙、落点是草稿审阅页「待人工」。
+  // 这句文案是唯一让用户知道"去哪找它"的地方（入口按裁决：只加提醒、不加新面）。
+  assert.match(UNCONFIRM_NOTICE, /离开标题墙/)
+  assert.match(UNCONFIRM_NOTICE, /待人工/)
+  assert.match(UNCONFIRM_NOTICE, /重新确认/)
 })

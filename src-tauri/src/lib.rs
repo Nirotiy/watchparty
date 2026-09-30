@@ -1,4 +1,5 @@
 pub mod native_api;
+pub mod approval;
 pub mod sidecar;
 pub mod clock;
 pub mod commands;

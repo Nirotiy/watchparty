@@ -12,7 +12,7 @@ import {
 import type { DesktopUiState } from "@/lib/contracts"
 import { useShellToast } from "@/components/shell-toast"
 import {
-  backendAddressError, clearSiteCredentials, createMediaSource, deleteOriginTrust, errorMessage, getDesktopSettings, importOriginTrust,
+  backendAddressError, catalogApprovalSecretStatus, setCatalogApprovalSecret, clearSiteCredentials, createMediaSource, deleteOriginTrust, errorMessage, getDesktopSettings, importOriginTrust,
   listOriginTrust, listAudioOutputDevices, mediaCapabilities, mediaLibraries, mediaRequest, promptSiteCredentials, updateDesktopSettings, verifyBackend,
   type AdminMediaSource,
   type AudioOutputDevice,
@@ -225,6 +225,7 @@ function VolumeControl({ value, onChange }: { value: number; onChange: (value: n
  * 后续媒体库相关的开关（默认视图、只看可播、封面策略一类）也挂在这一栏。
  */
 function MediaLibrarySettingsPanel() {
+  const [approvalMode, setApprovalMode] = useState<"secret" | "loopback-admin" | null>(null)
   const [sources, setSources] = useState<AdminMediaSource[] | null>(null)
   const [libraries, setLibraries] = useState<MediaLibrary[]>([])
   const [admin, setAdmin] = useState<boolean | null>(null)
@@ -235,6 +236,7 @@ function MediaLibrarySettingsPanel() {
   async function reload() {
     try {
       const caps = await mediaCapabilities()
+      setApprovalMode(caps.catalogApproval ?? null)
       setAdmin(caps.mediaAdmin === true)
       const list = await mediaLibraries()
       setLibraries(list)
@@ -264,6 +266,7 @@ function MediaLibrarySettingsPanel() {
 
   return <>
     <SettingsHeading title="媒体库" detail="片源站点与库在这里维护；房间里只做选片与播放。" />
+    <ApprovalSecretSetting mode={approvalMode} />
     {admin === false ? <MessageBar intent="warning" className="fluent-settings-message"><MessageBarBody><MessageBarTitle>只有本机或管理员能修改片源</MessageBarTitle>当前会话不是管理员，这里只显示只读信息。</MessageBarBody></MessageBar> : null}
     <div className="border-y border-border">
       <SettingsRow label="已配置的片源" description={sources === null ? "读取中…" : sources.length === 0 ? "还没有片源" : `${sources.length} 个站点 · ${libraries.length} 个库`}>
@@ -306,6 +309,43 @@ function MediaLibrarySettingsPanel() {
     )}
     <StatusMessage message={message} intent={intent} />
   </>
+}
+
+function ApprovalSecretSetting({ mode }: { mode: "secret" | "loopback-admin" | null }) {
+  const [configured, setConfigured] = useState<boolean | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [secret, setSecret] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+  useEffect(() => {
+    void catalogApprovalSecretStatus().then(status => setConfigured(status.configured))
+      .catch(() => setError("无法读取批准密钥状态"))
+  }, [])
+  async function save() {
+    setSaving(true)
+    setError("")
+    try {
+      const status = await setCatalogApprovalSecret(secret)
+      setConfigured(status.configured)
+      setEditing(false)
+    } catch { setError("批准密钥保存失败") }
+    finally { setSecret(""); setSaving(false) }
+  }
+  return <div className="border-y border-border bg-black text-white">
+    <SettingsRow label="批准密钥" description={`${mode ?? "读取中…"} · ${configured === null ? "状态未知" : configured ? "已配置 · ••••••••" : "未配置"}`}>
+      <Button aria-expanded={editing} disabled={saving} onClick={() => { setSecret(""); setEditing(value => !value) }}>
+        <ShieldRegular />{configured ? "替换密钥" : "配置密钥"}
+      </Button>
+    </SettingsRow>
+    {editing ? <div className="flex flex-wrap items-end gap-2 py-3">
+      <Field label="批准密钥" className="min-w-0 flex-1">
+        <Input type="password" autoComplete="new-password" value={secret} disabled={saving} onChange={(_, data) => setSecret(data.value)} />
+      </Field>
+      <Button disabled={saving || !/^[\x21-\x7e]{1,4096}$/.test(secret)} onClick={() => void save()}><SaveRegular />保存</Button>
+      <Button disabled={saving} onClick={() => { setSecret(""); setEditing(false) }}>取消</Button>
+    </div> : null}
+    {error ? <p role="alert" className="py-2 text-sm text-red-400">{error}</p> : null}
+  </div>
 }
 
 function NetworkPanel({ state }: { state: DesktopUiState | null }) {

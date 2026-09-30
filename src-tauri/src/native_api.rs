@@ -809,6 +809,14 @@ fn media_route_allowed(method: &str, path: &str) -> bool {
                     "edit" | "confirm" | "unconfirm" | "merge" | "split" | "keep-binding"
                 )
         }
+        // 批准门（§10.1/§11.1）：签发、撤销、带凭证应用、撤回，外加两条只读台账。
+        // `apply` 那条不会顺手覆盖 `apply-approved`（分段匹配），旧拼写一律拒。
+        ("POST", ["", "api", "admin", "media-libraries", id, "approval"])
+        | ("POST", ["", "api", "admin", "media-libraries", id, "approval", "revoke"])
+        | ("POST", ["", "api", "admin", "media-libraries", id, "apply-approved"])
+        | ("POST", ["", "api", "admin", "media-libraries", id, "rollback"]) => id_ok(id),
+        ("GET", ["", "api", "admin", "media-libraries", id, "approvals"])
+        | ("GET", ["", "api", "admin", "media-libraries", id, "duplicates"]) => id_ok(id),
         _ => false,
     }
 }
@@ -846,11 +854,36 @@ pub fn media_request(
     }
     configuration_task(state, move |state| {
         let _ = state.runtime()?;
+        let secret = if crate::approval::is_approval_route(&method, &path) {
+            let settings = settings_for_state(state)?;
+            let origin = settings.backend_origin.as_deref().ok_or_else(RuntimeError::not_configured)?;
+            crate::approval::ApprovalSecretStore::new(state.app_handle.0.data_dir()?)
+                .read(origin, settings.allow_remote_http).map_err(|_| RuntimeError::credential_error())?
+        } else { None };
         let (status, body) = state
             .media_transport()?
-            .media_request(&method, &path, query.as_deref(), body.as_ref())
+            .media_request_with_approval(&method, &path, query.as_deref(), body.as_ref(), secret.as_deref().map(String::as_str))
             .map_err(|error| RuntimeError::from_transport(&error))?;
         Ok(serde_json::json!({ "status": status, "body": body }))
+    })
+}
+
+pub fn catalog_approval_secret_status(state: &NativeDesktopState) -> Result<crate::approval::ApprovalSecretStatus, RuntimeError> {
+    configuration_task(state, |state| {
+        let settings = settings_for_state(state)?;
+        let origin = settings.backend_origin.as_deref().ok_or_else(RuntimeError::not_configured)?;
+        crate::approval::ApprovalSecretStore::new(state.app_handle.0.data_dir()?)
+            .status(origin, settings.allow_remote_http).map_err(|_| RuntimeError::credential_error())
+    })
+}
+
+pub fn set_catalog_approval_secret(state: &NativeDesktopState, secret: String) -> Result<crate::approval::ApprovalSecretStatus, RuntimeError> {
+    let secret = zeroize::Zeroizing::new(secret);
+    configuration_task(state, move |state| {
+        let settings = settings_for_state(state)?;
+        let origin = settings.backend_origin.as_deref().ok_or_else(RuntimeError::not_configured)?;
+        crate::approval::ApprovalSecretStore::new(state.app_handle.0.data_dir()?)
+            .write(origin, settings.allow_remote_http, secret).map_err(|_| RuntimeError::credential_error())
     })
 }
 
@@ -998,6 +1031,13 @@ mod tests {
             ("POST", "/api/admin/media-libraries/lib_anime/draft/merge"),
             ("POST", "/api/admin/media-libraries/lib_anime/draft/split"),
             ("POST", "/api/admin/media-libraries/lib_anime/draft/keep-binding"),
+            // 批准门（§10.1/§11.1）：签发 / 撤销 / 带凭证应用 / 撤回 + 两条只读台账
+            ("POST", "/api/admin/media-libraries/lib_anime/approval"),
+            ("POST", "/api/admin/media-libraries/lib_anime/approval/revoke"),
+            ("POST", "/api/admin/media-libraries/lib_anime/apply-approved"),
+            ("POST", "/api/admin/media-libraries/lib_anime/rollback"),
+            ("GET", "/api/admin/media-libraries/lib_anime/approvals"),
+            ("GET", "/api/admin/media-libraries/lib_anime/duplicates"),
         ] {
             assert!(media_route_allowed(method, path), "{method} {path}");
         }
@@ -1031,6 +1071,17 @@ mod tests {
             ("POST", "/api/admin/media-libraries/lib_anime/draft/unknown"),
             ("POST", "/api/admin/media-libraries/lib_anime/draft/edit/extra"),
             ("POST", "/api/admin/media-libraries/lib_anime/draft"),
+            // 批准门：verb 与形状都不能松（`apply` 那条不覆盖 `apply-approved`；两条只读不给写）
+            ("GET", "/api/admin/media-libraries/lib_anime/approval"),
+            ("GET", "/api/admin/media-libraries/lib_anime/apply-approved"),
+            ("GET", "/api/admin/media-libraries/lib_anime/rollback"),
+            ("POST", "/api/admin/media-libraries/lib_anime/approvals"),
+            ("POST", "/api/admin/media-libraries/lib_anime/duplicates"),
+            ("POST", "/api/admin/media-libraries/lib_anime/approval/unknown"),
+            ("POST", "/api/admin/media-libraries/lib_anime/approval/revoke/extra"),
+            ("POST", "/api/admin/media-libraries/lib_anime/apply/approved"),
+            ("DELETE", "/api/admin/media-libraries/lib_anime/approval"),
+            ("GET", "/api/admin/media-libraries/lib_anime/approvals/extra"),
             // traversal and separator games
             ("PATCH", "/api/admin/media-sources/.."),
             ("PATCH", "/api/admin/media-sources/."),

@@ -214,3 +214,77 @@ test('编辑接口报错文案：后端新加的两个 reason 说清楚下一步
   assert.ok(view.draftEditErrorText(error('nothing-to-split')).length > 0)
   assert.ok(view.draftEditErrorText(error('bad-carrier')).length > 0)
 })
+
+test('批准失败文案：reason 说下一步，冲突列 keys，窗口关了不说"过了 48 小时"', () => {
+  const err = (code, data) => Object.assign(new Error(code), { code, data })
+  assert.match(view.approvalErrorText(err('CATALOG_APPROVAL_INVALID', { reason: 'used' })), /重新批准/)
+  assert.match(view.approvalErrorText(err('CATALOG_APPROVAL_INVALID', { reason: 'operations-changed' })), /新的差异/)
+  assert.match(view.approvalErrorText(err('CATALOG_APPROVAL_INVALID', { reason: 'scan-revision' })), /重新分类/)
+  // 没见过的 reason 走兜底，不空着也不说"失败"
+  assert.match(view.approvalErrorText(err('CATALOG_APPROVAL_INVALID', { reason: 'future-reason' })), /重新批准/)
+  assert.match(view.approvalErrorText(err('CATALOG_APPROVAL_REQUIRED', {})), /批准/)
+  assert.match(view.approvalErrorText(err('CATALOG_APPROVAL_SECRET_REQUIRED', {})), /密钥/)
+  assert.match(view.approvalErrorText(err('CATALOG_NOTHING_TO_APPROVE', {})), /直接/)
+  const conflict = view.approvalErrorText(err('CATALOG_ROLLBACK_CONFLICT', { keys: ['/A', '/B', '/C'] }))
+  assert.match(conflict, /\/A/)
+  assert.match(conflict, /整批没有动/)
+  assert.match(conflict, /3 张/)
+  const closed = view.approvalErrorText(err('CATALOG_ROLLBACK_WINDOW_CLOSED', {}))
+  assert.match(closed, /已经落地/)
+  assert.doesNotMatch(closed, /48 小时不算/)
+  // 401 的形状错（approvalToken 不合法）也按"重新批准"，不重试
+  assert.match(view.approvalErrorText(err('CATALOG_APPROVAL_REQUIRED', {})), /批准/)
+})
+
+test('批准单四类清单：名字从草稿/差异 join，dropped 带空壳原因与落点', () => {
+  const d = diff({
+    added: [{ id: '', itemKey: '/New', files: 3, query: '新卡', splitFromKey: '/Old', fromFiles: 3 }],
+    dropped: [{ id: 'cat_9', itemKey: '/Ghost', title: '幽灵卡', files: 5, missingPaths: 5, suggestedKeys: ['/New'] }],
+    moved: [{ id: 'cat_8', itemKey: '/Moved', query: '搬走的卡', files: 2 }],
+    confirmedDrift: [{ id: 'cat_7', itemKey: '/Drift', title: '漂移卡', subtitle: { from: null, to: null }, files: { from: 48, to: 24 }, splitIntoKeys: ['/New'], keepsBindingOnKey: '/Drift' }],
+  })
+  const sheet = view.structuralSheet(
+    { added: ['/New'], dropped: ['/Ghost'], moved: ['/Moved'], drift: [{ itemKey: '/Drift', from: 48, to: 24 }] },
+    [item({ itemKey: '/New', title: '新卡' }), item({ itemKey: '/Old', title: '老卡' })],
+    d,
+  )
+  assert.equal(sheet.total, 4)
+  assert.equal(sheet.added[0].label, '新卡')
+  assert.match(sheet.added[0].note ?? '', /老卡/)
+  assert.match(sheet.added[0].note ?? '', /3 个文件/)
+  assert.equal(sheet.dropped[0].label, '幽灵卡')
+  assert.match(sheet.dropped[0].note ?? '', /空壳：5 个文件已不在快照/)
+  assert.match(sheet.dropped[0].note ?? '', /新卡/)
+  assert.equal(sheet.moved[0].label, '搬走的卡')
+  assert.deepEqual(sheet.drift[0], { key: '/Drift', label: '漂移卡', from: 48, to: 24 })
+  // join 不到（diff 还没刷新）时退 itemKey 末段，不空着
+  const bare = view.structuralSheet({ added: [], dropped: ['/X/Y/Z'], moved: [], drift: [] }, [], null)
+  assert.equal(bare.dropped[0].label, 'Z')
+})
+
+test('集号覆盖（§16）：只有集号变了才提示，且明说不算结构变更', () => {
+  assert.equal(view.episodeNote({ from: 0, to: 81 }), '集号 0 → 81')
+  assert.equal(view.episodeNote({ from: 40, to: 770 }), '集号 40 → 770')
+  assert.equal(view.episodeNote({ from: 7, to: 7 }), null)
+  assert.equal(view.episodeNote(null), null)
+  assert.equal(view.episodeNote(undefined), null)
+})
+
+test('撤回行只认 rollbackAvailable；windowClosed 不冒充可撤回', () => {
+  const row = (over = {}) => ({
+    approvalId: 'appr_1', kind: 'apply', approvedBy: '桌面端', createdAt: '', expiresAt: '', usedAt: null,
+    revokedAt: null, appliedAt: '2026-09-29T13:23:00.000Z', rolledBackAt: null, targets: null,
+    rollbackAvailable: false, windowClosed: false, ...over,
+  })
+  assert.equal(view.rollbackLine([]), null)
+  assert.equal(view.rollbackLine([row({ windowClosed: true })]), null)
+  const line = view.rollbackLine([row({ rollbackAvailable: true, keys: ['/A', '/B'], counts: { created: 1, removed: 1, changed: 0 } })])
+  assert.match(line.text, /＋1 −1/)
+  assert.match(line.text, /2 张卡/)
+  assert.match(line.label, /桌面端/)
+  const sheet = view.rollbackSheet({ keys: ['/A'], counts: { created: 1, removed: 0, changed: 2 } }).join(" ")
+  assert.match(sheet, /海报会一起接回来/)
+  assert.match(sheet, /一次性/)
+  assert.doesNotMatch(sheet, /重抓/)
+  assert.match(view.applyResultText({ created: 1, updated: 2, skipped: 0, deferred: 0, posters: 1, rollbackAvailable: true }), /可撤回/)
+})

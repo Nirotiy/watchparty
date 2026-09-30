@@ -15,6 +15,7 @@ const commands = Object.freeze([
   'fetchArtworkImage',
   'saveTextFile',
   'mediaRequest',
+  'catalogApprovalSecretStatus', 'setCatalogApprovalSecret',
   'mediaImage',
   'windowControl',
 ])
@@ -35,6 +36,8 @@ function allowsOrigin(origin) {
 }
 function validRequest(command, args) {
   if (!commands.includes(command) || !args || typeof args !== 'object' || Array.isArray(args)) return false
+  if (command === 'catalogApprovalSecretStatus') return Object.keys(args).length === 0
+  if (command === 'setCatalogApprovalSecret') return Object.keys(args).length === 1 && typeof args.secret === 'string' && /^[\x21-\x7e]{1,4096}$/.test(args.secret)
   if (command === 'musicPartyRequest' || command === 'musicPartyWsConnect') return allowsOrigin(args.input?.origin)
   if (command === 'clearMusicPartySession') return allowsOrigin(args.origin)
   if (command === 'listAudioOutputDevices') return Object.keys(args).length === 0

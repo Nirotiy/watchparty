@@ -222,3 +222,9 @@ export function scrapeSummary(job: { status: string; total: number; scanned: num
   if (job.status === "failed") return `刮削失败：${job.lastError ?? "未知原因"}`
   return `标题库已更新：${job.total} 组，命中 ${job.matched}`
 }
+
+/**
+ * 「撤销确认」现在粘得住（后端 74cb3af2：同一事务里连草稿那份判定一起降级，落点=审阅页「待人工」），
+ * 但卡会立刻离开标题墙。入口按用户拍的"只加提醒、不加新面"，所以这句放进两步确认里。
+ */
+export const UNCONFIRM_NOTICE = "撤销后这张卡会离开标题墙；可在审阅页「待人工」重新确认或换绑。"
