@@ -31,6 +31,11 @@ function stats(label) {
   }
 }
 
+// 这个脚本起的是**副本**后端：要演练的是 apply 语义，不是批准密钥。
+// 注意 import 比 chdir 先执行，所以 `server/config.ts` 已经把真 .env 读进 process.env 了 ——
+// 这里显式清空，让副本实例待在没有密钥的世界（软边界）。脚本永远不持有那把真密钥。
+process.env.WATCHPARTY_CATALOG_APPROVAL_SECRET = "";
+
 const backend = createBackend({ port: 0, serveStatic: false, fetchPoster: async () => undefined });
 await backend.start();
 const base = `http://127.0.0.1:${backend.port}`;
@@ -64,11 +69,17 @@ try {
     console.log(`  带凭证都还没给，先裸 apply → ${first.status} ${first.body?.code ?? ""} ${JSON.stringify(first.body?.structural ?? "")}`);
     if (first.body?.code === "CATALOG_APPROVAL_REQUIRED") {
       const granted = await post(`/api/admin/media-libraries/${libraryId}/approval`, { approvedBy: "triage" });
-      const applied = await post(`/api/admin/media-libraries/${libraryId}/apply-approved`, { approvalToken: granted.body?.approvalToken, force: 1 });
-      console.log(`  批准 ${granted.body?.approvalId} → apply-approved ${applied.status} ${applied.body?.code ?? ""}，新建 ${applied.body?.created} / 写判定 ${applied.body?.updated} / 跳过人工 ${applied.body?.skipped}`);
-      stats("批准并应用之后");
-      const again = await post(`/api/admin/media-libraries/${libraryId}/apply?force=1`);
-      console.log(`  再裸 apply → ${again.status} ${again.body?.code ?? ""}（200 ⇒ 结构差异真的收敛了）`);
+      if (granted.status !== 200 || !granted.body?.approvalToken) {
+        // 拿不到凭证就停手：不拿着 undefined 去撞 apply-approved，那只会留下一行看不懂的 401。
+        // 真库里这一步本来就该由人在界面点，脚本不持有批准密钥。
+        console.log(`  批准没拿到（${granted.status} ${granted.body?.code ?? ""}）⇒ 停在这里。副本上可用不带密钥的实例重跑；真库请人在网页/桌面点批准。`);
+      } else {
+        const applied = await post(`/api/admin/media-libraries/${libraryId}/apply-approved`, { approvalToken: granted.body.approvalToken, force: 1 });
+        console.log(`  批准 ${granted.body?.approvalId} → apply-approved ${applied.status} ${applied.body?.code ?? ""}，新建 ${applied.body?.created} / 写判定 ${applied.body?.updated} / 跳过人工 ${applied.body?.skipped}`);
+        stats("批准并应用之后");
+        const again = await post(`/api/admin/media-libraries/${libraryId}/apply?force=1`);
+        console.log(`  再裸 apply → ${again.status} ${again.body?.code ?? ""}（200 ⇒ 结构差异真的收敛了）`);
+      }
     }
   } else {
     const reader = new DatabaseSync(copy, { readOnly: true });

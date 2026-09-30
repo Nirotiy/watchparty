@@ -38,6 +38,11 @@ function stats(label) {
 
 stats("应用前");
 
+// 这个脚本起的是**副本**后端：要演练的是 apply 语义，不是批准密钥。
+// 注意 import 比 chdir 先执行，所以 `server/config.ts` 已经把真 .env 读进 process.env 了 ——
+// 这里显式清空，让副本实例待在没有密钥的世界（软边界）。脚本永远不持有那把真密钥。
+process.env.WATCHPARTY_CATALOG_APPROVAL_SECRET = "";
+
 const backend = createBackend({ port: 0, serveStatic: false, fetchPoster: async () => undefined });
 await backend.start();
 const base = `http://127.0.0.1:${backend.port}`;
@@ -61,11 +66,17 @@ try {
     const approved = await call(`${id}/approval`, { approvedBy: "rehearsal" });
     let result = bare;
     let usedToken = null;
+    if (approved.status === 401) {
+      // 这个后端配了批准密钥。密钥只该在人和界面那侧，脚本不持有、也不去 .env 里捞。
+      console.log(`  批准被拒：${approved.body?.code} —— 这个实例配了 WATCHPARTY_CATALOG_APPROVAL_SECRET。`);
+      console.log("  演练请用不带密钥的实例（本脚本自己起的副本后端通常就没有），真库那侧请人在界面点批准。");
+      continue;
+    }
     if (approved.status === 200) {
       const token = approved.body.approvalToken;
       usedToken = token;
       result = await call(`${id}/apply-approved`, { approvalToken: token, force: 1 });
-      console.log(`  网页批准 ${approved.body.approvalId}（${approved.body.expiresAt.slice(0, 16)} 过期）→ apply-approved HTTP ${result.status}`);
+      console.log(`  模拟网页批准 ${approved.body.approvalId}（${approved.body.expiresAt.slice(0, 16)} 过期）→ apply-approved HTTP ${result.status}`);
     } else if (approved.status !== 409) {
       console.log(`  批准失败：${JSON.stringify(approved.body)}`);
       continue;
@@ -98,11 +109,12 @@ try {
     const again = await call(`${id}/apply?force=1`);
     const replay = await call(`${id}/apply-approved`, { approvalToken: usedToken ?? "0000000000000000000000000000", force: 1 });
     console.log(`  再 apply 一次：HTTP ${again.status}${again.body?.code ? ` ${again.body.code}` : ""}，新建 ${again.body?.created ?? "-"} / 写判定 ${again.body?.updated ?? "-"} ⇒ 幂等${again.body?.created === 0 ? "成立" : again.status === 200 ? "**不成立**" : "未验证（被守卫拒了）"}`);
-    console.log(`  凭证重放必须被拒：${replay.body?.code} ${replay.body?.reason ?? ""}`);
+    console.log(usedToken ? `  凭证重放必须被拒：${replay.body?.code} ${replay.body?.reason ?? ""}` : "  凭证重放：这一轮没签发过凭证（没有结构差），没测到");
   }
   stats("应用后");
 } finally {
   await backend.close();
 }
 console.log(`\n临时副本留着自查：${workDir}`);
-console.log("确认没问题再对真库执行：先 POST .../approval 拿一次性凭证，再 POST .../apply-approved。");
+console.log("上面的「批准」是本脚本在副本上**模拟**人点按钮 —— 真库里这一步只能由人在服务端网页/桌面点，");
+console.log("脚本不签凭证、不持有密钥；配了 WATCHPARTY_CATALOG_APPROVAL_SECRET 之后命令行也拿不到批准权。");
