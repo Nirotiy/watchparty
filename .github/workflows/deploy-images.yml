@@ -1,0 +1,86 @@
+name: Build VPS images
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full verified source commit SHA on the desktop branch
+        required: true
+        type: string
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: watchparty-vps-images
+  cancel-in-progress: false
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+      - name: Verify source identity
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -eu
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git fetch origin feat/tauri-desktop-gate0-3
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/feat/tauri-desktop-gate0-3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.0
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheckServer
+      - run: npm test
+      - run: node --test server/test/media-origin.test.ts
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve immutable base image
+        id: base
+        run: |
+          digest=$(docker buildx imagetools inspect node:24.18.0-alpine | awk '/^Digest:/ {print $2; exit}')
+          test -n "$digest"
+          sed -i "s|node:24.18.0-alpine|node:24.18.0-alpine@$digest|g" Dockerfile.backend Dockerfile.frontend
+          echo "Node base digest: $digest" >> "$GITHUB_STEP_SUMMARY"
+      - name: Build backend
+        id: backend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.backend
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/nirotiy/watchparty-backend:sha-${{ inputs.source_sha }}
+          labels: org.opencontainers.image.revision=${{ inputs.source_sha }}
+      - name: Build frontend
+        id: frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.frontend
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/nirotiy/watchparty-frontend:sha-${{ inputs.source_sha }}
+          build-args: |
+            BACKEND_ORIGIN=http://127.0.0.1:18080
+            NEXT_PUBLIC_SOCKET_ORIGIN=
+          labels: org.opencontainers.image.revision=${{ inputs.source_sha }}
+      - name: Record deployment references
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
+        run: |
+          {
+            echo "SOURCE_SHA=$SOURCE_SHA"
+            echo "WATCHPARTY_BACKEND_IMAGE=ghcr.io/nirotiy/watchparty-backend@$BACKEND_DIGEST"
+            echo "WATCHPARTY_FRONTEND_IMAGE=ghcr.io/nirotiy/watchparty-frontend@$FRONTEND_DIGEST"
+          } >> "$GITHUB_STEP_SUMMARY"
