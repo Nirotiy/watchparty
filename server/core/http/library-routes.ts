@@ -376,6 +376,9 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   // `.watchparty.collection.json`（服务端本地根目录，绝不回写网盘）；preview 读回来按文件
   // 集合对账；structure 把结构提案也落进草稿。正式卡仍然只有 apply 能动。
   const imports: Array<{ action: string; run: (id: string, body: unknown) => unknown }> = [
+    { action: "offline-export", run: (id, body) => library.offlineExport(id, body) },
+    { action: "offline-check", run: (id, body) => library.offlineCheck(id, body) },
+    { action: "offline-stage", run: (id, body) => library.offlineStage(id, body) },
     { action: "export", run: (id) => library.importExport(id) },
     { action: "preview", run: (id) => library.importPreview(id) },
     { action: "structure", run: (id, body) => library.importStructure(id, body) },
@@ -426,6 +429,10 @@ function requireAdmin(library: LibraryService, req: Request, res: Response): boo
 }
 
 function sendFailure(res: Response, error: unknown): void {
+  if (error instanceof Error && /^OFFLINE_[A-Z_]+$/.test(error.message)) {
+    res.status(409).json({ code: error.message });
+    return;
+  }
   if (error instanceof LibraryRequestError) {
     if (error.code === "MEDIA_NOT_FOUND" || error.code === "INVALID_REQUEST" || error.code === "OPENLIST_UNAVAILABLE") {
       sendError(res, error.status, error.code);

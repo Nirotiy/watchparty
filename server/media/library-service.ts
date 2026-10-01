@@ -12,6 +12,7 @@ import {
   type LibraryPage,
 } from "./library-browser.ts";
 import { groupScanFiles, isVideoFileName, type CatalogGroupFile, type ScanFile } from "./catalog-names.ts";
+import { exportOfflineBundle, inspectOfflineBundle, stageOfflineBundle, readOfflinePoster, type OfflineReport } from "./catalog-offline.ts";
 import { createBangumiClient, createTmdbClient, fetchPosterBytes, judgeThresholds, type MetadataSearcher, type RankedHit } from "./catalog-metadata.ts";
 import {
   approvalDigest,
@@ -248,6 +249,9 @@ export type LibraryService = {
   draftKeepBinding(id: string, body: unknown): DraftEditResult;
   /** 把当前草稿导出成 WatchParty collection sidecar（只写服务端本地根目录，绝不回写网盘）。 */
   importExport(id: string): { libraryId: string; root: string; cards: number; written: string[] };
+  offlineExport(id: string, body: unknown): OfflineReport;
+  offlineCheck(id: string, body: unknown): OfflineReport;
+  offlineStage(id: string, body: unknown): ReturnType<typeof stageOfflineBundle>;
   /** 读 sidecar 根目录 → 与快照对账 → 落点分类 → 把元数据写进草稿。结构变更只出提案。 */
   importPreview(id: string): ImportPreviewResult;
   /** 把 sidecar 的结构提案落到草稿（复用现有 draft merge/split），仍然只写草稿。 */
@@ -977,6 +981,7 @@ export function createLibraryService(options: {
       const detail = catalog.getDetail(id);
       if (!detail) throw new LibraryRequestError(404, "MEDIA_NOT_FOUND");
       if (!includeEpisodeTitles) return detail;
+      if (detail.children.every(child => "episodeTitle" in child)) return detail;
       if (detail.status !== "confirmed" || detail.externalDb !== "bangumi" || !detail.externalId || !bangumiSearcher.episodeTitles) return detail;
       const subjectId = detail.externalId;
       let request = episodeCache.get(subjectId);
@@ -995,7 +1000,7 @@ export function createLibraryService(options: {
         ...detail,
         children: detail.children.map((child) => ({
           ...child,
-          episodeTitle: child.episode === null ? null : titles.get(child.episode) ?? null,
+          episodeTitle: child.episodeTitle ?? (child.episode === null ? null : titles.get(child.episode) ?? null),
         })),
       };
     },
@@ -1145,6 +1150,7 @@ export function createLibraryService(options: {
       // 绑定不会丢（未判定的草稿跳过），但界面会看起来"掉了一截"，所以默认拒绝。
       if (info.pending > 0 && !force) throw new LibraryRequestError(409, "CATALOG_DRAFT_INCOMPLETE", { pending: info.pending, draftCards: info.cards });
       // 元数据可以直写；建卡/删卡/换文件必须带网页刚签发的那一次性凭证。
+      const offlinePosters = catalog.readDraft(id).filter(card => card.posterUrl?.startsWith("offline:")).map(card => ({ card, poster: readOfflinePoster(sidecarRoot, card.posterUrl!) }));
       const target = approvalTarget(id);
       let approvalId: string | null = null;
       if (approvalToken === undefined) {
@@ -1175,7 +1181,14 @@ export function createLibraryService(options: {
           catalog.setApprovalOutcome(approvalId, { ...undo, posters: postersBefore.filter((row) => touched.has(row.itemId)) });
         }
       }
-      for (const poster of applied.posters) await worker.cachePoster(poster.itemId, poster.url);
+      for (const poster of applied.posters) if (!poster.url.startsWith("offline:")) await worker.cachePoster(poster.itemId, poster.url);
+      for (const { card, poster } of offlinePosters) {
+        const item = catalog.snapshotLibrary(id).find(item => item.itemKey === card.itemKey);
+        if (!item || item.externalDb !== card.externalDb || item.externalId !== card.externalId || item.title !== card.title) continue;
+        // A human card keeps its existing poster. An empty cache may be filled offline.
+        if (item.confirmedBy && item.confirmedBy !== "auto" && catalog.readPoster(item.id)) continue;
+        catalog.writePoster(item.id, poster.contentType, poster.bytes);
+      }
       return {
         libraryId: id,
         cards: groups.length,
@@ -1400,6 +1413,19 @@ export function createLibraryService(options: {
       // itemKey === keepsBindingOnKey 是"不搬/复位"，不是非法：下拉的默认项要走得通。
       if (!catalog.draftCarryBinding(id, itemKey, keepsBindingOnKey)) throw draftError("DRAFT_EDIT_INVALID", 400, { reason: "bad-carrier" });
       return draftSummary(id, itemKey);
+    },
+    offlineExport(id, body) {
+      requireLibrary(id);
+      return exportOfflineBundle(catalog, sidecarRoot, id, draftString(body, "bundleId", 80));
+    },
+    offlineCheck(id, body) {
+      requireLibrary(id);
+      return inspectOfflineBundle(catalog, sidecarRoot, id, draftString(body, "bundleId", 80)).report;
+    },
+    offlineStage(id, body) {
+      requireLibrary(id);
+      if (inFlight.has(`scan:${id}`) || inFlight.has(`classify:${id}`) || catalog.getJob(id)?.status === "running") throw new LibraryRequestError(409, "OFFLINE_LIBRARY_BUSY");
+      return stageOfflineBundle(catalog, sidecarRoot, id, draftString(body, "bundleId", 80), draftString(body, "bundleSha256", 64));
     },
     importExport(id) {
       const { library } = requireLibrary(id);
