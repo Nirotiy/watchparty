@@ -1992,7 +1992,7 @@ test("撤回会把被级联删掉的海报行接回来：缓存文件本来就�
 
     assert.ok(store.mergeItems(keep.id, [dropped.id]));
     assert.equal(store.readPoster(dropped.id), undefined, "卡删了，poster_files 那行被级联删掉");
-    assert.equal(fs.existsSync(path.join(posterDir, dropped.id)), true, "但磁盘上的缓存文件还在原位");
+    assert.equal(fs.existsSync(postersBefore[0].cachePath), true, "但磁盘上的缓存文件还在原位");
 
     const undo = diffSnapshots("lib_tv", before, store.snapshotLibrary("lib_tv"));
     assert.ok(undo);
