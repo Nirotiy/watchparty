@@ -1,6 +1,7 @@
 {
   admin 127.0.0.1:12019
   auto_https disable_redirects
+  default_sni {$WATCHPARTY_PUBLIC_IP}
 }
 
 (watchparty_routes) {
