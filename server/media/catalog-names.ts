@@ -16,6 +16,8 @@ export type CatalogGroupFile = {
   name: string;
   season: number | null;
   episode: number | null;
+  episodeTitle?: string | null;
+  role?: "episode" | "bonus" | "other";
   /**
    * Library-relative path. Identity has to be the path rather than `mediaId`:
    * `mediaId` is an HMAC under `WATCHPARTY_MEDIA_ID_KEY`, which is unset on this
@@ -274,7 +276,8 @@ export function groupScanFiles(files: ScanFile[], keepFolders?: Set<string>): Ca
  * from this card but not counted as an episode. Without `workDir` there is no
  * structure to read, so it falls back to the folder-name shapes alone.
  */
-function isEpisodeFile(file: CatalogGroupFile, workDir?: string): boolean {
+export function isEpisodeFile(file: CatalogGroupFile, workDir?: string): boolean {
+  if (file.role) return file.role === "episode";
   if (!file.relativePath) return true;
   const folder = file.relativePath.replace(/\/[^/]*$/, "");
   const name = folder.split("/").pop() ?? "";

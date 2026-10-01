@@ -215,7 +215,7 @@ export type CatalogCardSnapshot = {
   lookupState: string;
   confirmedBy: string | null;
   subtitle: string | null;
-  children: Array<{ mediaId: string; name: string; season: number | null; episode: number | null; relPath: string | null }>;
+  children: Array<{ mediaId: string; name: string; season: number | null; episode: number | null; relPath: string | null; episodeTitle?: string | null; role?: "episode" | "bonus" | "other" }>;
   candidates: Array<{ externalDb: string; externalId: string; title: string; year: number | null; score: number; payload: string }>;
 };
 
@@ -375,6 +375,7 @@ export type CatalogStore = {
    * 且不会把 `confirmed_by` 冒充成 `manual`。
    */
   draftImport(libraryId: string, itemKey: string, patch: DraftPatch): "ok" | "missing" | "protected";
+  stageOffline(libraryId: string, cards: Array<{ group: CatalogGroup; metadata: DraftPatch }>, exclusions: Array<{ relativePath: string; reason: string }>): void;
   /** 签发一次性凭证：只存哈希，明文由调用方一次性带回网页。 */
   createApproval(input: {
     tokenHash: string;
@@ -615,7 +616,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
 
   /** 整库的卡快照（含孩子与候选）：apply 前后各读一次，差集就是这次的反向操作。 */
   function readSnapshot(libraryId: string): CatalogCardSnapshot[] {
-    const childStmt = db.prepare("SELECT media_id, name, season, episode, rel_path FROM catalog_children WHERE item_id = ? ORDER BY sort_index");
+    const childStmt = db.prepare("SELECT media_id, name, season, episode, rel_path, episode_title, role FROM catalog_children WHERE item_id = ? ORDER BY sort_index");
     const candStmt = db.prepare("SELECT external_db, external_id, title, year, score, payload FROM catalog_candidates WHERE item_id = ? ORDER BY score DESC, title");
     return (itemsForLibrary.all(libraryId) as Array<Record<string, unknown>>).map((row) => ({
       id: text(row, "id"),
@@ -639,6 +640,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         season: intOrNull(child, "season"),
         episode: intOrNull(child, "episode"),
         relPath: typeof child.rel_path === "string" ? child.rel_path : null,
+        ...(child.role ? { role: child.role as CatalogGroupFile["role"], episodeTitle: typeof child.episode_title === "string" ? child.episode_title : null } : {}),
       })),
       candidates: (candStmt.all(text(row, "id")) as Array<Record<string, unknown>>).map((cand) => ({
         externalDb: text(cand, "external_db"),
@@ -702,6 +704,9 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
   if (!columnExists("catalog_scan", "size")) {
     db.exec("ALTER TABLE catalog_scan ADD COLUMN size INTEGER");
   }
+  for (const column of ["episode_title", "role"] as const) {
+    if (!columnExists("catalog_children", column)) db.exec(`ALTER TABLE catalog_children ADD COLUMN ${column} TEXT`);
+  }
   /**
    * 一张卡一个键位。历史上 upsertScan 的改名会让两张卡写到同一个 item_key（表现为后一个
    * 分组覆盖前一个分组的子文件，静默丢文件），唯一索引让这种写入当场失败。
@@ -754,10 +759,10 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
   function replaceChildren(itemId: string, files: CatalogGroupFile[]): void {
     db.prepare("DELETE FROM catalog_children WHERE item_id = ?").run(itemId);
     const insert = db.prepare(
-      "INSERT INTO catalog_children (id, item_id, media_id, name, season, episode, sort_index, rel_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO catalog_children (id, item_id, media_id, name, season, episode, sort_index, rel_path, episode_title, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
     files.forEach((file, index) => {
-      insert.run(nid("ch"), itemId, file.mediaId, file.name, file.season, file.episode, index, file.relativePath ?? null);
+      insert.run(nid("ch"), itemId, file.mediaId, file.name, file.season, file.episode, index, file.relativePath ?? null, file.episodeTitle ?? null, file.role ?? null);
     });
   }
 
@@ -849,7 +854,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     // hand back `rel_path` as null on its first read after the rows were written, which
     // silently degraded a card's identity from its paths to its media ids.
     const rows = db
-      .prepare("SELECT media_id, name, season, episode, rel_path FROM catalog_children WHERE item_id = ? ORDER BY sort_index")
+      .prepare("SELECT media_id, name, season, episode, rel_path, episode_title, role FROM catalog_children WHERE item_id = ? ORDER BY sort_index")
       .all(itemId) as Array<Record<string, unknown>>;
     return rows.map((child) => ({
       mediaId: text(child, "media_id"),
@@ -857,6 +862,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       season: intOrNull(child, "season"),
       episode: intOrNull(child, "episode"),
       relativePath: text(child, "rel_path") || undefined,
+      ...(child.role ? { role: child.role as CatalogGroupFile["role"], episodeTitle: typeof child.episode_title === "string" ? child.episode_title : null, bonus: child.role === "bonus" } : {}),
     }));
   }
 
@@ -883,8 +889,9 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
     const children = childrenOf(id).map((child) => ({
       mediaId: child.mediaId,
       name: child.name,
-      season: child.season ?? parseEpisode(child.name).season,
-      episode: child.episode ?? parseEpisode(child.name).episode,
+      season: child.role ? child.season : child.season ?? parseEpisode(child.name).season,
+      episode: child.role ? child.episode : child.episode ?? parseEpisode(child.name).episode,
+      ...(child.role ? { episodeTitle: child.episodeTitle ?? null } : {}),
       // The folder the file really sits in. Seasons of one show often arrive as
       // sibling folders with no SxxEyy in the names, so this - not a guessed
       // episode number - is what lets the right-hand column say 第二季 vs SPs.
@@ -1614,6 +1621,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
             paths: kids.map((file) => file.relativePath ?? `id:${file.mediaId}`),
             // 带集号的孩子条数：文件集合相同、集号覆盖变了，也是"应用会真的改到东西"。
             episodes: kids.filter((file) => Number.isInteger(file.episode)).length,
+            memberMetadata: JSON.stringify(kids.map(file => [file.relativePath ?? `id:${file.mediaId}`, file.season, file.episode, file.episodeTitle ?? null, file.role ?? null]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))),
             carriesKey: typeof row.carries_key === "string" ? row.carries_key : null,
             autoConfirmed: text(row, "status") === "confirmed" && text(row, "confirmed_by") === "auto",
           };
@@ -1685,7 +1693,8 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         const keepsBindingOnKey = carrier?.itemKey ?? draft.itemKey;
         if (confirmed) {
           const cardEpisodes = children.filter((child) => Number.isInteger(child.episode)).length;
-          if (draft.subtitle === subtitle && draft.files === children.length && draft.episodes === cardEpisodes) {
+          const memberMetadata = JSON.stringify(children.map(file => [file.relativePath ?? `id:${file.mediaId}`, file.season, file.episode, file.episodeTitle ?? null, file.role ?? null]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
+          if (draft.subtitle === subtitle && draft.files === children.length && draft.episodes === cardEpisodes && draft.memberMetadata === memberMetadata) {
             diff.unchanged += 1;
             continue;
           }
@@ -1693,7 +1702,8 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
           continue;
         }
         const cardEpisodes = children.filter((child) => Number.isInteger(child.episode)).length;
-        if (draft.title === title && draft.subtitle === subtitle && draft.episodes === cardEpisodes) {
+        const memberMetadata = JSON.stringify(children.map(file => [file.relativePath ?? `id:${file.mediaId}`, file.season, file.episode, file.episodeTitle ?? null, file.role ?? null]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
+        if (draft.title === title && draft.subtitle === subtitle && draft.episodes === cardEpisodes && draft.memberMetadata === memberMetadata) {
           diff.unchanged += 1;
           continue;
         }
@@ -1837,7 +1847,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       );
       const clearChildren = db.prepare("DELETE FROM catalog_children WHERE item_id = ?");
       const clearCandidates = db.prepare("DELETE FROM catalog_candidates WHERE item_id = ?");
-      const insertChild = db.prepare("INSERT INTO catalog_children (id, item_id, media_id, name, season, episode, sort_index, rel_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+      const insertChild = db.prepare("INSERT INTO catalog_children (id, item_id, media_id, name, season, episode, sort_index, rel_path, episode_title, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       const insertCandidate = db.prepare("INSERT INTO catalog_candidates (id, item_id, external_db, external_id, title, year, score, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
       db.exec("BEGIN");
       try {
@@ -1853,12 +1863,12 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
             db.prepare("DELETE FROM catalog_items WHERE id = ?").run(card.id);
           }
           writeCard.run(card.id, undo.libraryId, card.itemKey, card.kind, card.query, card.rawName, card.title, card.originalTitle, card.year, card.overview, card.externalDb, card.externalId, card.status, card.lookupState, card.subtitle, card.confirmedBy, now());
-          card.children.forEach((child, index) => insertChild.run(nid("ch"), card.id, child.mediaId, child.name, child.season, child.episode, index, child.relPath));
+          card.children.forEach((child, index) => insertChild.run(nid("ch"), card.id, child.mediaId, child.name, child.season, child.episode, index, child.relPath, child.episodeTitle ?? null, child.role ?? null));
           for (const candidate of card.candidates) {
             insertCandidate.run(nid("cand"), card.id, candidate.externalDb, candidate.externalId, candidate.title, candidate.year, candidate.score, candidate.payload);
           }
         }
-        // 海报：级联删的是行，磁盘缓存文件还在原位（`posterDir/<卡 id>`），所以能原样接回来。
+        // 海报缓存按内容寻址，级联删除只删行，旧字节仍可接回。
         // 文件已经不在（被外部清过）就跳过，宁可少一张海报也不写一条读不出来的行。
         for (const poster of undo.posters ?? []) {
           if (!fs.existsSync(poster.cachePath)) continue;
@@ -1904,6 +1914,41 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
         itemKey,
       );
       return true;
+    },
+    stageOffline(libraryId, cards, exclusions) {
+      // All validation happens before this transaction; only draft and exclusion intent change.
+      const scan = this.scanInfo(libraryId);
+      const previousDrafts = new Map(this.readDraft(libraryId).map(card => [card.itemKey, card]));
+      db.exec("BEGIN");
+      try {
+        db.prepare("DELETE FROM catalog_draft WHERE library_id = ?").run(libraryId);
+        const insert = db.prepare(`INSERT INTO catalog_draft
+          (library_id,item_key,signature,query,raw_name,subtitle,files,children,enumerated_at,classified_at,rev,
+           title,original_title,year,overview,external_db,external_id,confirmed_by,status,lookup_state,poster_url,candidates)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+        const stamp = now();
+        for (const { group, metadata } of cards) {
+          const prior = itemByKey.get(libraryId, group.itemKey) as Record<string, unknown> | undefined;
+          const previous = previousDrafts.get(group.itemKey);
+          const protectedBy = previous?.confirmedBy && previous.confirmedBy !== "auto" ? previous.confirmedBy : prior && text(prior, "status") === "confirmed" && text(prior, "confirmed_by") !== "auto" ? text(prior, "confirmed_by") || "unknown" : null;
+          const candidates = !metadata.externalId ? previous?.candidates ?? [] : [];
+          insert.run(libraryId, group.itemKey, signatureOf(group.files), group.query, group.rawName,
+            episodeSubtitle(group.files, group.itemKey), group.files.length, JSON.stringify(group.files),
+            scan.enumeratedAt ?? stamp, stamp, scan.rev, metadata.title ?? group.query,
+            metadata.originalTitle ?? null, metadata.year ?? null, metadata.overview ?? null,
+            metadata.externalDb ?? null, metadata.externalId ?? null, protectedBy ?? (metadata.externalId ? "auto" : null),
+            metadata.externalId ? "confirmed" : candidates.length ? "candidate" : "unmatched", "done", metadata.posterUrl ?? null, JSON.stringify(candidates));
+        }
+        // Import adds explicit exclusions; it never clears existing target decisions.
+        const exclude = db.prepare("INSERT INTO catalog_exclusions (library_id,rel_path,reason,created_at) VALUES (?,?,?,?) ON CONFLICT(library_id,rel_path) DO NOTHING");
+        for (const item of exclusions) exclude.run(libraryId, item.relativePath, item.reason, stamp);
+        if (exclusions.length) db.prepare("INSERT INTO catalog_exclusion_libraries (library_id) VALUES (?) ON CONFLICT DO NOTHING").run(libraryId);
+        db.prepare("INSERT INTO catalog_draft_runs (library_id,rev,classified_at) VALUES (?,?,?) ON CONFLICT(library_id) DO UPDATE SET rev=excluded.rev, classified_at=excluded.classified_at").run(libraryId, scan.rev, stamp);
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
     },
     draftImport(libraryId, itemKey, patch) {
       const row = readDraftRow(libraryId, itemKey);
@@ -2215,7 +2260,7 @@ export function openCatalogStore(dbPath: string, posterDir: string): CatalogStor
       return { merged, protectedGroups };
     },
     writePoster(itemId, contentType, bytes) {
-      const cachePath = path.join(posterDir, itemId);
+      const cachePath = path.join(posterDir, `${itemId}-${createHash("sha256").update(bytes).digest("hex")}`);
       fs.writeFileSync(cachePath, bytes);
       db.prepare(
         `INSERT INTO poster_files (item_id, content_type, cache_path, byte_size) VALUES (?, ?, ?, ?)
