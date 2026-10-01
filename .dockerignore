@@ -11,6 +11,9 @@
 /temp-html
 /dev
 /desktop-shell
+!/desktop-shell
+/desktop-shell/*
+!/desktop-shell/shared
 /src-tauri
 **/*.key
 **/catalog-approval.json

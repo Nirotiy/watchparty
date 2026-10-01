@@ -13,7 +13,7 @@ const nextConfig: NextConfig = {
   // shell and browser automation. Next 16 otherwise blocks its dev client
   // resources for that host, leaving the server-rendered page unhydrated.
   allowedDevOrigins: ["127.0.0.1"],
-  outputFileTracingRoot: webRoot,
+  outputFileTracingRoot: path.resolve(webRoot, ".."),
   distDir: process.env.WATCHPARTY_NEXT_DIST_DIR ?? ".next",
   async rewrites() {
     return { fallback: [

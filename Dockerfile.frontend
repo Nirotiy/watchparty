@@ -7,6 +7,7 @@ FROM node:24.18.0-alpine AS builder
 WORKDIR /app/web
 COPY --from=dependencies /app/web/node_modules ./node_modules
 COPY web ./
+COPY desktop-shell/shared /app/desktop-shell/shared
 ARG BACKEND_ORIGIN=http://backend:8080
 ENV BACKEND_ORIGIN=${BACKEND_ORIGIN}
 ARG NEXT_PUBLIC_SOCKET_ORIGIN=
