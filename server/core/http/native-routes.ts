@@ -18,6 +18,7 @@ import type {
 import { isValidUUID, validateMediaSource, validateNickname, validateRevision, validateRoomId } from "../media.ts";
 import { bearerToken, requestIp, sendError } from "./shared.ts";
 import type { ListenerInfo, ReadinessProbe } from "./readiness.ts";
+import { mediaForRequest } from "./media-origin.ts";
 
 type NativeClientType = Extract<ClientType, "mpv" | "desktop">;
 type HandoffTarget = NativeClientType;
@@ -267,6 +268,7 @@ export function registerNativeClientHttp(
   media: WatchpartyMedia,
   clientType: NativeClientType,
   io?: CoreServer | null,
+  mediaPublicOrigins: readonly string[] = [],
 ): void {
   const prefix = clientType === "desktop" ? "desktop" : "mpv";
   const resolvePath =
@@ -345,7 +347,7 @@ export function registerNativeClientHttp(
         sendError(res, 400, "MEDIA_UNSUPPORTED");
         return;
       }
-      res.json(resolved);
+      res.json(mediaForRequest(req, resolved, mediaPublicOrigins));
     } catch {
       sendError(res, 502, "OPENLIST_UNAVAILABLE");
     }

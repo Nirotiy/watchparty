@@ -10,6 +10,7 @@ import type { AppConfig } from "../../config.ts";
 import type { WatchpartyMedia } from "../../media/watchparty-media.ts";
 import { OpenlistServiceError } from "../../media/openlist.ts";
 import { bearerToken, requestIp, sendError } from "./shared.ts";
+import { mediaForRequest } from "./media-origin.ts";
 
 /** Register room lifecycle and media APIs. Video bytes never pass through this service. */
 export function registerCoreHttp(
@@ -182,7 +183,7 @@ export function registerCoreHttp(
         sendError(res, 400, "MEDIA_UNSUPPORTED");
         return;
       }
-      res.json(resolved);
+      res.json(mediaForRequest(req, resolved, appConfig.mediaPublicOrigins));
     } catch (error: unknown) {
       respondToError(res, error);
     }

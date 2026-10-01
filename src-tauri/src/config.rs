@@ -36,7 +36,10 @@ impl OriginTrustStore {
     pub fn new(dir: PathBuf) -> Self { Self { path: dir.join(TRUST_FILE) } }
     pub fn list(&self) -> Result<Vec<OriginTrustRecord>, ConfigError> { match fs::read(&self.path) { Ok(b)=>Ok(serde_json::from_slice(&b)?), Err(e) if e.kind()==io::ErrorKind::NotFound=>Ok(Vec::new()), Err(e)=>Err(e.into()) } }
     pub fn import(&self, origin: &str, pem: &str) -> Result<OriginTrustRecord, ConfigError> {
-        let origin=validate_backend_origin(origin)?; let pem=pem.trim(); if pem.len()>200_000 || !pem.contains("-----BEGIN CERTIFICATE-----") || !pem.contains("-----END CERTIFICATE-----") { return Err(ConfigError::Invalid); }
+        let origin=validate_backend_origin(origin)?; let pem=pem.trim();
+        if pem.len()>200_000 { return Err(ConfigError::Invalid); }
+        let certificates = reqwest::Certificate::from_pem_bundle(pem.as_bytes()).map_err(|_| ConfigError::Invalid)?;
+        if certificates.is_empty() { return Err(ConfigError::Invalid); }
         let mut h=Sha256::new(); h.update(pem.as_bytes()); let fingerprint=h.finalize().iter().map(|b| format!("{b:02x}")).collect();
         let rec=OriginTrustRecord{origin:origin.clone(), fingerprint, pem:pem.to_string()}; let mut all=self.list()?; all.retain(|r|r.origin!=origin); all.push(rec.clone()); self.write(&all)?; let _ = self.ca_file_for(&origin)?; Ok(rec)
     }
@@ -922,7 +925,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("watchparty-tls-policy-{}", uuid::Uuid::new_v4()));
         let store = OriginTrustStore::new(dir.clone());
         assert!(!OriginTlsPolicy::for_origin(&store, "https://a.example").unwrap().uses_extra_certificate());
-        store.import("https://a.example", "-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----").unwrap();
+        let certificate = rcgen::generate_simple_self_signed(vec!["a.example".into()]).unwrap().cert.pem();
+        assert!(store.import("https://a.example", "not a certificate").is_err());
+        store.import("https://a.example", &certificate).unwrap();
         assert!(OriginTlsPolicy::for_origin(&store, "https://a.example").unwrap().uses_extra_certificate());
         assert!(!OriginTlsPolicy::for_origin(&store, "https://b.example").unwrap().uses_extra_certificate());
         let _ = fs::remove_dir_all(dir);
@@ -932,11 +937,13 @@ mod tests {
     fn origin_trust_ca_file_lifecycle_is_replaceable_and_removable() {
         let dir = std::env::temp_dir().join(format!("watchparty-tls-ca-{}", uuid::Uuid::new_v4()));
         let store = OriginTrustStore::new(dir.clone());
-        store.import("https://a.example", "-----BEGIN CERTIFICATE-----\na\n-----END CERTIFICATE-----").unwrap();
+        let first_pem = rcgen::generate_simple_self_signed(vec!["a.example".into()]).unwrap().cert.pem();
+        let second_pem = rcgen::generate_simple_self_signed(vec!["a.example".into()]).unwrap().cert.pem();
+        store.import("https://a.example", &first_pem).unwrap();
         let first = store.ca_file_for("https://a.example").unwrap().unwrap();
-        assert_eq!(fs::read_to_string(&first).unwrap(), "-----BEGIN CERTIFICATE-----\na\n-----END CERTIFICATE-----");
-        store.import("https://a.example", "-----BEGIN CERTIFICATE-----\nb\n-----END CERTIFICATE-----").unwrap();
-        assert_eq!(fs::read_to_string(store.ca_file_for("https://a.example").unwrap().unwrap()).unwrap(), "-----BEGIN CERTIFICATE-----\nb\n-----END CERTIFICATE-----");
+        assert_eq!(fs::read_to_string(&first).unwrap(), first_pem.trim());
+        store.import("https://a.example", &second_pem).unwrap();
+        assert_eq!(fs::read_to_string(store.ca_file_for("https://a.example").unwrap().unwrap()).unwrap(), second_pem.trim());
         store.delete("https://a.example").unwrap();
         assert!(!first.exists());
         let _ = fs::remove_dir_all(dir);

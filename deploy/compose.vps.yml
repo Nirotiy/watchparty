@@ -1,0 +1,56 @@
+name: watchparty-vps
+services:
+  backend:
+    image: ${WATCHPARTY_BACKEND_IMAGE:?set immutable backend image digest}
+    network_mode: host
+    restart: unless-stopped
+    env_file:
+      - path: ./backend.env
+        format: raw
+    environment:
+      NODE_ENV: production
+      HOST: 127.0.0.1
+      PORT: 18080
+      NODE_USE_ENV_PROXY: "1"
+      NO_PROXY: localhost,127.0.0.1,::1
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:18080/ping').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  frontend:
+    image: ${WATCHPARTY_FRONTEND_IMAGE:?set immutable frontend image digest}
+    network_mode: host
+    restart: unless-stopped
+    command: [npm, start, --, --hostname, 127.0.0.1, --port, "13000"]
+    environment:
+      NODE_ENV: production
+      BACKEND_ORIGIN: http://127.0.0.1:18080
+      WATCHPARTY_APPROVAL_CONFIG_FILE: /app/approval/catalog-approval.json
+    volumes:
+      - ./approval:/app/approval
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:13000/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  caddy:
+    image: ${WATCHPARTY_CADDY_IMAGE:?set immutable Caddy image digest}
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      WATCHPARTY_PUBLIC_IP: ${WATCHPARTY_PUBLIC_IP:?set public IP}
+      WATCHPARTY_SITE_USERNAME: ${WATCHPARTY_SITE_USERNAME:?set site username}
+      WATCHPARTY_SITE_PASSWORD_HASH: ${WATCHPARTY_SITE_PASSWORD_HASH:?set site bcrypt hash}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy-data:/data
+      - ./caddy-config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy

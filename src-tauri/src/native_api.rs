@@ -56,11 +56,25 @@ pub fn listOriginTrust(state: &NativeDesktopState) -> Result<Vec<crate::config::
 }
 #[allow(non_snake_case)]
 pub fn importOriginTrust(state: &NativeDesktopState, origin: String, pem: String) -> Result<crate::config::OriginTrustRecord, String> {
-    crate::config::OriginTrustStore::new(state.app_handle.0.data_dir().map_err(|_|"Trust storage unavailable")?).import(&origin, &pem).map_err(|_|"Certificate trust could not be saved".into())
+    let record = crate::config::OriginTrustStore::new(state.app_handle.0.data_dir().map_err(|_|"Trust storage unavailable")?)
+        .import(&origin, &pem).map_err(|_|"Certificate trust could not be saved")?;
+    refresh_origin_trust(state, &origin)?;
+    Ok(record)
 }
 #[allow(non_snake_case)]
 pub fn deleteOriginTrust(state: &NativeDesktopState, origin: String) -> Result<(), String> {
-    crate::config::OriginTrustStore::new(state.app_handle.0.data_dir().map_err(|_|"Trust storage unavailable")?).delete(&origin).map_err(|_|"Certificate trust could not be deleted".into())
+    crate::config::OriginTrustStore::new(state.app_handle.0.data_dir().map_err(|_|"Trust storage unavailable")?)
+        .delete(&origin).map_err(|_|"Certificate trust could not be deleted")?;
+    refresh_origin_trust(state, &origin)
+}
+
+fn refresh_origin_trust(state: &NativeDesktopState, origin: &str) -> Result<(), String> {
+    let _change = state.configuration_change.lock().map_err(|_| "Configuration unavailable")?;
+    let settings = state.config_store.load().map_err(|_| "Configuration unavailable")?;
+    if settings.backend_origin.as_deref() == Some(origin) {
+        state.rebuild_runtime(&settings).map_err(|_| "Certificate trust saved; reconnect required")?;
+    }
+    Ok(())
 }
 
 /// Shared native state. The renderer receives neither the runtime config nor its credentials.
@@ -294,7 +308,7 @@ fn transport_for_settings(
         .backend_origin
         .clone()
         .ok_or_else(RuntimeError::not_configured)?;
-    match state.credential_store.read_with_policy(&origin, settings.allow_remote_http) {
+    let transport = match state.credential_store.read_with_policy(&origin, settings.allow_remote_http) {
         Ok(Some(credentials)) => {
             let (username, password) = credentials.into_parts();
             DesktopHttpTransport::with_site_basic_auth_with_policy(origin, username, password, settings.allow_remote_http)
@@ -304,7 +318,9 @@ fn transport_for_settings(
             DesktopHttpTransport::new_with_policy(origin, settings.allow_remote_http).map_err(|_| RuntimeError::configuration_error())
         }
         Err(_) => Err(RuntimeError::credential_error()),
-    }
+    }?;
+    let store = crate::config::OriginTrustStore::new(state.app_handle.0.data_dir()?);
+    transport.with_origin_trust(&store).map_err(|_| RuntimeError::configuration_error())
 }
 
 fn settings_for_state(
@@ -712,7 +728,8 @@ impl NativeDesktopState {
             }
             Err(_) => return Err(RuntimeError::credential_error()),
         };
-        transport
+        let store = crate::config::OriginTrustStore::new(self.app_handle.0.data_dir()?);
+        transport?.with_origin_trust(&store).map_err(|_| RuntimeError::configuration_error())
     }
 }
 

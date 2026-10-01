@@ -6,3 +6,11 @@
 /.github
 .env*
 *.log
+/data
+/artifacts
+/temp-html
+/dev
+/desktop-shell
+/src-tauri
+**/*.key
+**/catalog-approval.json

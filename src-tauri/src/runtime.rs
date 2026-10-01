@@ -141,7 +141,7 @@ impl NativeRuntimeConfig {
     }
 
     fn create_session(&self) -> Result<Box<dyn ManagedSession>, RuntimeError> {
-        let transport = match &self.site_credentials {
+        let mut transport = match &self.site_credentials {
             Some(credentials) => DesktopHttpTransport::with_site_basic_auth_with_policy(
                 self.backend_origin.clone(),
                 credentials.username.clone(),
@@ -154,6 +154,11 @@ impl NativeRuntimeConfig {
             ),
         }
         .map_err(|error| RuntimeError::from_transport(&error))?;
+
+        if let Some(store) = &self.trust_store {
+            transport = transport.with_origin_trust(store)
+                .map_err(|error| RuntimeError::from_transport(&error))?;
+        }
 
         let player = self
             .player

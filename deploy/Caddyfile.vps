@@ -1,0 +1,47 @@
+{
+  admin 127.0.0.1:12019
+  auto_https disable_redirects
+}
+
+(watchparty_routes) {
+  @siteAuth not path /api/catalog-approval/*
+  basic_auth @siteAuth {
+    {$WATCHPARTY_SITE_USERNAME} {$WATCHPARTY_SITE_PASSWORD_HASH}
+  }
+  handle /api/catalog-approval/* {
+    reverse_proxy 127.0.0.1:13000
+  }
+  handle /p/* {
+    reverse_proxy 127.0.0.1:5244 {
+      header_up -Authorization
+    }
+  }
+  handle /api/* {
+    reverse_proxy 127.0.0.1:18080 {
+      header_up -Authorization
+      header_up X-WatchParty-Media-Origin {args[0]}
+    }
+  }
+  handle /socket.io/* {
+    reverse_proxy 127.0.0.1:18080 {
+      header_up -Authorization
+      header_up -X-WatchParty-Media-Origin
+    }
+  }
+  handle {
+    reverse_proxy 127.0.0.1:13000 {
+      header_up -Authorization
+      header_up -X-WatchParty-Media-Origin
+    }
+  }
+}
+
+https://{$WATCHPARTY_PUBLIC_IP}:8443 {
+  tls internal
+  import watchparty_routes https://{$WATCHPARTY_PUBLIC_IP}:8443
+}
+
+http://:18000 {
+  bind 127.0.0.1
+  import watchparty_routes https://watchparty.nirotiy.top
+}

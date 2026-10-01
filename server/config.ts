@@ -39,6 +39,8 @@ export type AppConfig = {
   catalogApprovalTtlMs: number;
   /** 开发期旁挂 sidecar 的镜像根（只读）。空 = 不读镜像。 */
   catalogMirrorRoot: string;
+  /** Public origins a loopback reverse proxy may select for /p/ media URLs. */
+  mediaPublicOrigins: string[];
   configStatus: ConfigStatus;
 };
 
@@ -106,6 +108,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const nodeEnv = envString(env, "NODE_ENV", "");
   const watchPartyMediaIdKey = envString(env, "WATCHPARTY_MEDIA_ID_KEY", "");
   const catalogApprovalSecret = envString(env, "WATCHPARTY_CATALOG_APPROVAL_SECRET", "");
+  const mediaPublicOrigins = envString(env, "WATCHPARTY_MEDIA_PUBLIC_ORIGINS", "").split(",").map(value => value.trim()).filter(Boolean);
+  for (const address of mediaPublicOrigins) {
+    const origin = new URL(address);
+    if (origin.protocol !== "https:" || origin.origin !== address || origin.username || origin.password) {
+      throw new Error("WATCHPARTY_MEDIA_PUBLIC_ORIGINS must contain HTTPS origins only");
+    }
+  }
   if (!watchPartyMediaIdKey && nodeEnv === "production") {
     throw new Error("WATCHPARTY_MEDIA_ID_KEY is required when NODE_ENV=production; generate one with: node -e \"console.log(require('node:crypto').randomBytes(32).toString('base64url'))\"");
   }
@@ -131,6 +140,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     catalogApprovalSecret: envString(env, "WATCHPARTY_CATALOG_APPROVAL_SECRET", ""),
     catalogApprovalTtlMs: Math.max(1, envNumber(env, "WATCHPARTY_CATALOG_APPROVAL_TTL_MS", 48 * 60 * 60 * 1000)),
     catalogMirrorRoot: envString(env, "WATCHPARTY_CATALOG_MIRROR_ROOT", ""),
+    mediaPublicOrigins,
     configStatus: {
       openlist: {
         url: envFact(env, "OPENLIST_URL", true),

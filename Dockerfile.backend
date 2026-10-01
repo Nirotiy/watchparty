@@ -1,4 +1,4 @@
-FROM node:24-alpine AS checker
+FROM node:24.18.0-alpine AS checker
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -7,7 +7,7 @@ COPY words ./words
 COPY global.d.ts ./global.d.ts
 RUN npm run typecheckServer
 
-FROM node:24-alpine
+FROM node:24.18.0-alpine
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force

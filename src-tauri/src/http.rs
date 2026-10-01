@@ -36,7 +36,14 @@ struct DesktopCapabilitiesResponse {
 }
 
 fn classify_probe_network_error(error: reqwest::Error) -> TransportError {
-    classify_probe_network_message(&error.to_string())
+    let mut message = error.to_string();
+    let mut source = std::error::Error::source(&error);
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    classify_probe_network_message(&message)
 }
 
 fn classify_probe_network_message(message: &str) -> TransportError {
@@ -170,6 +177,7 @@ impl Drop for SiteBasicAuth {
 pub struct DesktopHttpTransport {
     base_url: String,
     client: Client,
+    approval_client: Client,
     site_basic_auth: Option<SiteBasicAuth>,
 }
 
@@ -207,16 +215,49 @@ impl DesktopHttpTransport {
         let base_url = base_url.into();
         crate::config::validate_backend_origin_with_policy(&base_url, allow_remote_http)
             .map_err(|_| TransportError::Protocol("invalid backend origin".into()))?;
+        let client = Self::build_client(&base_url, None, false)?;
+        let approval_client = Self::build_client(&base_url, None, true)?;
         Ok(Self {
             base_url: base_url.trim_end_matches('/').into(),
-            client: Client::builder()
-                .cookie_store(true)
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(15))
-                .build()
-                .map_err(|error| TransportError::Network(error.to_string()))?,
+            client,
+            approval_client,
             site_basic_auth,
         })
+    }
+
+    fn build_client(base_url: &str, extra_pem: Option<&str>, no_redirect: bool) -> Result<Client, TransportError> {
+        let mut builder = Client::builder()
+            .cookie_store(true)
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15));
+        if let Some(pem) = extra_pem {
+            let certificates = reqwest::Certificate::from_pem_bundle(pem.as_bytes())
+                .map_err(|_| TransportError::Protocol("invalid origin certificate".into()))?;
+            if certificates.is_empty() {
+                return Err(TransportError::Protocol("empty origin certificate".into()));
+            }
+            for certificate in certificates { builder = builder.add_root_certificate(certificate); }
+            let origin = reqwest::Url::parse(base_url)
+                .map_err(|_| TransportError::Protocol("invalid backend origin".into()))?.origin();
+            // A private root is trusted only for this origin, including redirects.
+            builder = builder.redirect(reqwest::redirect::Policy::custom(move |attempt| {
+                if attempt.url().origin() != origin { attempt.stop() }
+                else if attempt.previous().len() >= 10 { attempt.error("too many redirects") }
+                else { attempt.follow() }
+            }));
+        }
+        if no_redirect { builder = builder.redirect(reqwest::redirect::Policy::none()); }
+        builder.build().map_err(|error| TransportError::Network(error.to_string()))
+    }
+
+    pub fn with_origin_trust(mut self, store: &crate::config::OriginTrustStore) -> Result<Self, TransportError> {
+        let pem = if self.base_url.starts_with("https://") {
+            store.pem_for(&self.base_url)
+                .map_err(|_| TransportError::Protocol("origin trust unavailable".into()))?
+        } else { None };
+        self.client = Self::build_client(&self.base_url, pem.as_deref(), false)?;
+        self.approval_client = Self::build_client(&self.base_url, pem.as_deref(), true)?;
+        Ok(self)
     }
 
     pub fn clear_site_basic_auth(&mut self) {
@@ -402,11 +443,7 @@ impl DesktopHttpTransport {
         body: Option<&serde_json::Value>, approval_secret: Option<&str>,
     ) -> Result<(u16, String), TransportError> {
         // Redirects could carry this custom header onto a different route or origin.
-        let client = if approval_secret.is_some() {
-            Client::builder().connect_timeout(Duration::from_secs(5)).timeout(Duration::from_secs(15))
-                .redirect(reqwest::redirect::Policy::none()).build()
-                .map_err(|_| TransportError::Protocol("approval transport unavailable".into()))?
-        } else { self.client.clone() };
+        let client = if approval_secret.is_some() { &self.approval_client } else { &self.client };
         let url = match query {
             Some(query) if !query.is_empty() => format!("{}{}?{}", self.base_url, path, query),
             _ => format!("{}{}", self.base_url, path),
@@ -434,7 +471,7 @@ impl DesktopHttpTransport {
         let response = self
             .headers(builder, None)
             .send()
-            .map_err(|error| TransportError::Network(error.to_string()))?;
+            .map_err(classify_probe_network_error)?;
         let status = response.status().as_u16();
         let text = response
             .text()
