@@ -602,7 +602,7 @@ export function LinkleRoom({ room, connection, subscribeRoom, onLeave }: {
     >
       <header className="roomhead">
         <div className="identity">
-          <h2>{room.roomId}</h2>
+          <h1>{room.roomId}</h1>
           <p className={`connection${connTone}`} aria-label={connText} title={connText}>
             <span className="conn-dot" aria-hidden="true" />
             <PeopleRegular className="conn-users" aria-hidden="true" />
@@ -610,6 +610,8 @@ export function LinkleRoom({ room, connection, subscribeRoom, onLeave }: {
           </p>
           {/* 读屏：连接态与人数变化的实时播报（M2 键盘与读屏批）。 */}
           <span className="sr-only" role="status" aria-live="polite">{connText}</span>
+          {/* 读屏：队列条数变化播报（P0 读屏批收尾）。 */}
+          <span className="sr-only" role="status" aria-live="polite">{queue.length ? `队列 ${queue.length} 首` : "队列为空"}</span>
         </div>
         {/* 状态标（房间锁/重连/断开/睡眠定时/本机静音）常驻房头：分栏播放条撤掉后，
             它们不能再只挂在被隐藏的那一块里（用户 2026-09-25 裁决）。 */}
@@ -1341,7 +1343,7 @@ type ExportRow = { title: string; artist: string | null; durationSeconds: number
 function exportRowsText(rows: ExportRow[], format: "TXT" | "CSV" | "JSON"): string {
   if (format === "JSON") return JSON.stringify(rows, null, 2)
   if (format === "CSV") return ["title,artist,duration_seconds,platform", ...rows.map(row => [row.title, row.artist ?? "", row.durationSeconds ?? "", row.source].map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(","))].join("\r\n")
-  return rows.map((row, index) => `${index + 1}. ${row.title} — ${row.artist || "未知艺术家"}`).join("\n")
+  return rows.map((row, index) => `${index + 1}. ${row.title} · ${row.artist || "未知艺术家"}`).join("\n")
 }
 const queueExportRows = (queue: MediaItem[]): ExportRow[] => queue.map(entry => ({ title: entry.title, artist: entry.artist ?? null, durationSeconds: entry.durationSeconds ?? null, source: entry.source }))
 const playlistExportRows = (tracks: PlaylistTrack[]): ExportRow[] => tracks.map(track => ({ title: track.music.name, artist: track.music.artists.join(", ") || null, durationSeconds: track.music.duration ? Math.round(track.music.duration / 1000) : null, source: track.music.platform }))

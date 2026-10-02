@@ -1303,7 +1303,7 @@ html:not(.dark) .linkle-room .imm-bg-canvas.ready{opacity:.42}
 .linkle-room .identity{margin-right:auto;min-width:0}
 /* The room name is the one label that must stay readable: it sits above the bar's
    status line and truncates instead of being overlapped. */
-.linkle-room .identity h2{position:relative;z-index:6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.linkle-room .identity h1{position:relative;z-index:6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Connection state carries no words: dot (green ready / amber pulsing reconnect /
    red disconnected) + people glyph + count. Semantics live in aria-label / title. */
 .linkle-room .connection{display:flex;align-items:center;gap:7px;margin-top:6px;font-size:12px;color:var(--text-secondary)}
@@ -1538,7 +1538,7 @@ html:not(.dark) .linkle-room .player{border-color:var(--stroke-divider)}
 .linkle-room.immersive .imm-bg{display:block}
 .linkle-room.immersive .roomhead{border-bottom:0;padding-bottom:8px;gap:12px;align-items:center}
 .linkle-room.immersive .identity{display:flex;align-items:center;gap:12px;margin-right:auto;min-width:0}
-.linkle-room.immersive .identity h2{font-size: 18px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.linkle-room.immersive .identity h1{font-size: 18px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .linkle-room.immersive .connection{margin-top:0}
 .linkle-room.immersive .bodygrid{padding-top:0;align-items:center;align-content:center;justify-content:center;column-gap:44px;grid-template-columns:min(38%,440px) minmax(0,760px)}
 .linkle-room.immersive .task{display:none}
@@ -1684,6 +1684,11 @@ html:not(.dark) .linkle-room .player{border-color:var(--stroke-divider)}
 .lobby-room:focus-visible{outline:none;border-radius:var(--radius-control);box-shadow: var(--focus-ring-inset)}
 .lobby-vis,.lobby-count{font-size: 12px;color:var(--text-secondary)}
 .lobby-row-actions{display:flex;flex-wrap:nowrap;align-items:center;gap:2px;justify-self:end}
+/* 加载骨架（P3）：静态占位条，不做循环动画（AGENTS:56）。 */
+.lobby-row.skeleton{pointer-events:none}
+.lobby-row.skeleton .sk-room{height:12px;width:42%;border-radius:4px;background:var(--stroke-divider)}
+.lobby-row.skeleton .sk-pill{height:12px;width:56px;border-radius:4px;background:var(--stroke-divider);justify-self:start}
+.lobby-row.skeleton .sk-pill.w-narrow{width:32px}
 @media(max-width:1100px){.lobby-connect{grid-template-columns:minmax(0,1fr)}.lobby-row{grid-template-columns:minmax(0,1fr) 72px auto}.lobby-row .c3{display:none}}
 @media(max-width:720px){.lobby-rows{max-height:none}.lobby-row{grid-template-columns:minmax(0,1fr) auto}.lobby-vis{display:none}}
 

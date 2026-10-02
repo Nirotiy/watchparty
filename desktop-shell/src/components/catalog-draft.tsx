@@ -366,7 +366,7 @@ export function CatalogDraft({ libraryId, libraryName, admin }: { libraryId: str
     })
   }
 
-  if (loading && !state && !error) return <p className="draft-hint"><span className="inline-flex items-center gap-2"><ProgressRing size={16} />正在读取草稿…</span></p>
+  if (loading && !state && !error) return <p className="draft-hint" role="status"><span className="inline-flex items-center gap-2"><ProgressRing size={16} />正在读取草稿…</span></p>
 
   // 「还没扫过」后端给的是 200 + 空草稿；409 CATALOG_DRAFT_EMPTY 也照旧认。
   if (error === "CATALOG_DRAFT_EMPTY" || emptyKind(state) !== null) {
@@ -539,7 +539,7 @@ export function CatalogDraft({ libraryId, libraryName, admin }: { libraryId: str
 
       <p className="draft-caption">
         共 {state.draft.length} 行草稿（另有 {dropped.length} 行来自正式库）。
-        「一致」按正式卡算是 {state.diff?.unchanged ?? 0} 张；表格里落在「一致」的草稿行是 {state.draft.filter(item => bucketOfItem(item, state.diff) === "unchanged").length} 行 —— 移动的 {state.diff?.moved.length ?? 0} 张另计。
+        「一致」按正式卡算是 {state.diff?.unchanged ?? 0} 张；表格里落在「一致」的草稿行是 {state.draft.filter(item => bucketOfItem(item, state.diff) === "unchanged").length} 行；移动的 {state.diff?.moved.length ?? 0} 张另计。
       </p>
 
       {notice ? <p className="draft-notice" role="status">{notice}</p> : null}
@@ -738,7 +738,7 @@ function DraftRow({ item, state, open, justJudged, detail, picked, onPick, onTog
               {item.lookupState !== "done" ? (
                 <p className="draft-hint">还没判定：它只参与结构对齐，<b>绝不动绑定</b>。点上面的「继续判定下一批」把它送进队列。</p>
               ) : detail === "loading" ? (
-                <p className="draft-hint">正在读取候选…</p>
+                <p className="draft-hint" role="status">正在读取候选…</p>
               ) : candidates.length === 0 ? (
                 <p className="draft-hint">
                   {item.candidateCount > 0 ? "候选读不到（展开时拉一次，失败就空着）。" : "判定没有提出候选（解析名太脏或条目站没有对应条目）。"}
@@ -884,7 +884,7 @@ function ApprovalDialog({ view, busy, onCancel, onConfirm }: { view: ApprovalVie
               批准是一次性的：只对「现在这份结构差异」有效，期间又改过草稿就要重新批；成功即消耗。
             </p>
             {sheet && sheet.total === 0 ? (
-              <p className="draft-hint">结构差异已经变成 0 了——关掉这一层直接「应用」即可。</p>
+              <p className="draft-hint">结构差异已经变成 0 了：关掉这一层直接「应用」即可。</p>
             ) : sheet ? (
               <div className="draft-approval">
                 {groups.map(group => (
@@ -912,7 +912,7 @@ function ApprovalDialog({ view, busy, onCancel, onConfirm }: { view: ApprovalVie
                 ) : null}
               </div>
             ) : (
-              <p className="draft-hint">清单读不到（草稿可能刚被重分过）——刷新后再看一次。</p>
+              <p className="draft-hint">清单读不到（草稿可能刚被重分过），刷新后再看一次。</p>
             )}
             {view.softBoundary ? (
               <p className="draft-hint">当前是软边界：服务端没配第二把批准密钥，本机管理员就能批。</p>

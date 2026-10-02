@@ -339,7 +339,10 @@ export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, ac
               : <Button variant="accent" disabled={disabled || !facade.canCreateRoom} title={createBlockedReason ?? undefined} onClick={() => open("create", null)}>创建第一个房间</Button>}
           </div>
         ) : null}
-        {loading ? <p className="lobby-empty" role="status"><span className="inline-flex items-center gap-2.5"><ProgressRing />正在获取 Linkle 房间…</span></p> : null}
+        {loading && !visible.length ? [0, 1, 2, 3].map(index => (
+          <div className="lobby-row skeleton" key={`skeleton-${index}`} aria-hidden="true"><span className="sk-room" /><span className="sk-pill" /><span className="sk-pill w-narrow" /><span /></div>
+        )) : null}
+        {loading ? <p className={visible.length ? "lobby-empty" : "lobby-empty sr-only"} role="status"><span className="inline-flex items-center gap-2.5"><ProgressRing />正在获取 Linkle 房间…</span></p> : null}
       </div>
     </div>
     <p className="sr-only" role="status" aria-live="polite">{room ? `已选择 ${room.name}` : "未选择房间"}</p>

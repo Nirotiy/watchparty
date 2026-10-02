@@ -15,6 +15,7 @@ import type { RoomIdentity, SwitchTarget } from "../shared/lobby-contract"
 import { RoomView } from "@/components/room-view"
 import { SessionGate } from "@/components/session-gate"
 import { Button } from "@/components/ui/button"
+import { CopyButton } from "@/components/ui/copy-button"
 import { Input } from "@/components/ui/input"
 import { ProgressRing } from "@/components/ui/progress-ring"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -628,7 +629,8 @@ function HomeView({ state, roomId, starting, onStart, onCreate, onAccess, onRetu
           </div>
         </section>
       </> : (
-        <div className="mt-5 flex max-w-[680px] gap-2"><Input disabled value={`watchparty://${roomId ?? "room"}`} aria-label="当前房间地址" className="font-mono text-xs" /><Button variant="outline" disabled>加入或开播</Button></div>
+        /* P1 死按钮收尾：会话在时这一行只是地址展示，把恒禁用按钮换成真能用的复制。 */
+        <div className="mt-5 flex max-w-[680px] items-center gap-2"><Input disabled value={`watchparty://${roomId ?? "room"}`} aria-label="当前房间地址" className="font-mono text-xs" /><CopyButton value={`watchparty://${roomId ?? "room"}`} label="复制地址" /></div>
       )}
       <div className="mt-8 grid gap-4 md:grid-cols-2">
         <section className="border-y border-[var(--stroke-card)] py-4"><SectionTitle detail="当前连接状态">服务与房间</SectionTitle><div className="mt-3 space-y-2 text-xs text-[var(--text-secondary)]"><p className="flex justify-between"><span>房间</span><span className="font-mono text-foreground">{roomId ?? "未加入"}</span></p><p className="flex justify-between"><span>播放会话</span><span className="text-foreground">{state ? "可恢复" : "等待连接"}</span></p><p className="flex justify-between"><span>队列</span><span className="text-foreground">{state ? "房间队列已同步" : "等待加入房间"}</span></p></div></section>
@@ -891,7 +893,7 @@ function probeSummary(probe: MusicPartyProbe): string {
 
 function EmptyPosterGrid({ label, busy = false }: { label: string; busy?: boolean }) {
   return (
-    <div className="mt-3 grid grid-cols-5 gap-3" aria-label={label}>
+    <div className="mt-3 grid grid-cols-5 gap-3" aria-label={label} role={busy ? "status" : undefined} aria-live={busy ? "polite" : undefined}>
       {Array.from({ length: 5 }, (_, index) => (
         <div key={index} className="min-w-0"><div className="grid aspect-[16/10] place-items-center rounded-lg border border-[var(--stroke-card)] bg-[var(--fill-card)] text-center text-xs text-muted-foreground">{index === 0 ? (busy ? <span className="inline-flex items-center gap-2"><ProgressRing size={16} />{label}</span> : label) : null}</div><div className="mt-2 h-2.5 w-3/4 rounded-sm bg-[var(--stroke-divider)]" aria-hidden="true" /><div className="mt-1.5 h-2 w-1/2 rounded-sm bg-[var(--fill-selected)]" aria-hidden="true" /></div>
       ))}
@@ -916,6 +918,8 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
   const [view, setView] = useState<MediaView | null>(null)
   const [query, setQuery] = useState("")
   const [searching, setSearching] = useState(false)
+  /** P2 收尾：搜索请求在途指示（searching 只是模式开关，不代表请求）。 */
+  const [searchPending, setSearchPending] = useState(false)
   const [message, setMessage] = useState("")
   // 相位 3：标题墙。模式按库记忆（裁决 ②：整页 + 切库不重置视图），默认 Titles。
   const [modeByLibrary, setModeByLibrary] = useState<Record<string, "titles" | "files">>({})
@@ -998,15 +1002,14 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
   }
 
   /** 新增源：服务端整单验证，成功后才回库列表，然后把新源的第一个库切到前面。 */
-  function runSearch(text: string, cursor?: string) {
+  function runSearch(text: string, cursor?: string): Promise<unknown> | undefined {
     setSearching(true)
     if (usesLibraries) {
       if (!activeLibraryId) return
-      if (mode === "titles") { setCatalogQuery(text); void loadWall(activeLibraryId, cursor, text); return }
-      void searchLibrary(activeLibraryId, text, cursor)
-      return
+      if (mode === "titles") { setCatalogQuery(text); return loadWall(activeLibraryId, cursor, text) }
+      return searchLibrary(activeLibraryId, text, cursor)
     }
-    void searchLegacy(text, cursor)
+    return searchLegacy(text, cursor)
   }
 
   const loadWall = useCallback(async (libraryId: string, cursor?: string, q?: string) => {
@@ -1361,11 +1364,13 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
         ) : null}
         {mediaSearchAvailable ? <form className="relative w-56" onSubmit={(event) => {
           event.preventDefault()
-          if (!query.trim()) return
-          runSearch(query.trim())
+          if (!query.trim() || searchPending) return
+          setSearchPending(true)
+          Promise.resolve(runSearch(query.trim())).catch(() => {}).finally(() => setSearchPending(false))
         }}>
           <MaterialSymbol name="search" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={mode === "titles" ? "搜索标题…" : "搜索文件名…"} aria-label={mode === "titles" ? "搜索标题" : "搜索媒体"} className="h-8 pl-9 text-xs" />
+          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={mode === "titles" ? "搜索标题…" : "搜索文件名…"} aria-label={mode === "titles" ? "搜索标题" : "搜索媒体"} disabled={searchPending} className={cn("h-8 pl-9 text-xs", searchPending && "pr-8")} />
+          {searchPending ? <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2"><ProgressRing size={16} /></span> : null}
         </form> : null}
       </header>
 
@@ -1498,7 +1503,7 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
           ) : null}
 
           {view?.hasMore && view.nextCursor ? (
-            <Button variant="outline" size="sm" className="mt-3" onClick={() => searching ? runSearch(query, view.nextCursor ?? undefined) : openPath(view.currentPath, view.nextCursor ?? undefined)}>
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => { if (searching) { void runSearch(query, view.nextCursor ?? undefined) } else { void openPath(view.currentPath, view.nextCursor ?? undefined) } }}>
               载入更多
             </Button>
           ) : null}
