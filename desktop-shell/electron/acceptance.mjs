@@ -1289,12 +1289,13 @@ async function checkLinkleWorkspace({ js, until, wait, service, shot, shotRect, 
   await until(() => js(`Boolean(document.querySelector('.linkle-room'))`), 'back in the room')
 
   // 浅色主题下的沉浸视图（用户 2026-09-24）：深色歌词必须落在浅色底上，而不是直接压在照片上——
-  // 压照片时对比度由封面决定，深色封面会直接把字吃掉。切主题走设置里的真开关，再回到会话。
-  const themeSwitch = `(() => {
+  // 压照片时对比度由封面决定，深色封面会直接把字吃掉。切主题走设置里的真控件，再回到会话。
+  // 2026-10-02：M3 主题三态把单一 switch 换成「跟随系统/深色/浅色」段钮，按名字点。
+  const themeSwitch = label => `(() => {
     const row = Array.from(document.querySelectorAll('.fluent-settings-row')).find(item => (item.textContent ?? '').includes('应用主题'))
-    const node = row?.querySelector('[role="switch"]')
-    if (node) node.click()
-    return Boolean(node)
+    const button = Array.from(row?.querySelectorAll('button') ?? []).find(node => node.textContent.trim() === ${JSON.stringify(label)})
+    if (button) button.click()
+    return Boolean(button)
   })()`
   // Linkle 房间没有底部会话栏（那是 Banguru 的），回房间走侧栏的 Linkle 入口。
   const returnToRoom = `(() => {
@@ -1306,7 +1307,7 @@ async function checkLinkleWorkspace({ js, until, wait, service, shot, shotRect, 
   await until(() => js(`Boolean(document.querySelector('.fluent-settings-nav'))`), 'settings for the theme switch')
   await js(`Array.from(document.querySelectorAll('.fluent-settings-nav [role="tab"]')).find(tab => tab.textContent.includes('基础'))?.click()`)
   await until(() => js(`Boolean(Array.from(document.querySelectorAll('.fluent-settings-row')).find(item => (item.textContent ?? '').includes('应用主题')))`), 'appearance row')
-  assert.ok(await js(themeSwitch), '设置里找不到应用主题开关')
+  assert.ok(await js(themeSwitch('浅色')), '设置里找不到应用主题开关')
   await until(() => js(`!document.documentElement.classList.contains('dark')`), 'light theme applied')
   assert.ok(await js(returnToRoom), '会话栏里没有返回当前会话')
   await until(() => js(`Boolean(document.querySelector('.linkle-room'))`), 'room after returning in light theme')
@@ -1429,14 +1430,16 @@ async function checkLinkleWorkspace({ js, until, wait, service, shot, shotRect, 
   await until(() => js(`Boolean(document.querySelector('.fluent-settings-nav'))`), 'settings for the dark switch back')
   await js(`Array.from(document.querySelectorAll('.fluent-settings-nav [role="tab"]')).find(tab => tab.textContent.includes('基础'))?.click()`)
   await until(() => js(`Boolean(Array.from(document.querySelectorAll('.fluent-settings-row')).find(item => (item.textContent ?? '').includes('应用主题')))`), 'appearance row again')
-  assert.ok(await js(themeSwitch), '第二次找不到应用主题开关')
+  assert.ok(await js(themeSwitch('深色')), '第二次找不到应用主题开关')
   await until(() => js(`document.documentElement.classList.contains('dark')`), 'dark theme restored')
   assert.ok(await js(returnToRoom), '会话栏里没有返回当前会话（第二次）')
   await until(() => js(`Boolean(document.querySelector('.linkle-room'))`), 'room after returning in dark theme')
   await wait(400)
 
-  await js(`(() => { window.confirm = () => true; return true })()`)
+  // 2026-10-02：退出确认从 window.confirm 换成 ui/dialog（M2-2），点对话框里的「退出」。
   await js(`document.querySelector('.linkle-room button[aria-label="退出房间"]').click()`)
+  await until(() => js(`Boolean(document.querySelector('.winui-dialog'))`), 'leave confirmation dialog')
+  await js(`Array.from(document.querySelectorAll('.winui-dialog button')).find(button => button.textContent.trim() === '退出')?.click()`)
   await until(() => js(`Boolean(document.querySelector('.linkle-lobby'))`), 'lobby after leaving the room')
   const lobbyProbe = await js(`(() => { const button = Array.from(document.querySelectorAll('.desktop-page button')).find(item => item.textContent.trim() === '检查服务器'); return button ? { found: true, disabled: button.disabled } : { found: false } })()`)
   evidence.lobbyProbe = lobbyProbe
@@ -1542,8 +1545,9 @@ async function checkLinkleWorkspace({ js, until, wait, service, shot, shotRect, 
   console.log('PRIVATE_ROOM_JOINED ' + JSON.stringify(evidence.privateRoomJoined))
   await shot('18-private-room')
   // Leave again so the lobby checks below still describe the same surface.
-  await js(`(() => { window.confirm = () => true; return true })()`)
   await js(`document.querySelector('.linkle-room button[aria-label="退出房间"]').click()`)
+  await until(() => js(`Boolean(document.querySelector('.winui-dialog'))`), 'leave confirmation dialog (private room)')
+  await js(`Array.from(document.querySelectorAll('.winui-dialog button')).find(button => button.textContent.trim() === '退出')?.click()`)
   await until(() => js(`Boolean(document.querySelector('.lobby-connect'))`), 'lobby after leaving the private room')
 
   await invoke('clearMusicPartySession', { origin: service.origin })
