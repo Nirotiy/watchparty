@@ -115,11 +115,54 @@ export async function runViewShot(window) {
   await js(`document.getElementById('settings-tab-general')?.click()`)
   await frame()
 
+  // 2.8) Banguru 首页（2026-10-02 方案 B）：单卡段选「加入/创建」；创建模式不再有房号输入
+  await js(`document.querySelector('.desktop-service-nav button[aria-label="Banguru 一起看"]')?.click()`)
+  await until(() => js(`Boolean(document.querySelector('.banguru-lobby'))`), 'banguru lobby', 30000)
+  await frame(); await wait(300)
+  await shot('banguru-join')
+  evidence.banguruJoin = await js(`(() => ({
+    segment: Array.from(document.querySelectorAll('.banguru-lobby .bh-seg button')).map(button => ({ text: button.textContent.trim(), pressed: button.getAttribute('aria-pressed') })),
+    hasRoomField: Boolean(document.querySelector('.banguru-lobby #banguru-room-id')),
+    joinButton: Array.from(document.querySelectorAll('.banguru-lobby button')).some(button => button.textContent.trim() === '加入房间'),
+  }))()`)
+  await js(`Array.from(document.querySelectorAll('.banguru-lobby .bh-seg button')).find(button => button.textContent.trim() === '创建')?.click()`)
+  await frame(); await wait(300)
+  await shot('banguru-create')
+  evidence.banguruCreate = await js(`(() => ({
+    hasRoomField: Boolean(document.querySelector('.banguru-lobby #banguru-room-id')),
+    hint: document.querySelector('.banguru-lobby .bh-seg-hint')?.textContent ?? null,
+    createButton: Array.from(document.querySelectorAll('.banguru-lobby button')).some(button => button.textContent.trim() === '创建房间'),
+    legacyCombinedButton: Array.from(document.querySelectorAll('.banguru-lobby button')).some(button => button.textContent.trim() === '创建并进入'),
+  }))()`)
+  console.log('VIEW_SHOT_PARTIAL ' + JSON.stringify(evidence))
+
   // 3) Linkle 大厅创建对话框：Checkbox 覆写后 20px
   await js(`document.querySelector('.desktop-service-nav button[aria-label="Linkle 一起听"]')?.click()`)
   await until(() => js(`Boolean(document.querySelector('.linkle-lobby'))`), 'linkle lobby', 30000)
   await frame()
   await shot('linkle-lobby')
+  // 3.0) 单连接卡（B 版）：未连接是游客表单 + 邀请码次行；连不上时探测读数与格式错误分开
+  evidence.linkleConnect = await js(`(() => ({
+    form: Boolean(document.querySelector('.lobby-connect-form')),
+    originField: document.querySelector('input[aria-label="Linkle 服务器地址"]')?.value ?? null,
+    nicknameField: document.querySelector('input[aria-label="Linkle 昵称"]')?.value ?? null,
+    inviteRow: Boolean(document.querySelector('.lobby-invite input')),
+    kv: Boolean(document.querySelector('.lobby-card .lobby-kv')),
+    cardCount: document.querySelectorAll('.lobby-card').length,
+  }))()`)
+  await js(`(() => { const input = document.querySelector('input[aria-label="Linkle 服务器地址"]'); if (!input) return false; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'http://127.0.0.1:1'); input.dispatchEvent(new Event('input', { bubbles: true })); return true })()`)
+  await frame()
+  await js(`Array.from(document.querySelectorAll('.lobby-card button')).find(button => button.textContent.trim().includes('检查服务器'))?.click()`)
+  await until(() => js(`Boolean(document.querySelector('.lobby-card .lobby-note.no'))`), 'probe failure reading', 20000).catch(() => undefined)
+  await frame(); await wait(300)
+  await shot('linkle-probe-checked')
+  evidence.linkleProbeFailure = await js(`document.querySelector('.lobby-card .lobby-note.no')?.textContent ?? null`)
+  // 检查服务器只做只读探测：不得顺手提交连接表单，也不得改掉当前服务地址
+  evidence.linkleProbeIsolated = await js(`(() => ({
+    connectErrorBar: Boolean(document.querySelector('.lobby-card .lobby-connect-error')),
+    kvServer: document.querySelector('.lobby-card .lobby-kv dd')?.textContent ?? null,
+  }))()`)
+  console.log('VIEW_SHOT_PARTIAL ' + JSON.stringify(evidence))
   // 3.1) 「服务与账号」面板两行：输入框与图标按钮的垂直居中
   await js(`Array.from(document.querySelectorAll('.lobby-card-actions button')).find(button => button.textContent.includes('服务与账号'))?.click()`)
   await until(() => js(`Boolean(document.querySelector('.lobby-account-panel input'))`), 'account panel')

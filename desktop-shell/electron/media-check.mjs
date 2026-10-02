@@ -122,7 +122,8 @@ export async function runMediaCheck(window, native) {
 
   await js(`Array.from(document.querySelectorAll('.banguru-lobby button')).find(node => node.textContent.trim() === '检查服务器').click()`)
 
-  // 走大厅 UI 建房（只有 UI 那条路才会把视图切进房间）：昵称 + 「创建并进入」。
+  // 走大厅 UI 建房（2026-10-02 拆开：段选「创建」→「创建房间」→ 结果块 →「进入房间」，
+  // 三处都是 UI 那条路；创建本身不再自动进房）。
   await step('lobby-create-room', () => js(`(() => {
     const lobby = document.querySelector('.banguru-lobby')
     if (!lobby) throw new Error('banguru lobby missing')
@@ -132,8 +133,15 @@ export async function runMediaCheck(window, native) {
     input.dispatchEvent(new Event('input', { bubbles: true }))
     return true
   })()`))
-  await until(() => js(`(() => { const button = Array.from(document.querySelectorAll('.banguru-lobby button')).find(node => node.textContent.trim() === '创建并进入'); return Boolean(button && !button.disabled) })()`), 'lobby create enabled')
-  await js(`Array.from(document.querySelectorAll('.banguru-lobby button')).find(node => node.textContent.trim() === '创建并进入').click()`)
+  await js(`Array.from(document.querySelectorAll('.banguru-lobby .bh-seg button')).find(node => node.textContent.trim() === '创建').click()`)
+  await until(() => js(`(() => { const button = Array.from(document.querySelectorAll('.banguru-lobby button')).find(node => node.textContent.trim() === '创建房间'); return Boolean(button && !button.disabled) })()`), 'lobby create enabled')
+  await js(`Array.from(document.querySelectorAll('.banguru-lobby button')).find(node => node.textContent.trim() === '创建房间').click()`)
+  await until(() => js(`Boolean(document.querySelector('.banguru-lobby .bh-created'))`), 'created room block', 25000)
+  const createdRoomId = await js(`document.querySelector('.banguru-lobby .bh-created-id')?.textContent ?? null`)
+  console.log('MEDIA_LOBBY_CREATED ' + JSON.stringify({ roomId: createdRoomId }))
+  assert.ok(typeof createdRoomId === 'string' && createdRoomId.startsWith('room-'), `结果块没有回显后端房号: ${createdRoomId}`)
+  await until(() => js(`(() => { const button = Array.from(document.querySelectorAll('.banguru-lobby .bh-created button')).find(node => node.textContent.trim() === '进入房间'); return Boolean(button && !button.disabled) })()`), 'enter room enabled', 25000)
+  await js(`Array.from(document.querySelectorAll('.banguru-lobby .bh-created button')).find(node => node.textContent.trim() === '进入房间').click()`)
   await until(() => js(`Boolean(document.querySelector('button[aria-label="添加媒体"]'))`), 'room media button', 25000)
   await js(`document.querySelector('button[aria-label="添加媒体"]').click()`)
   await until(() => js(`Boolean(document.querySelector('.media-lib-chip'))`), 'library switcher')

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { AddRegular, ArrowEnterRegular, PulseRegular } from "@fluentui/react-icons"
 import { Button } from "@/components/ui/button"
+import { CopyButton } from "@/components/ui/copy-button"
 import { Input } from "@/components/ui/input"
 import { MessageBar } from "@/components/ui/message-bar"
 import { useShellToast } from "@/components/shell-toast"
@@ -27,12 +28,16 @@ export interface BanguruProbeState {
  * 交接码做页面底部一条横条。状态不再是 hover 气泡——它是这个页面的一等公民，
  * 运维细节（密钥模式、诊断码、监听端口）收进「检查服务器」的展开里。
  */
-export function BanguruLobby({ busy, activeRoomId, onCreate, onJoin, onStart, launchRoomId, probe, canCreate, setupCompleted, setupOrigin, onReconfigure }: { busy: boolean; activeRoomId: string | null; onCreate(nickname: string, pin?: string): Promise<void>; onJoin(roomId: string, nickname: string, pin?: string): Promise<void>; onStart(ticket: string): Promise<boolean>; launchRoomId: string | null; probe: BanguruProbeState; canCreate: boolean; setupCompleted: boolean; setupOrigin: string | null; onReconfigure(): void }) {
+export function BanguruLobby({ busy, activeRoomId, onCreate, onJoin, onEnterRoom, onStart, launchRoomId, probe, canCreate, setupCompleted, setupOrigin, onReconfigure }: { busy: boolean; activeRoomId: string | null; onCreate(nickname: string, pin?: string): Promise<{ roomId: string }>; onJoin(roomId: string, nickname: string, pin?: string): Promise<void>; onEnterRoom(): void; onStart(ticket: string): Promise<boolean>; launchRoomId: string | null; probe: BanguruProbeState; canCreate: boolean; setupCompleted: boolean; setupOrigin: string | null; onReconfigure(): void }) {
   const [nickname, setNickname] = useState("")
   const [roomId, setRoomId] = useState("")
   const [pin, setPin] = useState("")
   const [pending, setPending] = useState(false)
   const [error, setError] = useState("")
+  /** 单卡段选：加入 / 创建（用户 2026-10-02 拍板，方案 B）。 */
+  const [mode, setMode] = useState<"join" | "create">("join")
+  /** 后端生成的房号；创建成功后才落这里（不预生成、不冒用旧值）。 */
+  const [created, setCreated] = useState("")
   const [showDetails, setShowDetails] = useState(false)
   const roomInput = useRef<HTMLInputElement>(null)
   const notify = useShellToast()
@@ -66,13 +71,19 @@ export function BanguruLobby({ busy, activeRoomId, onCreate, onJoin, onStart, la
     if (!ready || !(create ? canCreateRoom : canJoin) || (!create && !roomId)) return
     setPending(true); setError("")
     try {
-      await (create ? onCreate(nickname.trim(), pin || undefined) : onJoin(roomId, nickname.trim(), pin || undefined))
+      if (create) {
+        // 原生创建即建立桌面会话；界面停在结果块，由「进入房间」进房（创建≠进房，用户 2026-10-02 拍板）。
+        const result = await onCreate(nickname.trim(), pin || undefined)
+        setCreated(result.roomId)
+        notify("房间已创建。", "success")
+      } else {
+        await onJoin(roomId, nickname.trim(), pin || undefined)
+      }
       setPin("")
-      if (create) notify("房间已创建。", "success")
     } catch (failure) {
       const detail = failure instanceof LobbyError && failure.code === "switch-failed" ? failure.cause : failure
       const code = typeof detail === "object" && detail !== null && "code" in detail ? detail.code : null
-      const message = code === "ROOM_PIN_REQUIRED" ? "该房间需要 4 位 PIN" : code === "ROOM_PIN_REJECTED" ? "PIN 码错误，请重试" : code === "ROOM_NOT_FOUND" ? "房间不存在或已解散，请检查房号" : errorMessage(detail, create ? "无法创建房间，请检查连接后重试。" : "无法加入房间，请稍后重试。")
+      const message = code === "ROOM_PIN_REQUIRED" ? "该房间需要 4 位 PIN" : code === "ROOM_PIN_REJECTED" ? "PIN 码错误，请重试" : code === "ROOM_NOT_FOUND" ? "房间不存在或已解散，请检查房号" : code === "RATE_LIMITED" ? "尝试次数过多，请稍后再试" : code === "INVALID_REQUEST" ? "请求被拒绝：昵称需 1–24 字符，PIN 需为 4 位数字" : errorMessage(detail, create ? "无法创建房间，请检查连接后重试。" : "无法加入房间，请稍后重试。")
       setError(message)
     } finally { setPending(false) }
   }
@@ -114,24 +125,45 @@ export function BanguruLobby({ busy, activeRoomId, onCreate, onJoin, onStart, la
         </div> : null}
       </section>
 
-      <form className="bh-card" onSubmit={event => { event.preventDefault(); void submit(false) }} aria-busy={pending} aria-label="进入房间">
-        <div className="bh-card-head"><h2>进入房间</h2></div>
-        <p className="bh-lead">输入房间编号与昵称，PIN 可选。</p>
-        <div className="my-3">
-          <label className={LABEL} htmlFor="banguru-room-id">房间编号 <span aria-hidden="true">*</span></label>
-          <Input id="banguru-room-id" ref={roomInput} value={roomId} onChange={event => { setRoomId(event.target.value.trim()); setError("") }} placeholder="输入房间编号" disabled={pending || !canJoin} />
+      <form className="bh-card" onSubmit={event => { event.preventDefault(); void submit(mode === "create") }} aria-busy={pending} aria-label="房间操作">
+        <div className="bh-card-head bh-room-head">
+          <div className="bh-seg" role="group" aria-label="加入或创建">
+            {(["join", "create"] as const).map(value => (
+              <Button key={value} type="button" variant="toggle" aria-pressed={mode === value} disabled={pending} onClick={() => { setMode(value); setError("") }}>{value === "join" ? "加入" : "创建"}</Button>
+            ))}
+          </div>
+          {mode === "create" ? <span className="bh-seg-hint">房号由后端生成</span> : null}
         </div>
+        {mode === "join" ? <>
+          <p className="bh-lead">输入房间编号与昵称，PIN 可选。</p>
+          <div className="my-3">
+            <label className={LABEL} htmlFor="banguru-room-id">房间编号 <span aria-hidden="true">*</span></label>
+            <Input id="banguru-room-id" ref={roomInput} value={roomId} onChange={event => { setRoomId(event.target.value.trim()); setError("") }} placeholder="room-…" disabled={pending || !canJoin} className="font-mono" />
+          </div>
+        </> : <p className="bh-lead">创建后展示房号给你分享，不用手填。</p>}
         <div className="my-3">
           <label className={LABEL} htmlFor="banguru-nickname">昵称 <span aria-hidden="true">*</span></label>
-          <Input id="banguru-nickname" value={nickname} onChange={event => setNickname(event.target.value)} placeholder="显示给房间成员" disabled={pending || (!canJoin && !canCreateRoom)} />
+          <Input id="banguru-nickname" value={nickname} maxLength={24} onChange={event => setNickname(event.target.value)} placeholder="显示给房间成员" disabled={pending || (!canJoin && !canCreateRoom)} />
         </div>
         <div className="my-3">
           <label className={LABEL} htmlFor="banguru-pin">PIN（可选）</label>
-          <Input id="banguru-pin" type="password" inputMode="numeric" autoComplete="off" aria-invalid={validPin ? undefined : true} value={pin} onChange={event => { setPin(event.target.value.replace(/\D/g, "").slice(0, 4)); setError("") }} placeholder="4 位 PIN" disabled={pending || (!canJoin && !canCreateRoom)} />
+          <Input id="banguru-pin" type="password" inputMode="numeric" autoComplete="off" aria-invalid={validPin ? undefined : true} value={pin} onChange={event => { setPin(event.target.value.replace(/\D/g, "").slice(0, 4)); setError("") }} placeholder={mode === "create" ? "留空为公开房间" : "私有房需要 4 位 PIN"} disabled={pending || (!canJoin && !canCreateRoom)} />
           {validPin ? null : <p className="mt-1.5 text-[11px] text-[#ff9d96]">请输入完整的 4 位 PIN</p>}
         </div>
         {error ? <MessageBar variant="error" className="banguru-join-error">{error}</MessageBar> : null}
-        <div className="bh-actions"><Button type="submit" variant="accent" disabled={!ready || !roomId || !canJoin}><ArrowEnterRegular />{pending ? "正在处理" : "加入房间"}</Button><Button type="button" disabled={!ready || !canCreateRoom} onClick={() => void submit(true)}><AddRegular />创建并进入</Button></div>
+        <div className="bh-actions">
+          {mode === "join"
+            ? <Button type="submit" variant="accent" disabled={!ready || !roomId || !canJoin}><ArrowEnterRegular />{pending ? "正在加入" : "加入房间"}</Button>
+            : <Button type="submit" variant="accent" disabled={!ready || !canCreateRoom}><AddRegular />{pending ? "正在创建" : "创建房间"}</Button>}
+        </div>
+        {mode === "create" && created ? <div className="bh-created" role="status">
+          <span className="bh-badge-ok">已创建</span>
+          <span className="bh-created-id">{created}</span>
+          <CopyButton value={created} />
+          <span className="bh-created-spacer" aria-hidden="true" />
+          <Button type="button" variant="accent" disabled={activeRoomId !== created} title={activeRoomId !== created ? "桌面会话建立后可用" : undefined} onClick={onEnterRoom}><ArrowEnterRegular />进入房间</Button>
+        </div> : null}
+        {mode === "create" && created ? <p className="bh-created-hint">把房号发给朋友，他们用「加入」进来。空房间会被回收，服务重启后房号不保证一直有效。</p> : null}
         {activeRoomId ? <p className="bh-session">当前 Banguru 会话：<span className="mono">{activeRoomId}</span></p> : null}
       </form>
     </div>

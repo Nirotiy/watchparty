@@ -33,7 +33,7 @@ import { hiddenCardCount, visibleCards } from "@/lib/media-library-view"
 
 import { winuiFluentTheme } from "@/lib/winui-theme"
 import { createDefaultLocalSettings, linkleDisplayName, linkleMemberOf, migrateLocalSettings, musicPartyOriginError, saveMusicPartyService, serviceForProduct } from "../shared/local-schema"
-import { MusicPartyAdapter, probeMusicParty, type MusicPartyProbe } from "../shared/musicparty-adapter"
+import { MusicPartyAccountError, MusicPartyAdapter, accountDisplayName, probeMusicParty, type MusicPartyProbe } from "../shared/musicparty-adapter"
 import { MusicPartyConnection } from "../shared/musicparty-connection"
 import { NativeAudioPlayer } from "../shared/native-audio-player"
 import { AudioFocusOwner } from "../shared/player"
@@ -120,9 +120,13 @@ export default function App() {
   }, setupLinkleOrigin)
   const [currentLobbyRoom, setCurrentLobbyRoom] = useState<RoomIdentity | null>(null)
   const switchingLobby = useRef(false)
+  // A room this machine just created must not auto-navigate: the result block offers 复制 and
+  // an explicit 进入房间 (用户 2026-10-02 拍板：创建≠进房)。Consumed when the session arrives.
+  const pendingCreateRoom = useRef(false)
   const switchLobby = async (target: SwitchTarget, nickname = "桌面用户") => {
     locallyHandledStatus.current = true
     switchingLobby.current = true
+    pendingCreateRoom.current = false
     try {
       await session.switchTo(target, {
         music: musicParty.getConnection(),
@@ -135,6 +139,7 @@ export default function App() {
     } finally { switchingLobby.current = false; setCompletedLocalNotice(value => value + 1) }
   }
   inviteSwitch.current = identity => switchLobby({ identity })
+  const startSession = (ticket: string) => { pendingCreateRoom.current = false; return session.start(ticket) }
   const lobby = useLobbyFacade({ origin: musicParty.serviceOrigin, connection: musicParty.getConnection(), createAdapter: () => new MusicPartyAdapter({ origin: musicParty.serviceOrigin, nativeInvoke: invoke }), switchTo: switchLobby })
   const [drawer, setDrawer] = useState<Drawer>(null)
   const [themePreference, setThemePreference] = useState<ThemePreference>("dark")
@@ -382,9 +387,14 @@ export default function App() {
     if (state && restoringSession.current) {
       // Restoring the last session keeps the connection alive without reopening playback.
       previouslyConnected.current = true
+      pendingCreateRoom.current = false
       return
     }
-    if (state && !previouslyConnected.current && !switchingLobby.current) setView("room")
+    if (state && !previouslyConnected.current) {
+      // 创建成功停在结果块（复制房号 / 进入房间）；标记在此消费一次，之后的会话（交接码等）照常进房。
+      if (pendingCreateRoom.current) pendingCreateRoom.current = false
+      else if (!switchingLobby.current) setView("room")
+    }
     if (!state && previouslyConnected.current) {
       setDrawer(null)
       setFullscreen(false)
@@ -434,6 +444,7 @@ export default function App() {
 
   async function leaveRoom() {
     if (await session.stop()) {
+      pendingCreateRoom.current = false
       setCurrentLobbyRoom(null)
       setFullscreen(false)
       setDrawer(null)
@@ -490,12 +501,12 @@ export default function App() {
                 subscribeRoom={musicParty.subscribeRoom}
                 onLeave={() => setCurrentLobbyRoom(null)}
               />
-            ) : <LobbyView facade={lobby!} origin={musicParty.serviceOrigin} busy={session.starting} activeRoom={currentLobbyRoom} onRedeemInvite={musicParty.redeemInvite} accountPanel={musicParty.content} />) : <BanguruLobby onStart={session.start} launchRoomId={session.launchRoomId} busy={entryBusy} probe={activeProbe} canCreate={currentLobbyRoom?.service !== "musicparty"} activeRoomId={state?.roomId ?? null} onCreate={async (nickname, pin) => { locallyHandledStatus.current = true; try { await createDesktopRoom({ nickname, ...(pin ? { pin } : {}) }) } finally { setCompletedLocalNotice(value => value + 1) } }} onJoin={(roomId, nickname, pin) => switchLobby({ identity: { service: "watchparty", origin: backendOrigin ?? "", roomId }, password: pin })} setupCompleted={setupCompleted === true} setupOrigin={backendOrigin} onReconfigure={() => void reconfigure()} />) : view === "room" ? (
+            ) : <LobbyView facade={lobby!} origin={musicParty.serviceOrigin} busy={session.starting} activeRoom={currentLobbyRoom} onRedeemInvite={musicParty.redeemInvite} accountPanel={musicParty.content} onConnectAccount={musicParty.connectAccount} onRenameAccount={musicParty.renameAccount} onDisconnectAccount={musicParty.logout} defaultNickname={musicParty.suggestedNickname} />) : <BanguruLobby onStart={startSession} launchRoomId={session.launchRoomId} busy={entryBusy} probe={activeProbe} canCreate={currentLobbyRoom?.service !== "musicparty"} activeRoomId={state?.roomId ?? null} onCreate={async (nickname, pin) => { locallyHandledStatus.current = true; pendingCreateRoom.current = true; try { return await createDesktopRoom({ nickname, ...(pin ? { pin } : {}) }) } catch (error) { pendingCreateRoom.current = false; throw error } finally { setCompletedLocalNotice(value => value + 1) } }} onJoin={(roomId, nickname, pin) => switchLobby({ identity: { service: "watchparty", origin: backendOrigin ?? "", roomId }, password: pin }, nickname)} onEnterRoom={() => void navigate("room")} setupCompleted={setupCompleted === true} setupOrigin={backendOrigin} onReconfigure={() => void reconfigure()} />) : view === "room" ? (
               <HomeView
                 state={state}
                 roomId={activeRoomId}
                 starting={session.starting}
-                onStart={session.start}
+                onStart={startSession}
                 onCreate={session.createRoom}
                 onAccess={session.accessRoom}
                 onReturn={() => void navigate("room")}
@@ -741,6 +752,71 @@ function useMusicPartyEntry(onInviteRoom: (identity: RoomIdentity) => Promise<vo
     await onInviteRoom({ service: "musicparty", origin: new URL(targetOrigin).origin, roomId: result.roomId })
     return result
   }
+  // 连接卡的昵称预填：与建号用的是同一套本机身份（linkleMember → 桌面昵称 → 桌面用户）。
+  const [suggestedNickname, setSuggestedNickname] = useState("")
+  useEffect(() => {
+    let disposed = false
+    void resolveDisplayName().then(name => { if (!disposed) setSuggestedNickname(name) }).catch(() => undefined)
+    return () => { disposed = true }
+  }, [])
+  /**
+   * 游客连接（handoff §4）：先探测；同一 origin 已有有效会话就恢复身份，没有才用输入昵称建游客。
+   * 连不上的地址不改动已保存的配置；建号成功但读回失败必须与「连接成功」区分（readback 语义）。
+   */
+  const connectAccount = async (target: string, displayNameInput: string): Promise<{ ok: boolean; message?: string; probe?: MusicPartyProbe | null }> => {
+    const trimmed = target.trim()
+    const invalid = musicPartyOriginError(trimmed)
+    if (invalid) return { ok: false, message: invalid }
+    const nickname = accountDisplayName(displayNameInput)
+    if (!nickname) return { ok: false, message: "昵称需要 1–32 个字符" }
+    let outcome: { probe: MusicPartyProbe; created: boolean }
+    try {
+      outcome = await getConnection().run(new URL(trimmed).origin, async adapter => {
+        const existing = await probeMusicParty({ origin: trimmed, nativeInvoke: invoke }, { readiness: true })
+        if (existing.status !== "ok" || existing.account) return { probe: existing, created: false }
+        await adapter.createGuestSession(nickname)
+        const readback = await probeMusicParty({ origin: trimmed, nativeInvoke: invoke }, { readiness: true })
+        if (readback.status === "ok") await adapter.ensureProbe(true).catch(() => null)
+        return { probe: readback, created: true }
+      })
+    } catch (error) {
+      return { ok: false, message: accountErrorMessage(error, "无法连接服务器，请检查地址与网络。") }
+    }
+    if (outcome.probe.status !== "ok" || !outcome.probe.account) {
+      return { ok: false, message: outcome.created ? "游客身份已建立，但读取账号失败，请重试连接。" : outcome.probe.message, probe: outcome.probe }
+    }
+    try {
+      const settings = migrateLocalSettings(JSON.parse(localStorage.getItem("watchparty.local-settings") ?? "null"))
+      const next = saveMusicPartyService(settings, outcome.probe.origin)
+      localStorage.setItem("watchparty.local-settings", JSON.stringify(next))
+      setOrigin(outcome.probe.origin)
+      if (!connectionRef.current?.current?.roomId) setServiceOrigin(outcome.probe.origin)
+      setServerProbe(outcome.probe)
+      setMessage(`已连接 ${outcome.probe.origin}`)
+    } catch { /* 存储失败不挡这次已建立的会话 */ }
+    return { ok: true, probe: outcome.probe }
+  }
+  }
+  /** 改显示名（用户 2026-10-02 拍板）：服务端改 displayName（publicId 不动），并同步本机桌面昵称。 */
+  const renameAccount = async (displayNameInput: string): Promise<{ ok: boolean; message?: string; probe?: MusicPartyProbe | null }> => {
+    const nickname = accountDisplayName(displayNameInput)
+    if (!nickname) return { ok: false, message: "昵称需要 1–32 个字符" }
+    try {
+      await getConnection().run(serviceOrigin, async adapter => {
+        await adapter.updateDisplayName(nickname)
+        await adapter.ensureProbe(true).catch(() => null)
+      })
+    } catch (error) {
+      return { ok: false, message: accountErrorMessage(error, "改名失败，请检查与服务器的连接。") }
+    }
+    try {
+      const current = await getDesktopSettings()
+      await updateDesktopSettings({ backendOrigin: current.backendOrigin, allowRemoteHttp: current.allowRemoteHttp, nickname, theme: current.theme, windowMaterial: current.windowMaterial, playerPreferences: current.playerPreferences })
+    } catch { /* 服务端已生效；本机昵称镜像失败不挡这次改名 */ }
+    const probe = await probeMusicParty({ origin: serviceOrigin, nativeInvoke: invoke }, { readiness: true }).catch(() => null)
+    if (probe?.status === "ok") setServerProbe(probe)
+    return { ok: true, probe: probe?.status === "ok" ? probe : null }
+  }
   useEffect(() => () => { const old = connectionRef.current; connectionRef.current = null; void old?.dispose() }, [])
   const connect = async () => {
     try { await getConnection().run(origin, adapter => adapter.connect()) } catch { setMessage("无法连接 Linkle 服务") }
@@ -793,6 +869,8 @@ function useMusicPartyEntry(onInviteRoom: (identity: RoomIdentity) => Promise<vo
   return { content, serviceOrigin, logout, getConnection, subscribeRoom,
     /** The lobby's invite card enters a friend's room without going through the collapsed panel. */
     redeemInvite: (code: string) => redeemAndEnter(serviceOrigin, code),
+    /** 大厅游客连接与改显示名（2026-10-02 handoff §4）；断开放口复用 logout。 */
+    connectAccount, renameAccount, suggestedNickname,
     currentRoom: (): RoomIdentity | null => { const adapter = connectionRef.current?.current; return adapter?.roomId ? { service: "musicparty", origin: adapter.origin, roomId: adapter.roomId } : null },
     setFocus: async (service: RoomIdentity["service"] | null) => {
       activeRef.current = service === "musicparty"
@@ -804,6 +882,18 @@ function useMusicPartyEntry(onInviteRoom: (identity: RoomIdentity) => Promise<vo
 
 function inviteErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message && error.message !== "http-error" ? error.message : fallback
+}
+
+/** 游客连接/改名的错误文案：服务端 400/401/403 与网络失败分开说（handoff §3/§4 错误表）。 */
+function accountErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof MusicPartyAccountError) {
+    return error.code === "invalid-input" ? "昵称需要 1–32 个字符"
+      : error.code === "unauthorized" ? "本机还没有会话，请先连接服务器。"
+      : error.code === "unreachable" ? "无法连接服务器，请检查地址与网络。"
+      : error.code === "invalid-response" ? "服务器响应无法识别，账号信息不完整。"
+      : "服务器拒绝了这次请求，请稍后重试。"
+  }
+  return inviteErrorMessage(error, fallback)
 }
 
 function probeSummary(probe: MusicPartyProbe): string {

@@ -246,9 +246,14 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 async function readAccount(transport: MusicPartyTransport): Promise<MusicPartyAccount | null> {
   const response = await sendDesktopRequest(transport, ACCOUNT_PATH).catch(() => null)
   if (!response?.ok) return null
-  const body = await response.json().catch(() => null) as Record<string, unknown> | null
+  return toAccount(await response.json().catch(() => null))
+}
+
+/** Server `Session` → `MusicPartyAccount`; the one mapping login, rename and probe all share. */
+function toAccount(value: unknown): MusicPartyAccount | null {
+  const body = asRecord(value)
   if (typeof body?.publicId !== "string" || !body.publicId) return null
-  const text = (value: unknown) => (typeof value === "string" ? value.trim() : "")
+  const text = (input: unknown) => (typeof input === "string" ? input.trim() : "")
   // `isAdmin` is derived on the server (Session.MarshalJSON, same source as Session.Admin).
   // The role comparison below only covers servers built before that field shipped — drop it once
   // every deployment in use has been rebuilt.
@@ -316,6 +321,18 @@ export class MusicPartyRoomCreateError extends Error {
 export type RoomManageErrorCode = "invalid-input" | "unauthorized" | "forbidden" | "not-found" | "rejected" | "unreachable" | "invalid-response"
 export class MusicPartyRoomManageError extends Error {
   constructor(readonly code: RoomManageErrorCode) { super(`room_manage_${code}`); this.name = "MusicPartyRoomManageError" }
+}
+
+export type AccountErrorCode = "invalid-input" | "unauthorized" | "unreachable" | "rejected" | "invalid-response"
+export class MusicPartyAccountError extends Error {
+  constructor(readonly code: AccountErrorCode) { super(`account_${code}`); this.name = "MusicPartyAccountError" }
+}
+
+/** The server counts nicknames in runes and rejects outside 1–32; `Array.from` matches that. */
+export function accountDisplayName(input: string): string | null {
+  const trimmed = input.trim()
+  const length = Array.from(trimmed).length
+  return length >= 1 && length <= 32 ? trimmed : null
 }
 
 export type ControlOutcome = "applied" | "noop" | "rejected" | "unknown"
@@ -965,6 +982,35 @@ export class MusicPartyAdapter implements ProductAdapter {
     // The cached probe describes a session that no longer exists; keeping it would leave the
     // lobby offering 创建房间 with an account this machine cannot authenticate as (401).
     this.probeResult = null
+  }
+
+  /**
+   * Guest login (`POST /api/account/guest`). The native jar keeps the session and CSRF
+   * cookies; the renderer only ever sees the resulting account. Callers must read
+   * `/api/account/me` first: an origin that already has a session is restored, never
+   * silently replaced by a fresh guest (handoff §4).
+   */
+  async createGuestSession(displayName: string): Promise<MusicPartyAccount> {
+    return this.accountMutation("POST", "/api/account/guest", displayName)
+  }
+
+  /** Display-name change for the existing session (`PUT /api/account/profile`); keeps publicId. */
+  async updateDisplayName(displayName: string): Promise<MusicPartyAccount> {
+    return this.accountMutation("PUT", "/api/account/profile", displayName)
+  }
+
+  private async accountMutation(method: "POST" | "PUT", path: string, displayName: string): Promise<MusicPartyAccount> {
+    const trimmed = accountDisplayName(displayName)
+    if (!trimmed) throw new MusicPartyAccountError("invalid-input")
+    const response = await sendDesktopRequest(this.options, path, { method, body: JSON.stringify({ displayName: trimmed }) }).catch(() => null)
+    if (!response) throw new MusicPartyAccountError("unreachable")
+    if (!response.ok) throw new MusicPartyAccountError(response.status === 400 ? "invalid-input" : response.status === 401 ? "unauthorized" : "rejected")
+    const account = toAccount(await response.json().catch(() => null))
+    if (!account) throw new MusicPartyAccountError("invalid-response")
+    // The cached probe still describes the previous account; a stale admin must never
+    // outlive an identity change (handoff §4: 身份变更后先失效旧缓存).
+    this.probeResult = null
+    return account
   }
 
   private async openSocket(): Promise<void> {

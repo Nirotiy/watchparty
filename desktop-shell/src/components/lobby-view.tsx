@@ -2,10 +2,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 import { Checkbox } from "@fluentui/react-components"
 import { AddRegular, ArrowClockwiseRegular, ChevronLeftRegular, DeleteRegular, EditRegular, KeyRegular, MusicNote2Regular, PulseRegular, SearchRegular } from "@fluentui/react-icons"
 import { Button } from "@/components/ui/button"
+import { CopyButton } from "@/components/ui/copy-button"
 import { Input } from "@/components/ui/input"
 import { MessageBar } from "@/components/ui/message-bar"
 import { ProgressRing } from "@/components/ui/progress-ring"
 import { useShellToast } from "@/components/shell-toast"
+import { linkleReadinessLine } from "@/components/setup-guide-steps"
 import type { LobbyFacade } from "@/hooks/use-lobby-facade"
 import { probeMusicParty, type MusicPartyProbe } from "../../shared/musicparty-adapter"
 import { invoke } from "../../shared/desktop-runtime"
@@ -16,7 +18,7 @@ type Filter = "all" | "public" | "private"
 const browsing = new Map<string, { query: string; filter: Filter; selected: string | null; scroll: number }>()
 const LABEL = "text-xs text-[var(--text-secondary)]"
 
-export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, accountPanel }: {
+export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, accountPanel, onConnectAccount, onRenameAccount, onDisconnectAccount, defaultNickname }: {
   facade: LobbyFacade
   origin: string
   busy: boolean
@@ -24,6 +26,11 @@ export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, ac
   onRedeemInvite: (code: string) => Promise<{ roomId: string; roomName?: string }>
   /** 服务与账号的配置面板：由 App 组装，点顶部卡片的按钮后替换探测内容（用户 2026-09-25）。 */
   accountPanel?: ReactNode
+  /** 游客连接 / 改显示名 / 断开（2026-10-02 handoff §4）；实现都在 App 的 useMusicPartyEntry。 */
+  onConnectAccount(origin: string, nickname: string): Promise<{ ok: boolean; message?: string; probe?: MusicPartyProbe | null }>
+  onRenameAccount(nickname: string): Promise<{ ok: boolean; message?: string; probe?: MusicPartyProbe | null }>
+  onDisconnectAccount(): Promise<void>
+  defaultNickname: string
 }) {
   const cached = browsing.get(origin)
   const [rooms, setRooms] = useState<RoomSummaryRecord[]>([])
@@ -46,6 +53,15 @@ export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, ac
   const [privateRoom, setPrivateRoom] = useState(false)
   const [showAccount, setShowAccount] = useState(false)
   const [discard, setDiscard] = useState(false)
+  // 连接卡（B 版单卡）：未连接是表单，已连接原位变身份区；改名走内联编辑。
+  const [connectOrigin, setConnectOrigin] = useState(origin)
+  const [connectName, setConnectName] = useState(defaultNickname)
+  const [connectBusy, setConnectBusy] = useState(false)
+  const [connectError, setConnectError] = useState("")
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [renameName, setRenameName] = useState("")
+  const [renameBusy, setRenameBusy] = useState(false)
+  const [renameError, setRenameError] = useState("")
   const search = useRef<HTMLInputElement>(null)
   const dialog = useRef<HTMLDialogElement>(null)
   const list = useRef<HTMLDivElement>(null)
@@ -56,8 +72,8 @@ export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, ac
   // hint and a dead end; a bare "connect first" line under the toolbar was noise instead
   // (用户 2026-09-24)：服务连不上时右上角的 popup 已经在说这件事了。
   const createBlockedReason = facade.canCreateRoom ? null
-    : facade.createReadiness.isGuest ? "访客会话不能创建房间。用邀请码加入一个房间后即可建房。"
-    : facade.createReadiness.serverSupportsCreate && !facade.createReadiness.hasAccount ? "本机还没有 Linkle 凭据，请先输入邀请码。"
+    : facade.createReadiness.isGuest ? "游客会话不能创建房间：听歌与入房不受影响。"
+    : facade.createReadiness.serverSupportsCreate && !facade.createReadiness.hasAccount ? "本机还没有 Linkle 会话：点「连接」以游客身份接入，或输入邀请码。"
     : null
   const visible = rooms.filter(room => room.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()) && (filter === "all" || room.visibility === filter))
   const room = target ?? rooms.find(item => item.roomId === selected) ?? null
@@ -68,6 +84,11 @@ export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, ac
   // The page shows the connection's own probe; a manual check only adds a fresher reading.
   const probe = checked ?? facade.probe
   const probeTone = probe && probe.status !== "ok" ? probe.status === "incompatible" ? " nt" : " no" : ""
+  const account = probe?.account ?? null
+  const readinessLine = linkleReadinessLine(probe?.readiness)
+  // 连接卡的地址跟随服务配置（例如在「服务与账号」里保存了新的服务器）。
+  useEffect(() => { setConnectOrigin(origin) }, [origin])
+  useEffect(() => { setConnectName(current => current || defaultNickname) }, [defaultNickname])
 
   async function refresh() {
     const id = ++request.current
@@ -108,12 +129,45 @@ export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, ac
   }
   function requestClose() { if (pending) return; if (dirty) setDiscard(true); else dialog.current?.close() }
   /** Read-only server probe (health / capabilities / account) through the native channel. */
-  async function checkServer() {
-    if (probing || !origin) return
+  async function checkServer(target?: string) {
+    const address = (target ?? origin).trim()
+    if (probing || !address) return
     setProbing(true)
-    try { setChecked(await probeMusicParty({ origin, nativeInvoke: invoke })) }
+    try { setChecked(await probeMusicParty({ origin: address, nativeInvoke: invoke }, { readiness: true })) }
     catch { notify("无法完成服务器探测，请稍后重试。", "error") }
     finally { setProbing(false) }
+  }
+  /** 游客连接（handoff §4）：已有会话恢复、没有才建号；连上后再刷新房间列表。 */
+  async function connectGuest() {
+    if (connectBusy) return
+    setConnectBusy(true); setConnectError("")
+    try {
+      const result = await onConnectAccount(connectOrigin, connectName)
+      if (result.probe) setChecked(result.probe)
+      if (!result.ok) { setConnectError(result.message ?? "无法连接服务器。"); return }
+      void refresh()
+    } finally { setConnectBusy(false) }
+  }
+  /** 改显示名：服务端 displayName 与本机桌面昵称同步改（用户 2026-10-02 拍板）。 */
+  async function submitRename() {
+    if (renameBusy) return
+    const next = renameName.trim()
+    if (!next) return
+    setRenameBusy(true); setRenameError("")
+    try {
+      const result = await onRenameAccount(next)
+      if (!result.ok) { setRenameError(result.message ?? "改名失败，请稍后重试。"); return }
+      if (result.probe) setChecked(result.probe)
+      setRenameOpen(false)
+      notify("显示名已更新。", "success")
+    } finally { setRenameBusy(false) }
+  }
+  /** 断开：注销服务端会话并清掉本机凭据，卡片回到连接表单。 */
+  async function disconnect() {
+    setRenameOpen(false); setRenameError("")
+    await onDisconnectAccount()
+    setChecked(null)
+    void refresh()
   }
   /** The invite is the shortest path into a friend's room, so it lives on the first screen. */
   async function redeemInvite(event: React.FormEvent) {
@@ -172,28 +226,57 @@ export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, ac
             {probe?.apiVersion ? <span className="lobby-tag">API {probe.apiVersion}</span> : null}
             {probe ? <span className={`lobby-account${probe.account ? "" : " muted"}`}>{probe.account ? probe.account.displayName || probe.account.publicId : "本机尚未登录"}</span> : null}
           </div>
+          {account ? <>
+            {renameOpen ? <form className="lobby-rename" onSubmit={event => { event.preventDefault(); void submitRename() }}>
+              <Input autoFocus value={renameName} onChange={event => setRenameName(event.target.value)} onKeyDown={event => { if (event.key === "Escape") setRenameOpen(false) }} aria-label="新的显示名" disabled={renameBusy} />
+              <Button type="submit" variant="accent" disabled={renameBusy || !renameName.trim()}>{renameBusy ? "正在保存" : "保存"}</Button>
+              <Button type="button" variant="ghost" disabled={renameBusy} onClick={() => setRenameOpen(false)}>取消</Button>
+            </form> : <div className="lobby-identity">
+              {account.isGuest ? <span className="lobby-tag guest">游客</span> : null}
+              <span className="lobby-identity-label">显示 ID</span>
+              <code className="lobby-identity-id">{account.publicId}</code>
+              <CopyButton value={account.publicId} />
+            </div>}
+            {renameError ? <MessageBar variant="error" className="lobby-rename-error">{renameError}</MessageBar> : null}
+            <div className="lobby-card-actions">
+              <Button variant="ghost" disabled={renameBusy} onClick={() => { setRenameName(account.displayName || ""); setRenameError(""); setRenameOpen(true) }}>修改昵称</Button>
+              <Button onClick={() => void disconnect()} disabled={busy}>断开</Button>
+              <Button onClick={() => void checkServer()} disabled={probing || !origin}><PulseRegular />{probing ? "正在检查" : "检查服务器"}</Button>
+              <Button variant="ghost" onClick={() => setShowAccount(true)}>服务与账号</Button>
+            </div>
+            <p className="lobby-note">连接不等于入房：在下方列表选择房间进入，进房成功以房间快照为准。</p>
+          </> : <>
+            <p className="lobby-note">填写服务器地址与昵称，直接以游客身份连接；已有会话会恢复原身份。</p>
+            <form className="lobby-connect-form" onSubmit={event => { event.preventDefault(); void connectGuest() }}>
+              <div className="lobby-fields">
+                <label className="lobby-field"><span>服务器地址 <span aria-hidden="true">*</span></span><Input value={connectOrigin} onChange={event => { setConnectOrigin(event.target.value); setConnectError("") }} placeholder="https://music.example.com" aria-label="Linkle 服务器地址" className="font-mono" disabled={connectBusy} /></label>
+                <label className="lobby-field"><span>昵称 <span aria-hidden="true">*</span></span><Input value={connectName} onChange={event => { setConnectName(event.target.value); setConnectError("") }} placeholder="显示给其他成员" aria-label="Linkle 昵称" disabled={connectBusy} /></label>
+              </div>
+              <div className="lobby-card-actions">
+                <Button type="submit" variant="accent" disabled={connectBusy || !connectOrigin.trim() || !connectName.trim()}>{connectBusy ? "正在连接" : "连接"}</Button>
+                {/* ui/Button 不设默认 type，form 里必须显式 type="button"，否则会顺手提交连接 */}
+                <Button type="button" onClick={() => void checkServer(connectOrigin)} disabled={probing || !connectOrigin.trim()}><PulseRegular />{probing ? "正在检查" : "检查服务器"}</Button>
+                <Button type="button" variant="ghost" onClick={() => setShowAccount(true)}>服务与账号</Button>
+              </div>
+            </form>
+            {connectError ? <MessageBar variant="error" className="lobby-connect-error">{connectError}</MessageBar> : null}
+          </>}
           <dl className="lobby-kv">
             <dt>服务器</dt><dd className="mono">{origin || "未配置"}</dd>
             <dt>服务版本</dt><dd>{probe?.serverVersion ?? "未知"}</dd>
             <dt>已启用平台</dt><dd>{probe?.providers.length ? probe.providers.join(" · ") : "未知"}</dd>
           </dl>
           <p className={`lobby-note${probeTone}`} role="status">{probe?.message ?? "还没有这台服务器的探测结果。"}</p>
-          <div className="lobby-card-actions">
-            <Button onClick={() => void checkServer()} disabled={probing || !origin}><PulseRegular />{probing ? "正在检查" : "检查服务器"}</Button>
-            <Button variant="ghost" onClick={() => setShowAccount(true)}>服务与账号</Button>
-          </div>
+          {readinessLine ? <p className="lobby-note" role="status">{readinessLine}</p> : null}
         </>}
       </section>
 
-      <section className="lobby-card" aria-label="邀请码">
-        <div className="lobby-card-head"><KeyRegular className="lobby-card-icon" /><strong>有邀请码？</strong></div>
-        <p className="lobby-note">输入朋友给的邀请码，直接进入那个房间。</p>
-        <form className="lobby-invite" onSubmit={event => void redeemInvite(event)}>
-          <Input value={invite} onChange={event => { setInvite(event.target.value); setInviteError("") }} placeholder="粘贴邀请码" aria-label="邀请码" disabled={inviteBusy} />
-          <Button type="submit" variant="accent" disabled={inviteBusy || !invite.trim()}>{inviteBusy ? "正在进入" : "进入房间"}</Button>
-        </form>
-        {inviteError ? <MessageBar variant="error">{inviteError}</MessageBar> : null}
-      </section>
+      <form className="lobby-invite" onSubmit={event => void redeemInvite(event)}>
+        <span className="lobby-invite-label">有邀请码？</span>
+        <Input value={invite} onChange={event => { setInvite(event.target.value); setInviteError("") }} placeholder="粘贴邀请码" aria-label="邀请码" disabled={inviteBusy} />
+        <Button type="submit" variant="ghost" disabled={inviteBusy || !invite.trim()}>{inviteBusy ? "正在进入" : "进入房间"}</Button>
+      </form>
+      {inviteError ? <MessageBar variant="error">{inviteError}</MessageBar> : null}
     </div>
 
     <div className="lobby-rooms">

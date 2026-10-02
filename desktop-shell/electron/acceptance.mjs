@@ -1605,7 +1605,8 @@ async function checkLinkleWorkspace({ js, until, wait, service, shot, shotRect, 
   await until(() => js(`(document.querySelector('.lobby-hint')?.textContent ?? '').includes('邀请码')`), 'credential hint in the lobby')
   const lobbyHint = await js(`document.querySelector('.lobby-hint').textContent`)
   evidence.lobbyHint = lobbyHint
-  assert.match(lobbyHint, /本机还没有 Linkle 凭据，请先输入邀请码/, `the lobby does not name the missing credentials: ${lobbyHint}`)
+  // 2026-10-02：普通入口改成游客连接后，提示语也指向「连接」而不是邀请码。
+  assert.match(lobbyHint, /本机还没有 Linkle 会话/, `the lobby does not name the missing session: ${lobbyHint}`)
   await shot('14-lobby-credentials-hint')
   // The shell's own Linkle status line must never label a credentials-missing loop as a
   // transport problem (重连中) — that is the state the user cannot debug.

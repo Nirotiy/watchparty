@@ -378,6 +378,43 @@ export async function runServiceAcceptance({ window, native, invoke, exe, dir, e
         }, 'lobby targeting the isolated service')
         const lobbyTarget = await js(`(() => ({ server: document.querySelector('.lobby-kv dd')?.textContent ?? null, note: document.querySelector('.lobby-note')?.textContent?.slice(0, 60) ?? null }))()`)
         console.log('LOBBY_TARGET ' + JSON.stringify(lobbyTarget))
+        // —— 游客路径（2026-10-02 handoff §4，B 版单连接卡）——
+        // 无邀请码连接 → 身份区（游客徽标 + 显示 ID）→ 改显示名（服务端 + 桌面昵称同步）→ 断开。
+        // 这段走完再继续邀请码流程，两条入口都覆盖。
+        const guestAccount = async () => {
+          try {
+            const reply = await invoke('musicPartyRequest', { input: { origin: service.origin, method: 'GET', path: '/api/account/me', clientVersion: '0.2.0' } })
+            return reply?.status === 200 ? JSON.parse(reply.body ?? '{}') : null
+          } catch { return null }
+        }
+        const guestName = '游客验收'
+        const guestRenamed = '游客验收二'
+        await fill('Linkle 昵称', guestName)
+        await js(`Array.from(document.querySelectorAll('.lobby-connect-form button')).find(button => button.textContent.trim() === '连接' && !button.disabled)?.click()`)
+        await until(() => js(`Boolean(document.querySelector('.lobby-identity'))`), 'guest identity card', 20000)
+        const guestProof = await js(`(() => ({
+          badge: document.querySelector('.lobby-tag.guest')?.textContent ?? null,
+          id: document.querySelector('.lobby-identity-id')?.textContent ?? null,
+        }))()`)
+        console.log('LINKLE_GUEST_CONNECTED ' + JSON.stringify(guestProof))
+        assert.equal(guestProof.badge, '游客', `guest badge missing: ${JSON.stringify(guestProof)}`)
+        assert.ok(String(guestProof.id ?? '').startsWith('u_'), `guest publicId unexpected: ${JSON.stringify(guestProof)}`)
+        const guestServer = await guestAccount()
+        assert.equal(guestServer?.guest, true, `server must report a guest session: ${JSON.stringify(guestServer)}`)
+        assert.equal(guestServer?.displayName, guestName)
+        // 改显示名：服务端先落新名，publicId 不动，本机桌面昵称跟着同步。
+        await js(`Array.from(document.querySelectorAll('.lobby-card-actions button')).find(button => button.textContent.trim() === '修改昵称')?.click()`)
+        await until(() => js(`Boolean(document.querySelector('.lobby-rename input'))`), 'rename editor')
+        await js(`(() => { const input = document.querySelector('.lobby-rename input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify('游客验收二')}); input.dispatchEvent(new Event('input', { bubbles: true })); return true })()`)
+        await js(`Array.from(document.querySelectorAll('.lobby-rename button')).find(button => button.textContent.trim() === '保存' && !button.disabled)?.click()`)
+        await until(async () => (await guestAccount())?.displayName === guestRenamed, 'server display name update')
+        assert.equal((await guestAccount())?.publicId, guestServer?.publicId, 'rename must keep the publicId')
+        await until(async () => await invoke('getDesktopSettings').then(settings => settings.nickname) === guestRenamed, 'desktop nickname sync')
+        // 断开：服务端注销会话，卡片回到连接表单。
+        await js(`Array.from(document.querySelectorAll('.lobby-card-actions button')).find(button => button.textContent.trim() === '断开')?.click()`)
+        await until(() => js(`Boolean(document.querySelector('.lobby-connect-form'))`), 'connect form after disconnect')
+        assert.equal(await guestAccount(), null, 'session must be revoked after disconnect')
+        console.log('LINKLE_GUEST_FLOW_OK')
         // 本机 ID（设置向导将来写进 linkleMember）→ 建号时写进服务端（用户 2026-09-25 方案 1）：
         // 先种一个本机 ID，再走大厅邀请码入口，看兑换请求与之后的账号名是不是它。
         await js(`(() => {
@@ -386,7 +423,7 @@ export async function runServiceAcceptance({ window, native, invoke, exe, dir, e
           localStorage.setItem('watchparty.local-settings', JSON.stringify(raw))
           return true
         })()`)
-        // 方案 C 把邀请码提到大厅第一屏；走大厅那张卡，顺便覆盖新入口。
+        // 邀请码是连接卡下的次行（2026-10-02）；走那条行，顺便覆盖新入口。
         await fill('邀请码', service.invite)
         await click('进入房间')
         // 真链路：现编的 Go 树必须回答 readiness。只断言形状，不回显 body（message 是本地化文案，也可能带部署细节）。

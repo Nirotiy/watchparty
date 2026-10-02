@@ -1005,3 +1005,63 @@ test('a mismatched server hello names the version the server runs', async () => 
   assert.match(events.at(-1).message, /0\.9\.0/)
   await adapter.disconnect()
 })
+
+test('guest login posts the trimmed nickname and drops the previous account cache', async () => {
+  const requests = []
+  let account = { publicId: 'u-old', displayName: '旧名', guest: false }
+  const { adapter } = setup(async (url, init) => {
+    requests.push({ path: new URL(String(url)).pathname, init })
+    if (String(url).includes('/capabilities')) return Response.json({ apiVersion: '2026-01' })
+    if (String(url).includes('/account/guest')) {
+      account = { publicId: 'u-new', username: '', displayName: '夜风', role: 'GUEST', guest: true, enabled: true, isAdmin: false }
+      return Response.json(account)
+    }
+    if (String(url).includes('/account/me')) return Response.json(account)
+    return Response.json({ apiVersion: '2026-01' })
+  })
+  assert.equal((await adapter.ensureProbe())?.account?.publicId, 'u-old')
+  const created = await adapter.createGuestSession('  夜风  ')
+  assert.deepEqual(created, { publicId: 'u-new', displayName: '夜风', isAdmin: false, isGuest: true })
+  const call = requests.find(request => request.path === '/api/account/guest')
+  assert.equal(call.init.method, 'POST')
+  assert.deepEqual(JSON.parse(call.init.body), { displayName: '夜风' })
+  assert.equal(adapter.desktopProbe, null, 'the cached probe described the replaced account')
+  assert.equal((await adapter.ensureProbe())?.account?.publicId, 'u-new')
+})
+
+test('display-name changes keep the publicId and count runes like the server', async () => {
+  const requests = []
+  const { adapter } = setup(async (url, init) => {
+    if (String(url).includes('/account/profile')) {
+      requests.push({ init })
+      return Response.json({ publicId: 'u-9', displayName: JSON.parse(init.body).displayName, role: 'GUEST', guest: true })
+    }
+    return Response.json({ apiVersion: '2026-01' })
+  })
+  const renamed = await adapter.updateDisplayName('夜'.repeat(32))
+  assert.equal(Array.from(renamed.displayName).length, 32)
+  assert.equal(renamed.publicId, 'u-9')
+  assert.equal(requests[0].init.method, 'PUT')
+  for (const invalid of ['', '   ', '夜'.repeat(33), '🎵'.repeat(33)]) {
+    await assert.rejects(adapter.updateDisplayName(invalid), { code: 'invalid-input' }, JSON.stringify(invalid))
+  }
+  assert.equal(requests.length, 1, 'invalid names never reach the network')
+  const emoji = await adapter.updateDisplayName('🎵'.repeat(32))
+  assert.equal(Array.from(emoji.displayName).length, 32)
+})
+
+test('account failures keep the server distinction instead of a generic error', async () => {
+  for (const [status, code] of [[400, 'invalid-input'], [401, 'unauthorized'], [403, 'rejected'], [500, 'rejected']]) {
+    const { adapter } = setup(async url => String(url).includes('/account/guest')
+      ? new Response('', { status })
+      : Response.json({ apiVersion: '2026-01' }))
+    await assert.rejects(adapter.createGuestSession('Night'), { code }, `HTTP ${status}`)
+  }
+  const down = setup(async url => {
+    if (String(url).includes('/account/guest')) throw new Error('sidecar_unavailable')
+    return Response.json({ apiVersion: '2026-01' })
+  })
+  await assert.rejects(down.adapter.createGuestSession('Night'), { code: 'unreachable' })
+  const malformed = setup(async url => String(url).includes('/account/guest') ? Response.json({ displayName: 'No id' }) : Response.json({ apiVersion: '2026-01' }))
+  await assert.rejects(malformed.adapter.createGuestSession('Night'), { code: 'invalid-response' })
+})

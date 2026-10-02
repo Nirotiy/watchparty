@@ -1086,6 +1086,15 @@ html.playback-mode .desktop-mica-layer{display:none}
 .bh-banner > span{min-width:0;flex:1;overflow-wrap:anywhere}
 .bh-banner button{min-height:32px}
 .bh-session{margin:14px 0 0;border-top:1px solid var(--stroke-divider);padding-top:12px;color:var(--text-secondary);font-size:12px;overflow-wrap:anywhere}
+/* 单卡段选（方案 B，2026-10-02）：加入/创建共卡；创建结果块带房号、复制与「进入房间」。 */
+.bh-room-head{justify-content:space-between}
+.bh-seg{display:inline-flex;gap:4px}
+.bh-seg-hint{font-size:11px;color:var(--muted-foreground)}
+.bh-created{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;border-top:1px solid var(--stroke-divider);padding-top:12px}
+.bh-badge-ok{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:4px;font-size:11px;color:var(--success);background:color-mix(in srgb,var(--success) 14%,transparent)}
+.bh-created-id{font-family:var(--font-mono);font-size:15px;font-weight:600;letter-spacing:.02em;overflow-wrap:anywhere}
+.bh-created-spacer{flex:1 1 auto}
+.bh-created-hint{margin:8px 0 0;color:var(--muted-foreground);font-size:11.5px;line-height:1.5}
 .bh-strip{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:16px;border:1px solid var(--stroke-card);border-radius: 8px;background:var(--fill-layer,var(--fill-card));padding:14px 18px}
 .bh-strip-copy{min-width:220px;flex:1}
 .bh-strip-copy h2{margin:0;font-size:14px;font-weight:600}
@@ -1574,12 +1583,12 @@ html:not(.dark) .linkle-room .player{border-color:var(--stroke-divider)}
 /* Linkle 大厅（方案 C：先连接、再选房）。连接卡与邀请码并列第一层，房间退成紧凑行。
    数据边界：行内只用 name / visibility / memberCount / requiresPassword / creatorPublicId，
    没有封面、简介、标签——服务端今天不提供，画上去等于给实现挖坑。 */
-.lobby-connect{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:12px;padding:4px var(--shell-content-gutter,32px) 0;max-width:var(--shell-content-width,960px)}
+/* 邀请码收成次行后连接卡独占整行（B 版单卡；2026-10-02）。 */
+.lobby-connect{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;padding:4px var(--shell-content-gutter,32px) 0;max-width:var(--shell-content-width,960px)}
 .lobby-card{display:grid;gap:2px;align-content:start;border:1px solid var(--stroke-card);border-radius:var(--radius-control);background:var(--fill-card);padding:16px}
 .lobby-card-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
 .lobby-card-head strong{font-size:16px;font-weight:600}
 .lobby-head-right{display:flex;align-items:center;gap:6px;margin-left:auto}
-.lobby-card-icon{width:18px;height:18px;color:var(--text-secondary)}
 .lobby-dot{width:10px;height:10px;border-radius:50%;background:var(--success);flex-shrink:0}
 .lobby-dot.nt{background:var(--warning)}
 .lobby-dot.no{background:var(--destructive)}
@@ -1598,7 +1607,20 @@ html:not(.dark) .linkle-room .player{border-color:var(--stroke-divider)}
 .lobby-account-panel>section{margin-top:0;border-top:0;padding-top:0}
 .lobby-account-panel>section>*+*{margin-top:6px}
 .lobby-account-panel>section>*:first-child{margin-top:0}
-.lobby-invite{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;margin-top:12px}
+/* 邀请码是兼容路径：降级成连接卡下的一条次行，输入仍在 DOM（门禁要它）。 */
+.lobby-invite{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:2px 2px 0}
+.lobby-invite-label{font-size:12px;color:var(--muted-foreground)}
+.lobby-invite input{max-width:320px}
+/* 连接卡（B 版单卡）：未连接=游客表单，已连接=原位身份区；改名走内联编辑。 */
+.lobby-connect-form{display:grid;gap:12px;margin-top:12px}
+.lobby-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.lobby-field{display:grid;gap:6px;font-size:12px;color:var(--text-secondary)}
+.lobby-identity{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;font-size:12.5px}
+.lobby-identity-label{color:var(--text-secondary)}
+.lobby-identity-id{font-family:var(--font-mono);color:var(--text-primary);overflow-wrap:anywhere}
+.lobby-rename{display:flex;align-items:center;gap:8px;margin-top:12px}
+.lobby-rename input{max-width:320px}
+.lobby-tag.guest{color:var(--warning);border-color:color-mix(in srgb,var(--warning) 45%,transparent)}
 .lobby-rooms{display:grid;gap:12px;padding:18px var(--shell-content-gutter,32px) 0;max-width:var(--shell-content-width,960px)}
 /* 大厅内容列：原来固定 960 宽贴左，窗口一宽右边就空一块（用户 2026-09-25 圈出）。
    现在填满可用宽度并居中，左右留白一致；超宽窗口下按 1120 封顶再居中。
