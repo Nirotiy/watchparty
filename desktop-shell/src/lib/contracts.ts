@@ -1,6 +1,18 @@
 export type ConnectionState = "connecting" | "ready" | "backoff" | "expired" | "failed"
 export type ClientType = "browser" | "mpv" | "desktop"
 
+/** 连接状态 → 界面文案（P3 合并：外壳会话条与设置·后端与网络此前各抄一份）。 */
+export function connectionLabel(connection?: ConnectionState): string {
+  switch (connection) {
+    case "connecting": return "正在连接"
+    case "ready": return "已连接"
+    case "backoff": return "网络重试中"
+    case "expired": return "会话已过期"
+    case "failed": return "连接失败"
+    default: return "等待加入"
+  }
+}
+
 export type MediaSource =
   | { kind: "openlist"; mediaId: string; title: string; container: string; displayPath?: string | null }
   | { kind: "http" | "hls"; url: string; title?: string | null }

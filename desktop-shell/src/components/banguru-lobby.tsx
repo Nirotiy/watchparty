@@ -148,7 +148,7 @@ export function BanguruLobby({ busy, activeRoomId, onCreate, onJoin, onEnterRoom
         <div className="my-3">
           <label className={LABEL} htmlFor="banguru-pin">PIN（可选）</label>
           <Input id="banguru-pin" type="password" inputMode="numeric" autoComplete="off" aria-invalid={validPin ? undefined : true} value={pin} onChange={event => { setPin(event.target.value.replace(/\D/g, "").slice(0, 4)); setError("") }} placeholder={mode === "create" ? "留空为公开房间" : "私有房需要 4 位 PIN"} disabled={pending || (!canJoin && !canCreateRoom)} />
-          {validPin ? null : <p className="mt-1.5 text-[11px] text-[#ff9d96]">请输入完整的 4 位 PIN</p>}
+          {validPin ? null : <p className="mt-1.5 text-xs text-[#ff9d96]">请输入完整的 4 位 PIN</p>}
         </div>
         {error ? <MessageBar variant="error" className="banguru-join-error">{error}</MessageBar> : null}
         <div className="bh-actions">

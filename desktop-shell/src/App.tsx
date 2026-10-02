@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, type CSSProperties, type ReactNode } from "react"
+import { useEffect, useRef, useState, useCallback, type CSSProperties } from "react"
 import { createPortal } from "react-dom"
 import { FluentProvider, webDarkTheme, webLightTheme } from "@fluentui/react-components"
 import { KeyRegular, PanelLeftContractRegular, PanelLeftExpandRegular, PlugConnectedRegular, PulseRegular, SaveRegular } from "@fluentui/react-icons"
@@ -22,7 +22,7 @@ import { Slider } from "@/components/ui/slider"
 import { TabBar, TabBarItem } from "@/components/ui/tabs"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useDesktopSession } from "@/hooks/use-desktop-session"
-import type { CommandAck, ConnectionState, DesktopCommand, DesktopUiState, MediaSource, NativeCapabilityReport } from "@/lib/contracts"
+import { connectionLabel, type DesktopCommand, type DesktopUiState, type MediaSource, type NativeCapabilityReport } from "@/lib/contracts"
 import { cn } from "@/lib/utils"
 import { childDirectoryPath } from "@/lib/media-library-navigation"
 import { healthLabel, legacyView, libraryKindLabel, mediaErrorText, toView, type MediaCard, type MediaView } from "@/lib/media-library-view"
@@ -41,7 +41,7 @@ import { invoke, listen } from "../shared/desktop-runtime"
 import { getDesktopWallpaperBackdrop } from "@/lib/ipc"
 import type { DomainEvent } from "../shared/domain"
 import { LinkleRoom } from "@/components/linkle-room"
-import { backendAddressError, bangumiSearch, clearSiteCredentials, createDesktopRoom, createMediaSource, catalogRebind, catalogUnconfirm, errorMessage, getDesktopSettings, listenForSettings, mediaCapabilities, mediaLibraries, mediaLibraryPage, mediaLibrarySearch, mediaList, mediaRoots, mediaSearch, probeDesktopBackend, probeDesktopReadiness, promptSiteCredentials, updateDesktopSettings, verifyBackend, verifyPrivateRoom, listOriginTrust, importOriginTrust, deleteOriginTrust, catalogPage, catalogDetail, catalogConfirm, catalogReject, libraryScrapeStatus, startLibraryScrape, type BangumiHit, type DesktopProbeReport, type DesktopSettingsStatus, artworkUrl, type MediaCapabilities, type MediaLibrary, type PlayerPreferences, type OriginTrustRecord, type ScrapeJob } from "@/lib/ipc"
+import { backendAddressError, bangumiSearch, createDesktopRoom, createMediaSource, catalogRebind, catalogUnconfirm, errorMessage, getDesktopSettings, listenForSettings, mediaCapabilities, mediaLibraries, mediaLibraryPage, mediaLibrarySearch, mediaList, mediaRoots, mediaSearch, probeDesktopBackend, probeDesktopReadiness, promptSiteCredentials, updateDesktopSettings, verifyBackend, catalogPage, catalogDetail, catalogConfirm, catalogReject, libraryScrapeStatus, startLibraryScrape, type BangumiHit, type DesktopProbeReport, type DesktopSettingsStatus, artworkUrl, type MediaCapabilities, type MediaLibrary, type ScrapeJob } from "@/lib/ipc"
 
 type View = "home" | "room" | "media" | "settings"
 type Drawer = "queue" | "members" | null
@@ -49,33 +49,14 @@ type Theme = "dark" | "light"
 /** M3 决策（§9-B）：主题可跟随系统；accent / 封面取色不受影响。 */
 type ThemePreference = Theme | "system"
 type WindowMaterial = "auto" | "none"
-type SettingsSection = "general" | "playback" | "credentials" | "network" | "security"
 
 const BACKEND_LABEL = "127.0.0.1:8080"
-
-function connectionLabel(connection?: ConnectionState): string {
-  switch (connection) {
-    case "connecting": return "正在连接"
-    case "ready": return "已连接"
-    case "backoff": return "网络重试中"
-    case "expired": return "会话已过期"
-    case "failed": return "连接失败"
-    default: return "等待加入"
-  }
-}
 
 function capabilityLabel(capability?: NativeCapabilityReport): string {
   if (!capability?.libmpvReady) return "libmpv 等待初始化"
   return [capability.vo, capability.hwdec, capability.videoCodec, capability.audioCodec]
     .filter(Boolean)
     .join(" · ") || "libmpv 已就绪"
-}
-
-function connectionTone(connection?: ConnectionState): string {
-  if (connection === "ready") return "bg-positive"
-  if (connection === "backoff") return "bg-warning"
-  if (connection === "expired" || connection === "failed") return "bg-destructive"
-  return "bg-muted-foreground"
 }
 
 /** 文件浏览器与标题墙共用的取图入口：库封面走 media，目录海报走 poster。 */
@@ -435,6 +416,13 @@ export default function App() {
     if (nextProduct === "watchparty" && view === "room" && suspendedForNavigation.current) {
       if (await session.command({ type: "playerVisibility", visible: true })) suspendedForNavigation.current = false
     }
+    // 本地音频焦点跟着产品走（2026-10-02 验收暴露）：离开 Linkle 释放焦点、本地音乐随即暂停
+    // （只动本地输出，不碰共享房间）；回到 Linkle 且连接里还有房间时重新请求，恢复播放。
+    if (nextProduct === "musicparty") {
+      if (musicParty.currentRoom()) await musicParty.setFocus("musicparty")
+    } else {
+      await musicParty.setFocus(null)
+    }
   }
 
   async function openRoomDrawer(nextDrawer: Exclude<Drawer, null>) {
@@ -476,6 +464,9 @@ export default function App() {
             </div>
           ) : null}
           <ShellToastProvider>
+          {/* M2.5：键盘用户跳过侧栏直达主内容；只在聚焦时可见。
+              不真跳 #hash——ipc 守卫按完整 URL 校验，带 hash 的 frame 会被拒成 invalid_desktop_request。 */}
+          <a className="desktop-skip-link" href="#desktop-main" onClick={(event) => { event.preventDefault(); document.getElementById("desktop-main")?.focus() }}>跳到主内容</a>
           <ShellStatusToast status={session.status} locallyHandledStatus={locallyHandledStatus} />
           <Sidebar
             collapsed={sidebarCollapsed}
@@ -491,7 +482,7 @@ export default function App() {
             onDrawer={(nextDrawer) => { if (nextDrawer !== "queue" || capabilities?.mediaQueue) void openRoomDrawer(nextDrawer) }}
             servicesDisabled={setupCompleted === false}
           />
-          <main className="desktop-main">
+          <main id="desktop-main" tabIndex={-1} className="desktop-main">
             <div className={cn("desktop-page", view === "settings" && "desktop-page-settings")}>{view === "home" && setupCompleted === false ? (
               <SetupGuide services={setupServices} onDone={() => setSetupCompleted(true)} />
             ) : view === "home" ? (product === "musicparty" ? (currentLobbyRoom?.service === "musicparty" ? (
@@ -599,16 +590,10 @@ function Sidebar({ view, state, roomId, status, onView, onDrawer, backendOrigin,
   )
 }
 
-function NavButton({ icon, label, active, disabled, onClick }: { icon: MaterialSymbolName; label: string; active?: boolean; disabled?: boolean; onClick: () => void }) {
-  return (
-    <Button className={cn("relative h-8 w-full justify-start rounded-sm px-3 text-sm", active && "bg-[var(--fill-selected)] text-[var(--text-primary)] before:absolute before:left-0 before:top-2 before:h-4 before:w-[3px] before:rounded-full before:bg-[var(--accent)] hover:bg-[var(--fill-selected)]")} variant="ghost" disabled={disabled} onClick={onClick}>
-      <MaterialSymbol name={icon} />{label}
-    </Button>
-  )
-}
-
-function SectionTitle({ children, detail }: { children: string; detail: string }) {
-  return <h1 className="text-sm font-semibold text-foreground">{children}<span className="ml-2 text-xs font-normal text-muted-foreground">{detail}</span></h1>
+/** M2.5：级别由调用点决定（页面标题 1、分节 2），不再硬编码 h1 复用到每一处。 */
+function SectionTitle({ children, detail, level = 2 }: { children: string; detail: string; level?: 1 | 2 | 3 }) {
+  const Heading = `h${level}` as "h1" | "h2" | "h3"
+  return <Heading className="text-sm font-semibold text-foreground">{children}<span className="ml-2 text-xs font-normal text-muted-foreground">{detail}</span></Heading>
 }
 
 function HomeView({ state, roomId, starting, onStart, onCreate, onAccess, onReturn, onProduct }: { state: ReturnType<typeof useDesktopSession>["state"]; roomId: string | null; starting: boolean; onStart: (ticket: string) => Promise<boolean>; onCreate: (nickname: string, pin?: string) => Promise<boolean>; onAccess: (roomId: string, nickname: string, pin?: string) => Promise<boolean>; onReturn: () => void; onProduct: (product: "watchparty" | "musicparty") => void }) {
@@ -618,7 +603,7 @@ function HomeView({ state, roomId, starting, onStart, onCreate, onAccess, onRetu
   const [joinRoomId, setJoinRoomId] = useState("")
   return (
     <div className="mx-auto min-h-full w-full max-w-[1040px] px-8 py-8">
-      <div className="mb-6 border-b border-[var(--stroke-card)] pb-4"><div className="flex items-center justify-between"><div><p className="text-xs text-[var(--text-secondary)]">Banguru · Watch Party</p><SectionTitle detail={state ? "房间仍存活" : "等待网页交接"}>房间工作台</SectionTitle></div><span className="text-xs text-[var(--text-secondary)]">桌面端 · Fluent</span></div><TabBar value="watchparty" onValueChange={(next) => { if (next !== "watchparty") onProduct("musicparty") }} panelId="workspace-panel" idPrefix="product-tab" label="产品切换" className="mt-4 flex items-end gap-1 border-b border-[var(--stroke-divider)]"><TabBarItem value="watchparty">Banguru <span className="ml-1 text-xs font-normal text-[var(--text-secondary)]">Watch Party</span></TabBarItem><TabBarItem value="musicparty">Linkle <span className="ml-1 text-xs">Music Party</span></TabBarItem></TabBar></div>
+      <div className="mb-6 border-b border-[var(--stroke-card)] pb-4"><div className="flex items-center justify-between"><div><p className="text-xs text-[var(--text-secondary)]">Banguru · Watch Party</p><SectionTitle level={1} detail={state ? "房间仍存活" : "等待网页交接"}>房间工作台</SectionTitle></div><span className="text-xs text-[var(--text-secondary)]">桌面端 · Fluent</span></div><TabBar value="watchparty" onValueChange={(next) => { if (next !== "watchparty") onProduct("musicparty") }} panelId="workspace-panel" idPrefix="product-tab" label="产品切换" className="mt-4 flex items-end gap-1 border-b border-[var(--stroke-divider)]"><TabBarItem value="watchparty">Banguru <span className="ml-1 text-xs font-normal text-[var(--text-secondary)]">Watch Party</span></TabBarItem><TabBarItem value="musicparty">Linkle <span className="ml-1 text-xs">Music Party</span></TabBarItem></TabBar></div>
       <div id="workspace-panel" role="tabpanel" aria-labelledby="product-tab-watchparty">
       {state ? (
         <section className="mt-3 flex items-center gap-3 rounded-sm border border-[var(--stroke-card)] bg-[var(--fill-card)] px-4 py-3">
@@ -1344,7 +1329,7 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
   return (
     <div className="media-library-view mx-auto min-h-full w-full max-w-[1120px] px-8 py-8">
       <header className="flex flex-wrap items-center gap-3">
-        <SectionTitle detail={usesLibraries ? "" : "OpenList"}>媒体库</SectionTitle>
+        <SectionTitle level={1} detail={usesLibraries ? "" : "OpenList"}>媒体库</SectionTitle>
         <div className="flex-1" />
         {usesLibraries
           ? libraries.map((library) => (
@@ -1530,35 +1515,6 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
   )
 }
 
-function SettingsView({ state, theme, onThemeChange, musicPartyOrigin, onMusicPartyLogout }: { state: DesktopUiState | null; theme: Theme; onThemeChange: () => void; musicPartyOrigin: string; onMusicPartyLogout: () => Promise<void> }) {
-  const [section, setSection] = useState<SettingsSection>("general")
-  const labels: Array<[SettingsSection, string]> = [["general", "通用"], ["playback", "播放"], ["credentials", "站点凭据"], ["network", "后端与网络"], ["security", "安全与会话"]]
-  return (
-    <div className="grid min-h-full grid-cols-[172px_minmax(0,1fr)]">
-      <nav className="border-r border-[var(--stroke-card)] bg-[var(--fill-card)] px-3 py-8" aria-label="设置分类">{labels.map(([value, label]) => <Button key={value} variant="ghost" onClick={() => setSection(value)} className={cn("relative h-8 w-full justify-start rounded-sm px-3 text-sm", section === value && "bg-[var(--fill-selected)] text-[var(--text-primary)] before:absolute before:left-0 before:top-2 before:h-4 before:w-[3px] before:rounded-full before:bg-[var(--accent)]")}>{label}</Button>)}</nav>
-      <section className="min-w-0 w-full max-w-[680px] px-8 py-8">
-        {section === "credentials" ? <CredentialsPanel /> : null}
-        {section === "general" ? <GeneralPanel theme={theme} onThemeChange={onThemeChange} /> : null}
-        {section === "playback" ? <PlaybackPanel state={state} /> : null}
-        {section === "network" ? <NetworkPanel state={state} /> : null}
-        {section === "security" ? <SecurityPanel musicPartyOrigin={musicPartyOrigin} onLogout={onMusicPartyLogout} /> : null}
-      </section>
-    </div>
-  )
-}
-
-function SecurityPanel({ musicPartyOrigin, onLogout }: { musicPartyOrigin: string; onLogout: () => Promise<void> }) {
-  const [roomId, setRoomId] = useState("")
-  const [password, setPassword] = useState("")
-  const [origin, setOrigin] = useState("")
-  const [pem, setPem] = useState("")
-  const [records, setRecords] = useState<OriginTrustRecord[]>([])
-  const [message, setMessage] = useState("")
-  useEffect(() => { void listOriginTrust().then(setRecords).catch(() => setMessage("TLS 信任管理暂不可用")) }, [])
-  async function run(action: () => Promise<unknown>, ok: string) { try { await action(); setMessage(ok) } catch (error) { setMessage(errorMessage(error, "该原生能力暂不可用，请更新桌面端后重试")) } }
-  return <><SettingsHeading title="安全与会话" detail="私有房间授权、服务端注销与按服务来源隔离的 TLS 信任。" /><div className="space-y-6"><div className="border-y border-border py-4"><p className="text-xs font-medium">私有房间</p><div className="mt-3 grid gap-2 sm:grid-cols-2"><Input value={roomId} onChange={(e) => setRoomId(e.target.value)} placeholder="房间 ID" aria-label="房间 ID" /><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="房间密码" aria-label="房间密码" /></div><Button className="mt-3" size="sm" disabled={!roomId || !password} onClick={() => void run(() => verifyPrivateRoom(roomId, password, musicPartyOrigin), "房间授权已更新")}>验证并保存授权</Button></div><div className="border-y border-border py-4"><p className="text-xs font-medium">服务端会话</p><Button className="mt-3" variant="outline" size="sm" onClick={() => void run(onLogout, "已从服务端注销")}>注销 Linkle</Button></div><div className="border-y border-border py-4"><p className="text-xs font-medium">Origin TLS 信任</p><Input className="mt-3" value={origin} onChange={(e) => setOrigin(e.target.value)} placeholder="https://music.example.com" aria-label="服务来源" /><textarea className="mt-2 min-h-20 w-full rounded-md border border-border bg-background p-2 text-xs font-mono" value={pem} onChange={(e) => setPem(e.target.value)} placeholder="粘贴 PEM 证书" aria-label="PEM 证书" /><Button className="mt-3" size="sm" disabled={!origin || !pem} onClick={() => void run(() => importOriginTrust({ origin, pem }).then((r) => setRecords((v) => [...v.filter((x) => x.origin !== r.origin), r])), "已保存该来源的 TLS 信任")}>导入或替换</Button><ul className="mt-3 divide-y divide-border border-y border-border">{records.map((record) => <li key={record.origin} className="flex items-center justify-between py-2 text-xs"><span className="truncate">{record.origin}<span className="ml-2 text-muted-foreground">{record.fingerprint}</span></span><Button variant="ghost" size="sm" onClick={() => void run(() => deleteOriginTrust(record.origin).then(() => setRecords((v) => v.filter((x) => x.origin !== record.origin)),), "已删除信任记录")}>删除</Button></li>)}</ul></div></div><p role="status" className="mt-3 text-xs text-muted-foreground">{message}</p></>
-}
-
 async function persistTheme(theme: ThemePreference, windowMaterial: WindowMaterial, setTheme: (theme: ThemePreference) => void) {
   const current = await getDesktopSettings()
   await updateDesktopSettings({
@@ -1586,217 +1542,9 @@ async function persistWindowMaterial(windowMaterial: WindowMaterial, setWindowMa
   setWindowMaterial(nextMaterial)
 }
 
-function SettingsHeading({ title, detail }: { title: string; detail: string }) {
-  return <div className="mb-5"><h1 className="text-sm font-semibold">{title}</h1><p className="mt-1 text-xs text-muted-foreground">{detail}</p></div>
-}
-
-function CredentialsPanel() {
-  const [status, setStatus] = useState<DesktopSettingsStatus | null>(null)
-  const [message, setMessage] = useState("正在读取原生凭据状态…")
-  const [busy, setBusy] = useState(false)
-  useEffect(() => { void getDesktopSettings().then((value) => { setStatus(value); setMessage(value.backendOrigin ? "" : "请先在后端与网络中保存站点") }).catch((error: unknown) => setMessage(errorMessage(error, "无法读取凭据状态"))) }, [])
-  async function prompt() {
-    setBusy(true)
-    setMessage("等待系统凭据对话框…")
-    try {
-      const result = await promptSiteCredentials()
-      if (result) { setStatus(result); setMessage("凭据已保存，请重新加入房间") }
-      else setMessage("已取消，凭据未更改")
-    } catch (error) { setMessage(errorMessage(error, "凭据录入失败")) }
-    finally { setBusy(false) }
-  }
-  async function clear() {
-    setBusy(true)
-    try { setStatus(await clearSiteCredentials()); setMessage("凭据已清除，原会话已停止") } catch (error) { setMessage(errorMessage(error, "清除凭据失败")) }
-    finally { setBusy(false) }
-  }
-  async function verify() {
-    setBusy(true)
-    setMessage("正在验证后端…")
-    try { await verifyBackend(); setMessage("后端连接正常") } catch (error) { setMessage(errorMessage(error, "后端验证失败")) }
-    finally { setBusy(false) }
-  }
-  return <><SettingsHeading title="站点凭据" detail="站点密码保存在 Windows 凭据库中。更改凭据会结束当前房间会话。" /><div className="border-y border-border"><SettingRow icon="shield" title="Basic Auth" detail={status?.credentialsConfigured ? "已配置，密码不会从界面读回" : "未配置"}><span className="text-xs text-muted-foreground">{status?.credentialsConfigured ? "已配置" : "未配置"}</span></SettingRow></div><div className="mt-5 flex gap-2"><Button disabled={busy || !status?.backendOrigin} onClick={() => void prompt()}>打开系统凭据对话框</Button><Button variant="outline" onClick={() => void clear()} disabled={busy || !status?.credentialsConfigured}>清除</Button><Button variant="ghost" disabled={busy || !status?.backendOrigin} onClick={() => void verify()}>验证后端</Button></div><p role="status" className="mt-3 text-xs text-muted-foreground">{message}</p></>
-}
-
-function GeneralPanel({ theme, onThemeChange }: { theme: Theme; onThemeChange: () => void }) {
-  return <><SettingsHeading title="通用" detail="调整桌面端的外观行为。" /><div className="border-y border-border"><SettingRow icon={theme === "dark" ? "dark-mode" : "light-mode"} title="主题" detail="纯黑深色 / 浅色"><Button variant="outline" size="sm" onClick={onThemeChange}>{theme === "dark" ? "切换浅色" : "切换深色"}</Button></SettingRow></div></>
-}
-
-function PlaybackPanel({ state }: { state: DesktopUiState | null }) {
-  const [preferences, setPreferences] = useState<PlayerPreferences | null>(null)
-  const [failures, setFailures] = useState<string[]>([])
-  const [message, setMessage] = useState("")
-  const [backendOrigin, setBackendOrigin] = useState<string | null>(null)
-  useEffect(() => { void getDesktopSettings().then((s) => setBackendOrigin(s.backendOrigin)).catch(() => setMessage("请先配置后端站点")) }, [])
-  const [busy, setBusy] = useState(false)
-  useEffect(() => {
-    void getDesktopSettings()
-      .then((settings) => {
-        setPreferences(settings.playerPreferences)
-        setFailures(settings.playerPreferenceFailures ?? [])
-      })
-      .catch((error: unknown) => setMessage(errorMessage(error, "无法读取播放设置")))
-  }, [])
-
-  function patch(patch: Partial<PlayerPreferences>) {
-    setPreferences((current) => (current ? { ...current, ...patch } : current))
-  }
-
-  async function save() {
-    if (!preferences) return
-    setBusy(true)
-    try {
-      const current = await getDesktopSettings()
-      const updated = await updateDesktopSettings({
-        backendOrigin: current.backendOrigin,
-        nickname: current.nickname,
-        theme: current.theme,
-        windowMaterial: current.windowMaterial,
-        playerPreferences: preferences,
-        allowRemoteHttp: current.allowRemoteHttp,
-      })
-      setPreferences(updated.playerPreferences)
-      setFailures(updated.playerPreferenceFailures ?? [])
-      setMessage((updated.playerPreferenceFailures ?? []).length > 0
-        ? "已保存；部分即时项未能应用到当前播放器"
-        : "已保存")
-    } catch (error) {
-      setMessage(errorMessage(error, "播放设置保存失败"))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  if (!preferences) {
-    return <><SettingsHeading title="播放" detail="白名单播放器设置。" /><p className="text-xs text-muted-foreground">{message || "正在读取…"}</p></>
-  }
-
-  return (
-    <>
-      <SettingsHeading title="播放" detail="每项标注生效时机；非法值会在保存时拒绝并保留原值。" />
-      <div className="divide-y divide-border border-y border-border">
-        <SettingRow icon="speed" title="硬件解码" detail="重建播放器后生效">
-          <Select value={preferences.hardwareDecoding} onValueChange={(value) => patch({ hardwareDecoding: value as PlayerPreferences["hardwareDecoding"] })}>
-            <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto-safe">安全自动</SelectItem>
-              <SelectItem value="auto">自动</SelectItem>
-              <SelectItem value="no">关闭</SelectItem>
-            </SelectContent>
-          </Select>
-        </SettingRow>
-        <SettingRow icon="monitor" title="去隔行" detail="立即生效">
-          <Select value={preferences.deinterlace} onValueChange={(value) => patch({ deinterlace: value as PlayerPreferences["deinterlace"] })}>
-            <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">自动</SelectItem>
-              <SelectItem value="on">开</SelectItem>
-              <SelectItem value="off">关</SelectItem>
-            </SelectContent>
-          </Select>
-        </SettingRow>
-        <SettingRow icon="monitor" title="HDR 输出" detail="立即生效：跟随默认 / 转 SDR / 原样">
-          <Select value={preferences.hdr} onValueChange={(value) => patch({ hdr: value as PlayerPreferences["hdr"] })}>
-            <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">跟随默认</SelectItem>
-              <SelectItem value="sdr">转 SDR</SelectItem>
-              <SelectItem value="passthrough">原样</SelectItem>
-            </SelectContent>
-          </Select>
-        </SettingRow>
-        <SettingRow icon="volume-up" title="音频输出设备" detail="立即生效；设备消失回退系统默认">
-          <Input value={preferences.audioDevice ?? ""} onChange={(event) => patch({ audioDevice: event.target.value.trim() || null })} placeholder="系统默认" aria-label="音频输出设备" className="h-8 w-56 font-mono text-xs" />
-        </SettingRow>
-        <SettingRow icon="music-note" title="声道" detail="立即生效；不做 bitstream 直通">
-          <Select value={preferences.channelLayout} onValueChange={(value) => patch({ channelLayout: value as PlayerPreferences["channelLayout"] })}>
-            <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">自动</SelectItem>
-              <SelectItem value="stereo">立体声</SelectItem>
-            </SelectContent>
-          </Select>
-        </SettingRow>
-        <SettingRow icon="volume-up" title="默认音量" detail={`${preferences.defaultVolume}% · 新建播放器时生效`}>
-          <Slider value={[preferences.defaultVolume]} min={0} max={100} step={1} className="w-44" onValueChange={(values) => patch({ defaultVolume: values[0] ?? 30 })} />
-        </SettingRow>
-        <SettingRow icon="music-note" title="首选音轨语言" detail="下次载入生效（如 chi,eng）">
-          <Input value={preferences.audioLanguage} onChange={(event) => patch({ audioLanguage: event.target.value })} placeholder="默认" aria-label="首选音轨语言" className="h-8 w-36 text-xs" />
-        </SettingRow>
-        <SettingRow icon="subtitles" title="字幕语言顺序" detail="下次载入生效（如 chi,eng）">
-          <Input value={preferences.subtitleLanguage} onChange={(event) => patch({ subtitleLanguage: event.target.value })} placeholder="默认" aria-label="字幕语言顺序" className="h-8 w-36 text-xs" />
-        </SettingRow>
-        <SettingRow icon="subtitles" title="字幕字体" detail="立即生效（非 ASS 文本字幕）">
-          <Input value={preferences.subtitleFont} onChange={(event) => patch({ subtitleFont: event.target.value })} placeholder="系统默认" aria-label="字幕字体" className="h-8 w-44 text-xs" />
-        </SettingRow>
-        <SettingRow icon="subtitles" title="字幕相对字号" detail={`×${preferences.subtitleScale.toFixed(1)} · 立即生效`}>
-          <Slider value={[preferences.subtitleScale]} min={0.5} max={3} step={0.1} className="w-44" onValueChange={(values) => patch({ subtitleScale: values[0] ?? 1 })} />
-        </SettingRow>
-        <SettingRow icon="subtitles" title="ASS 样式覆盖" detail="立即生效：开 = 用上面的字体/字号覆盖内嵌样式">
-          <Button variant="outline" size="sm" onClick={() => patch({ subtitleAssOverride: !preferences.subtitleAssOverride })}>
-            {preferences.subtitleAssOverride ? "覆盖开" : "尊重原样式"}
-          </Button>
-        </SettingRow>
-        <SettingRow icon="subtitles" title="字幕延迟" detail={`${preferences.subtitleDelay.toFixed(1)}s · 立即生效，换片重置`}>
-          <Slider value={[preferences.subtitleDelay]} min={-30} max={30} step={0.5} className="w-44" onValueChange={(values) => patch({ subtitleDelay: values[0] ?? 0 })} />
-        </SettingRow>
-        <SettingRow icon="sync" title="缓存预设" detail="重建播放器后生效">
-          <Select value={preferences.cacheProfile} onValueChange={(value) => patch({ cacheProfile: value as PlayerPreferences["cacheProfile"] })}>
-            <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">自动</SelectItem>
-              <SelectItem value="low-latency">低延迟</SelectItem>
-              <SelectItem value="stable">稳定</SelectItem>
-            </SelectContent>
-          </Select>
-        </SettingRow>
-        <SettingRow icon="sync" title="网络超时" detail={`${preferences.networkTimeout}s · 下次载入生效（5-120）`}>
-          <Input type="number" min={5} max={120} value={preferences.networkTimeout} onChange={(event) => patch({ networkTimeout: Math.min(120, Math.max(5, Number(event.target.value) || 30)) })} aria-label="网络超时秒数" className="h-8 w-24 text-xs" />
-        </SettingRow>
-      </div>
-      <div className="mt-5 flex items-center gap-3">
-        <Button onClick={() => void save()} disabled={busy}>保存播放设置</Button>
-        <span className="text-xs text-muted-foreground">{message}</span>
-      </div>
-      {failures.length > 0 ? (
-        <p className="mt-2 text-xs text-warning">未生效项：{failures.join("、")}（保留的值将在下次重建播放器时重试）</p>
-      ) : null}
-      {state?.capability ? (
-        <p className="mt-3 font-mono text-xs text-muted-foreground">
-          当前生效：hwdec={state.capability.hwdec ?? state.capability.hwdecConfigured ?? "-"} · vo={state.capability.vo ?? "-"}
-        </p>
-      ) : null}
-    </>
-  )
-}
-
-function NetworkPanel({ state }: { state: DesktopUiState | null }) {
-  const [origin, setOrigin] = useState("")
-  const [settings, setSettings] = useState<DesktopSettingsStatus | null>(null)
-  const [message, setMessage] = useState("")
-  const [backendOrigin, setBackendOrigin] = useState<string | null>(null)
-  useEffect(() => { void getDesktopSettings().then((s) => setBackendOrigin(s.backendOrigin)).catch(() => setMessage("请先配置后端站点")) }, [])
-  const [busy, setBusy] = useState(false)
-  useEffect(() => { void getDesktopSettings().then((value) => { setSettings(value); setOrigin(value.backendOrigin ?? "") }).catch((error: unknown) => setMessage(errorMessage(error, "无法读取设置"))) }, [])
-  async function save() {
-    setBusy(true)
-    try {
-      const current = await getDesktopSettings()
-      const updated = await updateDesktopSettings({ backendOrigin: origin.trim() || null, nickname: current.nickname, theme: current.theme, windowMaterial: current.windowMaterial, playerPreferences: current.playerPreferences, allowRemoteHttp: current.allowRemoteHttp })
-      setSettings(updated)
-      setOrigin(updated.backendOrigin ?? "")
-      setMessage(updated.backendOrigin !== current.backendOrigin ? "站点已更新，请验证连接后重新加入房间" : "已保存")
-    } catch (error) { setMessage(errorMessage(error, "设置保存失败")) }
-    finally { setBusy(false) }
-  }
-  return <><SettingsHeading title="后端与网络" detail="使用 HTTPS 地址，本机可用 HTTP。更换站点会结束当前房间会话；留空可清除站点。" /><div className="border-y border-border"><SettingRow icon="sync" title="WatchParty 站点" detail={settings?.backendOrigin ? connectionLabel(state?.connection) : "未配置"}><Input aria-label="站点地址" disabled={busy} value={origin} onChange={(event) => setOrigin(event.target.value)} placeholder={`http://${BACKEND_LABEL}`} className="w-64 font-mono text-xs" /></SettingRow></div><div className="mt-5 flex items-center gap-3"><Button disabled={busy || !settings} onClick={() => void save()}>保存站点</Button><span role="status" className="text-xs text-muted-foreground">{message}</span></div></>
-}
-
-function SettingRow({ icon, title, detail, children }: { icon: MaterialSymbolName; title: string; detail: string; children: ReactNode }) {
-  return <div className="flex min-h-16 items-center gap-3 py-3"><MaterialSymbol name={icon} className="size-5 text-muted-foreground" /><div className="min-w-0 flex-1"><h2 className="text-xs font-medium">{title}</h2><p className="mt-1 text-xs text-muted-foreground">{detail}</p></div>{children}</div>
-}
-
 function TerminalOverlay({ state, onLeave }: { state: DesktopUiState; onLeave: () => void }) {
-  return <section className="fixed inset-0 z-50 grid place-items-center bg-black/86 px-6" aria-live="assertive"><div className="terminal-overlay-card w-full max-w-lg border border-border p-7"><p className="mb-2 font-mono text-xs text-primary">{state.error?.code ?? "DESKTOP_SESSION_FAILED"}</p><h1 className="text-2xl font-semibold">{state.connection === "expired" ? "桌面会话已过期" : "桌面会话不可用"}</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">{state.error?.message ?? "请返回网页房间重新生成一次性交接码。"}</p><Button className="mt-6" onClick={onLeave}>重新加入</Button></div></section>
+  // M2.5：错误码只进日志，界面上说人话（标题给结论、正文给原因与下一步）。
+  const code = state.error?.code
+  useEffect(() => { if (code) console.error("[desktop-session]", code) }, [code])
+  return <section className="fixed inset-0 z-50 grid place-items-center bg-black/86 px-6" aria-live="assertive"><div className="terminal-overlay-card w-full max-w-lg border border-border p-7"><h1 className="text-2xl font-semibold">{state.connection === "expired" ? "桌面会话已过期" : "桌面会话不可用"}</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">{state.error?.message ?? "请返回网页房间重新生成一次性交接码。"}</p><Button className="mt-6" onClick={onLeave}>重新加入</Button></div></section>
 }

@@ -854,6 +854,27 @@ function errCode(error: unknown): string {
   return error instanceof Error ? error.message : "unknown"
 }
 
+/** M2.5 错误码字典：码翻译成人话（含下一步）；原始码只进 console，不上屏。 */
+const ERROR_COPY: Record<string, string> = {
+  TIMEOUT: "服务器响应超时，请重试。",
+  DISCONNECTED: "与服务器的连接已断开，请重新连接后再试。",
+  NOT_CONNECTED: "还没有连接服务器，请先在「服务与账号」里连接。",
+  INVALID_RESPONSE: "服务器返回了无法识别的数据，请确认客户端与服务端版本一致。",
+  PAYLOAD_INVALID: "请求内容无效，请检查后重试。",
+  REJECTED: "服务器拒绝了这次操作，请稍后重试。",
+  unauthorized: "登录会话已失效，请重新输入邀请码或重新连接。",
+  forbidden: "没有权限执行该操作。",
+  "not-found": "目标不存在，请刷新后重试。",
+  "invalid-input": "输入内容无效，请检查后重试。",
+  "http-error": "服务器请求失败，请稍后重试。",
+  "version-incompatible": "客户端与服务端版本不兼容，请升级后再试。",
+}
+function errText(error: unknown, fallback: string): string {
+  const code = errCode(error)
+  if (code !== "unknown") console.warn("[linkle]", code)
+  return ERROR_COPY[code] ?? fallback
+}
+
 /** Server rejection codes, phrased for the person who clicked. */
 const DENY_MESSAGE: Record<string, string> = {
   PAUSE_LOCKED: "房主开启了暂停锁，暂停和继续暂时不可用",
@@ -1473,7 +1494,7 @@ function PlaylistsPanel({ connection, queue, history, onLikesRowRemoved }: { con
       setOpenId(first)
       return first ? target.getPlaylistTracks(scope, first, { offset: 0, limit: PAGE }) : []
     }).then(items => { if (token && items) { setTracks(items); setMessage("") } })
-      .catch(error => { if (token) setMessage(`歌单加载失败：${errCode(error)}`) })
+      .catch(error => { if (token) setMessage(`歌单加载失败：${errText(error, "请稍后重试。")}`) })
       .finally(() => { if (token) setBusy(false) })
     return () => { token = false }
   }, [connection, scope])
@@ -1514,7 +1535,7 @@ function PlaylistsPanel({ connection, queue, history, onLikesRowRemoved }: { con
     if (!target) { setMessage("还没有连接到 Linkle 服务"); return }
     setBusy(true)
     try { setMessage(await work(target)) }
-    catch (error) { setMessage(`操作失败：${errCode(error)}`) }
+    catch (error) { setMessage(`操作失败：${errText(error, "请稍后重试。")}`) }
     finally { setBusy(false) }
   }
 
@@ -1523,7 +1544,7 @@ function PlaylistsPanel({ connection, queue, history, onLikesRowRemoved }: { con
     if (!target) return
     setOpenId(playlistId); setMenuId(null); setBusy(true)
     void target.getPlaylistTracks(scope, playlistId, { offset: 0, limit: PAGE }).then(items => { setTracks(items); setBusy(false) })
-      .catch(error => { setMessage(`歌单加载失败：${errCode(error)}`); setBusy(false) })
+      .catch(error => { setMessage(`歌单加载失败：${errText(error, "请稍后重试。")}`); setBusy(false) })
   }
   function loadMore() {
     const target = adapterOf(connection)
@@ -1531,7 +1552,7 @@ function PlaylistsPanel({ connection, queue, history, onLikesRowRemoved }: { con
     setBusy(true)
     void target.getPlaylistTracks(scope, openId, { offset: tracks.length, limit: PAGE })
       .then(items => { setTracks(current => [...current, ...items]); setBusy(false) })
-      .catch(error => { setMessage(`歌单加载失败：${errCode(error)}`); setBusy(false) })
+      .catch(error => { setMessage(`歌单加载失败：${errText(error, "请稍后重试。")}`); setBusy(false) })
   }
 
   /** 新建改成面板内联输入：window.prompt 在沉浸整页里是块状的，也让「重名」无从提示。 */

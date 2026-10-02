@@ -13,7 +13,7 @@ import {
   CheckmarkCircleRegular, DeleteRegular, GlobeRegular, LibraryRegular,
   PlayCircleRegular, PulseRegular, SaveRegular, SettingsRegular, ShieldRegular, WarningRegular,
 } from "@fluentui/react-icons"
-import type { DesktopUiState } from "@/lib/contracts"
+import { connectionLabel, type DesktopUiState } from "@/lib/contracts"
 import { useShellToast } from "@/components/shell-toast"
 import {
   backendAddressError, catalogApprovalSecretStatus, setCatalogApprovalSecret, clearSiteCredentials, createMediaSource, deleteOriginTrust, errorMessage, getDesktopSettings, importOriginTrust,
@@ -46,15 +46,6 @@ const sections: Array<{ value: SettingsSection; label: string; icon: typeof Sett
   { value: "media", label: "媒体库", icon: LibraryRegular },
   { value: "security", label: "安全与高级", icon: ShieldRegular },
 ]
-
-function connectionLabel(connection?: DesktopUiState["connection"]): string {
-  if (connection === "connecting") return "正在连接"
-  if (connection === "ready") return "已连接"
-  if (connection === "backoff") return "网络重试中"
-  if (connection === "expired") return "会话已过期"
-  if (connection === "failed") return "连接失败"
-  return "等待加入"
-}
 
 function useSettingsMessage(initialMessage = "") {
   const notify = useShellToast()
@@ -95,7 +86,8 @@ export function FluentSettingsView({ state, themePreference, onThemeChange, wind
   return <div className="fluent-settings-provider">
     <div className="fluent-settings-layout">
       <nav className="fluent-settings-nav" aria-label="设置分类">
-        <Text as="h2" size={500} weight="semibold" className="fluent-settings-nav-title">设置</Text>
+        {/* M2.5：侧栏标签不是标题（它排在页面 h1 之前会倒挂），只做视觉文本。 */}
+        <Text size={500} weight="semibold" className="fluent-settings-nav-title">设置</Text>
         <TabBar value={section} onValueChange={(next) => setSection(next as SettingsSection)} panelId="settings-panel" idPrefix="settings-tab" label="设置分类" className="flex items-center">
           {sections.map(({ value, label, icon: Icon }) => <TabBarItem key={value} value={value} icon={<Icon />}>{label}</TabBarItem>)}
         </TabBar>

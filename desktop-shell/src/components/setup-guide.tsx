@@ -83,7 +83,7 @@ type LinkleVerifyPhase = { kind: "idle" } | { kind: "running" } | { kind: "done"
 type RedeemPhase = { kind: "idle" } | { kind: "running" } | { kind: "done"; accountName: string } | { kind: "error"; message: string }
 
 const LABEL = "mb-1.5 block text-xs text-[var(--text-secondary)]"
-const HINT = "mt-1.5 text-[11px] text-[var(--text-disabled)]"
+const HINT = "mt-1.5 text-xs text-[var(--text-disabled)]"
 
 export function SetupGuide({ services, onDone, seed }: SetupGuideProps) {
   const [step, setStep] = useState<SetupStepId>("banguru-origin")
@@ -273,15 +273,15 @@ function StepRail({ step, skippedBanguruPath }: { step: SetupStepId; skippedBang
         const current = stepIndex(step)
         const skipped = skippedBanguruPath && BANGURU_PATH_STEPS.includes(id)
         const className = skipped
-          ? "flex items-center gap-1.5 rounded px-2 py-1 text-[11px] text-[var(--text-disabled)] line-through"
+          ? "flex items-center gap-1.5 rounded px-2 py-1 text-xs text-[var(--text-disabled)] line-through"
           : index < current
-            ? "flex items-center gap-1.5 rounded px-2 py-1 text-[11px] text-[#5dd39e]"
+            ? "flex items-center gap-1.5 rounded px-2 py-1 text-xs text-[#5dd39e]"
             : id === step
-              ? "flex items-center gap-1.5 rounded bg-[var(--fill-selected)] px-2 py-1 text-[11px] text-[var(--accent)]"
-              : "flex items-center gap-1.5 rounded px-2 py-1 text-[11px] text-[var(--text-disabled)]"
+              ? "flex items-center gap-1.5 rounded bg-[var(--fill-selected)] px-2 py-1 text-xs text-[var(--accent)]"
+              : "flex items-center gap-1.5 rounded px-2 py-1 text-xs text-[var(--text-disabled)]"
         return (
           <li key={id} aria-current={id === step ? "step" : undefined} className={className}>
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[10px] font-semibold">
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-xs font-semibold">
               {index < current && !skipped ? "✓" : index + 1}
             </span>
             {SETUP_STEP_LABELS[id]}
@@ -318,7 +318,7 @@ export function BanguruOriginPanel({ origin, error, busy, onOriginChange, onNext
           autoComplete="off"
           disabled={busy}
         />
-        {error ? <p role="alert" className="mt-1.5 text-[11px] text-[#ff9d96]">{error}</p> : null}
+        {error ? <p role="alert" className="mt-1.5 text-xs text-[#ff9d96]">{error}</p> : null}
         <p className={HINT}>Banguru 后端默认监听 8080；把「主机」换成你部署服务器的地址。远程服务器请用 HTTPS；「允许远程 HTTP」开关只影响 Banguru 侧。</p>
       </div>
       <p>
@@ -397,7 +397,7 @@ export function AccountPanel({ credentialsConfigured, nickname, busy, onPromptCr
       <div className="mb-2 flex items-center justify-between gap-2.5 rounded border border-[var(--stroke-card)] bg-[var(--fill-card)] px-3 py-2.5 text-sm">
         <div>
           <strong className="text-sm">站点登录（Basic Auth）</strong>
-          <span className="block text-[11px] text-[var(--text-secondary)]">{credentialsConfigured ? "已保存账号和密码" : "未设置 · 与房间 PIN 不同"}</span>
+          <span className="block text-xs text-[var(--text-secondary)]">{credentialsConfigured ? "已保存账号和密码" : "未设置 · 与房间 PIN 不同"}</span>
         </div>
         {credentialsConfigured || credentialsDismissed ? (
           <span className="text-xs text-[var(--text-secondary)]">可稍后在「设置 → 安全与高级」修改</span>
@@ -455,10 +455,10 @@ export function LinkleOriginPanel({ linkleOrigin, error, busy, verify, onVerify,
           autoComplete="off"
           disabled={busy}
         />
-        {error ? <p role="alert" className="mt-1.5 text-[11px] text-[#ff9d96]">{error}</p> : null}
-        {verify.kind === "running" ? <p role="status" className="mt-1.5 text-[11px] text-[var(--text-secondary)]">正在验证媒体源…</p> : null}
-        {verify.kind === "done" && verify.outcome.ok && verify.outcome.line ? <p role="status" className="mt-1.5 text-[11px] text-[var(--text-secondary)]">{verify.outcome.line}</p> : null}
-        {verify.kind === "done" && !verify.outcome.ok ? <p role="alert" className="mt-1.5 text-[11px] text-[#ff9d96]">{verify.outcome.message}</p> : null}
+        {error ? <p role="alert" className="mt-1.5 text-xs text-[#ff9d96]">{error}</p> : null}
+        {verify.kind === "running" ? <p role="status" className="mt-1.5 text-xs text-[var(--text-secondary)]">正在验证媒体源…</p> : null}
+        {verify.kind === "done" && verify.outcome.ok && verify.outcome.line ? <p role="status" className="mt-1.5 text-xs text-[var(--text-secondary)]">{verify.outcome.line}</p> : null}
+        {verify.kind === "done" && !verify.outcome.ok ? <p role="alert" className="mt-1.5 text-xs text-[#ff9d96]">{verify.outcome.message}</p> : null}
         <p className={HINT}>本地调试栈地址为 http://127.0.0.1:18380；远程服务器请用 HTTPS——Linkle 侧不允许非回环 HTTP（与 Banguru 策略不同）。</p>
       </div>
       <div className="mt-4 flex items-center justify-between">
@@ -516,9 +516,9 @@ export function LinkleInvitePanel({ linkleOrigin, busy, finishError, onBack, onS
           <Button variant="default" onClick={submitRedeem} disabled={busy || !inviteCode.trim() || redeemState.kind === "running"}>兑换</Button>
         </span>
         <p className={HINT}>服务器：{linkleOrigin}。一次性邀请码只用于换取登录会话，不会被保存、显示或写入日志。</p>
-        {redeemState.kind === "running" ? <p role="status" className="mt-1.5 text-[11px] text-[var(--text-secondary)]">正在兑换…</p> : null}
-        {redeemState.kind === "done" ? <p role="status" className="mt-1.5 text-[11px] text-[#5dd39e]">当前账号：{redeemState.accountName} · 兑换成功，可直接加入房间</p> : null}
-        {redeemState.kind === "error" ? <p role="alert" className="mt-1.5 text-[11px] text-[#ff9d96]">{redeemState.message}</p> : null}
+        {redeemState.kind === "running" ? <p role="status" className="mt-1.5 text-xs text-[var(--text-secondary)]">正在兑换…</p> : null}
+        {redeemState.kind === "done" ? <p role="status" className="mt-1.5 text-xs text-[#5dd39e]">当前账号：{redeemState.accountName} · 兑换成功，可直接加入房间</p> : null}
+        {redeemState.kind === "error" ? <p role="alert" className="mt-1.5 text-xs text-[#ff9d96]">{redeemState.message}</p> : null}
       </div>
       {finishError ? <MessageBar variant="error"><div>{finishError}</div></MessageBar> : null}
       <div className="mt-4 flex items-center justify-between">
