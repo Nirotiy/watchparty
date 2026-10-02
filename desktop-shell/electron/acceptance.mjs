@@ -152,7 +152,7 @@ async function checkLinkleWorkspace({ js, until, wait, service, shot, shotRect, 
   assert.equal(noSplit.legacyMode, null, `仍在写已废弃的 linkle.mode: ${noSplit.legacyMode}`)
 
   // 房名不能被播放条压住（分栏时的老问题，改成左列静态控制台后仍要成立）。
-  const identity = await box('.linkle-room .identity h2')
+  const identity = await box('.linkle-room .identity :is(h1,h2)')
   const bar = await box('.linkle-room .bar-holder')
   assert.ok(identity && bar && identity.bottom <= bar.top, `room name overlaps the player bar: ${JSON.stringify({ identity, bar })}`)
   const headTitle = await box('.linkle-room .panel-head strong')
@@ -1541,7 +1541,7 @@ async function checkLinkleWorkspace({ js, until, wait, service, shot, shotRect, 
   assert.equal(joinDialog.asksPassword, false, `房主进自己的私密房不该再要一次密码: ${JSON.stringify(joinDialog)}`)
   await js(`Array.from(document.querySelectorAll('.lobby-dialog footer button')).find(button => button.textContent.includes('加入房间')).click()`)
   await until(() => js(`Boolean(document.querySelector('.linkle-room .roomhead'))`), 'entered the private room as its creator')
-  evidence.privateRoomJoined = await js(`document.querySelector('.linkle-room .identity h2')?.textContent ?? null`)
+  evidence.privateRoomJoined = await js(`document.querySelector('.linkle-room .identity :is(h1,h2)')?.textContent ?? null`)
   console.log('PRIVATE_ROOM_JOINED ' + JSON.stringify(evidence.privateRoomJoined))
   await shot('18-private-room')
   // Leave again so the lobby checks below still describe the same surface.
