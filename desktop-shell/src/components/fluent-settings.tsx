@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react"
 import {
   Accordion, AccordionHeader, AccordionItem, AccordionPanel,
-  Button, Dropdown, Field, Input, MessageBar, MessageBarBody, MessageBarTitle,
-  Option, Switch, Tab, TabList, Text, Textarea,
+  Dropdown, Option, Switch, Text, Textarea,
 } from "@fluentui/react-components"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { MessageBar } from "@/components/ui/message-bar"
+import { ProgressRing } from "@/components/ui/progress-ring"
 import { Slider as WinUiSlider } from "@/components/ui/slider"
+import { TabBar, TabBarItem } from "@/components/ui/tabs"
 import {
   CheckmarkCircleRegular, DeleteRegular, GlobeRegular, LibraryRegular,
   PlayCircleRegular, PulseRegular, SaveRegular, SettingsRegular, ShieldRegular, WarningRegular,
@@ -28,7 +32,12 @@ import { invoke } from "../../shared/desktop-runtime"
 import { musicPartyOriginError } from "../../shared/local-schema"
 
 type Theme = "dark" | "light"
+/** M3 决策（§9-B）：明暗可跟随系统；accent 与封面取色保持自有来源。 */
+type ThemePreference = Theme | "system"
 type SettingsSection = "general" | "network" | "playback" | "media" | "security"
+
+const FIELD_LABEL = "block text-xs text-[var(--text-secondary)]"
+const FIELD_HINT = "text-xs text-[var(--muted-foreground)]"
 
 const sections: Array<{ value: SettingsSection; label: string; icon: typeof SettingsRegular }> = [
   { value: "general", label: "基础", icon: SettingsRegular },
@@ -62,7 +71,7 @@ function useSettingsMessage(initialMessage = "") {
 function StatusMessage({ message, intent = "info" }: { message: string; intent?: "info" | "success" | "warning" | "error" }) {
   if (!message) return null
   const Icon = intent === "error" || intent === "warning" ? WarningRegular : CheckmarkCircleRegular
-  return <MessageBar intent={intent} layout="multiline" className="fluent-settings-message"><MessageBarBody><MessageBarTitle><Icon /> 状态</MessageBarTitle>{message}</MessageBarBody></MessageBar>
+  return <MessageBar variant={intent} className="fluent-settings-message"><Icon className="mt-0.5 size-4 shrink-0" aria-hidden="true" /><div><b className="block font-semibold">状态</b>{message}</div></MessageBar>
 }
 
 function SettingsRow({ children, description, label }: { children: React.ReactNode; description: string; label: string }) {
@@ -73,10 +82,10 @@ function SettingsHeading({ title, detail }: { title: string; detail: string }) {
   return <header className="fluent-settings-heading"><Text as="h1" size={600} weight="semibold">{title}</Text><Text size={300}>{detail}</Text></header>
 }
 
-export function FluentSettingsView({ state, theme, onThemeChange, windowMaterial, onWindowMaterialChange, musicPartyOrigin, onMusicPartyLogout }: {
+export function FluentSettingsView({ state, themePreference, onThemeChange, windowMaterial, onWindowMaterialChange, musicPartyOrigin, onMusicPartyLogout }: {
   state: DesktopUiState | null
-  theme: Theme
-  onThemeChange: () => Promise<void>
+  themePreference: ThemePreference
+  onThemeChange: (next: ThemePreference) => Promise<void>
   windowMaterial: "auto" | "none"
   onWindowMaterialChange: () => Promise<void>
   musicPartyOrigin: string
@@ -87,13 +96,13 @@ export function FluentSettingsView({ state, theme, onThemeChange, windowMaterial
     <div className="fluent-settings-layout">
       <nav className="fluent-settings-nav" aria-label="设置分类">
         <Text as="h2" size={500} weight="semibold" className="fluent-settings-nav-title">设置</Text>
-        <TabList selectedValue={section} onTabSelect={(_, data) => setSection(data.value as SettingsSection)}>
-          {sections.map(({ value, label, icon: Icon }) => <Tab key={value} value={value} icon={<Icon />}>{label}</Tab>)}
-        </TabList>
+        <TabBar value={section} onValueChange={(next) => setSection(next as SettingsSection)} panelId="settings-panel" idPrefix="settings-tab" label="设置分类" className="flex items-center">
+          {sections.map(({ value, label, icon: Icon }) => <TabBarItem key={value} value={value} icon={<Icon />}>{label}</TabBarItem>)}
+        </TabBar>
       </nav>
-      <section key={section} className="fluent-settings-content" aria-label="设置内容" tabIndex={0}>
+      <section key={section} id="settings-panel" className="fluent-settings-content" role="tabpanel" aria-labelledby={`settings-tab-${section}`} tabIndex={0}>
         <div className="fluent-settings-content-stack">
-        {section === "general" ? <GeneralPanel theme={theme} onThemeChange={onThemeChange} windowMaterial={windowMaterial} onWindowMaterialChange={onWindowMaterialChange} /> : null}
+        {section === "general" ? <GeneralPanel themePreference={themePreference} onThemeChange={onThemeChange} windowMaterial={windowMaterial} onWindowMaterialChange={onWindowMaterialChange} /> : null}
         {section === "playback" ? <PlaybackPanel state={state} /> : null}
         {section === "network" ? <NetworkPanel state={state} /> : null}
         {section === "media" ? <MediaLibrarySettingsPanel /> : null}
@@ -104,7 +113,7 @@ export function FluentSettingsView({ state, theme, onThemeChange, windowMaterial
   </div>
 }
 
-function GeneralPanel({ theme, onThemeChange, windowMaterial, onWindowMaterialChange }: { theme: Theme; onThemeChange: () => Promise<void>; windowMaterial: "auto" | "none"; onWindowMaterialChange: () => Promise<void> }) {
+function GeneralPanel({ themePreference, onThemeChange, windowMaterial, onWindowMaterialChange }: { themePreference: ThemePreference; onThemeChange: (next: ThemePreference) => Promise<void>; windowMaterial: "auto" | "none"; onWindowMaterialChange: () => Promise<void> }) {
   const notify = useShellToast()
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
@@ -114,7 +123,7 @@ function GeneralPanel({ theme, onThemeChange, windowMaterial, onWindowMaterialCh
     catch (error) { setError(errorMessage(error, fallback)) }
     finally { setBusy(false) }
   }
-  return <><SettingsHeading title="基础" detail="调整桌面端的外观和窗口行为。" /><div className="fluent-settings-group"><SettingsRow label="应用主题" description="主题会保存到本机设置，并同步原生标题栏。"><Switch disabled={busy} checked={theme === "dark"} label={theme === "dark" ? "深色" : "浅色"} onChange={() => void save(onThemeChange, "主题保存失败")} /></SettingsRow><SettingsRow label="窗口材质" description="跟随系统时使用 Windows Mica；系统不支持或关闭透明效果时使用纯色。"><Switch disabled={busy} checked={windowMaterial === "auto"} label={windowMaterial === "auto" ? "跟随系统" : "关闭"} onChange={() => void save(onWindowMaterialChange, "窗口材质保存失败")} /></SettingsRow></div><StatusMessage message={error} intent="error" /></>
+  return <><SettingsHeading title="基础" detail="调整桌面端的外观和窗口行为。" /><div className="fluent-settings-group"><SettingsRow label="应用主题" description="保存到本机设置；「跟随系统」随 Windows 明暗变化，播放页的封面取色不受影响。"><div className="flex items-center gap-2" role="group" aria-label="应用主题">{([["system", "跟随系统"], ["dark", "深色"], ["light", "浅色"]] as const).map(([value, label]) => <Button key={value} size="sm" variant="toggle" disabled={busy} aria-pressed={themePreference === value} onClick={() => void save(() => onThemeChange(value), "主题保存失败")}>{label}</Button>)}</div></SettingsRow><SettingsRow label="窗口材质" description="跟随系统时使用 Windows Mica；系统不支持或关闭透明效果时使用纯色。"><Switch disabled={busy} checked={windowMaterial === "auto"} label={windowMaterial === "auto" ? "跟随系统" : "关闭"} onChange={() => void save(onWindowMaterialChange, "窗口材质保存失败")} /></SettingsRow></div><StatusMessage message={error} intent="error" /></>
 }
 
 function CredentialsPanel() {
@@ -137,7 +146,7 @@ function CredentialsPanel() {
     try { await verifyBackend(); setMessage("服务器连接正常，可以重新加入 Banguru 房间。", "success") }
     catch { setMessage("无法验证连接。请在“连接”检查服务器地址，并确认服务器已启动、站点账号和密码正确。", "error") } finally { setBusy(false) }
   }
-  return <><Text as="p">仅在 Banguru 服务器要求站点账号和密码时设置。这与房间密码不同。</Text><Text as="p">密码保存在 Windows 凭据管理器中，界面无法读回。替换或清除会结束当前 Banguru 房间会话，之后需要重新加入。</Text><div className="fluent-settings-group"><SettingsRow label="站点登录（Basic Auth）" description={status?.backendOrigin ?? "尚未设置服务器地址"}><Text>{status?.credentialsConfigured ? "已保存账号和密码" : "未设置"}</Text></SettingsRow></div><div className="fluent-settings-actions"><Button appearance="primary" disabled={busy || !status?.backendOrigin} onClick={() => void prompt()}>{status?.credentialsConfigured ? "更换账号和密码" : "设置账号和密码"}</Button><Button disabled={busy || !status?.credentialsConfigured} onClick={() => void clear()}>清除账号和密码</Button><Button appearance="subtle" disabled={busy || !status?.backendOrigin} onClick={() => void verify()}>验证已保存的连接</Button></div><StatusMessage message={message} intent={intent} /></>
+  return <><Text as="p">仅在 Banguru 服务器要求站点账号和密码时设置。这与房间密码不同。</Text><Text as="p">密码保存在 Windows 凭据管理器中，界面无法读回。替换或清除会结束当前 Banguru 房间会话，之后需要重新加入。</Text><div className="fluent-settings-group"><SettingsRow label="站点登录（Basic Auth）" description={status?.backendOrigin ?? "尚未设置服务器地址"}><Text>{status?.credentialsConfigured ? "已保存账号和密码" : "未设置"}</Text></SettingsRow></div><div className="fluent-settings-actions"><Button variant="accent" disabled={busy || !status?.backendOrigin} onClick={() => void prompt()}>{status?.credentialsConfigured ? "更换账号和密码" : "设置账号和密码"}</Button><Button disabled={busy || !status?.credentialsConfigured} onClick={() => void clear()}>清除账号和密码</Button><Button variant="ghost" disabled={busy || !status?.backendOrigin} onClick={() => void verify()}>验证已保存的连接</Button></div><StatusMessage message={message} intent={intent} /></>
 }
 
 function PlaybackPanel({ state }: { state: DesktopUiState | null }) {
@@ -176,7 +185,7 @@ function PlaybackPanel({ state }: { state: DesktopUiState | null }) {
   </div><Text as="h2" size={400} weight="semibold">播放缓存与网络</Text><div className="fluent-settings-group">
     <SettingsRow label="缓存预设" description="重建播放器后生效"><Choice value={preferences.cacheProfile} choices={[["auto", "自动"], ["low-latency", "低延迟"], ["stable", "稳定"]]} onChange={value => patch({ cacheProfile: value as PlayerPreferences["cacheProfile"] })} /></SettingsRow>
     <SettingsRow label="网络超时" description={`${preferences.networkTimeout}s，下次载入生效，范围 5 至 120`}><Input type="number" min={5} max={120} value={String(preferences.networkTimeout)} onChange={event => patch({ networkTimeout: Math.min(120, Math.max(5, Number(event.target.value) || 30)) })} /></SettingsRow>
-  </div><div className="fluent-settings-actions"><Button appearance="primary" icon={<SaveRegular />} disabled={busy} onClick={() => void save()}>保存播放设置</Button></div><StatusMessage message={message} intent={intent} />{failures.length ? <StatusMessage message={`未生效项：${failures.join("、")}。这些值会在下次重建播放器时重试。`} intent="warning" /> : null}{state?.capability ? <Text size={200} className="fluent-settings-capability">当前生效：hwdec={state.capability.hwdec ?? state.capability.hwdecConfigured ?? "-"}，vo={state.capability.vo ?? "-"}</Text> : null}</>
+  </div><div className="fluent-settings-actions"><Button variant="accent" disabled={busy} onClick={() => void save()}><SaveRegular />保存播放设置</Button></div><StatusMessage message={message} intent={intent} />{failures.length ? <StatusMessage message={`未生效项：${failures.join("、")}。这些值会在下次重建播放器时重试。`} intent="warning" /> : null}{state?.capability ? <Text size={200} className="fluent-settings-capability">当前生效：hwdec={state.capability.hwdec ?? state.capability.hwdecConfigured ?? "-"}，vo={state.capability.vo ?? "-"}</Text> : null}</>
 }
 
 function Choice({ value, choices, onChange }: { value: string; choices: Array<[string, string]>; onChange: (value: string) => void }) {
@@ -199,14 +208,17 @@ function AudioDeviceChoice({ value, onChange }: { value: string | null; onChange
   const selected = value && value !== "auto" ? value : "auto"
   const available = devices.find(device => device.id === selected)
   const label = selected === "auto" ? "系统默认" : available?.name ?? `${selected}（当前不可用）`
-  return <Field validationMessage={error || undefined} validationState={error ? "warning" : "none"}>
-    <Dropdown aria-label="音频输出设备" value={label} selectedOptions={[selected]} onOptionSelect={(_, data) => { if (data.optionValue) onChange(data.optionValue === "auto" ? null : data.optionValue) }}>
-      <Option value="auto">系统默认</Option>
-      {selected !== "auto" && !available ? <Option value={selected}>{label}</Option> : null}
-      {devices.map(device => <Option key={device.id} value={device.id}>{device.name}</Option>)}
-    </Dropdown>
-    <Button appearance="subtle" disabled={loading} onClick={() => void refresh()}>{loading ? "正在读取…" : "刷新设备"}</Button>
-  </Field>
+  return <div className="grid gap-1.5">
+    <span className="flex min-w-0 items-center gap-2">
+      <Dropdown aria-label="音频输出设备" value={label} selectedOptions={[selected]} onOptionSelect={(_, data) => { if (data.optionValue) onChange(data.optionValue === "auto" ? null : data.optionValue) }}>
+        <Option value="auto">系统默认</Option>
+        {selected !== "auto" && !available ? <Option value={selected}>{label}</Option> : null}
+        {devices.map(device => <Option key={device.id} value={device.id}>{device.name}</Option>)}
+      </Dropdown>
+      <Button variant="ghost" disabled={loading} onClick={() => void refresh()}>{loading ? <ProgressRing size={16} className="text-[var(--accent)]" /> : null}{loading ? "正在读取…" : "刷新设备"}</Button>
+    </span>
+    {error ? <p role="alert" className="text-xs text-[#ff9d96]">{error}</p> : null}
+  </div>
 }
 
 function NumberSlider({ value, min, max, step, onChange }: { value: number; min: number; max: number; step: number; onChange: (value: number) => void }) {
@@ -267,10 +279,10 @@ function MediaLibrarySettingsPanel() {
   return <>
     <SettingsHeading title="媒体库" detail="片源站点与库在这里维护；房间里只做选片与播放。" />
     <ApprovalSecretSetting mode={approvalMode} />
-    {admin === false ? <MessageBar intent="warning" className="fluent-settings-message"><MessageBarBody><MessageBarTitle>只有本机或管理员能修改片源</MessageBarTitle>当前会话不是管理员，这里只显示只读信息。</MessageBarBody></MessageBar> : null}
+    {admin === false ? <MessageBar variant="warning" className="fluent-settings-message"><WarningRegular className="mt-0.5 size-4 shrink-0" aria-hidden="true" /><div><b className="block font-semibold">只有本机或管理员能修改片源</b>当前会话不是管理员，这里只显示只读信息。</div></MessageBar> : null}
     <div className="border-y border-border">
       <SettingsRow label="已配置的片源" description={sources === null ? "读取中…" : sources.length === 0 ? "还没有片源" : `${sources.length} 个站点 · ${libraries.length} 个库`}>
-        <Button appearance="secondary" disabled={admin !== true} aria-expanded={adding} onClick={() => setAdding(open => !open)}>
+        <Button disabled={admin !== true} aria-expanded={adding} onClick={() => setAdding(open => !open)}>
           <MaterialSymbol name="add" />添加媒体源
         </Button>
       </SettingsRow>
@@ -338,9 +350,10 @@ function ApprovalSecretSetting({ mode }: { mode: "secret" | "loopback-admin" | n
       </Button>
     </SettingsRow>
     {editing ? <div className="flex flex-wrap items-end gap-2 py-3">
-      <Field label="批准密钥" className="min-w-0 flex-1">
-        <Input type="password" autoComplete="new-password" value={secret} disabled={saving} onChange={(_, data) => setSecret(data.value)} />
-      </Field>
+      <label className="min-w-0 flex-1">
+        <span className="mb-1.5 block text-xs text-[var(--text-secondary)]">批准密钥</span>
+        <Input type="password" autoComplete="new-password" value={secret} disabled={saving} onChange={event => setSecret(event.target.value)} />
+      </label>
       <Button disabled={saving || !/^[\x21-\x7e]{1,4096}$/.test(secret)} onClick={() => void save()}><SaveRegular />保存</Button>
       <Button disabled={saving} onClick={() => { setSecret(""); setEditing(false) }}>取消</Button>
     </div> : null}
@@ -372,12 +385,15 @@ function NetworkPanel({ state }: { state: DesktopUiState | null }) {
   return <>
     <SettingsHeading title="连接" detail="先保存 Banguru 服务器地址，再验证连接。Linkle 的服务器在 Linkle 大厅中选择。" />
     <div className="fluent-settings-group"><div className="fluent-settings-block">
-      <Field label="1. Banguru 服务器地址" hint="远程服务器使用 HTTPS；本机服务器可使用 HTTP。" validationState={addressError ? "error" : "none"} validationMessage={addressError}>
-      <Input value={origin} placeholder="http://主机:8080" disabled={busy || !settings} onChange={event => { setOrigin(event.target.value); setMessage("") }} />
-      </Field>
+      <div className="grid gap-1">
+        <label className={FIELD_LABEL} htmlFor="settings-banguru-origin">1. Banguru 服务器地址</label>
+        <p className={FIELD_HINT}>远程服务器使用 HTTPS；本机服务器可使用 HTTP。</p>
+        <Input id="settings-banguru-origin" aria-invalid={Boolean(addressError) || undefined} value={origin} placeholder="http://主机:8080" disabled={busy || !settings} onChange={event => { setOrigin(event.target.value); setMessage("") }} />
+        {addressError ? <p role="alert" className="text-xs text-[#ff9d96]">{addressError}</p> : null}
+      </div>
       <Text size={200}>填写 WatchParty 服务地址。自部署后端默认监听 8080；远程服务器请使用 HTTPS。</Text>
       <Text size={200}>更换或清空地址会结束当前 Banguru 房间会话。留空保存会移除服务器地址。</Text>
-      <Button appearance="primary" icon={<SaveRegular />} disabled={busy || !settings || Boolean(addressError)} onClick={() => void save()}>保存地址</Button>
+      <Button variant="accent" disabled={busy || !settings || Boolean(addressError)} onClick={() => void save()}><SaveRegular />保存地址</Button>
     </div><div className="fluent-settings-block">
       <Text weight="semibold">2. 验证连接</Text>
       <Text size={200}>{hasUnsavedAddress ? "地址尚未保存，请先保存再验证。" : settings?.backendOrigin ? `验证目标：${settings.backendOrigin}` : "保存服务器地址后即可验证。"}</Text>
@@ -430,7 +446,7 @@ function SecurityPanel({ musicPartyOrigin, onLogout }: { musicPartyOrigin: strin
       <Text weight="semibold">检查这台服务器</Text>
       <Text size={200}>对当前保存的 Linkle 服务器做一次只读检查：健康状态、能力清单和当前登录账号。不会加入房间，也不会影响正在播放的房间。</Text>
       <Text size={200}>{!musicPartyOrigin ? "还没有保存 Linkle 服务器地址，先在 Linkle 大厅选择服务器。" : originProblem ?? `检查目标：${musicPartyOrigin}`}</Text>
-      <Button icon={<PulseRegular />} disabled={busy || probing || !musicPartyOrigin || Boolean(originProblem)} onClick={() => void checkServer()}>{probing ? "正在检查" : "检查服务器"}</Button>
+      <Button disabled={busy || probing || !musicPartyOrigin || Boolean(originProblem)} onClick={() => void checkServer()}>{probing ? <ProgressRing size={16} className="text-[var(--accent)]" /> : <PulseRegular />}{probing ? "正在检查" : "检查服务器"}</Button>
       {probe ? <div className="fluent-settings-probe" role="status">
         <Text size={200}>状态：{probe.status === "ok" ? "可用" : probe.status === "incompatible" ? "版本不兼容" : "无法连接"} · {probe.message}</Text>
         <Text size={200}>API 版本：{probe.apiVersion ?? "未知"}（客户端期望 {probe.expectedApiVersion}）</Text>
@@ -452,14 +468,22 @@ function SecurityPanel({ musicPartyOrigin, onLogout }: { musicPartyOrigin: strin
         <Text as="p">大多数服务器无需设置。仅当服务器使用自签名证书或私有证书机构时，向管理员索取证书，并通过可信渠道核对来源后导入。</Text>
         <Text as="p">信任只用于指定的协议、主机和端口，不会信任其他服务器。应用仍会验证 HTTPS 证书和主机名；导入证书不会关闭验证。</Text>
         <div className="fluent-settings-group"><div className="fluent-settings-block">
-          <Field label="要信任的服务器地址" hint="填写完整 HTTPS 来源，例如 https://music.example.com:8443，不含页面路径。"><Input value={origin} placeholder="https://music.example.com" disabled={busy} onChange={event => setOrigin(event.target.value)} /></Field>
-          <Field label="管理员提供的证书内容（PEM）" hint="粘贴包含 BEGIN CERTIFICATE 和 END CERTIFICATE 的完整证书。不要粘贴私钥。证书由桌面端保存在本机。"><Textarea value={pem} resize="vertical" disabled={busy} onChange={event => setPem(event.target.value)} /></Field>
+          <div className="grid gap-1">
+            <label className={FIELD_LABEL} htmlFor="settings-trust-origin">要信任的服务器地址</label>
+            <p className={FIELD_HINT}>填写完整 HTTPS 来源，例如 https://music.example.com:8443，不含页面路径。</p>
+            <Input id="settings-trust-origin" value={origin} placeholder="https://music.example.com" disabled={busy} onChange={event => setOrigin(event.target.value)} />
+          </div>
+          <div className="grid gap-1">
+            <label className={FIELD_LABEL} htmlFor="settings-trust-pem">管理员提供的证书内容（PEM）</label>
+            <p className={FIELD_HINT}>粘贴包含 BEGIN CERTIFICATE 和 END CERTIFICATE 的完整证书。不要粘贴私钥。证书由桌面端保存在本机。</p>
+            <Textarea id="settings-trust-pem" value={pem} resize="vertical" disabled={busy} onChange={event => setPem(event.target.value)} />
+          </div>
           <Text size={200}>导入会替换此服务器已有的信任记录。错误的证书可能导致无法连接；未经核实的证书可能让应用信任冒充的服务器。</Text>
-          <Button appearance="primary" disabled={busy || !origin || !pem} onClick={() => void saveTrust()}>信任此服务器的证书</Button>
+          <Button variant="accent" disabled={busy || !origin || !pem} onClick={() => void saveTrust()}>信任此服务器的证书</Button>
         </div></div>
         <Text as="h2" size={400} weight="semibold">已信任的服务器</Text>
         <Text as="p" size={200}>删除后将恢复默认的证书验证规则，依赖此证书的连接可能失败。</Text>
-        {records.map(record => <div className="fluent-settings-trust" key={record.origin}><div><Text weight="semibold">{record.origin}</Text><Text size={200}>证书指纹：{record.fingerprint}</Text></div><Button icon={<DeleteRegular />} appearance="subtle" disabled={busy} aria-label={`删除 ${record.origin} 的证书信任`} onClick={() => void run(() => deleteOriginTrust(record.origin).then(() => setRecords(value => value.filter(item => item.origin !== record.origin))), "已删除此服务器的证书信任")}>删除信任</Button></div>)}
+        {records.map(record => <div className="fluent-settings-trust" key={record.origin}><div><Text weight="semibold">{record.origin}</Text><Text size={200}>证书指纹：{record.fingerprint}</Text></div><Button variant="ghost" disabled={busy} aria-label={`删除 ${record.origin} 的证书信任`} onClick={() => void run(() => deleteOriginTrust(record.origin).then(() => setRecords(value => value.filter(item => item.origin !== record.origin))), "已删除此服务器的证书信任")}><DeleteRegular />删除信任</Button></div>)}
       </AccordionPanel></AccordionItem>
     </Accordion>
     <StatusMessage message={message} intent={intent} />

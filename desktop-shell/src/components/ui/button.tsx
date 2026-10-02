@@ -18,6 +18,7 @@ const buttonVariants = cva(
         accent: "border-transparent bg-[var(--accent)] text-[var(--fg-on-accent)] hover:bg-[var(--accent-hover)] active:bg-[var(--accent-press)] disabled:bg-[var(--fill-control-disabled)] disabled:text-[var(--text-disabled)]",
         outline: "border-input bg-[var(--fill-control)] text-[var(--text-primary)] hover:bg-[var(--fill-control-secondary)] active:bg-[var(--fill-control)] active:text-[var(--text-secondary)] disabled:border-input disabled:bg-[var(--fill-control-disabled)] disabled:text-[var(--text-disabled)]",
         ghost: "border-transparent bg-transparent text-[var(--text-primary)] hover:bg-[var(--fill-subtle-hover)] active:bg-[var(--fill-subtle-press)] active:text-[var(--text-secondary)] disabled:bg-transparent disabled:text-[var(--text-disabled)]",
+        toggle: "border-[var(--stroke-control)] bg-transparent text-[var(--text-secondary)] hover:bg-[var(--fill-subtle-hover)] hover:text-[var(--text-primary)] aria-pressed:border-[var(--accent)] aria-pressed:bg-[var(--fill-selected)] aria-pressed:text-[var(--text-primary)] disabled:border-input disabled:text-[var(--text-disabled)]",
       },
       size: {
         default: "min-h-8 px-3 py-[5px]",

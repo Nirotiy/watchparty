@@ -7,7 +7,7 @@ import { SidecarClient } from './sidecar-client.mjs'
 import policy from './policy.cjs'
 import { fetchArtworkImage } from './artwork.mjs'
 import { getWallpaperBackdrop } from './wallpaper.mjs'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 
 const directory = dirname(fileURLToPath(import.meta.url))
@@ -19,10 +19,16 @@ const linkleCheck = process.argv.includes('--linkle-check')
 const startupCheck = process.argv.includes('--startup-check')
 const setupGuideCheck = process.argv.includes('--setup-guide-check')
 const mediaCheck = process.argv.includes('--media-check')
+const uiAudit = process.argv.includes('--ui-audit')
+const viewShot = process.argv.includes('--view-shot')
 const protocolProbe = process.argv.find(arg => arg.startsWith('--protocol-probe='))?.slice('--protocol-probe='.length)
 const acceptanceProfile = protocolProbe ?? process.argv.find(arg => arg.startsWith('--acceptance-profile='))?.slice('--acceptance-profile='.length)
 if (acceptanceProfile && (dirname(resolve(acceptanceProfile)) !== resolve(tmpdir()) || !basename(acceptanceProfile).startsWith('watchparty-electron-smoke-'))) throw new Error('invalid_acceptance_profile')
-app.setPath('userData', acceptanceProfile ?? (smoke || acceptance || linkleCheck || startupCheck || setupGuideCheck || mediaCheck ? mkdtempSync(join(tmpdir(), 'watchparty-electron-smoke-')) : join(app.getPath('appData'), 'WatchParty-Electron-Local')))
+const userDataPath = acceptanceProfile ?? (smoke || acceptance || linkleCheck || startupCheck || setupGuideCheck || mediaCheck || uiAudit || viewShot ? mkdtempSync(join(tmpdir(), 'watchparty-electron-smoke-')) : join(app.getPath('appData'), 'WatchParty-Electron-Local'))
+// Chromium's Windows single-instance lock is created inside userData. Create the
+// directory first so a first launch cannot fail with an opaque access-denied lock error.
+mkdirSync(userDataPath, { recursive: true })
+app.setPath('userData', userDataPath)
 protocol.registerSchemesAsPrivileged([{ scheme: 'watchparty-app', privileges: { standard: true, secure: true, supportFetchAPI: true } }])
 const entry = 'watchparty-app://desktop/index.html'
 let window
@@ -33,6 +39,16 @@ let appliedWindowMaterial = 'none'
 let assetServer
 let assetOrigin
 const pendingLinks = []
+// 进程级兜底（M2 键盘与读屏批）：未捕获异常先收侧车再退出，别留孤儿进程；
+// 未处理的 Promise 拒绝只记录日志，不打断正在跑的会话。
+process.on('uncaughtException', (error) => {
+  console.error(JSON.stringify({ event: 'main-uncaught-exception', message: error instanceof Error ? error.stack ?? error.message : String(error) }))
+  stopping = true
+  void Promise.resolve(native?.close()).finally(() => app.exit(1))
+})
+process.on('unhandledRejection', (reason) => {
+  console.error(JSON.stringify({ event: 'main-unhandled-rejection', reason: reason instanceof Error ? reason.stack ?? reason.message : String(reason) }))
+})
 function applyWindowMaterial(material) {
   if (!window || typeof window.setBackgroundMaterial !== 'function') throw new Error('window_material_unsupported')
   const nativeMaterial = material === 'auto' ? 'mica' : 'none'
@@ -58,8 +74,12 @@ if (process.argv.includes('--register-deep-link')) {
     console.log(ok ? 'WATCHPARTY_PROTOCOL_REGISTERED' : 'WATCHPARTY_PROTOCOL_REGISTRATION_FAILED')
     app.exit(ok ? 0 : 1)
   })
-} else if (!app.requestSingleInstanceLock()) app.quit()
-else {
+} else {
+  const singleInstanceLock = app.requestSingleInstanceLock()
+  if (!singleInstanceLock && process.env.WATCHPARTY_LOCAL_LAUNCH !== '1') {
+    app.quit()
+  } else {
+  if (!singleInstanceLock) console.error(JSON.stringify({ event: 'single-instance-lock-unavailable', localLaunch: true }))
   app.on('second-instance', (_event, argv) => {
     if (acceptance) console.log(JSON.stringify({ check: 'second-instance-shape', links: argv.filter(arg => /^watchparty:/i.test(arg)).map(arg => { try { const u = new URL(arg); return { scheme: u.protocol, path: u.pathname, hasQuery: Boolean(u.search) } } catch { return { invalid: true } } }) }))
     window?.show(); window?.restore(); window?.focus()
@@ -124,7 +144,9 @@ else {
   assetOrigin = `http://127.0.0.1:${assetServer.address().port}`
   window = new BrowserWindow({
     width: 1300, height: 800, minWidth: 960, minHeight: 640, title: 'Banguru',
-    show: false, transparent: false, backgroundColor: '#202020',
+    // 显示窗口不依赖 renderer 的 dom-ready。资源、sidecar 或 IPC 出错时仍需让用户看到
+    // Electron 窗口和启动日志，而不是静默停留在后台。
+    show: true, transparent: false, backgroundColor: '#202020',
     // 顶栏整条由页面画（preload 注入的 #watchparty-titlebar）。原生 WCO 一旦启用就
     // 无法在运行时收起来（setTitleBarOverlay 只改样式不摘按钮），而播放页要求整屏
     // 无顶栏 ⇒ 原生按钮改成自绘，播放时随播放控件一起隐藏。
@@ -289,6 +311,46 @@ else {
     }
     return
   }
+  // UI/UX 排查（M0）：对比度、焦点可见性、Tab 序、触达尺寸、响应式溢出、reduced-motion、
+  // 明暗/高对比三态。同首启向导检查一样，设置先置完成位，否则向导会占住首屏。
+  if (uiAudit) {
+    try {
+      await window.webContents.executeJavaScript("window.watchpartyDesktop.invoke('getDesktopSettings').then(settings => window.watchpartyDesktop.invoke('updateDesktopSettings', { input: { backendOrigin: settings.backendOrigin, allowRemoteHttp: settings.allowRemoteHttp, nickname: settings.nickname, theme: settings.theme, windowMaterial: settings.windowMaterial, playerPreferences: settings.playerPreferences, setupCompleted: true } }))")
+      const { runUiAudit } = await import('./ui-audit.mjs')
+      await runUiAudit(window, native)
+      console.log('ELECTRON_UI_AUDIT_OK')
+      stopping = true
+      await native.close()
+      app.exit(0)
+    } catch (error) {
+      console.error(error instanceof Error ? error.stack ?? error.message : `electron_check_rejected ${JSON.stringify(error) ?? String(error)}`)
+      console.error('ELECTRON_UI_AUDIT_FAILED')
+      stopping = true
+      await native.close()
+      app.exit(1)
+    }
+    return
+  }
+  // 视觉探针（M2-2/M2-3 用）：种完成位后依次打开设置页与 Linkle 大厅创建对话框，
+  // 截图并读取关键控件的计算几何。同 ui-audit，先置完成位免得向导占住首屏。
+  if (viewShot) {
+    try {
+      await window.webContents.executeJavaScript("window.watchpartyDesktop.invoke('getDesktopSettings').then(settings => window.watchpartyDesktop.invoke('updateDesktopSettings', { input: { backendOrigin: settings.backendOrigin, allowRemoteHttp: settings.allowRemoteHttp, nickname: settings.nickname, theme: settings.theme, windowMaterial: settings.windowMaterial, playerPreferences: settings.playerPreferences, setupCompleted: true } }))")
+      const { runViewShot } = await import('./view-shot.mjs')
+      await runViewShot(window)
+      console.log('ELECTRON_VIEW_SHOT_OK')
+      stopping = true
+      await native.close()
+      app.exit(0)
+    } catch (error) {
+      console.error(error instanceof Error ? error.stack ?? error.message : `electron_check_rejected ${JSON.stringify(error) ?? String(error)}`)
+      console.error('ELECTRON_VIEW_SHOT_FAILED')
+      stopping = true
+      await native.close()
+      app.exit(1)
+    }
+    return
+  }
   if (protocolProbe) {
     const launch = await window.webContents.executeJavaScript('window.watchpartyDesktop.invoke("currentDesktopLaunch")')
     writeFileSync(join(protocolProbe, 'protocol-result.json'), JSON.stringify({ nativeRoomId: latestLaunch?.roomId, rendererRoomId: launch?.roomId, pid: process.pid }))
@@ -329,4 +391,5 @@ else {
     }
   } else window.show()
   }).catch(error => { console.error(error instanceof Error ? error.stack ?? error.message : error); console.error('desktop_startup_failed'); stopping = true; void native?.close().finally(() => app.exit(1)) })
+  }
 }

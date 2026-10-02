@@ -120,9 +120,9 @@ function WindowControls() {
   }, [])
   return (
     <div className="flex items-stretch">
-      <button type="button" tabIndex={-1} className="room-window-btn" aria-label="最小化" onClick={() => void windowControl("minimize")}>{WINDOW_GLYPH.minimize}</button>
-      <button type="button" tabIndex={-1} className="room-window-btn" aria-label={maximized ? "向下还原" : "最大化"} onClick={() => void windowControl("maximize")}>{maximized ? WINDOW_GLYPH.restore : WINDOW_GLYPH.maximize}</button>
-      <button type="button" tabIndex={-1} className="room-window-btn room-window-close" aria-label="关闭" onClick={() => void windowControl("close")}>{WINDOW_GLYPH.close}</button>
+      <button type="button" className="room-window-btn" aria-label="最小化" onClick={() => void windowControl("minimize")}>{WINDOW_GLYPH.minimize}</button>
+      <button type="button" className="room-window-btn" aria-label={maximized ? "向下还原" : "最大化"} onClick={() => void windowControl("maximize")}>{maximized ? WINDOW_GLYPH.restore : WINDOW_GLYPH.maximize}</button>
+      <button type="button" className="room-window-btn room-window-close" aria-label="关闭" onClick={() => void windowControl("close")}>{WINDOW_GLYPH.close}</button>
     </div>
   )
 }
@@ -243,7 +243,7 @@ export function RoomView({
       <header style={{ right: overlayRight }} className={cn(overlayClass, "media-top-scrim top-0 px-4 pt-2.5 pb-14 transition-[opacity,right] duration-200 ease-[var(--f2-ease-out)] motion-reduce:transition-none")} {...holdControls}>
         <div className="pointer-events-none min-w-0 max-w-[calc(100%_-_6rem)]">
           <p className="truncate text-xs font-medium">{mediaTitle(room?.source ?? null)}</p>
-          <div className="mt-1 flex min-w-0 items-center gap-1.5 media-time">
+          <div className="mt-1 flex min-w-0 items-center gap-1.5 media-time" role="status">
             <span className="shrink-0">/{roomId ?? "room"}</span>
             <span className="media-dot shrink-0" data-state={ready ? "ready" : state.connection === "backoff" || state.connection === "connecting" ? "pending" : "error"} aria-hidden="true" />
             {ready ? <span className="sr-only">桌面会话连接正常</span> : <span className="truncate text-[var(--text-primary)]">{statusText}</span>}
@@ -284,6 +284,7 @@ export function RoomView({
           </SharedControl>
           <output className="media-time w-11 shrink-0">{formatTime(position)}</output>
           <Slider
+            variant="seek"
             className="min-w-0 flex-1"
             aria-label="播放进度"
             min={0}
@@ -291,6 +292,7 @@ export function RoomView({
             step={0.1}
             value={[position]}
             title={formatTime(position)}
+            formatHover={value => formatTime(value)}
             disabled={!sharedEnabled || !localEnabled || duration <= 0}
             onValueChange={([value]) => {
               setSeeking(true)

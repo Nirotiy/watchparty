@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from "react"
-import { Button, Field, Input, MessageBar, MessageBarBody } from "@fluentui/react-components"
 import { AddRegular, ArrowEnterRegular, PulseRegular } from "@fluentui/react-icons"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { MessageBar } from "@/components/ui/message-bar"
 import { useShellToast } from "@/components/shell-toast"
 import { SessionGate } from "@/components/session-gate"
 import { errorMessage, type DesktopProbeReport, type DesktopReadinessReport } from "@/lib/ipc"
 import { readinessParts, readinessSummary } from "@/components/setup-guide-steps"
 import { LobbyError } from "../../shared/lobby-contract"
+
+const LABEL = "mb-1.5 block text-xs text-[var(--text-secondary)]"
 
 export interface BanguruProbeState {
   status: "unconfigured" | "checking" | "online" | "error"
@@ -91,7 +95,7 @@ export function BanguruLobby({ busy, activeRoomId, onCreate, onJoin, onStart, la
           {capabilities.map(([label, ok]) => <span key={label} className={`bh-cap is-${ok === undefined ? "unknown" : ok ? "on" : "off"}`}>{label} {ok === undefined ? "未知" : ok ? "可用" : "不可用"}</span>)}
         </div>
         <div className="bh-actions">
-          <Button appearance="subtle" icon={<PulseRegular />} aria-expanded={showDetails} onClick={() => setShowDetails(open => !open)}>检查服务器</Button>
+          <Button variant="ghost" aria-expanded={showDetails} onClick={() => setShowDetails(open => !open)}><PulseRegular />检查服务器</Button>
         </div>
         {showDetails ? <div className="bh-details" role="region" aria-label="服务详情">
           <p>{probe.status === "error" ? (probe.error ?? "无法读取桌面服务状态") : probe.status === "unconfigured" ? "请在设置中配置 Banguru 后端站点。" : probe.status === "checking" ? "正在检查桌面服务与协议能力" : `协议 v${probe.protocolVersion ?? "?"} · 创建 ${probe.capabilities?.createRoom ? "可用" : "不可用"} · 加入 ${probe.capabilities?.joinRoom ? "可用" : "不可用"} · 恢复 ${probe.capabilities?.restoreSession ? "可用" : "不可用"} · 搜索 ${probe.capabilities?.mediaSearch ? "可用" : "不可用"} · 队列 ${probe.capabilities?.mediaQueue ? "可用" : "不可用"} · 网页交接 ${probe.capabilities?.handoffCode ? "可用" : "不可用"}`}</p>
@@ -106,23 +110,33 @@ export function BanguruLobby({ busy, activeRoomId, onCreate, onJoin, onStart, la
         </div> : null}
         {setupCompleted ? <div className="bh-banner" role="status">
           <span>配置完成 · {setupOrigin ?? "未保存站点"} · 协议 v{probe.protocolVersion ?? "?"}</span>
-          <Button appearance="subtle" size="small" onClick={onReconfigure}>重新配置</Button>
+          <Button variant="ghost" onClick={onReconfigure}>重新配置</Button>
         </div> : null}
       </section>
 
       <form className="bh-card" onSubmit={event => { event.preventDefault(); void submit(false) }} aria-busy={pending} aria-label="进入房间">
         <div className="bh-card-head"><h2>进入房间</h2></div>
         <p className="bh-lead">输入房间编号与昵称，PIN 可选。</p>
-        <Field label="房间编号" required><Input ref={roomInput} value={roomId} onChange={(_, data) => { setRoomId(data.value.trim()); setError("") }} placeholder="输入房间编号" disabled={pending || !canJoin} /></Field>
-        <Field label="昵称" required><Input value={nickname} onChange={(_, data) => setNickname(data.value)} placeholder="显示给房间成员" disabled={pending || (!canJoin && !canCreateRoom)} /></Field>
-        <Field label="PIN（可选）" validationState={validPin ? "none" : "error"} validationMessage={validPin ? undefined : "请输入完整的 4 位 PIN"}><Input type="password" inputMode="numeric" autoComplete="off" value={pin} onChange={(_, data) => { setPin(data.value.replace(/\D/g, "").slice(0, 4)); setError("") }} placeholder="4 位 PIN" disabled={pending || (!canJoin && !canCreateRoom)} /></Field>
-        {error ? <MessageBar intent="error" layout="multiline" className="banguru-join-error"><MessageBarBody>{error}</MessageBarBody></MessageBar> : null}
-        <div className="bh-actions"><Button type="submit" appearance="primary" icon={<ArrowEnterRegular />} disabled={!ready || !roomId || !canJoin}>{pending ? "正在处理" : "加入房间"}</Button><Button icon={<AddRegular />} disabled={!ready || !canCreateRoom} onClick={() => void submit(true)}>创建并进入</Button></div>
+        <div className="my-3">
+          <label className={LABEL} htmlFor="banguru-room-id">房间编号 <span aria-hidden="true">*</span></label>
+          <Input id="banguru-room-id" ref={roomInput} value={roomId} onChange={event => { setRoomId(event.target.value.trim()); setError("") }} placeholder="输入房间编号" disabled={pending || !canJoin} />
+        </div>
+        <div className="my-3">
+          <label className={LABEL} htmlFor="banguru-nickname">昵称 <span aria-hidden="true">*</span></label>
+          <Input id="banguru-nickname" value={nickname} onChange={event => setNickname(event.target.value)} placeholder="显示给房间成员" disabled={pending || (!canJoin && !canCreateRoom)} />
+        </div>
+        <div className="my-3">
+          <label className={LABEL} htmlFor="banguru-pin">PIN（可选）</label>
+          <Input id="banguru-pin" type="password" inputMode="numeric" autoComplete="off" aria-invalid={validPin ? undefined : true} value={pin} onChange={event => { setPin(event.target.value.replace(/\D/g, "").slice(0, 4)); setError("") }} placeholder="4 位 PIN" disabled={pending || (!canJoin && !canCreateRoom)} />
+          {validPin ? null : <p className="mt-1.5 text-[11px] text-[#ff9d96]">请输入完整的 4 位 PIN</p>}
+        </div>
+        {error ? <MessageBar variant="error" className="banguru-join-error">{error}</MessageBar> : null}
+        <div className="bh-actions"><Button type="submit" variant="accent" disabled={!ready || !roomId || !canJoin}><ArrowEnterRegular />{pending ? "正在处理" : "加入房间"}</Button><Button type="button" disabled={!ready || !canCreateRoom} onClick={() => void submit(true)}><AddRegular />创建并进入</Button></div>
         {activeRoomId ? <p className="bh-session">当前 Banguru 会话：<span className="mono">{activeRoomId}</span></p> : null}
       </form>
     </div>
 
-    {!serviceReady ? <MessageBar className="lobby-service-hint"><MessageBarBody>{probe.status === "error" ? "桌面服务不可用：展开左侧「检查服务器」看具体原因。" : probe.status === "checking" ? "正在检查桌面服务，请稍候。" : "请先在设置中配置 Banguru 后端站点。"}</MessageBarBody></MessageBar> : null}
+    {!serviceReady ? <MessageBar variant="info" className="lobby-service-hint">{probe.status === "error" ? "桌面服务不可用：展开左侧「检查服务器」看具体原因。" : probe.status === "checking" ? "正在检查桌面服务，请稍候。" : "请先在设置中配置 Banguru 后端站点。"}</MessageBar> : null}
 
     {canHandoff ? <section className="bh-strip" aria-label="从网页接续">
       <div className="bh-strip-copy"><h2>从网页接续</h2><p>在网页端生成一次性交接码，然后粘贴到这里恢复那个房间。</p></div>

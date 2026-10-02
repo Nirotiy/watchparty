@@ -24,7 +24,7 @@ export interface DesktopSettingsStatus {
   backendOrigin: string | null
   allowRemoteHttp: boolean
   nickname: string
-  theme: "dark" | "light"
+  theme: "dark" | "light" | "system"
   windowMaterial: "auto" | "none"
   playerPreferences: PlayerPreferences
   credentialsConfigured: boolean
@@ -239,7 +239,7 @@ export function updateDesktopSettings(input: {
   backendOrigin: string | null
   allowRemoteHttp: boolean
   nickname: string
-  theme: "dark" | "light"
+  theme: "dark" | "light" | "system"
   windowMaterial?: "auto" | "none"
   playerPreferences: PlayerPreferences
   /**

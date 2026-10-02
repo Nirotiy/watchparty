@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, type CSSProperties, type ReactNode } from "react"
 import { createPortal } from "react-dom"
-import { FluentProvider, Button as FluentButton, webDarkTheme, webLightTheme } from "@fluentui/react-components"
+import { FluentProvider, webDarkTheme, webLightTheme } from "@fluentui/react-components"
 import { KeyRegular, PanelLeftContractRegular, PanelLeftExpandRegular, PlugConnectedRegular, PulseRegular, SaveRegular } from "@fluentui/react-icons"
 import { ShellStatusToast, ShellToastProvider } from "@/components/shell-toast"
 
@@ -16,8 +16,10 @@ import { RoomView } from "@/components/room-view"
 import { SessionGate } from "@/components/session-gate"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { ProgressRing } from "@/components/ui/progress-ring"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
+import { TabBar, TabBarItem } from "@/components/ui/tabs"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useDesktopSession } from "@/hooks/use-desktop-session"
 import type { CommandAck, ConnectionState, DesktopCommand, DesktopUiState, MediaSource, NativeCapabilityReport } from "@/lib/contracts"
@@ -44,6 +46,8 @@ import { backendAddressError, bangumiSearch, clearSiteCredentials, createDesktop
 type View = "home" | "room" | "media" | "settings"
 type Drawer = "queue" | "members" | null
 type Theme = "dark" | "light"
+/** M3 决策（§9-B）：主题可跟随系统；accent / 封面取色不受影响。 */
+type ThemePreference = Theme | "system"
 type WindowMaterial = "auto" | "none"
 type SettingsSection = "general" | "playback" | "credentials" | "network" | "security"
 
@@ -133,7 +137,15 @@ export default function App() {
   inviteSwitch.current = identity => switchLobby({ identity })
   const lobby = useLobbyFacade({ origin: musicParty.serviceOrigin, connection: musicParty.getConnection(), createAdapter: () => new MusicPartyAdapter({ origin: musicParty.serviceOrigin, nativeInvoke: invoke }), switchTo: switchLobby })
   const [drawer, setDrawer] = useState<Drawer>(null)
-  const [theme, setTheme] = useState<Theme>("dark")
+  const [themePreference, setThemePreference] = useState<ThemePreference>("dark")
+  const [systemDark, setSystemDark] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches)
+  const theme: Theme = themePreference === "system" ? (systemDark ? "dark" : "light") : themePreference
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)")
+    const onChange = (event: MediaQueryListEvent) => setSystemDark(event.matches)
+    media.addEventListener("change", onChange)
+    return () => media.removeEventListener("change", onChange)
+  }, [])
   const [windowMaterial, setWindowMaterial] = useState<WindowMaterial>("auto")
   const [backendOrigin, setBackendOrigin] = useState<string | null>(null)
   const [banguruProbe, setBanguruProbe] = useState<BanguruProbeState>({ status: "unconfigured" })
@@ -274,7 +286,7 @@ export default function App() {
     let disposed = false
     let unlisten: (() => void) | undefined
     const apply = (settings: DesktopSettingsStatus) => {
-      if (!disposed) { setTheme(settings.theme); setWindowMaterial(settings.windowMaterial); setBackendOrigin(settings.backendOrigin); setSetupCompleted(settings.setupCompleted) }
+      if (!disposed) { setThemePreference(settings.theme); setWindowMaterial(settings.windowMaterial); setBackendOrigin(settings.backendOrigin); setSetupCompleted(settings.setupCompleted) }
     }
     void listenForSettings(apply).then(async (stop) => {
       if (disposed) { stop(); return }
@@ -494,8 +506,8 @@ export default function App() {
             ) : (
               <FluentSettingsView
                 state={state}
-                theme={theme}
-                onThemeChange={() => persistTheme(theme, windowMaterial, setTheme)}
+                themePreference={themePreference}
+                onThemeChange={(next) => persistTheme(next, windowMaterial, setThemePreference)}
                 windowMaterial={windowMaterial}
                 onWindowMaterialChange={() => persistWindowMaterial(windowMaterial, setWindowMaterial)}
                 musicPartyOrigin={musicParty.serviceOrigin}
@@ -537,7 +549,7 @@ function SessionBar({ service, roomId, media, status, onReturn }: {
     <div className="desktop-session-bar-service"><MaterialSymbol name={icon} /><span>{label}</span></div>
     <div className="desktop-session-bar-copy"><strong>{media}</strong><span>{roomId} · {status}</span></div>
     <span className="desktop-session-bar-permission">{service === "musicparty" ? "房主控制" : "同步播放"}</span>
-    <FluentButton appearance="subtle" onClick={onReturn}>返回当前会话</FluentButton>
+    <Button variant="ghost" onClick={onReturn}>返回当前会话</Button>
   </section>
 }
 
@@ -567,11 +579,11 @@ function Sidebar({ view, state, roomId, status, onView, onDrawer, backendOrigin,
   return (
     <aside className={cn("desktop-sidebar", collapsed && "is-collapsed")}>
       <nav className="desktop-service-nav" aria-label="服务浏览">
-        <FluentButton appearance="subtle" aria-label="Banguru 一起看" aria-current={product === "watchparty" ? "page" : undefined} disabled={servicesDisabled} onClick={() => { onProduct("watchparty"); onView("home") }}><MaterialSymbol name="monitor" /><span><strong>Banguru</strong><small>一起看</small></span></FluentButton>
-        <FluentButton appearance="subtle" aria-label="Linkle 一起听" aria-current={product === "musicparty" ? "page" : undefined} disabled={servicesDisabled} onClick={() => { onProduct("musicparty"); onView("home") }}><MaterialSymbol name="music-note" /><span><strong>Linkle</strong><small>一起听</small></span></FluentButton>
+        <Button variant="ghost" aria-label="Banguru 一起看" aria-current={product === "watchparty" ? "page" : undefined} disabled={servicesDisabled} onClick={() => { onProduct("watchparty"); onView("home") }}><MaterialSymbol name="monitor" /><span><strong>Banguru</strong><small>一起看</small></span></Button>
+        <Button variant="ghost" aria-label="Linkle 一起听" aria-current={product === "musicparty" ? "page" : undefined} disabled={servicesDisabled} onClick={() => { onProduct("musicparty"); onView("home") }}><MaterialSymbol name="music-note" /><span><strong>Linkle</strong><small>一起听</small></span></Button>
       </nav>
       <div className={cn("desktop-session", !roomId && "desktop-session-empty")}>{roomId ? <><strong>{roomId}</strong><p>{state ? connectionLabel(state.connection) : status.text}</p><p>{backendOrigin ?? "Banguru 站点未配置"}</p></> : null}</div>
-      <div className="desktop-settings-link"><FluentButton appearance="subtle" aria-label="设置" aria-current={view === "settings" ? "page" : undefined} onClick={() => onView("settings")}><MaterialSymbol name="settings" /><span>设置</span></FluentButton><FluentButton appearance="subtle" aria-label={collapsed ? "展开侧栏" : "折叠侧栏"} onClick={onCollapse}>{collapsed ? <PanelLeftExpandRegular /> : <PanelLeftContractRegular />}</FluentButton></div>
+      <div className="desktop-settings-link"><Button variant="ghost" aria-label="设置" aria-current={view === "settings" ? "page" : undefined} onClick={() => onView("settings")}><MaterialSymbol name="settings" /><span>设置</span></Button><Button variant="ghost" aria-label={collapsed ? "展开侧栏" : "折叠侧栏"} onClick={onCollapse}>{collapsed ? <PanelLeftExpandRegular /> : <PanelLeftContractRegular />}</Button></div>
     </aside>
   )
 }
@@ -595,7 +607,8 @@ function HomeView({ state, roomId, starting, onStart, onCreate, onAccess, onRetu
   const [joinRoomId, setJoinRoomId] = useState("")
   return (
     <div className="mx-auto min-h-full w-full max-w-[1040px] px-8 py-8">
-      <div className="mb-6 border-b border-[var(--stroke-card)] pb-4"><div className="flex items-center justify-between"><div><p className="text-xs text-[var(--text-secondary)]">Banguru · Watch Party</p><SectionTitle detail={state ? "房间仍存活" : "等待网页交接"}>房间工作台</SectionTitle></div><span className="text-xs text-[var(--text-secondary)]">桌面端 · Fluent</span></div><div className="mt-4 flex items-end gap-1 border-b border-[var(--stroke-divider)]" role="tablist" aria-label="Banguru 模式切换"><button type="button" role="tab" aria-selected="true" className="winui-focus relative min-h-8 px-3 pb-2 text-sm font-semibold text-[var(--text-primary)] after:absolute after:bottom-0 after:left-3 after:h-[3px] after:w-[calc(100%-24px)] after:rounded-full after:bg-[var(--accent)]">Banguru <span className="ml-1 text-xs font-normal text-[var(--text-secondary)]">Watch Party</span></button><button type="button" role="tab" aria-selected="false" className="winui-focus relative min-h-8 rounded-sm px-3 pb-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--fill-subtle-hover)] hover:text-[var(--text-primary)]" onClick={() => onProduct("musicparty")}>Linkle <span className="ml-1 text-xs">Music Party</span></button></div></div>
+      <div className="mb-6 border-b border-[var(--stroke-card)] pb-4"><div className="flex items-center justify-between"><div><p className="text-xs text-[var(--text-secondary)]">Banguru · Watch Party</p><SectionTitle detail={state ? "房间仍存活" : "等待网页交接"}>房间工作台</SectionTitle></div><span className="text-xs text-[var(--text-secondary)]">桌面端 · Fluent</span></div><TabBar value="watchparty" onValueChange={(next) => { if (next !== "watchparty") onProduct("musicparty") }} panelId="workspace-panel" idPrefix="product-tab" label="产品切换" className="mt-4 flex items-end gap-1 border-b border-[var(--stroke-divider)]"><TabBarItem value="watchparty">Banguru <span className="ml-1 text-xs font-normal text-[var(--text-secondary)]">Watch Party</span></TabBarItem><TabBarItem value="musicparty">Linkle <span className="ml-1 text-xs">Music Party</span></TabBarItem></TabBar></div>
+      <div id="workspace-panel" role="tabpanel" aria-labelledby="product-tab-watchparty">
       {state ? (
         <section className="mt-3 flex items-center gap-3 rounded-sm border border-[var(--stroke-card)] bg-[var(--fill-card)] px-4 py-3">
           <i className="size-2 rounded-full bg-positive" />
@@ -624,6 +637,7 @@ function HomeView({ state, roomId, starting, onStart, onCreate, onAccess, onRetu
       <div className="mt-8 grid gap-4 md:grid-cols-2">
         <section className="border-y border-[var(--stroke-card)] py-4"><SectionTitle detail="当前连接状态">服务与房间</SectionTitle><div className="mt-3 space-y-2 text-xs text-[var(--text-secondary)]"><p className="flex justify-between"><span>房间</span><span className="font-mono text-foreground">{roomId ?? "未加入"}</span></p><p className="flex justify-between"><span>播放会话</span><span className="text-foreground">{state ? "可恢复" : "等待连接"}</span></p><p className="flex justify-between"><span>队列</span><span className="text-foreground">{state ? "房间队列已同步" : "等待加入房间"}</span></p></div></section>
         <section className="border-y border-[var(--stroke-card)] py-4"><SectionTitle detail="需要进入房间后可用">协作摘要</SectionTitle><div className="mt-3 space-y-2 text-xs text-[var(--text-secondary)]"><p className="flex justify-between"><span>成员</span><span className="text-foreground">{state ? "在线成员已同步" : "尚未连接"}</span></p><p className="flex justify-between"><span>播放队列</span><span className="text-foreground">{state ? "打开房间查看" : "等待加入房间"}</span></p><Button className="mt-2" disabled={!state} onClick={onReturn}>打开播放房间</Button></div></section>
+      </div>
       </div>
     </div>
   )
@@ -770,9 +784,9 @@ function useMusicPartyEntry(onInviteRoom: (identity: RoomIdentity) => Promise<vo
   }
   const content = <section className="mt-10 border-t border-border pt-5">
     <div className="mt-2 flex items-center gap-2"><div><p className="text-xs text-muted-foreground" role="status">{roomStatus} · 队列 {queueCount}</p>{queueTitles.length ? <p className="text-xs text-muted-foreground">{queueTitles.join(" · ")}</p> : null}</div>{playerRef.current ? <Button size="sm" variant="outline" onClick={() => { const p = playerRef.current; if (!p) return; void (playing ? p.pause() : p.resume()).then(() => setPlaying(!playing)) }}>{playing ? "暂停" : "继续"}</Button> : null}</div>
-    <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]" ><Input value={origin} onChange={(event) => { setOrigin(event.target.value); setServerProbe(null) }} placeholder="https://music.example.com" aria-label="Linkle 服务地址" className="font-mono text-xs" /><div className="flex gap-2"><Button variant="outline" size="icon-sm" aria-label="保存服务" title="保存服务地址" disabled={!origin.trim()} onClick={saveService}><SaveRegular /></Button><Button variant="ghost" size="icon-sm" aria-label="探测" title="只读探测这台服务器：健康、能力、当前账号（不进房间）" disabled={!origin.trim() || probing} onClick={() => void probe()}><PulseRegular /></Button><Button variant="ghost" size="icon-sm" aria-label="连接" title="用已保存的凭据连接" disabled={!origin.trim()} onClick={() => void connect()}><PlugConnectedRegular /></Button></div></div>
+    <div className="mt-3 grid items-center gap-2 sm:grid-cols-[1fr_auto]" ><Input value={origin} onChange={(event) => { setOrigin(event.target.value); setServerProbe(null) }} placeholder="https://music.example.com" aria-label="Linkle 服务地址" className="font-mono text-xs" /><div className="flex gap-2"><Button variant="outline" size="icon-sm" aria-label="保存服务" title="保存服务地址" disabled={!origin.trim()} onClick={saveService}><SaveRegular /></Button><Button variant="ghost" size="icon-sm" aria-label="探测" title="只读探测这台服务器：健康、能力、当前账号（不进房间）" disabled={!origin.trim() || probing} onClick={() => void probe()}><PulseRegular /></Button><Button variant="ghost" size="icon-sm" aria-label="连接" title="用已保存的凭据连接" disabled={!origin.trim()} onClick={() => void connect()}><PlugConnectedRegular /></Button></div></div>
     {serverProbe ? <p className="mt-2 text-xs text-muted-foreground" role="status">{probeSummary(serverProbe)}</p> : null}
-    <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]"><Input value={invite} onChange={(event) => setInvite(event.target.value)} placeholder="输入 Linkle 邀请码" aria-label="Linkle 邀请码" /><Button size="icon-sm" aria-label="兑换并进入" title="兑换邀请码并进入房间" disabled={!origin.trim() || !invite.trim()} onClick={() => { void redeemAndEnter(origin, invite.trim()).then((result) => setMessage(`已进入 ${result.roomName ?? result.roomId}`)).catch((error) => setMessage(inviteErrorMessage(error, "邀请兑换失败，请检查服务地址和邀请码有效"))) }}><KeyRegular /></Button></div>
+    <div className="mt-2 grid items-center gap-2 sm:grid-cols-[1fr_auto]"><Input value={invite} onChange={(event) => setInvite(event.target.value)} placeholder="输入 Linkle 邀请码" aria-label="Linkle 邀请码" /><Button size="icon-sm" aria-label="兑换并进入" title="兑换邀请码并进入房间" disabled={!origin.trim() || !invite.trim()} onClick={() => { void redeemAndEnter(origin, invite.trim()).then((result) => setMessage(`已进入 ${result.roomName ?? result.roomId}`)).catch((error) => setMessage(inviteErrorMessage(error, "邀请兑换失败，请检查服务地址和邀请码有效"))) }}><KeyRegular /></Button></div>
     <div className="mt-2 flex gap-3 text-xs text-muted-foreground"><button type="button" className="hover:text-foreground" onClick={() => setMessage("Cookie 将由系统安全存储管理")}>导入 Cookie</button><button type="button" className="hover:text-foreground" onClick={() => setMessage("迁移包导入将在阶段 2 后续接入")}>导入 Web 迁移包</button></div>
     {message ? <p className="mt-2 text-xs text-muted-foreground" role="status">{message}</p> : null}
   </section>
@@ -801,11 +815,11 @@ function probeSummary(probe: MusicPartyProbe): string {
   return parts.join(" · ")
 }
 
-function EmptyPosterGrid({ label }: { label: string }) {
+function EmptyPosterGrid({ label, busy = false }: { label: string; busy?: boolean }) {
   return (
     <div className="mt-3 grid grid-cols-5 gap-3" aria-label={label}>
       {Array.from({ length: 5 }, (_, index) => (
-        <div key={index} className="min-w-0"><div className="grid aspect-[16/10] place-items-center rounded-lg border border-[var(--stroke-card)] bg-[var(--fill-card)] text-center text-xs text-muted-foreground">{index === 0 ? label : null}</div><div className="mt-2 h-2.5 w-3/4 rounded-sm bg-[var(--stroke-divider)]" aria-hidden="true" /><div className="mt-1.5 h-2 w-1/2 rounded-sm bg-[var(--fill-selected)]" aria-hidden="true" /></div>
+        <div key={index} className="min-w-0"><div className="grid aspect-[16/10] place-items-center rounded-lg border border-[var(--stroke-card)] bg-[var(--fill-card)] text-center text-xs text-muted-foreground">{index === 0 ? (busy ? <span className="inline-flex items-center gap-2"><ProgressRing size={16} />{label}</span> : label) : null}</div><div className="mt-2 h-2.5 w-3/4 rounded-sm bg-[var(--stroke-divider)]" aria-hidden="true" /><div className="mt-1.5 h-2 w-1/2 rounded-sm bg-[var(--fill-selected)]" aria-hidden="true" /></div>
       ))}
     </div>
   )
@@ -1361,7 +1375,7 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
             ) : null}
           </>
         ) : (
-          <EmptyPosterGrid label="正在读取标题库…" />
+          <EmptyPosterGrid label="正在读取标题库…" busy />
         )
       ) : null}
 
@@ -1456,18 +1470,17 @@ function SecurityPanel({ musicPartyOrigin, onLogout }: { musicPartyOrigin: strin
   return <><SettingsHeading title="安全与会话" detail="私有房间授权、服务端注销与按服务来源隔离的 TLS 信任。" /><div className="space-y-6"><div className="border-y border-border py-4"><p className="text-xs font-medium">私有房间</p><div className="mt-3 grid gap-2 sm:grid-cols-2"><Input value={roomId} onChange={(e) => setRoomId(e.target.value)} placeholder="房间 ID" aria-label="房间 ID" /><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="房间密码" aria-label="房间密码" /></div><Button className="mt-3" size="sm" disabled={!roomId || !password} onClick={() => void run(() => verifyPrivateRoom(roomId, password, musicPartyOrigin), "房间授权已更新")}>验证并保存授权</Button></div><div className="border-y border-border py-4"><p className="text-xs font-medium">服务端会话</p><Button className="mt-3" variant="outline" size="sm" onClick={() => void run(onLogout, "已从服务端注销")}>注销 Linkle</Button></div><div className="border-y border-border py-4"><p className="text-xs font-medium">Origin TLS 信任</p><Input className="mt-3" value={origin} onChange={(e) => setOrigin(e.target.value)} placeholder="https://music.example.com" aria-label="服务来源" /><textarea className="mt-2 min-h-20 w-full rounded-md border border-border bg-background p-2 text-xs font-mono" value={pem} onChange={(e) => setPem(e.target.value)} placeholder="粘贴 PEM 证书" aria-label="PEM 证书" /><Button className="mt-3" size="sm" disabled={!origin || !pem} onClick={() => void run(() => importOriginTrust({ origin, pem }).then((r) => setRecords((v) => [...v.filter((x) => x.origin !== r.origin), r])), "已保存该来源的 TLS 信任")}>导入或替换</Button><ul className="mt-3 divide-y divide-border border-y border-border">{records.map((record) => <li key={record.origin} className="flex items-center justify-between py-2 text-xs"><span className="truncate">{record.origin}<span className="ml-2 text-muted-foreground">{record.fingerprint}</span></span><Button variant="ghost" size="sm" onClick={() => void run(() => deleteOriginTrust(record.origin).then(() => setRecords((v) => v.filter((x) => x.origin !== record.origin)),), "已删除信任记录")}>删除</Button></li>)}</ul></div></div><p role="status" className="mt-3 text-xs text-muted-foreground">{message}</p></>
 }
 
-async function persistTheme(theme: Theme, windowMaterial: WindowMaterial, setTheme: (theme: Theme) => void) {
-  const nextTheme = theme === "dark" ? "light" : "dark"
-    const current = await getDesktopSettings()
-    await updateDesktopSettings({
-      backendOrigin: current.backendOrigin,
+async function persistTheme(theme: ThemePreference, windowMaterial: WindowMaterial, setTheme: (theme: ThemePreference) => void) {
+  const current = await getDesktopSettings()
+  await updateDesktopSettings({
+    backendOrigin: current.backendOrigin,
     nickname: current.nickname,
-    theme: nextTheme,
+    theme,
     windowMaterial,
     playerPreferences: current.playerPreferences,
     allowRemoteHttp: current.allowRemoteHttp,
-    })
-  setTheme(nextTheme)
+  })
+  setTheme(theme)
 }
 
 async function persistWindowMaterial(windowMaterial: WindowMaterial, setWindowMaterial: (material: WindowMaterial) => void) {

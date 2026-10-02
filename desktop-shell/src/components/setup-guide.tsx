@@ -8,6 +8,9 @@ import {
   transition,
   type SetupStepId,
 } from "./setup-guide-steps"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { MessageBar } from "@/components/ui/message-bar"
 
 // Setup Guide（首次使用引导）· 形态 A 首屏前置向导。
 // 设计定稿：banguru/temp-html/setup-guide-full-flow-mockup.html（§1 步骤定义、§2 A1–A7 帧）。
@@ -79,21 +82,8 @@ type LinkleVerifyPhase = { kind: "idle" } | { kind: "running" } | { kind: "done"
 
 type RedeemPhase = { kind: "idle" } | { kind: "running" } | { kind: "done"; accountName: string } | { kind: "error"; message: string }
 
-const BTN_PRIMARY = "rounded bg-[var(--accent)] px-4 py-1.5 text-sm font-semibold text-[#0b1b29] disabled:opacity-40"
-const BTN_DEFAULT = "rounded border border-[var(--stroke-divider)] bg-[var(--fill-card)] px-4 py-1.5 text-sm disabled:opacity-40"
-const BTN_GHOST = "px-3 py-1.5 text-sm text-[var(--accent)] disabled:opacity-40"
-const INPUT = "h-8 w-full rounded border border-[var(--stroke-divider)] border-b-[#8a929c] bg-[rgba(255,255,255,0.03)] px-2 py-1 text-sm focus:border-b-[var(--accent)] focus:outline-none disabled:opacity-50"
 const LABEL = "mb-1.5 block text-xs text-[var(--text-secondary)]"
 const HINT = "mt-1.5 text-[11px] text-[var(--text-disabled)]"
-
-function messageBar(kind: "ok" | "err" | "warn", body: React.ReactNode) {
-  const border = kind === "ok" ? "#5dd39e" : kind === "err" ? "#ff7b72" : "#e0b25c"
-  return (
-    <div role="status" className="my-3 flex gap-2.5 rounded border border-[var(--stroke-card)] bg-[var(--fill-card)] px-3 py-2.5 text-xs" style={{ borderLeft: `3px solid ${border}` }}>
-      {body}
-    </div>
-  )
-}
 
 export function SetupGuide({ services, onDone, seed }: SetupGuideProps) {
   const [step, setStep] = useState<SetupStepId>("banguru-origin")
@@ -119,16 +109,14 @@ export function SetupGuide({ services, onDone, seed }: SetupGuideProps) {
       setCredentialsConfigured(seed.credentialsConfigured ?? false)
       return
     }
-    let disposed = false
+    // 取消旗标别挂 effect 清理：StrictMode 再挂载与每次渲染的新 services 引用都会先跑清理，旗标一置真，预置的昵称就永远到不了。
     void services.loadInitial().then((initial) => {
-      if (disposed) return
       setOrigin(initial.backendOrigin ?? "")
       // 已保存过昵称就回显；全新 profile 给一个 8 位随机 ID，不再给空框。
       setNickname(initial.nickname?.trim() ? initial.nickname : generateNickname())
       setLinkleOrigin(initial.linkleOrigin)
       setCredentialsConfigured(initial.credentialsConfigured)
     }).catch(() => { /* 保持空值起步，各步骤允许用户自行填写 */ })
-    return () => { disposed = true }
   }, [services, seed])
   const [verify, setVerify] = useState<VerifyPhase>({ kind: "idle" })
 
@@ -321,9 +309,8 @@ export function BanguruOriginPanel({ origin, error, busy, onOriginChange, onNext
       <p className="mb-4 text-xs text-[var(--text-secondary)]">首次使用需要完成一次连接设置（约 2 分钟）。所有内容只保存在本机，之后长期静默复用。</p>
       <div className="my-3">
         <label className={LABEL} htmlFor="setup-banguru-origin">Banguru 服务器地址</label>
-        <input
+        <Input
           id="setup-banguru-origin"
-          className={INPUT}
           value={origin}
           onChange={(event) => onOriginChange(event.target.value)}
           placeholder="http://主机:8080"
@@ -335,11 +322,11 @@ export function BanguruOriginPanel({ origin, error, busy, onOriginChange, onNext
         <p className={HINT}>Banguru 后端默认监听 8080；把「主机」换成你部署服务器的地址。远程服务器请用 HTTPS；「允许远程 HTTP」开关只影响 Banguru 侧。</p>
       </div>
       <p>
-        <button type="button" className={BTN_GHOST} onClick={onSkipBanguru} disabled={busy}>还没有 Banguru 服务器？跳到 Linkle 配置 →</button>
+        <Button variant="ghost" onClick={onSkipBanguru} disabled={busy}>还没有 Banguru 服务器？跳到 Linkle 配置 →</Button>
       </p>
       <div className="mt-4 flex items-center justify-between">
-        <button type="button" className={BTN_GHOST} onClick={onSkipWizard} disabled={busy}>跳过向导</button>
-        <button type="button" className={BTN_PRIMARY} onClick={onNext} disabled={busy || !origin.trim()}>下一步：验证连接</button>
+        <Button variant="ghost" onClick={onSkipWizard} disabled={busy}>跳过向导</Button>
+        <Button variant="accent" onClick={onNext} disabled={busy || !origin.trim()}>下一步：验证连接</Button>
       </div>
     </div>
   )
@@ -368,19 +355,23 @@ export function VerifyPanel({ origin, verify, onBack, onRetry, onContinue }: Ver
             <dt className="text-[var(--text-secondary)]">能力</dt><dd className="font-semibold">{verify.outcome.capabilityLine}</dd>
             <dt className="text-[var(--text-secondary)]">站点账号</dt><dd className="font-semibold">{verify.outcome.accountLine}</dd>
           </dl>
-          {messageBar("ok", <div>服务器连接正常。<span className="mt-0.5 block text-[var(--text-secondary)]">服务器若要求账号密码，可在下一步或「设置 → 安全与高级」补设。</span></div>)}
+          <MessageBar variant="success">
+            <div>服务器连接正常。<span className="mt-0.5 block text-[var(--text-secondary)]">服务器若要求账号密码，可在下一步或「设置 → 安全与高级」补设。</span></div>
+          </MessageBar>
         </>
       ) : (
         <>
-          {messageBar("err", <div>{verify.outcome.message}<span className="mt-0.5 block text-[var(--text-secondary)]">{verify.outcome.hint}</span></div>)}
+          <MessageBar variant="error">
+            <div>{verify.outcome.message}<span className="mt-0.5 block text-[var(--text-secondary)]">{verify.outcome.hint}</span></div>
+          </MessageBar>
           <p className="my-3 text-xs text-[var(--text-secondary)]">可以修正地址后重试，或保存并继续——之后随时在「设置 → 连接」重新配置。</p>
         </>
       )}
       <div className="mt-4 flex items-center justify-between">
-        <button type="button" className={BTN_GHOST} onClick={onBack}>上一步</button>
+        <Button variant="ghost" onClick={onBack}>上一步</Button>
         <span className="flex gap-2">
-          <button type="button" className={BTN_DEFAULT} onClick={onRetry} disabled={verify.kind === "running" || verify.kind === "idle"}>重试验证</button>
-          <button type="button" className={BTN_PRIMARY} onClick={onContinue}>保存并继续</button>
+          <Button variant="default" onClick={onRetry} disabled={verify.kind === "running" || verify.kind === "idle"}>重试验证</Button>
+          <Button variant="accent" onClick={onContinue}>保存并继续</Button>
         </span>
       </div>
     </div>
@@ -412,16 +403,15 @@ export function AccountPanel({ credentialsConfigured, nickname, busy, onPromptCr
           <span className="text-xs text-[var(--text-secondary)]">可稍后在「设置 → 安全与高级」修改</span>
         ) : (
           <span className="flex gap-1">
-            <button type="button" className={BTN_DEFAULT} onClick={onPromptCredentials} disabled={busy}>设置账号和密码</button>
-            <button type="button" className={BTN_GHOST} onClick={() => setCredentialsDismissed(true)} disabled={busy}>跳过</button>
+            <Button variant="default" onClick={onPromptCredentials} disabled={busy}>设置账号和密码</Button>
+            <Button variant="ghost" onClick={() => setCredentialsDismissed(true)} disabled={busy}>跳过</Button>
           </span>
         )}
       </div>
       <div className="my-3">
         <label className={LABEL} htmlFor="setup-nickname">昵称</label>
-        <input
+        <Input
           id="setup-nickname"
-          className={INPUT}
           value={nickname}
           onChange={(event) => onNicknameChange(event.target.value)}
           placeholder="显示给房间成员"
@@ -430,8 +420,8 @@ export function AccountPanel({ credentialsConfigured, nickname, busy, onPromptCr
         <p className={HINT}>显示给房间成员；保存进本机设置，之后可在设置中修改。</p>
       </div>
       <div className="mt-4 flex items-center justify-between">
-        <button type="button" className={BTN_GHOST} onClick={onBack} disabled={busy}>上一步</button>
-        <button type="button" className={BTN_PRIMARY} onClick={onNext} disabled={busy || !nickname.trim()}>下一步：Linkle 服务器</button>
+        <Button variant="ghost" onClick={onBack} disabled={busy}>上一步</Button>
+        <Button variant="accent" onClick={onNext} disabled={busy || !nickname.trim()}>下一步：Linkle 服务器</Button>
       </div>
     </div>
   )
@@ -456,9 +446,8 @@ export function LinkleOriginPanel({ linkleOrigin, error, busy, verify, onVerify,
       <p className="mb-4 text-xs text-[var(--text-secondary)]">Linkle 是可选的第二服务。没有 Linkle 服务器可整体跳过，之后随时在 Linkle 大厅补配。</p>
       <div className="my-3">
         <label className={LABEL} htmlFor="setup-linkle-origin">Linkle 服务器地址</label>
-        <input
+        <Input
           id="setup-linkle-origin"
-          className={INPUT}
           value={linkleOrigin}
           onChange={(event) => onLinkleOriginChange(event.target.value)}
           placeholder="https://music.example.com"
@@ -473,11 +462,11 @@ export function LinkleOriginPanel({ linkleOrigin, error, busy, verify, onVerify,
         <p className={HINT}>本地调试栈地址为 http://127.0.0.1:18380；远程服务器请用 HTTPS——Linkle 侧不允许非回环 HTTP（与 Banguru 策略不同）。</p>
       </div>
       <div className="mt-4 flex items-center justify-between">
-        <button type="button" className={BTN_GHOST} onClick={onSkipLinkle} disabled={busy}>跳过 Linkle</button>
+        <Button variant="ghost" onClick={onSkipLinkle} disabled={busy}>跳过 Linkle</Button>
         <span className="flex gap-2">
-          <button type="button" className={BTN_DEFAULT} onClick={onVerify} disabled={busy || verify.kind === "running" || !linkleOrigin.trim()}>{verify.kind === "done" ? "重新验证" : "验证媒体源"}</button>
-          <button type="button" className={BTN_DEFAULT} onClick={onBack} disabled={busy}>上一步</button>
-          <button type="button" className={BTN_PRIMARY} onClick={onNext} disabled={busy || !linkleOrigin.trim()}>保存并继续</button>
+          <Button variant="default" onClick={onVerify} disabled={busy || verify.kind === "running" || !linkleOrigin.trim()}>{verify.kind === "done" ? "重新验证" : "验证媒体源"}</Button>
+          <Button variant="default" onClick={onBack} disabled={busy}>上一步</Button>
+          <Button variant="accent" onClick={onNext} disabled={busy || !linkleOrigin.trim()}>保存并继续</Button>
         </span>
       </div>
     </div>
@@ -514,10 +503,9 @@ export function LinkleInvitePanel({ linkleOrigin, busy, finishError, onBack, onS
       <div className="my-3">
         <label className={LABEL} htmlFor="setup-invite-code">邀请码</label>
         <span className="flex gap-2">
-          <input
+          <Input
             id="setup-invite-code"
             type="password"
-            className={INPUT}
             value={inviteCode}
             onChange={(event) => setInviteCode(event.target.value)}
             placeholder="粘贴一次性邀请码"
@@ -525,19 +513,19 @@ export function LinkleInvitePanel({ linkleOrigin, busy, finishError, onBack, onS
             spellCheck={false}
             disabled={busy}
           />
-          <button type="button" className={BTN_DEFAULT} onClick={submitRedeem} disabled={busy || !inviteCode.trim() || redeemState.kind === "running"}>兑换</button>
+          <Button variant="default" onClick={submitRedeem} disabled={busy || !inviteCode.trim() || redeemState.kind === "running"}>兑换</Button>
         </span>
         <p className={HINT}>服务器：{linkleOrigin}。一次性邀请码只用于换取登录会话，不会被保存、显示或写入日志。</p>
         {redeemState.kind === "running" ? <p role="status" className="mt-1.5 text-[11px] text-[var(--text-secondary)]">正在兑换…</p> : null}
         {redeemState.kind === "done" ? <p role="status" className="mt-1.5 text-[11px] text-[#5dd39e]">当前账号：{redeemState.accountName} · 兑换成功，可直接加入房间</p> : null}
         {redeemState.kind === "error" ? <p role="alert" className="mt-1.5 text-[11px] text-[#ff9d96]">{redeemState.message}</p> : null}
       </div>
-      {finishError ? messageBar("err", <div>{finishError}</div>) : null}
+      {finishError ? <MessageBar variant="error"><div>{finishError}</div></MessageBar> : null}
       <div className="mt-4 flex items-center justify-between">
-        <button type="button" className={BTN_GHOST} onClick={onSkip} disabled={busy}>跳过，稍后在 Linkle 大厅兑换</button>
+        <Button variant="ghost" onClick={onSkip} disabled={busy}>跳过，稍后在 Linkle 大厅兑换</Button>
         <span className="flex gap-2">
-          <button type="button" className={BTN_DEFAULT} onClick={onBack} disabled={busy}>上一步</button>
-          <button type="button" className={BTN_PRIMARY} onClick={onFinish} disabled={busy}>完成</button>
+          <Button variant="default" onClick={onBack} disabled={busy}>上一步</Button>
+          <Button variant="accent" onClick={onFinish} disabled={busy}>完成</Button>
         </span>
       </div>
     </div>

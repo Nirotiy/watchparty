@@ -25,7 +25,8 @@ const compilerOptions = {
 }
 
 function resolveSource(request, fromDir) {
-  const base = request.startsWith('.') ? path.resolve(fromDir, request) : request
+  const base = request.startsWith('@/') ? path.join(shellRoot, 'src', request.slice(2))
+    : request.startsWith('.') ? path.resolve(fromDir, request) : request
   const candidates = [base, `${base}.ts`, `${base}.tsx`, `${base}.d.ts`, path.join(base, 'index.ts'), path.join(base, 'index.tsx')]
   const hit = candidates.find((candidate) => existsSync(candidate))
   if (!hit) throw new Error(`setup-guide test cannot resolve ${request} from ${fromDir}`)
@@ -43,7 +44,7 @@ function loadModule(relativePath) {
     const source = readFileSync(filename, 'utf8')
     const js = ts.transpile(source, compilerOptions, filename)
     const localRequire = (id) => {
-      if (id.startsWith('.')) return load(resolveSource(id, path.dirname(filename))).exports
+      if (id.startsWith('.') || id.startsWith('@/')) return load(resolveSource(id, path.dirname(filename))).exports
       return nodeRequire(id)
     }
     vm.runInNewContext(js, {

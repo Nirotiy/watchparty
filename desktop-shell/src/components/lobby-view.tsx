@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
-import { Button, Checkbox, Field, Input, MessageBar, MessageBarBody } from "@fluentui/react-components"
+import { Checkbox } from "@fluentui/react-components"
 import { AddRegular, ArrowClockwiseRegular, ChevronLeftRegular, DeleteRegular, EditRegular, KeyRegular, MusicNote2Regular, PulseRegular, SearchRegular } from "@fluentui/react-icons"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { MessageBar } from "@/components/ui/message-bar"
+import { ProgressRing } from "@/components/ui/progress-ring"
 import { useShellToast } from "@/components/shell-toast"
 import type { LobbyFacade } from "@/hooks/use-lobby-facade"
 import { probeMusicParty, type MusicPartyProbe } from "../../shared/musicparty-adapter"
@@ -10,6 +14,7 @@ import type { RoomIdentity, RoomSummaryRecord } from "../../shared/lobby-contrac
 type Filter = "all" | "public" | "private"
 // Browsing preferences live only for this app run, and are scoped to the service origin.
 const browsing = new Map<string, { query: string; filter: Filter; selected: string | null; scroll: number }>()
+const LABEL = "text-xs text-[var(--text-secondary)]"
 
 export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, accountPanel }: {
   facade: LobbyFacade
@@ -156,7 +161,7 @@ export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, ac
             <strong>服务与账号</strong>
             <span className="lobby-head-right">
               {probe ? <span className={`lobby-account${probe.account ? "" : " muted"}`}>{probe.account ? probe.account.displayName || probe.account.publicId : "本机尚未登录"}</span> : null}
-              <Button appearance="subtle" size="small" icon={<ChevronLeftRegular />} aria-label="返回服务器信息" title="返回服务器信息" onClick={() => setShowAccount(false)} />
+              <Button variant="ghost" size="icon-sm" aria-label="返回服务器信息" title="返回服务器信息" onClick={() => setShowAccount(false)}><ChevronLeftRegular /></Button>
             </span>
           </div>
           <div className="lobby-account-panel">{accountPanel}</div>
@@ -174,8 +179,8 @@ export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, ac
           </dl>
           <p className={`lobby-note${probeTone}`} role="status">{probe?.message ?? "还没有这台服务器的探测结果。"}</p>
           <div className="lobby-card-actions">
-            <Button icon={<PulseRegular />} onClick={() => void checkServer()} disabled={probing || !origin}>{probing ? "正在检查" : "检查服务器"}</Button>
-            <Button appearance="subtle" onClick={() => setShowAccount(true)}>服务与账号</Button>
+            <Button onClick={() => void checkServer()} disabled={probing || !origin}><PulseRegular />{probing ? "正在检查" : "检查服务器"}</Button>
+            <Button variant="ghost" onClick={() => setShowAccount(true)}>服务与账号</Button>
           </div>
         </>}
       </section>
@@ -184,10 +189,10 @@ export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, ac
         <div className="lobby-card-head"><KeyRegular className="lobby-card-icon" /><strong>有邀请码？</strong></div>
         <p className="lobby-note">输入朋友给的邀请码，直接进入那个房间。</p>
         <form className="lobby-invite" onSubmit={event => void redeemInvite(event)}>
-          <Input value={invite} onChange={(_, data) => { setInvite(data.value); setInviteError("") }} placeholder="粘贴邀请码" aria-label="邀请码" disabled={inviteBusy} />
-          <Button type="submit" appearance="primary" disabled={inviteBusy || !invite.trim()}>{inviteBusy ? "正在进入" : "进入房间"}</Button>
+          <Input value={invite} onChange={event => { setInvite(event.target.value); setInviteError("") }} placeholder="粘贴邀请码" aria-label="邀请码" disabled={inviteBusy} />
+          <Button type="submit" variant="accent" disabled={inviteBusy || !invite.trim()}>{inviteBusy ? "正在进入" : "进入房间"}</Button>
         </form>
-        {inviteError ? <MessageBar intent="error"><MessageBarBody>{inviteError}</MessageBarBody></MessageBar> : null}
+        {inviteError ? <MessageBar variant="error">{inviteError}</MessageBar> : null}
       </section>
     </div>
 
@@ -196,13 +201,16 @@ export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, ac
         <div className="lobby-rooms-title"><h2>浏览房间</h2><span className="muted">{visible.length} 个</span></div>
         <div className="lobby-filters" role="group" aria-label="房间访问类型">
           {([["all", "全部"], ["public", "公开"], ["private", "私密"]] as const).map(([value, label]) => (
-            <button key={value} type="button" className={filter === value ? "lobby-chip on" : "lobby-chip"} aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>
+            <Button key={value} type="button" variant="toggle" className="lobby-chip" aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</Button>
           ))}
         </div>
         <div className="lobby-rooms-actions">
-          <Input ref={search} className="lobby-search" contentBefore={<SearchRegular />} aria-label="搜索 Linkle 房间" value={query} onChange={(_, data) => setQuery(data.value)} placeholder="搜索房间" />
-          <Button icon={<ArrowClockwiseRegular />} onClick={() => void refresh()} disabled={loading}>{loading ? "正在刷新" : "刷新"}</Button>
-          <Button appearance="primary" icon={<AddRegular />} onClick={() => open("create", null)} disabled={disabled || !facade.canCreateRoom} title={createBlockedReason ?? undefined}>创建房间</Button>
+          <span className="relative inline-flex">
+            <SearchRegular className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+            <Input ref={search} className="lobby-search pl-9" aria-label="搜索 Linkle 房间" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索房间" />
+          </span>
+          <Button onClick={() => void refresh()} disabled={loading}><ArrowClockwiseRegular />{loading ? "正在刷新" : "刷新"}</Button>
+          <Button variant="accent" onClick={() => open("create", null)} disabled={disabled || !facade.canCreateRoom} title={createBlockedReason ?? undefined}><AddRegular />创建房间</Button>
         </div>
       </div>
       {createBlockedReason ? <p className="lobby-hint">{createBlockedReason}</p> : null}
@@ -231,8 +239,8 @@ export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, ac
             <span className="lobby-count c3">{item.memberCount ?? "未知"}</span>
             <span className="lobby-row-actions">
               {facade.canManageRoom(item) ? <>
-                <Button appearance="subtle" icon={<EditRegular />} aria-label={`重命名 ${item.name}`} onClick={() => openManage("rename", item)} />
-                <Button appearance="subtle" icon={<DeleteRegular />} aria-label={`删除 ${item.name}`} disabled={inside(item)} title={inside(item) ? "请先离开该房间再删除" : "删除会清除队列、聊天与成员关系"} onClick={() => openManage("delete", item)} />
+                <Button variant="ghost" size="icon" aria-label={`重命名 ${item.name}`} onClick={() => openManage("rename", item)}><EditRegular /></Button>
+                <Button variant="ghost" size="icon" aria-label={`删除 ${item.name}`} disabled={inside(item)} title={inside(item) ? "请先离开该房间再删除" : "删除会清除队列、聊天与成员关系"} onClick={() => openManage("delete", item)}><DeleteRegular /></Button>
               </> : null}
               {inside(item)
                 ? <Button disabled>已在此房间</Button>
@@ -245,23 +253,23 @@ export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, ac
             <strong>{query || filter !== "all" ? "没有匹配的房间" : "当前没有可浏览的音乐房间"}</strong>
             {query || filter !== "all"
               ? <Button onClick={() => { setQuery(""); setFilter("all") }}>清除筛选</Button>
-              : <Button appearance="primary" disabled={disabled || !facade.canCreateRoom} title={createBlockedReason ?? undefined} onClick={() => open("create", null)}>创建第一个房间</Button>}
+              : <Button variant="accent" disabled={disabled || !facade.canCreateRoom} title={createBlockedReason ?? undefined} onClick={() => open("create", null)}>创建第一个房间</Button>}
           </div>
         ) : null}
-        {loading ? <p className="lobby-empty" role="status">正在获取 Linkle 房间…</p> : null}
+        {loading ? <p className="lobby-empty" role="status"><span className="inline-flex items-center gap-2.5"><ProgressRing />正在获取 Linkle 房间…</span></p> : null}
       </div>
     </div>
     <p className="sr-only" role="status" aria-live="polite">{room ? `已选择 ${room.name}` : "未选择房间"}</p>
     <dialog ref={dialog} className="lobby-dialog" aria-labelledby="linkle-dialog-title" onCancel={event => { event.preventDefault(); if (discard) setDiscard(false); else requestClose() }} onClick={event => { if (event.target === event.currentTarget && !dirty) requestClose() }} onClose={() => { setForm(null); setPassword(""); setName(""); setPrivateRoom(false); setDiscard(false); trigger.current?.focus() }}>
-      {discard ? <div><h2 id="linkle-dialog-title">放弃填写的内容？</h2><p>房间名称与密码不会保存。</p><footer><Button autoFocus onClick={() => setDiscard(false)}>继续编辑</Button><Button appearance="primary" onClick={() => dialog.current?.close()}>放弃</Button></footer></div> : <form onSubmit={event => { event.preventDefault(); void submit() }} aria-busy={pending}>
+      {discard ? <div><h2 id="linkle-dialog-title">放弃填写的内容？</h2><p>房间名称与密码不会保存。</p><footer><Button autoFocus onClick={() => setDiscard(false)}>继续编辑</Button><Button variant="accent" onClick={() => dialog.current?.close()}>放弃</Button></footer></div> : <form onSubmit={event => { event.preventDefault(); void submit() }} aria-busy={pending}>
         <h2 id="linkle-dialog-title">{form === "create" ? "创建 Linkle 房间" : form === "rename" ? `重命名 ${room?.name ?? "房间"}` : form === "delete" ? `删除「${room?.name ?? ""}」？` : `加入 ${room?.name ?? "房间"}`}</h2>
-        {form === "create" ? <><Field label="房间名称" required><Input autoFocus required value={name} disabled={pending} onChange={(_, data) => setName(data.value)} /></Field><Checkbox label="私密房间" checked={privateRoom} disabled={pending} onChange={(_, data) => setPrivateRoom(Boolean(data.checked))} /></>
-          : form === "rename" ? <Field label="房间名称" required><Input autoFocus required value={name} disabled={pending} onChange={(_, data) => setName(data.value)} /></Field>
+        {form === "create" ? <><label className={LABEL}><span>房间名称 <span aria-hidden="true">*</span></span><Input autoFocus required value={name} disabled={pending} onChange={event => setName(event.target.value)} /></label><Checkbox label="私密房间" checked={privateRoom} disabled={pending} onChange={(_, data) => setPrivateRoom(Boolean(data.checked))} /></>
+          : form === "rename" ? <label className={LABEL}><span>房间名称 <span aria-hidden="true">*</span></span><Input autoFocus required value={name} disabled={pending} onChange={event => setName(event.target.value)} /></label>
           : form === "delete" ? <p>删除会一并清除该房间的队列、历史、聊天与成员关系，且不可撤销。房间列表会立即刷新。</p>
           : <p>{activeRoom ? "确认后将切换活动会话，连接失败时尝试恢复原房间。" : "加入后同步房间的播放与队列。"}</p>}
-        {(form === "join" && room?.requiresPassword) || (form === "create" && privateRoom) ? <Field label="房间密码" required><Input type="password" autoComplete="off" required value={password} disabled={pending} onChange={(_, data) => setPassword(data.value)} /></Field> : null}
-        {formError ? <MessageBar intent="error"><MessageBarBody>{formError}</MessageBarBody></MessageBar> : null}
-        <footer><Button type="button" disabled={pending} onClick={requestClose}>取消</Button><Button type="submit" appearance={form === "delete" ? "outline" : "primary"} disabled={disabled || ((form === "create" || form === "rename") && !name.trim())}>{pending ? (form === "create" ? "正在创建" : form === "rename" ? "正在改名" : form === "delete" ? "正在删除" : "正在加入") : form === "create" ? "创建房间" : form === "rename" ? "保存名称" : form === "delete" ? "确认删除房间" : "加入房间"}</Button></footer>
+        {(form === "join" && room?.requiresPassword) || (form === "create" && privateRoom) ? <label className={LABEL}><span>房间密码 <span aria-hidden="true">*</span></span><Input type="password" autoComplete="off" required value={password} disabled={pending} onChange={event => setPassword(event.target.value)} /></label> : null}
+        {formError ? <MessageBar variant="error">{formError}</MessageBar> : null}
+        <footer><Button type="button" disabled={pending} onClick={requestClose}>取消</Button><Button type="submit" variant={form === "delete" ? "outline" : "accent"} disabled={disabled || ((form === "create" || form === "rename") && !name.trim())}>{pending ? (form === "create" ? "正在创建" : form === "rename" ? "正在改名" : form === "delete" ? "正在删除" : "正在加入") : form === "create" ? "创建房间" : form === "rename" ? "保存名称" : form === "delete" ? "确认删除房间" : "加入房间"}</Button></footer>
       </form>}
     </dialog>
   </section>

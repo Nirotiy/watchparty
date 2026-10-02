@@ -362,7 +362,7 @@ fn validate_nickname(value: String) -> Result<String, ConfigError> {
 
 fn validate_theme(value: String) -> Result<String, ConfigError> {
     match value.as_str() {
-        "dark" | "light" => Ok(value),
+        "dark" | "light" | "system" => Ok(value),
         _ => Err(ConfigError::Invalid),
     }
 }
@@ -1023,6 +1023,16 @@ mod tests {
         let saved = store.save(settings).expect("save preferences");
         assert_eq!(saved.backend_origin, None);
         assert_eq!(saved.theme, "light");
+        let _ = fs::remove_dir_all(store.path().parent().expect("parent"));
+    }
+
+    #[test]
+    fn theme_accepts_system_follow_mode() {
+        let store = store();
+        let mut settings = input("https://watch.example");
+        settings.theme = "system".into();
+        let saved = store.save(settings).expect("save system follow mode");
+        assert_eq!(saved.theme, "system");
         let _ = fs::remove_dir_all(store.path().parent().expect("parent"));
     }
 

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useId, useRef, type ReactNode, type RefObject } from "react"
-import { Toast, ToastBody, ToastTitle, ToastTrigger, Toaster, Button, useToastController, type ToastIntent } from "@fluentui/react-components"
+import { Toast, ToastBody, ToastTitle, ToastTrigger, Toaster, useToastController, type ToastIntent } from "@fluentui/react-components"
 import { DismissRegular } from "@fluentui/react-icons"
+import { Button } from "@/components/ui/button"
 
 /** 通知位置：底部是壳的默认区（连接、外观、退出房间都往那儿走），
     顶部留给「你自己那块内容读不出来」这类需要当事人立刻处理的事（如大厅房间列表读失败）。 */
@@ -17,7 +18,7 @@ export function ShellToastProvider({ children }: { children: ReactNode }) {
     if (!message || (recent.current.message === message && Date.now() - recent.current.at < 4000)) return
     recent.current = { message, at: Date.now() }
     const dispatchToast = placement === "top" ? top.dispatchToast : bottom.dispatchToast
-    dispatchToast(<Toast><ToastTitle action={<ToastTrigger><Button appearance="transparent" icon={<DismissRegular />} aria-label="关闭通知" /></ToastTrigger>}>{intent === "error" ? "操作未完成" : intent === "success" ? "已完成" : "通知"}</ToastTitle><ToastBody>{message}</ToastBody></Toast>, { intent, timeout: intent === "error" ? -1 : 3000 })
+    dispatchToast(<Toast><ToastTitle action={<ToastTrigger><Button variant="ghost" size="icon" aria-label="关闭通知"><DismissRegular /></Button></ToastTrigger>}>{intent === "error" ? "操作未完成" : intent === "success" ? "已完成" : "通知"}</ToastTitle><ToastBody>{message}</ToastBody></Toast>, { intent, timeout: intent === "error" ? -1 : 3000 })
   }
   return <NoticeContext.Provider value={notify}>{children}<Toaster inline toasterId={bottomId} position="bottom-end" limit={1} className="shell-toaster" /><Toaster inline toasterId={topId} position="top-end" limit={1} className="shell-toaster shell-toaster-top" /></NoticeContext.Provider>
 }

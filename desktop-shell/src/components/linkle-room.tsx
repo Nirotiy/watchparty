@@ -20,6 +20,12 @@ import { pairByTime, parseYrc } from "../../shared/yrc"
 import { linkleIdentity, linkleMemberOf, migrateLocalSettings, type LinkleMemberIdentity } from "../../shared/local-schema"
 import type { MusicPartyAccount } from "../../shared/musicparty-adapter"
 import type { LyricDetail } from "../../shared/musicparty-adapter"
+// 弹层的 Tab 锁定：radix-ui 聚合包的 ./focus-scope 子路径在该版本里是坏的（exports 指向不存在的文件），
+// 直接依赖并导入子包（本来就是 radix-ui 的直接依赖，去重后无新增下载）。
+import { FocusScope } from "@radix-ui/react-focus-scope"
+import { Button } from "@/components/ui/button"
+import { Dialog } from "@/components/ui/dialog"
+import { Slider } from "@/components/ui/slider"
 import { KawarpBackground } from "./kawarp-background"
 import { accentVars, type AccentVars } from "./cover-palette"
 
@@ -152,6 +158,7 @@ export function LinkleRoom({ room, connection, subscribeRoom, onLeave }: {
   const [connLabel, setConnLabel] = useState("连接中")
   const [pendingKind, setPendingKind] = useState<string | null>(null)
   const [note, setNote] = useState("")
+  const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false)
   const [panel, setPanel] = useState<RoomPanel>("listen")
   const panelRef = useRef<RoomPanel>("listen")
   panelRef.current = panel
@@ -175,9 +182,11 @@ export function LinkleRoom({ room, connection, subscribeRoom, onLeave }: {
   const [coverColorsEnabled, setCoverColorsEnabled] = useState(() => stored("linkle.cover-colors") !== "off")
   const [accent, setAccent] = useState<AccentVars | null>(null)
   const [cover, setCover] = useState<string | null>(null)
+  // 2026-10-02 决策（审计 §9-B）：常驻重绘的 WebGL 背景默认关闭；显式选过的值原样保留，
+  // 「跟随系统」仍按 reduce 停发（active 条件不变）。
   const [dynamicBackground, setDynamicBackground] = useState<"system" | "on" | "off">(() => {
     const value = stored("linkle.dynamic-bg")
-    return value === "on" || value === "off" ? value : "system"
+    return value === "on" || value === "system" ? value : "off"
   })
   // The word sweep is informational (karaoke timing), so it defaults on; the switch
   // still allows "跟随系统" for anyone who wants reduced-motion to freeze it.
@@ -500,8 +509,10 @@ export function LinkleRoom({ room, connection, subscribeRoom, onLeave }: {
     requestAnimationFrame(locateLine)
   }
 
-  function leave() {
-    if (!window.confirm("退出当前活动会话？")) return
+  function leave() { setLeaveConfirmOpen(true) }
+
+  function confirmLeave() {
+    setLeaveConfirmOpen(false)
     if (timerRef.current) clearTimeout(timerRef.current)
     void adapterOf(connection)?.disconnect()
     onLeave()
@@ -597,6 +608,8 @@ export function LinkleRoom({ room, connection, subscribeRoom, onLeave }: {
             <PeopleRegular className="conn-users" aria-hidden="true" />
             <span className="conn-count">{members.length || "…"}</span>
           </p>
+          {/* 读屏：连接态与人数变化的实时播报（M2 键盘与读屏批）。 */}
+          <span className="sr-only" role="status" aria-live="polite">{connText}</span>
         </div>
         {/* 状态标（房间锁/重连/断开/睡眠定时/本机静音）常驻房头：分栏播放条撤掉后，
             它们不能再只挂在被隐藏的那一块里（用户 2026-09-25 裁决）。 */}
@@ -618,12 +631,14 @@ export function LinkleRoom({ room, connection, subscribeRoom, onLeave }: {
         {menuOpen === "room" ? (
           <>
             <button type="button" className="menu-backdrop" aria-label="关闭菜单" onClick={() => setMenuOpen(null)} />
-            <div className="menu topmenu" role="menu">
-              <h3>房间功能</h3>
-              {/* 未开放项不进菜单（用户 2026-09-25 裁决）：置灰条目看着像坏了。 */}
-              <button type="button" role="menuitem" onClick={() => openPanel("chat")}>聊天与成员</button>
-              <button type="button" role="menuitem" onClick={() => openPanel("playlists")}>歌单与导出</button>
-            </div>
+            <FocusScope trapped loop asChild>
+              <div className="menu topmenu" role="menu">
+                <h3>房间功能</h3>
+                {/* 未开放项不进菜单（用户 2026-09-25 裁决）：置灰条目看着像坏了。 */}
+                <button type="button" role="menuitem" onClick={() => openPanel("chat")}>聊天与成员</button>
+                <button type="button" role="menuitem" onClick={() => openPanel("playlists")}>歌单与导出</button>
+              </div>
+            </FocusScope>
           </>
         ) : null}
       </header>
@@ -666,21 +681,21 @@ export function LinkleRoom({ room, connection, subscribeRoom, onLeave }: {
                 <div className="stack">
                   <div className="progress">
                     <span className="seek-end current">{formatTime(seekOverride != null ? seekOverride * 1000 : positionMs)}</span>
-                    <input
-                      className="seek" type="range" min={0} max={Math.max(1, Math.round(durationMs / 1000))}
-                      value={seekOverride ?? Math.round(positionMs / 1000)} step={1}
-                      style={{ "--fill": `${(() => { const total = Math.max(1, Math.round(durationMs / 1000)); return ((seekOverride ?? Math.round(positionMs / 1000)) / total) * 100 })()}%` } as React.CSSProperties}
+                    <Slider
+                      variant="seek" className="min-w-0 flex-1"
+                      min={0} max={Math.max(1, Math.round(durationMs / 1000))} step={1}
+                      value={[seekOverride ?? Math.round(positionMs / 1000)]}
                       aria-label={`房间播放进度${seekDisabled ? " · 当前无曲目" : ""}${disconnected ? " · 连接已断开" : ""}`}
                       aria-disabled={seekDisabled || disconnected}
-                      onInput={event => setSeekOverride(Number(event.currentTarget.value))}
+                      formatHover={seconds => formatTime(seconds * 1000)}
                       onBlur={() => setSeekOverride(null)}
-                      onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); setSeekOverride(null) } }}
-                      onChange={event => {
-                        const seconds = Number(event.currentTarget.value)
+                      onValueChange={([next]) => { if (next !== undefined) setSeekOverride(next) }}
+                      onValueCommit={([next]) => {
                         setSeekOverride(null)
                         if (disconnected) { setNote("连接已断开，暂时无法跳转"); return }
-                        if (!seekDisabled) void send("seek", { positionMs: seconds * 1000 })
+                        if (!seekDisabled && next !== undefined) void send("seek", { positionMs: next * 1000 })
                       }}
+                      onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); setSeekOverride(null) } }}
                     />
                     <span className="seek-end">{formatTime(durationMs)}</span>
                   </div>
@@ -711,25 +726,27 @@ export function LinkleRoom({ room, connection, subscribeRoom, onLeave }: {
               {menuOpen === "bar" ? (
                 <>
                   <button type="button" className="menu-backdrop" aria-label="关闭菜单" onClick={() => setMenuOpen(null)} />
-                  <div className="menu barmenu" role="menu">
-                    <h3>更多播放选项</h3>
-                    <button type="button" role="menuitem" aria-pressed={timerOn} onClick={toggleTimer}>睡眠定时（30 分钟，只影响本机）</button>
-                    <button type="button" role="menuitem" aria-pressed={coverColorsEnabled} onClick={() => setCoverColorsEnabled(value => !value)}>封面取色</button>
-                    <h3>动效</h3>
-                    {([[dynamicBackground, setDynamicBackground, "动态背景"], [lyricMotion, setLyricMotion, "歌词动效"]] as const).map(([value, setValue, label]) => (
-                      <div key={label} role="group" aria-label={label}>
-                        <p className="menu-group">{label}</p>
-                        {([["system", "跟随系统"], ["on", "开启"], ["off", "关闭"]] as const).map(([option, optionLabel]) => (
-                          <button key={option} type="button" role="menuitemradio" aria-checked={value === option} className={value === option ? "selected" : undefined} onClick={() => setValue(option)}>{optionLabel}</button>
-                        ))}
-                      </div>
-                    ))}
-                    <h3>房间与窗口</h3>
-                    <button type="button" role="menuitem" onClick={() => openPanel("chat")}>聊天与成员</button>
-                    <button type="button" role="menuitem" disabled={!hasTrack} onClick={() => openPanel("playlists")}>保存至歌单</button>
-                    <button type="button" role="menuitem" onClick={() => openPanel("queue")}>打开播放队列</button>
-                    <button type="button" role="menuitem" onClick={toggleFullscreen}>切换全屏</button>
-                  </div>
+                  <FocusScope trapped loop asChild>
+                    <div className="menu barmenu" role="menu">
+                      <h3>更多播放选项</h3>
+                      <button type="button" role="menuitem" aria-pressed={timerOn} onClick={toggleTimer}>睡眠定时（30 分钟，只影响本机）</button>
+                      <button type="button" role="menuitem" aria-pressed={coverColorsEnabled} onClick={() => setCoverColorsEnabled(value => !value)}>封面取色</button>
+                      <h3>动效</h3>
+                      {([[dynamicBackground, setDynamicBackground, "动态背景"], [lyricMotion, setLyricMotion, "歌词动效"]] as const).map(([value, setValue, label]) => (
+                        <div key={label} role="group" aria-label={label}>
+                          <p className="menu-group">{label}</p>
+                          {([["system", "跟随系统"], ["on", "开启"], ["off", "关闭"]] as const).map(([option, optionLabel]) => (
+                            <button key={option} type="button" role="menuitemradio" aria-checked={value === option} className={value === option ? "selected" : undefined} onClick={() => setValue(option)}>{optionLabel}</button>
+                          ))}
+                        </div>
+                      ))}
+                      <h3>房间与窗口</h3>
+                      <button type="button" role="menuitem" onClick={() => openPanel("chat")}>聊天与成员</button>
+                      <button type="button" role="menuitem" disabled={!hasTrack} onClick={() => openPanel("playlists")}>保存至歌单</button>
+                      <button type="button" role="menuitem" onClick={() => openPanel("queue")}>打开播放队列</button>
+                      <button type="button" role="menuitem" onClick={toggleFullscreen}>切换全屏</button>
+                    </div>
+                  </FocusScope>
                 </>
               ) : null}
             </div>
@@ -804,6 +821,14 @@ export function LinkleRoom({ room, connection, subscribeRoom, onLeave }: {
           </aside>
         </div>
       </div>
+      <Dialog open={leaveConfirmOpen} onOpenChange={setLeaveConfirmOpen} size="compact" label="退出当前活动会话？">
+        <h4>退出当前活动会话？</h4>
+        <p className="winui-dialog-copy">退出后房间播放会停止；重新加入需要新的邀请码或交接码。</p>
+        <div className="winui-dialog-actions">
+          <Button size="sm" variant="ghost" onClick={() => setLeaveConfirmOpen(false)}>取消</Button>
+          <Button size="sm" variant="accent" onClick={confirmLeave}>退出</Button>
+        </div>
+      </Dialog>
     </div>
   )
 }
@@ -934,6 +959,7 @@ function QueuePanel({ queue, connection }: { queue: MediaItem[]; connection: Mus
   const [dropAt, setDropAt] = useState<{ id: string; after: boolean } | null>(null)
   const [message, setMessage] = useState("")
   const [saveOpen, setSaveOpen] = useState(false)
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
   const adapter = () => adapterOf(connection)
   function toggle(id: string) {
     setSelected(current => {
@@ -979,7 +1005,13 @@ function QueuePanel({ queue, connection }: { queue: MediaItem[]; connection: Mus
     const target = adapter()
     if (!target) { setMessage("还没有连接到 Linkle 服务"); return }
     if (!queue.length) { setMessage("队列已经是空的"); return }
-    if (!window.confirm(`清空房间队列（${queue.length} 首）？其他成员也会一起清空。`)) return
+    setClearConfirmOpen(true)
+  }
+
+  async function confirmClearAll() {
+    setClearConfirmOpen(false)
+    const target = adapter()
+    if (!target) return
     const ok = await target.clearQueue()
     setMessage(ok ? "队列已清空" : "清空没有成功，请稍后重试")
   }
@@ -1033,6 +1065,14 @@ function QueuePanel({ queue, connection }: { queue: MediaItem[]; connection: Mus
       })}
       {!queue.length ? <div className="empty"><h3>队列是空的</h3><p>去点歌或从歌单加入曲目。</p></div> : null}
       {message ? <p className="notice" role="status">{message}</p> : null}
+      <Dialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen} size="compact" label="清空房间队列？">
+        <h4>清空房间队列（{queue.length} 首）？</h4>
+        <p className="winui-dialog-copy">其他成员也会一起清空，此操作不可撤销。</p>
+        <div className="winui-dialog-actions">
+          <Button size="sm" variant="ghost" onClick={() => setClearConfirmOpen(false)}>取消</Button>
+          <Button size="sm" variant="accent" onClick={() => void confirmClearAll()}>清空</Button>
+        </div>
+      </Dialog>
     </>
   )
 }
@@ -1663,7 +1703,8 @@ function PlaylistsPanel({ connection, queue, history, onLikesRowRemoved }: { con
       {exportOpen ? (
         <>
           <button type="button" className="pl-pop-backdrop" aria-label="关闭导出菜单" onClick={() => setExportOpen(false)} />
-          <div className="pl-pop" role="menu" aria-label="导出">
+          <FocusScope trapped loop asChild>
+          <div className="pl-pop" role="menu" aria-label="导出" onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); setExportOpen(false) } }}>
             <p className="pl-cap">导出当前队列 · {queue.length} 首</p>
             <div className="pl-fmts">
               {(["TXT", "CSV", "JSON"] as const).map(format => (
@@ -1684,6 +1725,7 @@ function PlaylistsPanel({ connection, queue, history, onLikesRowRemoved }: { con
             </div>
             {exportMessage ? <p className="pl-cap" role="status">{exportMessage}</p> : null}
           </div>
+          </FocusScope>
         </>
       ) : null}
       {scope === "room" ? (
@@ -1718,7 +1760,8 @@ function PlaylistsPanel({ connection, queue, history, onLikesRowRemoved }: { con
             </button>
             <button type="button" className="pl-ico" aria-label={`${entry.name} 的更多操作`} aria-expanded={menuId === entry.id} onClick={() => setMenuId(menuId === entry.id ? null : entry.id)}>⋯</button>
             {menuId === entry.id ? (
-              <div className="pl-menu" role="menu" aria-label={`${entry.name} 操作`}>
+              <FocusScope trapped loop asChild>
+              <div className="pl-menu" role="menu" aria-label={`${entry.name} 操作`} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); setMenuId(null) } }}>
                 <button type="button" role="menuitem" onClick={() => { setMenuId(null); select(entry.id) }}>打开</button>
                 <button type="button" role="menuitem" onClick={() => enqueueAll(entry)}>全部加入队列</button>
                 <button type="button" role="menuitem" onClick={() => { setMenuId(null); setExportOpen(true) }}>导出此歌单…</button>
@@ -1729,6 +1772,7 @@ function PlaylistsPanel({ connection, queue, history, onLikesRowRemoved }: { con
                   </>
                 )}
               </div>
+              </FocusScope>
             ) : null}
           </div>
         ))}

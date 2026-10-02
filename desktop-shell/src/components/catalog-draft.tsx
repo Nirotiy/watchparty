@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { createPortal } from "react-dom"
 
 import { MaterialSymbol } from "@/components/material-symbol"
 import { Button } from "@/components/ui/button"
+import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { ProgressRing } from "@/components/ui/progress-ring"
 import {
   bangumiSearch, mediaCapabilities, mediaCatalogApproval, mediaCatalogApplyApproved, mediaCatalogApprovals,
   mediaCatalogRollback, mediaDraft, mediaDraftApply, mediaDraftCard, mediaDraftClassify, mediaDraftConfirm, mediaDraftEdit, mediaDraftJudge,
@@ -365,7 +366,7 @@ export function CatalogDraft({ libraryId, libraryName, admin }: { libraryId: str
     })
   }
 
-  if (loading && !state && !error) return <p className="draft-hint">正在读取草稿…</p>
+  if (loading && !state && !error) return <p className="draft-hint"><span className="inline-flex items-center gap-2"><ProgressRing size={16} />正在读取草稿…</span></p>
 
   // 「还没扫过」后端给的是 200 + 空草稿；409 CATALOG_DRAFT_EMPTY 也照旧认。
   if (error === "CATALOG_DRAFT_EMPTY" || emptyKind(state) !== null) {
@@ -496,7 +497,7 @@ export function CatalogDraft({ libraryId, libraryName, admin }: { libraryId: str
 
       <table className="draft-table">
         <thead>
-          <tr><th className="draft-pick"><span className="sr-only">选择</span></th><th>卡片 / 目录</th><th>文件</th><th>集数行</th><th>差异</th><th>判定</th><th>来源</th></tr>
+          <tr><th scope="col" className="draft-pick"><span className="sr-only">选择</span></th><th scope="col">卡片 / 目录</th><th scope="col">文件</th><th scope="col">集数行</th><th scope="col">差异</th><th scope="col">判定</th><th scope="col">来源</th></tr>
         </thead>
         <tbody>
           {rows.map(item => (
@@ -862,9 +863,8 @@ function ApprovalDialog({ view, busy, onCancel, onConfirm }: { view: ApprovalVie
   ].filter(group => group.rows.length > 0) : []
   const rollbackLines = mode === "rollback" && view.rollback ? rollbackSheet(view.rollback) : []
   const rollbackKeys = view.rollback?.keys ?? []
-  return createPortal(
-    <div className="draft-dialog-scrim" role="dialog" aria-modal="true" aria-label={mode === "rollback" ? "批准撤回" : "批准结构变更"}>
-      <div className="draft-dialog approval">
+  return (
+    <Dialog open onOpenChange={next => { if (!next && !busy) onCancel() }} label={mode === "rollback" ? "批准撤回" : "批准结构变更"} className="draft-dialog approval" overlayClassName="draft-dialog-scrim">
         {mode === "rollback" ? (
           <>
             <h4><span className="draft-tag warn">撤回上次应用</span></h4>
@@ -926,9 +926,7 @@ function ApprovalDialog({ view, busy, onCancel, onConfirm }: { view: ApprovalVie
             {busy ? "正在执行…" : mode === "rollback" ? "批准并撤回" : view.force ? "批准并应用（强行）" : "批准并应用"}
           </Button>
         </div>
-      </div>
-    </div>,
-    document.body,
+    </Dialog>
   )
 }
 
@@ -947,8 +945,7 @@ function ApplyPlanDialog({ plane, pending, humanConfirmed, draft, drift, added, 
 }) {
   const sideEffects = applySideEffects({ pending, humanConfirmed })
   return (
-    <div className="draft-dialog-scrim" role="dialog" aria-modal="true" aria-label={force ? "强行应用草稿" : "应用草稿"}>
-      <div className={cn("draft-dialog", force && "danger")}>
+    <Dialog open onOpenChange={next => { if (!next && !busy) onCancel() }} label={force ? "强行应用草稿" : "应用草稿"} className={cn("draft-dialog", force && "danger")} overlayClassName="draft-dialog-scrim">
         {force ? (
           <>
             <h4><span className="draft-tag danger">强行应用（force=1）</span></h4>
@@ -1023,7 +1020,6 @@ function ApplyPlanDialog({ plane, pending, humanConfirmed, draft, drift, added, 
             ? <Button size="sm" variant="accent" className="draft-danger-btn" disabled={busy} onClick={() => onConfirm(true)}>{busy ? "正在应用…" : "仍然应用（危险）"}</Button>
             : <Button size="sm" variant="accent" disabled={busy} onClick={() => onConfirm(false)}>{busy ? "正在应用…" : "应用"}</Button>}
         </div>
-      </div>
-    </div>
+    </Dialog>
   )
 }
