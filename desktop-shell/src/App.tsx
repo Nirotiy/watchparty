@@ -796,7 +796,6 @@ function useMusicPartyEntry(onInviteRoom: (identity: RoomIdentity) => Promise<vo
     } catch { /* 存储失败不挡这次已建立的会话 */ }
     return { ok: true, probe: outcome.probe }
   }
-  }
   /** 改显示名（用户 2026-10-02 拍板）：服务端改 displayName（publicId 不动），并同步本机桌面昵称。 */
   const renameAccount = async (displayNameInput: string): Promise<{ ok: boolean; message?: string; probe?: MusicPartyProbe | null }> => {
     const nickname = accountDisplayName(displayNameInput)
