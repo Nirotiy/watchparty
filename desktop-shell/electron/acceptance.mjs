@@ -1761,11 +1761,24 @@ export async function runAcceptance(window, native) {
   console.log(JSON.stringify({ check: 'window-material', material }))
   const dir = await mkdtemp(join(tmpdir(), 'watchparty-acceptance-'))
   const children = [], servers = [], sockets = new Set()
+  const audioTrace = []
   let adapter, player, origin
-  const invoke = (command, args = {}) => window.webContents.executeJavaScript(`window.watchpartyDesktop.invoke(${JSON.stringify(command)}, ${JSON.stringify(args)})`).catch(error => {
-    const code = typeof error?.code === 'string' ? error.code : typeof error === 'string' ? error : error?.message
-    throw new Error(`${command}: ${typeof code === 'string' && /^[a-zA-Z0-9_ -]+$/.test(code) ? code : 'native_request_failed'}`)
-  })
+  const invoke = async (command, args = {}) => {
+    const audio = command === 'musicPartyAudio' ? args.input?.command : null
+    const entry = audio && audio.action !== 'status' ? {
+      at: Date.now(), action: audio.action, itemId: audio.itemId,
+      position: audio.position, playing: audio.playing, active: audio.active,
+    } : null
+    if (entry) { audioTrace.push(entry); if (audioTrace.length > 32) audioTrace.shift() }
+    const result = await window.webContents.executeJavaScript(`window.watchpartyDesktop.invoke(${JSON.stringify(command)}, ${JSON.stringify(args)})`).catch(error => {
+      const code = typeof error?.code === 'string' ? error.code : typeof error === 'string' ? error : error?.message
+      const message = `${command}: ${typeof code === 'string' && /^[a-zA-Z0-9_ -]+$/.test(code) ? code : 'native_request_failed'}`
+      if (entry) entry.error = message
+      throw new Error(message)
+    })
+    if (entry) { entry.elapsedMs = Date.now() - entry.at; entry.result = result }
+    return result
+  }
   const start = (exe, args, options) => { const p = spawn(exe, args, { windowsHide: true, ...options }); children.push(p); return p }
   try {
     const wav = pcm(12)
@@ -1830,7 +1843,21 @@ export async function runAcceptance(window, native) {
     const invite = await adminRequest('/api/dev/rooms/lounge/invites', { label: 'isolated acceptance' })
     await adapter.redeemInvite(invite.code)
     const status = () => invoke('musicPartyAudio', { input: { playerId: player.id, command: { action: 'status' } } })
-    const progressing = async label => { await until(async () => { try { const s = await status(); return s.loaded && !s.paused && s.position > .2 } catch { return false } }, label); const a = await status(); await wait(450); const b = await status(); assert.ok(b.position > a.position + .1, label); return b.position }
+    const progressing = async label => {
+      let lastStatus
+      try {
+        await until(async () => {
+          try { lastStatus = await status(); return lastStatus.loaded && !lastStatus.paused && lastStatus.position > .2 }
+          catch (error) { lastStatus = { error: error.message }; return false }
+        }, label)
+        const a = await status(); await wait(450); const b = await status()
+        assert.ok(b.position > a.position + .1, label)
+        return b.position
+      } catch (error) {
+        console.log(JSON.stringify({ check: 'native-playback-failure', label, snapshot, lastStatus, audioTrace }))
+        throw error
+      }
+    }
     console.log(JSON.stringify({ check: 'entry-without-enqueue', position: await progressing('initial playback'), evidence: 'Electron IPC + Rust + real libmpv; audible output not measured' }))
     offline = true; for (const s of [...sockets]) if(s !== admin) s.terminate()
     await until(() => reconnects > 0, 'transport loss detected')
@@ -1882,12 +1909,22 @@ export async function runAcceptance(window, native) {
       assert.equal((await status()).paused, true)
       console.log('CROSS_PRODUCT_REAL_LIBMPV_FOCUS_OK')
     } finally {
+      console.log('ACCEPTANCE_CROSS_CLEANUP_START')
       await invoke('stopDesktopSession').catch(() => {})
+      console.log('ACCEPTANCE_CROSS_CLEANUP_DONE')
       native.off('event', onState)
     }
+    console.log('ACCEPTANCE_HANDOFF_DISPOSE_START')
     await adapter.disconnect(); await player.dispose()
+    console.log('ACCEPTANCE_HANDOFF_DISPOSE_DONE')
     await invoke('stopDesktopSession').catch(() => {})
-    await window.loadURL('watchparty-app://desktop/index.html')
+    // 2026-10-02：重载必须回到 harness 自己的 assetOrigin（http://127.0.0.1:port），
+    // 不能写死 watchparty-app://——ipc 守卫只认 `${assetOrigin}/index.html`，换 scheme 后
+    // 渲染层所有 invoke 都被拒成 invalid_desktop_request（非 stop 通道全哑的根因）。
+    const acceptanceUrl = window.webContents.getURL()
+    console.log('ACCEPTANCE_RELOAD_START ' + acceptanceUrl)
+    await window.loadURL(acceptanceUrl)
+    console.log('ACCEPTANCE_RELOAD_DONE')
     await runServiceAcceptance({ window, native, invoke, exe, dir, env, start, servers, listen, until, pcm })
     const childArgs = process.defaultApp ? [app.getAppPath()] : []
     childArgs.push(`--acceptance-profile=${app.getPath('userData')}`)

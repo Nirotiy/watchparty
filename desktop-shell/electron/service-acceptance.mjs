@@ -272,7 +272,7 @@ export async function runServiceAcceptance({ window, native, invoke, exe, dir, e
           const total = 45
           const songs = []
           for (let index = offset; index < Math.min(offset + limit, total); index += 1) {
-            const songId = index === 0 ? 101 : 1000 + index
+            const songId = index === 0 ? Number(id) : 1000 + index
             songs.push({ id: songId, name: `Fixture track ${index + 1}`, dt: 90000, ar: [{ name: 'Fixture Artist' }], al: { picUrl: `${coverOrigin}/cover.jpg` } })
           }
           res.end(JSON.stringify({ result: { songs, total } }))
@@ -361,10 +361,27 @@ export async function runServiceAcceptance({ window, native, invoke, exe, dir, e
       }) })
     }
     const [a, b] = services
-    if (stopAtWorkspace) {
-      await until(() => js(`Boolean(Array.from(document.querySelectorAll('.desktop-service-nav button')).find(b => b.textContent.includes('Linkle')))`), 'Linkle navigation')
-      await js(`Array.from(document.querySelectorAll('.desktop-service-nav button')).find(b => b.textContent.includes('Linkle')).click()`)
-    } else await click('Linkle')
+    // 2026-10-02：侧栏/设置入口早已换过文案，全文按现行 DOM 点（文字 endsWith 的旧 click 追不上）。
+    const navTo = async label => {
+      await until(() => js(`Boolean(Array.from(document.querySelectorAll('.desktop-service-nav button')).find(b => b.textContent.includes(${JSON.stringify(label)})))`), `nav ${label}`)
+      await js(`Array.from(document.querySelectorAll('.desktop-service-nav button')).find(b => b.textContent.includes(${JSON.stringify(label)})).click()`)
+      await wait(80)
+    }
+    const openSettings = async () => {
+      await js(`document.querySelector('.desktop-settings-link button[aria-label="设置"]').click()`)
+      await until(() => js(`Boolean(document.querySelector('.fluent-settings-nav'))`), 'settings view')
+    }
+    const leaveLinkleRoom = async () => {
+      if (!await js(`Boolean(document.querySelector('.linkle-room'))`)) {
+        await until(() => js(`Boolean(document.querySelector('.linkle-lobby'))`), 'lobby before leaving room')
+        return
+      }
+      await js(`document.querySelector('.linkle-room button[aria-label="退出房间"]').click()`)
+      await until(() => js(`Boolean(document.querySelector('.winui-dialog'))`), 'leave dialog')
+      await js(`Array.from(document.querySelectorAll('.winui-dialog button')).find(button => button.textContent.trim() === '退出')?.click()`)
+      await until(() => js(`Boolean(document.querySelector('.linkle-lobby'))`), 'lobby after leaving the room')
+    }
+    await navTo('Linkle')
     for (const service of services) {
       await openAccount()
       await fill('Linkle 服务地址', service.origin); await clickLabel('保存服务')
@@ -453,22 +470,26 @@ export async function runServiceAcceptance({ window, native, invoke, exe, dir, e
         return
       }
       await fill('Linkle 邀请码', service.invite); await clickLabel('兑换并进入')
-      await until(() => textContains('已进入'), 'React invite result')
-      await until(() => textContains('已连接'), 'React MusicParty ready')
+      await until(() => js(`Boolean(document.querySelector('.linkle-room .roomhead'))`), 'React invite room')
+      await until(() => calls.some(call => call.path === 'ws' && call.origin === service.origin), 'React MusicParty room socket')
       await wait(250)
       // 首页那份重复的搜索面板已按用户要求删除（2026-09-25），"搜索并入队"改用房间的点歌面板覆盖。
       await until(() => js(`Boolean(document.querySelector('.linkle-room button[aria-label="点歌"]'))`), 'room 点歌 panel button')
       await js(`document.querySelector('.linkle-room button[aria-label="点歌"]').click()`)
-      await fill('搜索曲目', `fixture ${service.track}`); await click('搜索')
-      await until(() => textContains(`Service track ${service.track}`), 'room search result')
-      await js(`(() => { const row = Array.from(document.querySelectorAll('.linkle-room .song')).find(item => item.textContent.includes(${JSON.stringify(`Service track ${service.track}`)})); row?.querySelector('.add-btn button')?.click() })()`)
-      await until(() => textContains(`已加入队列：Service track ${service.track}`), 'room enqueue accepted')
+      await fill('搜索曲目', `fixture ${service.track}`); await clickLabel('搜索')
+      await until(() => textContains('Fixture track 1'), 'room search result')
+      await js(`(() => { const row = Array.from(document.querySelectorAll('.linkle-room .song')).find(item => item.textContent.includes('Fixture track 1')); row?.querySelector('.add-btn button')?.click() })()`)
+      await until(() => textContains('已加入队列：Fixture track 1'), 'room enqueue accepted')
+      await until(() => calls.some(call => call.origin === service.origin && call.path === `/api/desktop/v1/media/netease/${service.track}/resolve`), 'service-specific track resolved')
       try { await playing(`React ${service.track} native playback`) }
       catch (error) {
         const diagnostics = await js(`({ text: document.body.innerText, playerId: ${JSON.stringify(playerId)} })`)
         const audio = playerId ? await status().catch(e => ({ error: String(e) })) : null
         throw new Error(`${error.message}; react=${JSON.stringify(diagnostics)}; audio=${JSON.stringify(audio)}; mediaAuth=${JSON.stringify(mediaAuth.map(({ path, hasSession }) => ({ path, hasSession })))}; provider=${JSON.stringify(providerCalls)}; commands=${JSON.stringify(calls.filter(c => c.audio || c.path?.includes('/resolve')))}`)
       }
+      // Each service run owns the current Linkle room. Return to the lobby before
+      // configuring the next service so account controls are rendered again.
+      await leaveLinkleRoom()
     }
     await openAccount()
     await fill('Linkle 服务地址', a.origin); await clickLabel('保存服务'); await clickLabel('连接')
@@ -476,41 +497,64 @@ export async function runServiceAcceptance({ window, native, invoke, exe, dir, e
     assert.equal(await textContains('Service track 201'), false, 'B state leaked into A')
     await playing('A restored playback')
     const connectedBefore = calls.filter(c => c.path === 'ws').length
-    await click('设置'); await click('安全与会话'); await playing('settings keeps playing')
-    await click('首页'); await click('Banguru')
+    await openSettings(); await click('安全与高级'); await playing('settings keeps playing')
+    await navTo('Banguru')
     await until(async () => (await status()).paused, 'background music suspended')
-    await click('Linkle'); await playing('return restores local focus')
+    await navTo('Linkle'); await playing('return restores local focus')
     assert.equal(calls.filter(c => c.path === 'ws').length, connectedBefore, 'navigation reconnected the room')
     console.log('REACT_REAL_SERVICES_A_B_A_AND_NAVIGATION_OK')
 
     // Changing the password invalidates previous room-access proofs. The member is not an admin.
     const privatePassword = randomUUID()
     await a.admin('/api/rooms/lounge', { name: 'Private acceptance', isPrivate: true, password: privatePassword }, 'PUT')
-    await click('设置'); await click('安全与会话')
-    await fill('房间 ID', 'lounge'); await fill('房间密码', 'generated-wrong-password')
+    // 现行私有房入口在大厅（2026-10-02：设置里那份「房间授权」表单随旧设置页下线）：
+    // 退出房间 → 刷新（本版脚本每个服务段结束已退房，此处 leave 多为 no-op，列表还是改密码前那一份）
+    // → 该房间重新要求密码 → 先错后对，各走一遍。
+    await leaveLinkleRoom()
+    await click('刷新')
+    console.log('PRIVATE_ROOM_ROWS ' + JSON.stringify(await js(`Array.from(document.querySelectorAll('.lobby-row')).map(row => row.textContent.trim().slice(0, 60))`)))
+    await until(() => js(`Boolean(Array.from(document.querySelectorAll('.lobby-row-actions button')).find(button => button.textContent.trim() === '输入密码'))`), 'private room asks for its password again')
     const before = calls.length
-    await click('验证并保存授权')
+    const fillDialogPassword = value => js(`(() => { const input = document.querySelector('.lobby-dialog input[type="password"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); return true })()`)
+    // 失败那次提交后事务要回滚（probe+重连旧房），期间提交键是 disabled——必须等它重新可用，
+    // 否则第二次点击会落在禁用窗口里静默丢失（run 8 的 20s 超时就是这么来的）。
+    const submitJoinDialog = async () => {
+      await until(() => js(`Boolean(Array.from(document.querySelectorAll('.lobby-dialog footer button')).find(button => button.textContent.includes('加入房间') && !button.disabled))`), 'join dialog submit enabled')
+      await js(`Array.from(document.querySelectorAll('.lobby-dialog footer button')).find(button => button.textContent.includes('加入房间') && !button.disabled).click()`)
+    }
+    await js(`Array.from(document.querySelectorAll('.lobby-row-actions button')).find(button => button.textContent.trim() === '输入密码').click()`)
+    await until(() => js(`Boolean(document.querySelector('.lobby-dialog[open]'))`), 'join dialog for the private room')
+    await fillDialogPassword('generated-wrong-password')
+    await submitJoinDialog()
     await until(() => calls.slice(before).some(c => c.path?.endsWith('/verify') && c.status === 403), 'wrong private password rejected')
-    await fill('房间密码', privatePassword); await click('验证并保存授权')
-    await until(() => textContains('房间授权已更新'), 'correct private password accepted')
+    await fillDialogPassword(privatePassword)
+    await submitJoinDialog()
+    await until(() => js(`Boolean(document.querySelector('.linkle-room'))`), 'joined the private room after verification', 20000)
     const verifications = calls.slice(before).filter(c => c.path?.endsWith('/verify'))
     assert.deepEqual(verifications.map(c => [c.origin, c.status]), [[a.origin, 403], [a.origin, 200]])
-    await click('首页'); await clickLabel('连接'); await playing('private room reconnect after verification')
-    await click('设置'); await click('安全与会话'); await click('注销 Linkle')
+    // 房间可能已空转停播：点一首新歌让「已进房且在播」可观测（沿用房间里点歌的老路径）。
+    await js(`document.querySelector('.linkle-room button[aria-label="点歌"]').click()`)
+    await fill('搜索曲目', 'fixture 101'); await clickLabel('搜索')
+    await until(() => textContains('Fixture track 1'), 'search results in the private room')
+    await js(`(() => { const row = Array.from(document.querySelectorAll('.linkle-room .song')).find(item => item.textContent.includes('Fixture track 1')); row?.querySelector('.add-btn button')?.click() })()`)
+    await until(() => textContains('已加入队列：Fixture track 1'), 'private room enqueue accepted')
+    await playing('private room joined after verification')
+    await openSettings(); await click('安全与高级'); await click('注销 Linkle')
     await until(() => textContains('已从当前 Linkle 服务器注销'), 'React logout')
     assert.equal(calls.findLast(c => c.path === '/api/account/logout')?.origin, a.origin)
     const request = origin => invoke('musicPartyRequest', { input: { origin, method: 'GET', path: '/api/desktop/v1/search/netease?q=acceptance', clientVersion: '0.2.0' } })
     assert.equal((await request(a.origin)).status, 401, 'A credential survived logout')
     assert.notEqual((await request(b.origin)).status, 401, 'A logout cleared B credentials')
-    await click('首页'); await openAccount(); await fill('Linkle 服务地址', b.origin); await clickLabel('连接')
-    await until(() => textContains('Service track 201'), 'B session survives A logout'); await playing('B after A logout')
+    await navTo('Linkle'); await leaveLinkleRoom(); await openAccount(); await fill('Linkle 服务地址', b.origin); await clickLabel('连接')
+    await until(() => textContains('已建立 Linkle 服务连接'), 'B connection restored')
+    await b.enqueue('2'); await playing('B session survives A logout')
     const saved = await js(`JSON.parse(localStorage.getItem('watchparty.local-settings'))`)
     assert.equal(saved.services.length, 2)
     assert.equal(saved.services.find(s => s.id === saved.activeServiceId).origin, a.origin)
-    await click('设置'); await click('安全与会话'); await click('注销 Linkle')
+    await openSettings(); await click('安全与高级'); await click('注销 Linkle')
     await until(() => textContains('已从当前 Linkle 服务器注销'), 'B logout')
-    await window.loadURL('watchparty-app://desktop/index.html')
-    await click('Linkle')
+    await window.loadURL(window.webContents.getURL())
+    await navTo('Linkle')
     await openAccount()
     assert.equal(await js(`document.querySelector('input[aria-label="Linkle 服务地址"]').value`), a.origin)
     console.log('REACT_PRIVATE_ROOM_VERIFY_LOGOUT_ORIGIN_ISOLATION_AND_PROFILE_RELOAD_OK')
