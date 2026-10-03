@@ -265,6 +265,24 @@ test("admin routes reject non-loopback callers unless the admin token matches", 
   assert.equal(response.status, 201);
 });
 
+test("loopback proxies do not grant remote clients admin access or trust spoofed client IPs", async () => {
+  const backend = await boot({ adminToken: "adm-token" });
+  const base = origin(backend);
+  const route = "/api/admin/media-sources";
+  assert.equal((await fetch(`${base}${route}`)).status, 200);
+  for (const forwarded of ["203.0.113.7", "127.0.0.1, 203.0.113.7", "127.0.0.1, 203.0.113.7, ::1"]) {
+    const headers = { "x-forwarded-for": forwarded };
+    const blocked = await fetch(`${base}${route}`, { headers });
+    assert.equal(blocked.status, 403, forwarded);
+    const capabilities = await (await fetch(`${base}/api/media/capabilities`, { headers })).json();
+    assert.equal(capabilities.mediaAdmin, false, forwarded);
+    const write = await fetch(`${base}/api/media/catalog/missing/confirm`, { method: "POST", headers });
+    assert.equal(write.status, 403, forwarded);
+    const allowed = await fetch(`${base}${route}`, { headers: { ...headers, "x-watchparty-admin": "adm-token" } });
+    assert.equal(allowed.status, 200, forwarded);
+  }
+});
+
 test("media reads reject anonymous and mismatched identities, including legacy roots and images", async () => {
   const backend = await boot();
   const base = origin(backend);

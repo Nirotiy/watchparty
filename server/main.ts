@@ -1,6 +1,6 @@
 import { createBackend } from "./app.ts";
 
-const backend = createBackend();
+const backend = createBackend({ libraryAdminToken: process.env.WATCHPARTY_ADMIN_TOKEN });
 await backend.start();
 console.log("watchparty listening on %s:%s", backend.host, backend.port);
 

@@ -87,6 +87,8 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
   const idleTtlMs = options.idleTtlMs ?? cfg.roomIdleTtlMs;
 
   const app = express();
+  // Caddy connects over loopback; forwarded clients must keep their own IP.
+  app.set("trust proxy", "loopback");
   app.use(cors());
   app.use(express.json());
 
