@@ -731,17 +731,35 @@ impl NativeDesktopState {
         let store = crate::config::OriginTrustStore::new(self.app_handle.0.data_dir()?);
         transport?.with_origin_trust(&store).map_err(|_| RuntimeError::configuration_error())
     }
+
+    fn current_room_session(
+        &self,
+    ) -> Result<Option<crate::config::StoredRoomSession>, RuntimeError> {
+        let settings = self
+            .config_store
+            .load()
+            .map_err(|_| RuntimeError::configuration_error())?;
+        let Some(origin) = settings.backend_origin.as_deref() else {
+            return Ok(None);
+        };
+        self.room_store
+            .read_with_policy(origin, settings.allow_remote_http)
+            .map_err(|_| RuntimeError::credential_error())
+    }
 }
 
 pub fn media_roots(state: &NativeDesktopState) -> Result<Vec<String>, RuntimeError> {
     configuration_task(state, |state| {
         let _ = state.runtime()?;
+        let session = state
+            .current_room_session()?
+            .ok_or_else(RuntimeError::room_access_required)?;
+        let (room_id, _, token, _, _) = session.parts();
         state
             .media_transport()?
-            .media_roots()
-            .map_err(|_| RuntimeError::runtime_unavailable())
+            .media_roots(Some(token), Some(room_id))
+            .map_err(|error| RuntimeError::from_transport(&error))
     })
-
 }
 
 pub fn media_list(
@@ -756,12 +774,15 @@ pub fn media_list(
         if !is_safe_media_path(&path) {
             return Err(RuntimeError::invalid_command());
         }
+        let session = state
+            .current_room_session()?
+            .ok_or_else(RuntimeError::room_access_required)?;
+        let (room_id, _, token, _, _) = session.parts();
         state
             .media_transport()?
-            .media_list(&root, &path, cursor.as_deref())
-            .map_err(|_| RuntimeError::runtime_unavailable())
+            .media_list(&root, &path, cursor.as_deref(), Some(token), Some(room_id))
+            .map_err(|error| RuntimeError::from_transport(&error))
     })
-
 }
 
 pub fn media_search(
@@ -775,12 +796,15 @@ pub fn media_search(
         if query.is_empty() || query.chars().count() > 200 {
             return Err(RuntimeError::invalid_command());
         }
+        let session = state
+            .current_room_session()?
+            .ok_or_else(RuntimeError::room_access_required)?;
+        let (room_id, _, token, _, _) = session.parts();
         state
             .media_transport()?
-            .media_search(&query, cursor.as_deref())
-            .map_err(|_| RuntimeError::runtime_unavailable())
+            .media_search(&query, cursor.as_deref(), Some(token), Some(room_id))
+            .map_err(|error| RuntimeError::from_transport(&error))
     })
-
 }
 
 /// Routes the media library surface may reach on the configured WatchParty backend.
@@ -874,13 +898,41 @@ pub fn media_request(
         let _ = state.runtime()?;
         let secret = if crate::approval::is_approval_route(&method, &path) {
             let settings = settings_for_state(state)?;
-            let origin = settings.backend_origin.as_deref().ok_or_else(RuntimeError::not_configured)?;
+            let origin = settings
+                .backend_origin
+                .as_deref()
+                .ok_or_else(RuntimeError::not_configured)?;
             crate::approval::ApprovalSecretStore::new(state.app_handle.0.data_dir()?)
-                .read(origin, settings.allow_remote_http).map_err(|_| RuntimeError::credential_error())?
-        } else { None };
+                .read(origin, settings.allow_remote_http)
+                .map_err(|_| RuntimeError::credential_error())?
+        } else {
+            None
+        };
+        let room_session = if method != "GET"
+            || path.starts_with("/api/admin/")
+            || path == "/api/media/capabilities"
+        {
+            None
+        } else {
+            Some(
+                state
+                    .current_room_session()?
+                    .ok_or_else(RuntimeError::room_access_required)?,
+            )
+        };
+        let room_token = room_session.as_ref().map(|session| session.parts().2);
+        let room_id = room_session.as_ref().map(|session| session.parts().0);
         let (status, body) = state
             .media_transport()?
-            .media_request_with_approval(&method, &path, query.as_deref(), body.as_ref(), secret.as_deref().map(String::as_str))
+            .media_request_with_approval(
+                &method,
+                &path,
+                query.as_deref(),
+                body.as_ref(),
+                secret.as_deref().map(String::as_str),
+                room_token,
+                room_id,
+            )
             .map_err(|error| RuntimeError::from_transport(&error))?;
         Ok(serde_json::json!({ "status": status, "body": body }))
     })
@@ -926,9 +978,17 @@ pub fn media_image(
     }
     configuration_task(state, move |state| {
         let _ = state.runtime()?;
+        let room_session = state
+            .current_room_session()?
+            .ok_or_else(RuntimeError::room_access_required)?;
         let (content_type, bytes) = state
             .media_transport()?
-            .media_image(&kind, &id)
+            .media_image(
+                &kind,
+                &id,
+                Some(room_session.parts().2),
+                Some(room_session.parts().0),
+            )
             .map_err(|error| RuntimeError::from_transport(&error))?;
         Ok(serde_json::json!({
             "contentType": content_type,

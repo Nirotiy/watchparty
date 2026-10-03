@@ -81,7 +81,7 @@ test("health and room lifecycle use the new API contract", async () => {
   assert.equal(await (await fetch(`${origin(backend)}/ping`)).json(), "pong");
   const created = await createRoom(backend);
   const info = await (await fetch(`${origin(backend)}/api/rooms/${created.roomId}`)).json() as Record<string, unknown>;
-  assert.deepEqual(info, { roomId: created.roomId, isProtected: false, onlineCount: 0 });
+  assert.deepEqual(info, { roomId: created.roomId, isProtected: false });
   assert.equal((await fetch(`${origin(backend)}/api/rooms/missing`)).status, 404);
 });
 
@@ -114,6 +114,28 @@ test("media resolve requires room access and reports an unreachable OpenList saf
     code: "OPENLIST_UNAVAILABLE",
     message: "OpenList 媒体服务暂时不可用: Openlist request failed",
   });
+});
+
+test("media directory endpoints require a matching room token and room probing omits presence", async () => {
+  const backend = await boot({ OPENLIST_URL: "http://127.0.0.1:1", WATCHPARTY_MEDIA_ID_KEY: "test-key" });
+  const created = await createRoom(backend);
+  const base = origin(backend);
+  const anonymous = await fetch(`${base}/api/media/search?q=show`);
+  assert.equal(anonymous.status, 401);
+  const missingRoomHeader = await fetch(`${base}/api/media/list?root=Anime`, {
+    headers: { authorization: `Bearer ${created.accessToken}` },
+  });
+  assert.equal(missingRoomHeader.status, 401);
+  const authorized = await fetch(`${base}/api/media/search?q=show`, {
+    headers: {
+      "x-watchparty-room": created.roomId,
+      "x-watchparty-token": created.accessToken,
+    },
+  });
+  assert.equal(authorized.status, 502);
+  assert.equal((await authorized.json() as { code: string }).code, "OPENLIST_UNAVAILABLE");
+  const info = await (await fetch(`${base}/api/rooms/${created.roomId}`)).json() as Record<string, unknown>;
+  assert.equal("onlineCount" in info, false);
 });
 
 test("media browsing, resolve, and subtitles run end-to-end against a local OpenList", async (context) => {
@@ -209,16 +231,16 @@ test("media browsing, resolve, and subtitles run end-to-end against a local Open
     WATCHPARTY_MEDIA_ID_KEY: "test-key",
   });
   const created = await createRoom(backend);
-  const headers = { authorization: `Bearer ${created.accessToken}` };
+  const headers = { authorization: `Bearer ${created.accessToken}`, "X-WatchParty-Room": created.roomId };
 
-  const roots = await (await fetch(`${origin(backend)}/api/media/roots`)).json() as string[];
+  const roots = await (await fetch(`${origin(backend)}/api/media/roots`, { headers })).json() as string[];
   assert.deepEqual(roots, ["Anime", "Film", "TV Shows"]);
 
-  const directory = await (await fetch(`${origin(backend)}/api/media/list?root=Anime`)).json() as { items: Array<{ id: string; name: string }> };
+  const directory = await (await fetch(`${origin(backend)}/api/media/list?root=Anime`, { headers })).json() as { items: Array<{ id: string; name: string }> };
   assert.deepEqual(directory.items.map((item) => item.name), ["Show 01.chs.ass", "Show 01.mp4"]);
   const videoId = directory.items[1]!.id;
 
-  const search = await (await fetch(`${origin(backend)}/api/media/search?q=show&root=Anime`)).json() as { items: Array<{ name: string }> };
+  const search = await (await fetch(`${origin(backend)}/api/media/search?q=show&root=Anime`, { headers })).json() as { items: Array<{ name: string }> };
   assert.deepEqual(search.items.map((item) => item.name), ["Show 01.mp4"]);
 
   const resolved = await (await fetch(`${origin(backend)}/api/rooms/${created.roomId}/media/resolve`, {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { afterEach, test } from "node:test";
 import { createBackend, type Backend } from "../app.ts";
+import { roomFetch } from "./room-fetch.ts";
 import { loadConfig } from "../config.ts";
 import { encodeLibraryMediaId } from "../media/library-browser.ts";
 import type { OpenlistClient } from "../media/openlist.ts";
@@ -143,7 +144,7 @@ test("local poster.jpg is exposed and served, but a non-image, an oversize image
     const libraryId = source.libraries[0]?.id;
     assert.ok(libraryId);
     const before = hits.count;
-    const page = await (await fetch(`${base}/api/media/list?libraryId=${libraryId}`)).json() as {
+    const page = await (await roomFetch(backend, `${base}/api/media/list?libraryId=${libraryId}`)).json() as {
       posterId?: string;
       items: Array<{ name: string; posterId?: string; isDirectory: boolean }>;
     };
@@ -155,36 +156,36 @@ test("local poster.jpg is exposed and served, but a non-image, an oversize image
     assert.equal(JSON.stringify(page).includes("sekret-value"), false);
     assert.ok(hits.count > before);
 
-    const artwork = await fetch(`${base}/api/media/artwork/${encodeURIComponent(page.posterId)}`);
+    const artwork = await roomFetch(backend, `${base}/api/media/artwork/${encodeURIComponent(page.posterId)}`);
     assert.equal(artwork.status, 200);
     assert.equal(artwork.headers.get("content-type"), "image/jpeg");
     const body = Buffer.from(await artwork.arrayBuffer());
     assert.deepEqual(body.subarray(0, 3), JPEG.subarray(0, 3));
 
-    const huge = await (await fetch(`${base}/api/media/list?libraryId=${libraryId}&path=/Huge`)).json() as { posterId?: string; items: Array<{ posterId?: string }> };
+    const huge = await (await roomFetch(backend, `${base}/api/media/list?libraryId=${libraryId}&path=/Huge`)).json() as { posterId?: string; items: Array<{ posterId?: string }> };
     assert.equal(huge.posterId, undefined);
     assert.equal(huge.items.some((item) => item.posterId), false);
     const hugeId = encodeLibraryMediaId(source.id, "/media/Movies/Huge/cover.jpg", "test-key");
     const hugeHits = hits.count;
-    const hugeArtwork = await fetch(`${base}/api/media/artwork/${encodeURIComponent(hugeId)}`);
+    const hugeArtwork = await roomFetch(backend, `${base}/api/media/artwork/${encodeURIComponent(hugeId)}`);
     assert.equal(hugeArtwork.status, 404);
     assert.equal(hits.count, hugeHits);
 
-    const fake = await (await fetch(`${base}/api/media/list?libraryId=${libraryId}&path=/Fake`)).json() as { posterId?: string };
+    const fake = await (await roomFetch(backend, `${base}/api/media/list?libraryId=${libraryId}&path=/Fake`)).json() as { posterId?: string };
     assert.equal(fake.posterId, undefined);
     const fakeId = encodeLibraryMediaId(source.id, "/media/Movies/Fake/poster.jpg", "test-key");
-    assert.equal((await fetch(`${base}/api/media/artwork/${encodeURIComponent(fakeId)}`)).status, 404);
+    assert.equal((await roomFetch(backend, `${base}/api/media/artwork/${encodeURIComponent(fakeId)}`)).status, 404);
 
     const foreignHits = hits.count;
-    const foreign = await (await fetch(`${base}/api/media/list?libraryId=${libraryId}&path=/Foreign`)).json() as { posterId?: string };
+    const foreign = await (await roomFetch(backend, `${base}/api/media/list?libraryId=${libraryId}&path=/Foreign`)).json() as { posterId?: string };
     assert.equal(foreign.posterId, undefined);
     assert.equal(hits.count, foreignHits);
     const foreignId = encodeLibraryMediaId(source.id, "/media/Movies/Foreign/poster.jpg", "test-key");
-    assert.equal((await fetch(`${base}/api/media/artwork/${encodeURIComponent(foreignId)}`)).status, 404);
+    assert.equal((await roomFetch(backend, `${base}/api/media/artwork/${encodeURIComponent(foreignId)}`)).status, 404);
     assert.equal(hits.count, foreignHits);
 
     const videoId = encodeLibraryMediaId(source.id, "/media/Movies/Movie.mp4", "test-key");
-    assert.equal((await fetch(`${base}/api/media/artwork/${encodeURIComponent(videoId)}`)).status, 404);
+    assert.equal((await roomFetch(backend, `${base}/api/media/artwork/${encodeURIComponent(videoId)}`)).status, 404);
   } finally {
     await new Promise<void>((resolve, reject) => imageServer.close((error) => error ? reject(error) : resolve()));
   }

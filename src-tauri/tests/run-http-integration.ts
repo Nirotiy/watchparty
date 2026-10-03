@@ -95,7 +95,11 @@ try {
   });
   if (!createdResponse.ok) throw new Error(`room creation failed: ${createdResponse.status}`);
   const created = await createdResponse.json() as { roomId: string; accessToken: string; ownerToken: string };
-  const directoryResponse = await fetch(`${origin}/api/media/list?root=Anime`);
+  const roomHeaders = {
+    "x-watchparty-room": created.roomId,
+    "x-watchparty-token": created.accessToken,
+  };
+  const directoryResponse = await fetch(`${origin}/api/media/list?root=Anime`, { headers: roomHeaders });
   if (!directoryResponse.ok) throw new Error(`media list failed: ${directoryResponse.status}`);
   const directory = await directoryResponse.json() as { items?: Array<{ name: string; id: string }> };
   mediaId = directory.items?.find((item) => item.name === "Show 01.mp4")?.id ?? "";

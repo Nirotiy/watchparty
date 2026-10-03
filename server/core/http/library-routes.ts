@@ -2,7 +2,8 @@ import type { Express, Request, Response } from "express";
 import { OpenlistServiceError } from "../../media/openlist.ts";
 import { MetadataUnavailable } from "../../media/catalog-metadata.ts";
 import { LibraryRequestError, type LibraryService } from "../../media/library-service.ts";
-import { sendError, requestIp } from "./shared.ts";
+import { sendError, requestIp, requireRoomAccess } from "./shared.ts";
+import type { RoomRegistry } from "../room/registry.ts";
 
 /**
  * Media-library routes. Registered before the legacy core routes so
@@ -10,12 +11,22 @@ import { sendError, requestIp } from "./shared.ts";
  * existing v1 browser so the shipped web picker keeps its response shape.
  * Readiness is not registered here and must keep using the original media object.
  */
-export function registerLibraryHttp(app: Express, library: LibraryService): void {
+export function registerLibraryHttp(app: Express, library: LibraryService, registry: RoomRegistry): void {
+  const requireRoom = (req: Request, res: Response): boolean => {
+    return requireRoomAccess(req, res, registry);
+  };
+  app.use(["/api/admin/media-sources", "/api/admin/media-libraries", "/api/admin/media-catalog"], (req, res, next) => {
+    if (requireAdmin(library, req, res)) next();
+  });
+  app.use("/api/media/catalog", (req, res, next) => {
+    if (req.method === "GET" || req.method === "HEAD" || requireAdmin(library, req, res)) next();
+  });
   app.get("/api/media/capabilities", (req, res) => {
     res.json(library.capabilities(library.allowsAdmin(requestIp(req), headerValue(req, "x-watchparty-admin"))));
   });
 
   app.get("/api/media/artwork/:mediaId", async (req, res) => {
+    if (!requireRoom(req, res)) return;
     try {
       const image = await library.loadArtwork(paramId(req));
       if (!image) {
@@ -32,6 +43,7 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   });
 
   app.get("/api/media/libraries", async (_req, res) => {
+    if (!requireRoom(_req, res)) return;
     try {
       res.json({ libraries: await library.libraries() });
     } catch (error) {
@@ -45,6 +57,7 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
       next();
       return;
     }
+    if (!requireRoom(req, res)) return;
     try {
       res.json(await library.list(libraryId, queryString(req.query.path) ?? "/", queryString(req.query.cursor)));
     } catch (error) {
@@ -58,6 +71,7 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
       next();
       return;
     }
+    if (!requireRoom(req, res)) return;
     try {
       const query = queryString(req.query.q);
       if (!query) {
@@ -71,12 +85,10 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   });
 
   app.get("/api/admin/media-sources", (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     res.json({ sources: library.adminList() });
   });
 
   app.post("/api/admin/media-sources", async (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     try {
       res.status(201).json(await library.adminCreate(req.body));
     } catch (error) {
@@ -85,7 +97,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   });
 
   app.patch("/api/admin/media-sources/:id", async (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     try {
       res.json(await library.adminUpdate(paramId(req), req.body));
     } catch (error) {
@@ -94,7 +105,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   });
 
   app.delete("/api/admin/media-sources/:id", (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     if (!library.adminDelete(paramId(req))) {
       sendError(res, 404, "MEDIA_NOT_FOUND");
       return;
@@ -102,7 +112,8 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
     res.status(204).end();
   });
 
-  app.get("/api/media/catalog", (req, res) => {
+  app.get(["/api/media/catalog", "/api/admin/media-catalog"], (req, res) => {
+    if (!req.path.startsWith("/api/admin/") && !requireRoom(req, res)) return;
     const libraryId = queryString(req.query.libraryId);
     if (!libraryId) {
       sendError(res, 400, "INVALID_REQUEST");
@@ -115,7 +126,8 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
     }
   });
 
-  app.get("/api/media/catalog/:id", async (req, res) => {
+  app.get(["/api/media/catalog/:id", "/api/admin/media-catalog/:id"], async (req, res) => {
+    if (!req.path.startsWith("/api/admin/") && !requireRoom(req, res)) return;
     try {
       res.json(await library.catalogDetail(paramId(req), req.query.episodeTitles !== "0"));
     } catch (error) {
@@ -174,6 +186,7 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   // Manual re-binding needs a way to look the subject up first; the scrape only
   // ever shows what it guessed. Read-only, one vendor round trip.
   app.get("/api/media/bangumi/search", async (req, res) => {
+    if (!requireRoom(req, res)) return;
     try {
       res.json({ items: await library.vendorSearch({ q: req.query.q }) });
     } catch (error) {
@@ -182,6 +195,7 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   });
 
   app.get("/api/media/posters/:id", (req, res) => {
+    if (!requireRoom(req, res)) return;
     const image = library.catalogPoster(paramId(req));
     if (!image) {
       sendError(res, 404, "MEDIA_NOT_FOUND");
@@ -194,7 +208,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   });
 
   app.post("/api/admin/media-libraries/:id/scrape", async (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     try {
       res.json(await library.adminScrape(paramId(req)));
     } catch (error) {
@@ -203,7 +216,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   });
 
   app.get("/api/admin/media-libraries/:id/scrape", (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     try {
       res.json(library.adminScrapeStatus(paramId(req)));
     } catch (error) {
@@ -215,7 +227,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   // 没跑完就 202 {status:"accepted", running:true}，调用方去轮询对应的 GET（都在白名单里，
   // 不新增路由 ⇒ 桌面侧零管道成本）。绝不对这两条做 POST 重试 —— 那只会多走一遍网盘。
   app.post("/api/admin/media-libraries/:id/scan", async (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     try {
       const outcome = await library.catalogRefreshScan(paramId(req));
       res.status(outcome.status === "done" ? 200 : 202).json(outcome);
@@ -225,7 +236,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   });
 
   app.get("/api/admin/media-libraries/:id/scan", (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     try {
       res.json({ libraryId: paramId(req), ...library.catalogScan(paramId(req)) });
     } catch (error) {
@@ -236,7 +246,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   // Classification is deliberately separate from the scrape: it lands in the draft
   // table and reports what applying it would change, without touching a single card.
   app.post("/api/admin/media-libraries/:id/classify", async (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     try {
       const outcome = await library.catalogClassify(paramId(req));
       res.status(outcome.status === "done" ? 200 : 202).json(outcome);
@@ -247,7 +256,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
 
   // 列表投影（不含 children）；?item=<草稿 itemKey> 时只回那一张的文件列表。
   app.get("/api/admin/media-libraries/:id/classify", (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     const id = paramId(req);
     const item = queryString(req.query.item);
     try {
@@ -261,7 +269,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   // and bindings, and still writes no card. `?max=` caps the subjects because
   // Bangumi rate-limits anonymous callers.
   app.post("/api/admin/media-libraries/:id/judge", async (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     const max = parseMax(req);
     if (max === null) {
       sendError(res, 400, "INVALID_REQUEST");
@@ -276,7 +283,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
 
   // The only step that lets a locally prepared draft touch the wall.
   app.post("/api/admin/media-libraries/:id/apply", async (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     const force = /^(1|true|yes)$/i.test(queryString(req.query.force) ?? "");
     try {
       res.json(await library.catalogApply(paramId(req), force));
@@ -287,7 +293,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
 
   // 人工批准当前草稿的结构变更：签发一次性明文凭证（48h），数据库只留哈希。
   app.post("/api/admin/media-libraries/:id/approval", (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     try {
       res.json(library.catalogApprove(paramId(req), req.body, headerValue(req, "x-watchparty-approval")));
     } catch (error) {
@@ -296,7 +301,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   });
 
   app.post("/api/admin/media-libraries/:id/approval/revoke", (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     try {
       res.json(library.catalogRevoke(paramId(req), req.body));
     } catch (error) {
@@ -306,7 +310,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
 
   // 带凭证的那条应用路径：`/apply` 只会做元数据，结构变更到这里才放行。
   app.post("/api/admin/media-libraries/:id/apply-approved", async (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     try {
       res.json(await library.catalogApplyApproved(paramId(req), req.body));
     } catch (error) {
@@ -316,7 +319,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
 
   // 回滚台账（只读）：Agent 与界面都从这里知道"哪一次应用还能撤"。不含 token 也不含哈希。
   app.get("/api/admin/media-libraries/:id/approvals", (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     try {
       res.json(library.catalogApprovals(paramId(req)));
     } catch (error) {
@@ -326,7 +328,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
 
   // 疑似同作（OVA/季度/SP）：只报证据与建议，服务端一行都不改，也不自动合并。
   app.get("/api/admin/media-libraries/:id/duplicates", (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     try {
       res.json(library.catalogDuplicates(paramId(req)));
     } catch (error) {
@@ -337,7 +338,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   // 回滚 = 带并发检查的反向 patch：先由人批准这一次撤回（/approval {rollbackOf}），
   // 再带凭证执行。当前值与当时写入的不一致就整批不动，只报冲突 keys。
   app.post("/api/admin/media-libraries/:id/rollback", async (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     try {
       res.json(await library.catalogRollback(paramId(req), req.body));
     } catch (error) {
@@ -357,13 +357,11 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
     { action: "keep-binding", run: (id, body) => library.draftKeepBinding(id, body) },
   ];
   app.get("/api/admin/media-libraries/:id/exclusions", (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     try { res.json(library.catalogExclusions(paramId(req))); }
     catch (error) { sendFailure(res, error); }
   });
   for (const { action, run } of draftEdits) {
     app.post(`/api/admin/media-libraries/:id/draft/${action}`, (req, res) => {
-      if (!requireAdmin(library, req, res)) return;
       try {
         res.json(run(paramId(req), req.body));
       } catch (error) {
@@ -385,7 +383,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   ];
   for (const { action, run } of imports) {
     app.post(`/api/admin/media-libraries/:id/import/${action}`, (req, res) => {
-      if (!requireAdmin(library, req, res)) return;
       try {
         res.json(run(paramId(req), req.body));
       } catch (error) {
@@ -397,7 +394,6 @@ export function registerLibraryHttp(app: Express, library: LibraryService): void
   // One call for the whole local loop: classify what is missing, judge what is not
   // yet judged, and stop at the draft. `?max=` caps this run's lookups.
   app.post("/api/admin/media-libraries/:id/prepare", async (req, res) => {
-    if (!requireAdmin(library, req, res)) return;
     const max = parseMax(req);
     if (max === null) {
       sendError(res, 400, "INVALID_REQUEST");

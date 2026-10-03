@@ -186,7 +186,7 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
 
   bindRooms(io, registry);
 
-  registerLibraryHttp(app, library);
+  registerLibraryHttp(app, library, registry);
   registerCoreHttp(app, registry, cfg, routedMedia);
   registerDesktopProbeHttp(app, { readiness, getListenerInfo });
   registerHandoffHttp(app, registry);

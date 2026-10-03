@@ -88,7 +88,6 @@ export interface ApiError {
 export interface RoomInfoResponse {
   roomId: string;
   isProtected: boolean;
-  onlineCount: number;
 }
 
 // 7. 创建房间请求与响应

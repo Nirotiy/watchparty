@@ -146,7 +146,9 @@ try {
     accessToken: string;
     ownerToken: string;
   };
-  const directoryResponse = await fetch(`${origin}/api/media/list?root=Anime`);
+  const directoryResponse = await fetch(`${origin}/api/media/list?root=Anime`, {
+    headers: { "X-WatchParty-Room": created.roomId, "X-WatchParty-Token": created.accessToken },
+  });
   const directory = (await directoryResponse.json()) as {
     items?: Array<{ name: string; id: string }>;
   };
@@ -245,9 +247,8 @@ try {
     throw new Error(`native media requests missing: direct=${directRequests} range=${rangeRequests}`);
   }
 
-  const roomResponse = await fetch(`${origin}/api/rooms/${created.roomId}`);
-  const roomInfo = (await roomResponse.json()) as { onlineCount: number };
-  if (roomInfo.onlineCount !== 1) throw new Error(`desktop cleanup failed: ${roomInfo.onlineCount}`);
+  const onlineCount = backend.registry.get(created.roomId)?.onlineCount;
+  if (onlineCount !== 1) throw new Error(`desktop cleanup failed: ${onlineCount}`);
   console.log(stdout.trim());
   console.log(`Desktop vertical integration: PASS (direct=${directRequests}, range=${rangeRequests})`);
 } finally {

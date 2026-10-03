@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Check, Film, ListPlus, Play, Search, Tv, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { MediaImage } from "@/components/media-image";
 import { cn } from "@/lib/utils";
 import type { MediaSource } from "@/lib/contracts";
 import { tintedStyle, titleInitial, type WallCard, type WallDetail } from "@/lib/catalog-view";
@@ -70,9 +71,7 @@ function TintedArt({ title, seed }: { title: string; seed: string }) {
 }
 
 function WallPoster({ src }: { src: string }) {
-  const [failed, setFailed] = useState(false)
-  if (failed) return <Film className="size-5 text-muted-foreground" aria-hidden="true" />
-  return <img src={src} alt="" loading="lazy" className="size-full object-cover" onError={() => setFailed(true)} />
+  return <MediaImage src={src} alt="" loading="lazy" className="size-full object-cover" fallback={<Film className="size-5 text-muted-foreground" aria-hidden="true" />} />
 }
 
 function badgeTone(status: string): string {

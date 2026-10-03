@@ -4,6 +4,7 @@
  */
 
 import { refreshCatalog, type CatalogAccepted, type CatalogScan } from "../../desktop-shell/shared/catalog-refresh";
+import { mediaRoomHeaders } from "./media-room-access";
 
 import {
   CreateRoomRequest,
@@ -32,12 +33,16 @@ import {
 } from "./contracts";
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers = new Headers(options.headers);
+  headers.set("Content-Type", "application/json");
+  const roomRead = (options.method ?? "GET") === "GET" && path.startsWith("/api/media/") && path !== "/api/media/capabilities";
+  if (roomRead) {
+    for (const [key, value] of Object.entries(mediaRoomHeaders())) headers.set(key, value);
+  }
   const res = await fetch(path, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
+    headers,
+    ...(roomRead ? { redirect: "error" as const } : {}),
   });
 
   if (!res.ok) {

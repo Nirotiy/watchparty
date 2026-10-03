@@ -135,6 +135,8 @@ export function healthLabel(health: string): string {
 
 /** Chinese copy for the codes the media routes emit (frozen list, handoff §2 F4). */
 const ERROR_TEXT: Record<string, string> = {
+  ROOM_ACCESS_REQUIRED: "请先加入房间再浏览媒体库",
+  ACCESS_TOKEN_INVALID: "房间凭据已失效，请重新加入房间",
   OPENLIST_UNAVAILABLE: "源站暂时不可用，稍后重试",
   SOURCE_UNREACHABLE: "连不上这个源，检查地址或网络后重试",
   SOURCE_AUTH_FAILED: "源站拒绝了凭据，检查用户名与密码",

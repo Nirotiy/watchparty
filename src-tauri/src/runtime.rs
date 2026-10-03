@@ -201,6 +201,13 @@ impl RuntimeError {
         }
     }
 
+    pub(crate) fn room_access_required() -> Self {
+        Self {
+            code: "ROOM_ACCESS_REQUIRED",
+            message: "请先加入房间再浏览媒体库",
+        }
+    }
+
     /// The renderer asked for a media route the sidecar's allow-list does not cover.
     /// That is a client bug or a probe, never a user state, so the copy stays generic.
     pub(crate) fn media_route_denied() -> Self {

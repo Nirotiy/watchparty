@@ -372,15 +372,19 @@ impl DesktopHttpTransport {
 
     /// Browse helpers for the media library. They reuse the site Basic Auth
     /// attachment so production Caddy requests authenticate transparently.
-    pub fn media_roots(&self) -> Result<Vec<String>, TransportError> {
-        self.request::<Vec<String>>(
-            self.headers(
-                self.client
-                    .get(format!("{}/api/media/roots", self.base_url)),
-                None,
-            ),
-        )?
-        .ok_or_else(|| TransportError::Protocol("empty media roots".into()))
+    pub fn media_roots(
+        &self,
+        room_token: Option<&str>,
+        room_id: Option<&str>,
+    ) -> Result<Vec<String>, TransportError> {
+        let builder = self.headers(
+            self.approval_client
+                .get(format!("{}/api/media/roots", self.base_url)),
+            None,
+        );
+        let builder = self.room_headers(builder, room_token, room_id)?;
+        self.request::<Vec<String>>(builder)?
+            .ok_or_else(|| TransportError::Protocol("empty media roots".into()))
     }
 
     pub fn media_list(
@@ -388,11 +392,15 @@ impl DesktopHttpTransport {
         root: &str,
         path: &str,
         cursor: Option<&str>,
+        room_token: Option<&str>,
+        room_id: Option<&str>,
     ) -> Result<MediaDirectoryPage, TransportError> {
         self.media_directory(
             format!("{}/api/media/list", self.base_url),
             &[("root", root), ("path", path)],
             cursor,
+            room_token,
+            room_id,
         )
     }
 
@@ -400,11 +408,15 @@ impl DesktopHttpTransport {
         &self,
         query: &str,
         cursor: Option<&str>,
+        room_token: Option<&str>,
+        room_id: Option<&str>,
     ) -> Result<MediaDirectoryPage, TransportError> {
         self.media_directory(
             format!("{}/api/media/search", self.base_url),
             &[("q", query)],
             cursor,
+            room_token,
+            room_id,
         )
     }
 
@@ -413,12 +425,16 @@ impl DesktopHttpTransport {
         url: String,
         params: &[(&str, &str)],
         cursor: Option<&str>,
+        room_token: Option<&str>,
+        room_id: Option<&str>,
     ) -> Result<MediaDirectoryPage, TransportError> {
-        let mut builder = self.client.get(url).query(params);
+        let mut builder = self.approval_client.get(url).query(params);
         if let Some(cursor) = cursor {
             builder = builder.query(&[("cursor", cursor)]);
         }
-        self.request(self.headers(builder, None))?
+        let builder = self.headers(builder, None);
+        let builder = self.room_headers(builder, room_token, room_id)?;
+        self.request(builder)?
             .ok_or_else(|| TransportError::Protocol("empty media page".into()))
     }
 
@@ -435,15 +451,25 @@ impl DesktopHttpTransport {
         query: Option<&str>,
         body: Option<&serde_json::Value>,
     ) -> Result<(u16, String), TransportError> {
-        self.media_request_with_approval(method, path, query, body, None)
+        self.media_request_with_approval(method, path, query, body, None, None, None)
     }
 
     pub fn media_request_with_approval(
-        &self, method: &str, path: &str, query: Option<&str>,
-        body: Option<&serde_json::Value>, approval_secret: Option<&str>,
+        &self,
+        method: &str,
+        path: &str,
+        query: Option<&str>,
+        body: Option<&serde_json::Value>,
+        approval_secret: Option<&str>,
+        room_token: Option<&str>,
+        room_id: Option<&str>,
     ) -> Result<(u16, String), TransportError> {
         // Redirects could carry this custom header onto a different route or origin.
-        let client = if approval_secret.is_some() { &self.approval_client } else { &self.client };
+        let client = if approval_secret.is_some() || room_token.is_some() {
+            &self.approval_client
+        } else {
+            &self.client
+        };
         let url = match query {
             Some(query) if !query.is_empty() => format!("{}{}?{}", self.base_url, path, query),
             _ => format!("{}{}", self.base_url, path),
@@ -461,17 +487,20 @@ impl DesktopHttpTransport {
         };
         let builder = if let Some(secret) = approval_secret {
             if !crate::approval::is_approval_route(method, path) {
-                return Err(TransportError::Protocol("approval header route denied".into()));
+                return Err(TransportError::Protocol(
+                    "approval header route denied".into(),
+                ));
             }
             let mut header = HeaderValue::from_str(secret)
                 .map_err(|_| TransportError::Protocol("invalid approval configuration".into()))?;
             header.set_sensitive(true);
             builder.header("x-watchparty-approval", header)
-        } else { builder };
-        let response = self
-            .headers(builder, None)
-            .send()
-            .map_err(classify_probe_network_error)?;
+        } else {
+            builder
+        };
+        let builder = self.headers(builder, None);
+        let builder = self.room_headers(builder, room_token, room_id)?;
+        let response = builder.send().map_err(classify_probe_network_error)?;
         let status = response.status().as_u16();
         let text = response
             .text()
@@ -483,18 +512,29 @@ impl DesktopHttpTransport {
     /// posters). Same transport as `media_request`, so it carries the site Basic Auth and
     /// the TLS policy; the caller only ever hands the bytes to the shell's asset server,
     /// never to the renderer.
-    pub fn media_image(&self, kind: &str, id: &str) -> Result<(String, Vec<u8>), TransportError> {
+    pub fn media_image(
+        &self,
+        kind: &str,
+        id: &str,
+        room_token: Option<&str>,
+        room_id: Option<&str>,
+    ) -> Result<(String, Vec<u8>), TransportError> {
         let route = match kind {
             "media" => "artwork",
             "poster" => "posters",
-            _ => return Err(TransportError::Protocol("unsupported media image kind".into())),
+            _ => {
+                return Err(TransportError::Protocol(
+                    "unsupported media image kind".into(),
+                ))
+            }
         };
-        let response = self
-            .headers(
-                self.client
-                    .get(format!("{}/api/media/{}/{}", self.base_url, route, id)),
-                None,
-            )
+        let builder = self.headers(
+            self.approval_client
+                .get(format!("{}/api/media/{}/{}", self.base_url, route, id)),
+            None,
+        );
+        let builder = self.room_headers(builder, room_token, room_id)?;
+        let response = builder
             .send()
             .map_err(|error| TransportError::Network(error.to_string()))?;
         let status = response.status();
@@ -511,7 +551,14 @@ impl DesktopHttpTransport {
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
-            .map(|value| value.split(';').next().unwrap_or("").trim().to_ascii_lowercase())
+            .map(|value| {
+                value
+                    .split(';')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_ascii_lowercase()
+            })
             .unwrap_or_default();
         if !matches!(
             content_type.as_str(),
@@ -523,13 +570,17 @@ impl DesktopHttpTransport {
             .content_length()
             .is_some_and(|length| length > ARTWORK_MAX_BYTES)
         {
-            return Err(TransportError::Protocol("artwork exceeds size guard".into()));
+            return Err(TransportError::Protocol(
+                "artwork exceeds size guard".into(),
+            ));
         }
         let bytes = response
             .bytes()
             .map_err(|error| TransportError::Network(error.to_string()))?;
         if bytes.len() as u64 > ARTWORK_MAX_BYTES {
-            return Err(TransportError::Protocol("artwork exceeds size guard".into()));
+            return Err(TransportError::Protocol(
+                "artwork exceeds size guard".into(),
+            ));
         }
         Ok((content_type, bytes.to_vec()))
     }
@@ -654,6 +705,23 @@ impl DesktopHttpTransport {
         token: &str,
     ) -> Result<RequestBuilder, TransportError> {
         Ok(builder.header(WATCHPARTY_TOKEN_HEADER, room_token_header(token)?))
+    }
+
+    fn room_headers(
+        &self,
+        builder: RequestBuilder,
+        room_token: Option<&str>,
+        room_id: Option<&str>,
+    ) -> Result<RequestBuilder, TransportError> {
+        match (room_token, room_id) {
+            (Some(token), Some(id)) => {
+                self.with_room_token(builder.header("X-WatchParty-Room", id), token)
+            }
+            (None, None) => Ok(builder),
+            _ => Err(TransportError::Protocol(
+                "room id and token must be provided together".into(),
+            )),
+        }
     }
 
     fn get_with_auth(
@@ -1056,6 +1124,114 @@ mod tests {
     }
 
     #[test]
+    fn media_room_credentials_are_request_scoped_on_the_wire() {
+        use std::{
+            io::{BufRead, BufReader, Write},
+            net::TcpListener,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let mut requests = Vec::new();
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
+                let mut reader = BufReader::new(&stream);
+                let mut request = String::new();
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    if line == "\r\n" || line.is_empty() {
+                        break;
+                    }
+                    request.push_str(&line.to_ascii_lowercase());
+                }
+                requests.push(request);
+                stream
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                    )
+                    .unwrap();
+            }
+            requests
+        });
+        let transport =
+            DesktopHttpTransport::with_site_basic_auth(origin, "site-user", "site-password")
+                .unwrap();
+        transport
+            .media_request_with_approval(
+                "GET",
+                "/api/media/libraries",
+                None,
+                None,
+                None,
+                Some("room-token"),
+                Some("room-id"),
+            )
+            .unwrap();
+        transport
+            .media_request("GET", "/api/admin/media-sources", None, None)
+            .unwrap();
+        let requests = server.join().unwrap();
+        assert!(requests[0].contains("x-watchparty-token: room-token\r\n"));
+        assert!(requests[0].contains("x-watchparty-room: room-id\r\n"));
+        assert!(requests[0].contains("authorization: basic "));
+        assert!(!requests[1].contains("x-watchparty-token:"));
+        assert!(!requests[1].contains("x-watchparty-room:"));
+        for (token, id) in [(Some("room-token"), None), (None, Some("room-id"))] {
+            assert!(transport
+                .media_request_with_approval(
+                    "GET",
+                    "/api/media/libraries",
+                    None,
+                    None,
+                    None,
+                    token,
+                    id
+                )
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn media_room_request_does_not_follow_redirects() {
+        use std::{
+            io::{BufRead, BufReader, Write},
+            net::TcpListener,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(&stream);
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" || line.is_empty() {
+                    break;
+                }
+            }
+            stream.write_all(b"HTTP/1.1 302 Found\r\nLocation: /api/admin/media-sources\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+        });
+        let transport = DesktopHttpTransport::new(origin).unwrap();
+        let (status, _) = transport
+            .media_request_with_approval(
+                "GET",
+                "/api/media/libraries",
+                None,
+                None,
+                None,
+                Some("room-token"),
+                Some("room-id"),
+            )
+            .unwrap();
+        assert_eq!(status, 302);
+        server.join().unwrap();
+    }
+
+    #[test]
     fn approval_header_is_request_scoped_on_the_wire() {
         use std::{io::{BufRead, BufReader, Write}, net::TcpListener};
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1079,10 +1255,10 @@ mod tests {
             present
         });
         let transport = DesktopHttpTransport::new(origin).unwrap();
-        transport.media_request_with_approval("POST", "/api/admin/media-libraries/lib_x/approval", None, None, Some("test-only-key")).unwrap();
+        transport.media_request_with_approval("POST", "/api/admin/media-libraries/lib_x/approval", None, None, Some("test-only-key"), None, None).unwrap();
         transport.media_request("POST", "/api/admin/media-libraries/lib_x/apply-approved", None, None).unwrap();
         transport.media_request("GET", "/api/media/capabilities", None, None).unwrap();
-        assert!(transport.media_request_with_approval("POST", "/api/admin/media-libraries/lib_x/approval/revoke", None, None, Some("test-only-key")).is_err());
+        assert!(transport.media_request_with_approval("POST", "/api/admin/media-libraries/lib_x/approval/revoke", None, None, Some("test-only-key"), None, None).is_err());
         assert_eq!(server.join().unwrap(), vec![true, false, false]);
     }
 
@@ -1102,7 +1278,7 @@ mod tests {
             stream.write_all(b"HTTP/1.1 302 Found\r\nLocation: /api/admin/media-libraries/lib_x/scan\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
         });
         let transport = DesktopHttpTransport::new(origin).unwrap();
-        let (status, _) = transport.media_request_with_approval("POST", "/api/admin/media-libraries/lib_x/approval", None, None, Some("test-only-key")).unwrap();
+        let (status, _) = transport.media_request_with_approval("POST", "/api/admin/media-libraries/lib_x/approval", None, None, Some("test-only-key"), None, None).unwrap();
         assert_eq!(status, 302);
         server.join().unwrap();
     }

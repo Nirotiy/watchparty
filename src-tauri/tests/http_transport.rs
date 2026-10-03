@@ -235,7 +235,7 @@ fn desktop_native_entry_matches_live_node_protocol() {
     assert!(transport.snapshot(&protected.room_id, &guest_token, guest_generation, None)
         .expect("guest snapshot should decode").snapshot.is_some());
 
-    let search = transport.media_search("Show", None).expect("media search should decode");
+    let search = transport.media_search("Show", None, Some(&guest_token), Some(&protected.room_id)).expect("media search should decode");
     assert!(search.items.iter().any(|item| item.id == media_id));
     let owner_generation = transport
         .claim_session(&protected.room_id, &protected.access_token)

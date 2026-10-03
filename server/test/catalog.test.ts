@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createBackend, type Backend } from "../app.ts";
+import { roomFetch } from "./room-fetch.ts";
 import { loadConfig } from "../config.ts";
 import { cleanTitle, episodeSubtitle, groupScanFiles, parseEpisode, scoreTitles, titleCandidateDetails, titleCandidates, yearFrom } from "../media/catalog-names.ts";
 import { chooseMatch, createBangumiClient, rankHits, type MetadataHit, type MetadataSearcher } from "../media/catalog-metadata.ts";
@@ -375,7 +376,7 @@ test("listing a library does not scrape, and detail serves numbered episodes wit
   });
   await backend.start();
   try {
-    const listed = await fetch(`${baseUrl(backend)}/api/media/list?libraryId=lib_anime`);
+    const listed = await roomFetch(backend, `${baseUrl(backend)}/api/media/list?libraryId=lib_anime`);
     assert.equal(listed.status, 200);
     assert.equal(calls.bangumi, 0);
     const scrape = await fetch(`${baseUrl(backend)}/api/admin/media-libraries/lib_anime/scrape`, { method: "POST" });
@@ -385,25 +386,25 @@ test("listing a library does not scrape, and detail serves numbered episodes wit
     assert.equal(job.matched, 1);
     assert.equal(job.lastError, null);
     assert.equal(calls.tmdb, 0);
-    const catalog = (await (await fetch(`${baseUrl(backend)}/api/media/catalog?libraryId=lib_anime`)).json()) as {
+    const catalog = (await (await roomFetch(backend, `${baseUrl(backend)}/api/media/catalog?libraryId=lib_anime`)).json()) as {
       items: Array<{ id: string; title: string; status: string; posterUrl: string | null }>;
     };
     assert.equal(catalog.items[0]?.title, "Medalist");
     assert.equal(catalog.items[0]?.status, "confirmed");
     const detailUrl = `${baseUrl(backend)}/api/media/catalog/${catalog.items[0]?.id}`;
-    const fastResponse = await fetch(`${detailUrl}?episodeTitles=0`);
+    const fastResponse = await roomFetch(backend, `${detailUrl}?episodeTitles=0`);
     assert.equal(fastResponse.status, 200);
     const fastDetail = (await fastResponse.json()) as { children: Array<{ episode: number | null; episodeTitle?: string | null }> };
     assert.deepEqual(fastDetail.children.map(({ episode, episodeTitle }) => [episode, episodeTitle ?? null]), [[1, null], [2, null]]);
     assert.equal(calls.episodes, 0, "opening the card must not wait for Bangumi episode titles");
-    const detailResponse = await fetch(detailUrl);
+    const detailResponse = await roomFetch(backend, detailUrl);
     assert.equal(detailResponse.status, 200);
     const detail = (await detailResponse.json()) as { children: Array<{ episode: number | null; episodeTitle?: string | null }> };
     assert.deepEqual(detail.children.map(({ episode, episodeTitle }) => [episode, episodeTitle]), [[1, "第一话"], [2, "第二话"]]);
-    assert.equal((await fetch(detailUrl)).status, 200);
+    assert.equal((await roomFetch(backend, detailUrl)).status, 200);
     assert.equal(calls.episodes, 1);
     const posterUrl = catalog.items[0]?.posterUrl ?? "";
-    const poster = await fetch(`${baseUrl(backend)}${posterUrl}`);
+    const poster = await roomFetch(backend, `${baseUrl(backend)}${posterUrl}`);
     assert.equal(poster.status, 200);
     assert.equal(poster.headers.get("content-type"), "image/jpeg");
     assert.equal(Buffer.compare(Buffer.from(await poster.arrayBuffer()), JPEG), 0);

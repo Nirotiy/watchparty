@@ -9,7 +9,7 @@ import type { RoomRegistry } from "../room/registry.ts";
 import type { AppConfig } from "../../config.ts";
 import type { WatchpartyMedia } from "../../media/watchparty-media.ts";
 import { OpenlistServiceError } from "../../media/openlist.ts";
-import { bearerToken, requestIp, sendError } from "./shared.ts";
+import { bearerToken, requestIp, sendError, requireRoomAccess } from "./shared.ts";
 import { mediaForRequest } from "./media-origin.ts";
 
 /** Register room lifecycle and media APIs. Video bytes never pass through this service. */
@@ -79,7 +79,6 @@ export function registerCoreHttp(
     res.json({
       roomId,
       isProtected: registry.isProtected(roomId),
-      onlineCount: room.onlineCount,
     });
   });
 
@@ -112,11 +111,13 @@ export function registerCoreHttp(
     res.json({ accessToken: result.accessToken });
   });
 
-  app.get("/api/media/roots", (_req, res): void => {
+  app.get("/api/media/roots", (req, res): void => {
+    if (!requireRoomAccess(req, res, registry)) return;
     res.json(media.rootNames());
   });
 
   app.get("/api/media/list", async (req, res) => {
+    if (!requireRoomAccess(req, res, registry)) return;
     const root = req.query.root;
     const relativePath =
       typeof req.query.path === "string" ? req.query.path : "/";
@@ -134,6 +135,7 @@ export function registerCoreHttp(
   });
 
   app.get("/api/media/search", async (req, res) => {
+    if (!requireRoomAccess(req, res, registry)) return;
     const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
     const root = req.query.root;
     const cursor =

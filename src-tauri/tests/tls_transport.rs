@@ -100,10 +100,13 @@ fn private_ca_is_required_and_approval_uses_the_same_trust() {
     store.import(&server.origin, &server.root).unwrap();
     let trusted = DesktopHttpTransport::with_site_basic_auth(&server.origin, "test-user", "test-password")
         .unwrap().with_origin_trust(&store).unwrap();
-    assert_eq!(trusted.media_request("GET", "/api/media/libraries", None, None).unwrap().0, 200);
-    assert_eq!(trusted.media_request_with_approval("POST", "/api/admin/media-libraries/lib_test/approval", None, None, Some("test-only-approval")).unwrap().0, 200);
+    assert_eq!(trusted.media_request_with_approval("GET", "/api/media/libraries", None, None, None, Some("test-room-token"), Some("test-room")).unwrap().0, 200);
+    assert_eq!(trusted.media_request_with_approval("POST", "/api/admin/media-libraries/lib_test/approval", None, None, Some("test-only-approval"), None, None).unwrap().0, 200);
     let requests = server.requests.lock().unwrap();
     assert!(!requests[0].to_ascii_lowercase().contains("x-watchparty-approval:"));
+    assert!(requests[0].to_ascii_lowercase().contains("x-watchparty-token: test-room-token"));
+    assert!(requests[0].to_ascii_lowercase().contains("x-watchparty-room: test-room"));
+    assert!(!requests[1].to_ascii_lowercase().contains("x-watchparty-token:"));
     assert!(requests[1].to_ascii_lowercase().contains("x-watchparty-approval: test-only-approval"));
     drop(requests);
     store.delete(&server.origin).unwrap();
@@ -136,7 +139,7 @@ fn private_ca_and_redirects_are_origin_scoped() {
         .media_request("GET", "/api/media/libraries", None, None).is_err());
     let trusted = DesktopHttpTransport::new(&server.origin).unwrap().with_origin_trust(&store).unwrap();
     assert_eq!(trusted.media_request("GET", "/api/media/libraries", None, None).unwrap().0, 302);
-    assert_eq!(trusted.media_request_with_approval("POST", "/api/admin/media-libraries/lib_test/approval", None, None, Some("test-only-approval")).unwrap().0, 302);
+    assert_eq!(trusted.media_request_with_approval("POST", "/api/admin/media-libraries/lib_test/approval", None, None, Some("test-only-approval"), None, None).unwrap().0, 302);
     assert!(other.requests.lock().unwrap().is_empty());
     std::fs::remove_dir_all(directory).unwrap();
 }

@@ -19,6 +19,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { MediaImage } from "@/components/media-image";
 import type { ScrapeJob } from "@/lib/contracts";
 import {
   MediaBreadcrumb,
@@ -64,13 +65,12 @@ interface OpenListModalProps {
   onToggleFullPage?: () => void;
 }
 
-/** 库封面（相位 2）：同源 <img>，走 Next 的 /api 重写，失败就退回图标。 */
+/** Authenticated library artwork; failures retain the existing icon fallback. */
 function ArtworkThumb({ posterId, fallback }: { posterId?: string | null; fallback: React.ReactNode }) {
-  const [failed, setFailed] = React.useState(false);
   return (
     <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded border border-border bg-black">
-      {posterId && !failed
-        ? <img src={`/api/media/artwork/${encodeURIComponent(posterId)}`} alt="" loading="lazy" className="size-full object-cover" onError={() => setFailed(true)} />
+      {posterId
+        ? <MediaImage src={`/api/media/artwork/${encodeURIComponent(posterId)}`} alt="" loading="lazy" className="size-full object-cover" fallback={fallback} />
         : fallback}
     </span>
   );
@@ -779,11 +779,10 @@ export function OpenListModal({
           {/* 当前目录自己的封面（相位 2）：只有这一层有 poster.jpg 时才有 */}
           {folderPosterId && !isSearching && !errorMsg && (
             <div className="relative mb-3 h-24 overflow-hidden rounded border border-border bg-black">
-              <img
+              <MediaImage
                 src={`/api/media/artwork/${encodeURIComponent(folderPosterId)}`}
                 alt=""
                 className="size-full object-cover"
-                onError={(event) => { event.currentTarget.style.display = "none" }}
               />
               <span className="absolute bottom-2 left-3 max-w-[80%] truncate rounded bg-black/60 px-2 py-0.5 text-xs font-semibold text-white">
                 {breadcrumbs[breadcrumbs.length - 1]?.name ?? activeLibrary?.name ?? "媒体库"}
