@@ -11,6 +11,10 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 
 const directory = dirname(fileURLToPath(import.meta.url))
+if (['no-sandbox', 'disable-renderer-sandbox', 'disable-gpu-sandbox'].some(flag => app.commandLine.hasSwitch(flag))) {
+  throw new Error('electron_sandbox_required')
+}
+app.enableSandbox()
 // Separate application identity and data directory preserve the user's Tauri client.
 app.setName('Banguru')
 const smoke = process.argv.includes('--smoke') || process.argv.includes('--conditions=watchparty-smoke')
@@ -254,6 +258,9 @@ if (process.argv.includes('--register-deep-link')) {
     clearTimeout(loadTimeout)
   }
   console.log(JSON.stringify({ event: 'did-finish-load', url: window.webContents.getURL() }))
+  const rendererSandboxed = await window.webContents.executeJavaScript('window.watchpartyDesktop?.sandboxed === true')
+  if (!rendererSandboxed) throw new Error('electron_renderer_sandbox_missing')
+  console.log('ELECTRON_RENDERER_SANDBOX_OK')
   window.show()
   if (startupCheck) {
     try {

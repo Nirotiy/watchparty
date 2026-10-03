@@ -4,6 +4,7 @@ const commands = /* COMMANDS */ []
 const events = /* EVENTS */ []
 contextBridge.exposeInMainWorld('watchpartyDesktop', Object.freeze({
   runtime: 'electron',
+  sandboxed: process.sandboxed === true,
   invoke(command, args = {}) {
     if (!commands.includes(command)) return Promise.reject(new Error('invalid_desktop_command'))
     return ipcRenderer.invoke('watchparty:request', command, args).then(reply => {
