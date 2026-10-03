@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import type { BangumiHit } from "@/lib/ipc"
-import { posterHue, titleInitial, UNCONFIRM_NOTICE, type WallCard, type WallChild, type WallDetail } from "@/lib/catalog-view"
+import { posterHue, titleInitial, UNCONFIRM_NOTICE, type WallCard, type WallDetail } from "@/lib/catalog-view"
 
 /**
  * The title wall from the 2026-09-26 mockup (option B): posters on the left, the selected
@@ -103,13 +103,18 @@ export function CatalogRail({ detail, controlEnabled, queueEnabled, onPlay, onEn
     const child = detail.seasons[0]?.children[0]
     return (
       <section className="catalog-detail-page" aria-label="标题详情">
-        <DetailHero detail={detail} onClose={onClose} firstPlayable={child} controlEnabled={controlEnabled} onPlay={onPlay} containerOf={containerOf} />
+        <DetailHero detail={detail} onClose={onClose} />
           <div className="catalog-eps">
           <div className="catalog-ep">
             <b>正片</b>
             <span className="t" title={child?.title}>{child ? (child.hasEpisodeTitle ? child.title : `${detail.title} · ${child.title}`) : "（没有可播文件）"}</span>
           </div>
         </div>
+        {child ? (
+          <Button size="default" className="catalog-detail-play" disabled={!controlEnabled || detail.status === "candidate" || !child.playable} title={!child.playable ? child.note ?? "桌面端无法播放这个文件" : undefined} onClick={() => onPlay(child.mediaId, detail.title, containerOf(child.name))}>
+            <PlayRegular />播放正片
+          </Button>
+        ) : null}
         {detail.status === "candidate" ? <p className="catalog-note">还在候选态：先确认标题，再播放（文件与标题都可能被换掉）。</p> : null}
         <Button size="sm" variant="ghost" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(value => !value)}>更多 {advancedOpen ? <ChevronUpRegular /> : <ChevronDownRegular />}</Button>
         {advancedOpen ? <><CandidateList detail={detail} busy={busy} onConfirm={onConfirm} onReject={onReject} /><RebindPanel detail={detail} busy={busy} onUnconfirm={onUnconfirm} onSearchBangumi={onSearchBangumi} onRebind={onRebind} /></> : null}
@@ -120,7 +125,7 @@ export function CatalogRail({ detail, controlEnabled, queueEnabled, onPlay, onEn
   const firstPlayable = children.find(child => child.playable)
   return (
     <section className={cn("catalog-detail-page", children.length <= 16 && "catalog-detail-short")} aria-label="标题详情">
-      <DetailHero detail={detail} onClose={onClose} firstPlayable={firstPlayable} controlEnabled={controlEnabled} onPlay={onPlay} containerOf={containerOf} />
+      <DetailHero detail={detail} onClose={onClose} />
       {detail.status === "candidate" ? <p className="catalog-note">还在候选态：确认标题后整季可播。</p> : null}
       <div className="catalog-seasons">
         {detail.seasons.map(season => (
@@ -144,44 +149,30 @@ export function CatalogRail({ detail, controlEnabled, queueEnabled, onPlay, onEn
           </section>
         ))}
       </div>
+      {firstPlayable ? (
+        <Button size="default" className="catalog-detail-play" disabled={!controlEnabled || detail.status === "candidate" || !firstPlayable.playable} title={!firstPlayable.playable ? firstPlayable.note ?? "桌面端无法播放这个文件" : undefined} onClick={() => onPlay(firstPlayable.mediaId, `${detail.title} ${firstPlayable.label}`, containerOf(firstPlayable.name))}>
+          <PlayRegular />播放第一集
+        </Button>
+      ) : null}
       <Button size="sm" variant="ghost" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(value => !value)}>更多 {advancedOpen ? <ChevronUpRegular /> : <ChevronDownRegular />}</Button>
       {advancedOpen ? <><CandidateList detail={detail} busy={busy} onConfirm={onConfirm} onReject={onReject} /><RebindPanel detail={detail} busy={busy} onUnconfirm={onUnconfirm} onSearchBangumi={onSearchBangumi} onRebind={onRebind} /></> : null}
     </section>
   )
 }
 
-function DetailHero({ detail, onClose, firstPlayable, controlEnabled, onPlay, containerOf }: {
-  detail: WallDetail
-  onClose: () => void
-  firstPlayable?: WallChild
-  controlEnabled: boolean
-  onPlay: (mediaId: string, title: string, container: string) => void
-  containerOf: (name: string) => string
-}) {
+/** 详情题头（方案 A，2026-10-03 用户选定）：海报回 2:3 原生比例，不再拉升当底图。 */
+function DetailHero({ detail, onClose }: { detail: WallDetail; onClose: () => void }) {
   return (
-    <div className="catalog-detail-hero" style={detail.posterUrl ? { backgroundImage: `url(${detail.posterUrl})` } : undefined}>
-      <div className="catalog-detail-hero-shade" />
-      <div className="catalog-detail-hero-layout">
-        <div className="catalog-detail-hero-content">
-          {/* 只留箭头：文字交给 title/aria-label，形状与加载态那颗同款（icon-sm ghost）。 */}
-          <Button size="icon-sm" variant="ghost" className="catalog-detail-back" onClick={onClose} aria-label="返回标题墙" title="返回标题墙">
-            <ArrowLeftRegular />
-          </Button>
-          <RailHead detail={detail} />
-        </div>
-        {firstPlayable ? (
-          <Button
-            size="default"
-            className="catalog-hero-play"
-            disabled={!controlEnabled || detail.status === "candidate" || !firstPlayable.playable}
-            title={!firstPlayable.playable ? firstPlayable.note ?? "桌面端无法播放这个文件" : undefined}
-            onClick={() => onPlay(firstPlayable.mediaId, detail.single ? detail.title : `${detail.title} ${firstPlayable.label}`, containerOf(firstPlayable.name))}
-          >
-            <PlayRegular />{detail.single ? "播放正片" : "播放第一集"}
-          </Button>
-        ) : null}
+    <>
+      {/* 只留箭头：文字交给 title/aria-label，形状与加载态那颗同款（icon-sm ghost）。 */}
+      <Button size="icon-sm" variant="ghost" className="catalog-detail-back" onClick={onClose} aria-label="返回标题墙" title="返回标题墙">
+        <ArrowLeftRegular />
+      </Button>
+      <div className={cn("catalog-detail-head", detail.posterUrl && "has-poster")}>
+        {detail.posterUrl ? <img className="catalog-detail-poster" src={detail.posterUrl} alt="" loading="lazy" /> : null}
+        <div className="catalog-detail-head-copy"><RailHead detail={detail} /></div>
       </div>
-    </div>
+    </>
   )
 }
 

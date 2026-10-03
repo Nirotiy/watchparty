@@ -562,20 +562,15 @@ body {
   flex-direction: column; gap: 12px;
   border: 1px solid var(--stroke-card); border-radius: var(--radius-control); background: var(--fill-card); padding: 14px;
 }
-.catalog-detail-hero {
-  position: relative;
-  overflow: hidden;
-  background-color: #111;
-  background-position: center 25%;
-  background-size: cover;
-}
-.catalog-detail-hero-shade { position: absolute; inset: 0; }
-.catalog-detail-hero-layout { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr) 190px; align-items: end; gap: 24px; min-height: 280px; padding: 20px 24px; }
-.catalog-detail-back { align-self: start; margin-bottom: 14px; color: var(--on-media); }
-.catalog-detail-hero-content { min-width: 0; max-width: 720px; }
-.catalog-detail-hero-content .catalog-rail-title b { font-size: 28px; line-height: 1.15; }
-.catalog-hero-play { width: 190px; min-height: 64px; margin-bottom: 4px; color: var(--on-media); background: #000; border-color: #ffffff66; box-shadow: var(--f2-shadow8); }
-.catalog-hero-play:hover { background: #303030; }
+/* 详情题头（方案 A，2026-10-03 用户选定）：海报回 2:3 原生比例，不再拉升当底图。 */
+.catalog-detail-head { display: grid; gap: 16px; padding: 2px 2px 12px; border-bottom: 1px solid var(--stroke-divider); }
+.catalog-detail-head.has-poster { grid-template-columns: 132px minmax(0, 1fr); column-gap: 18px; }
+.catalog-detail-poster { width: 132px; aspect-ratio: 2 / 3; object-fit: cover; display: block; border-radius: var(--radius-control); border: 1px solid var(--stroke-card); background: rgba(255,255,255,.08); }
+.catalog-detail-head-copy { min-width: 0; }
+.catalog-detail-head-copy .catalog-rail-title b { font-size: 26px; line-height: 1.2; }
+.catalog-detail-head-copy .catalog-rail-overview { max-width: 72ch; }
+.catalog-detail-back { margin-bottom: 2px; }
+.catalog-detail-play { margin-top: 10px; }
 
 /* The overlay is portalled to desktop-main, outside the scrolling media page. */
 .desktop-main:has(> .catalog-detail-overlay) .desktop-page { overflow: hidden; }
@@ -611,7 +606,7 @@ body {
   overflow-y: auto;
   border: 1px solid var(--stroke-card);
   border-radius: var(--radius-overlay);
-  background: #000;
+  background: var(--fill-card);
   box-shadow: var(--f2-shadow8);
   padding: 10px 14px 16px;
   pointer-events: auto;
@@ -620,27 +615,12 @@ body {
 .catalog-detail-loading { min-height: 300px; }
 .catalog-detail-loading-bar { display: flex; align-items: center; gap: 8px; min-height: 42px; color: var(--text-secondary); }
 .catalog-detail-loading-body { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 20px; padding: 20px 8px; }
-.catalog-detail-loading-poster { aspect-ratio: 2 / 3; max-width: 190px; background: #2a2a2a; border-radius: var(--radius-control); }
+.catalog-detail-loading-poster { aspect-ratio: 2 / 3; max-width: 190px; background: rgba(255,255,255,.08); border-radius: var(--radius-control); }
 .catalog-detail-loading-lines { display: grid; align-content: center; gap: 12px; }
-.catalog-detail-loading-lines i { display: block; height: 12px; width: min(420px, 90%); background: #2a2a2a; border-radius: 4px; }
+.catalog-detail-loading-lines i { display: block; height: 12px; width: min(420px, 90%); background: rgba(255,255,255,.08); border-radius: 4px; }
 .catalog-detail-loading-lines i:nth-child(2) { width: 70%; }
 .catalog-detail-loading-lines i:nth-child(3) { width: 85%; }
 .catalog-detail-loading-lines i:nth-child(4) { width: 55%; }
-.catalog-detail-hero {
-  min-height: 156px;
-  border: 0;
-  border-radius: 0;
-  background-position: center 28%;
-}
-.catalog-detail-hero-shade {
-  background: linear-gradient(90deg, rgb(0 0 0 / 85%), rgb(0 0 0 / 46%) 65%, rgb(0 0 0 / 20%)), linear-gradient(0deg, #202020, transparent 65%);
-}
-.catalog-detail-hero .catalog-rail-head { color: var(--on-media); }
-.catalog-detail-hero .catalog-rail-overview { max-width: 72ch; }
-.catalog-detail-hero .catalog-overview { color: #ffffffe0; }
-.catalog-detail-hero .catalog-overview-toggle { color: #8bd8ff; }
-.catalog-detail-hero .catalog-kv { color: #ffffffe0; }
-.catalog-detail-hero .catalog-kv dt { color: #ffffffbf; }
 .catalog-detail-page > .catalog-seasons { margin-top: 10px; }
 .catalog-detail-page .catalog-eps { max-height: none; }
 .catalog-detail-page .catalog-eps { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
@@ -657,8 +637,8 @@ body {
   .catalog-detail-overlay { padding: 12px 10px; }
   .catalog-detail-page { width: 100%; padding-inline: 12px; }
   .catalog-detail-page .catalog-eps { grid-template-columns: 1fr; }
-  .catalog-detail-hero-layout { display: flex; flex-direction: column; align-items: stretch; min-height: 0; padding: 18px 16px; gap: 14px; }
-  .catalog-hero-play { width: 100%; min-height: 48px; margin: 0; }
+  .catalog-detail-head.has-poster { grid-template-columns: 96px minmax(0, 1fr); column-gap: 12px; }
+  .catalog-detail-poster { width: 96px; }
 }
 .catalog-rail-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .catalog-rail-title b { min-width: 0; font-size: 14px; overflow-wrap: anywhere; }
