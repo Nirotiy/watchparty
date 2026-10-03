@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     fs::{self, OpenOptions},
     io::{self, Write},
@@ -6,7 +7,6 @@ use std::{
     path::{Path, PathBuf},
 };
 use zeroize::Zeroize;
-use sha2::{Digest, Sha256};
 
 const SETTINGS_FILE: &str = "settings.json";
 const CREDENTIAL_TARGET_PREFIX: &str = "WatchParty/site-basic/";
@@ -14,10 +14,16 @@ const ROOM_CREDENTIAL_TARGET_PREFIX: &str = "WatchParty/room-session/";
 const TRUST_FILE: &str = "trust.json";
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all="camelCase")]
-pub struct OriginTrustRecord { pub origin: String, pub fingerprint: String, pub pem: String }
+#[serde(rename_all = "camelCase")]
+pub struct OriginTrustRecord {
+    pub origin: String,
+    pub fingerprint: String,
+    pub pem: String,
+}
 
-pub struct OriginTrustStore { path: PathBuf }
+pub struct OriginTrustStore {
+    path: PathBuf,
+}
 #[derive(Clone, Debug, PartialEq)]
 pub struct OriginTlsPolicy {
     pub origin: String,
@@ -27,42 +33,155 @@ pub struct OriginTlsPolicy {
 impl OriginTlsPolicy {
     pub fn for_origin(store: &OriginTrustStore, origin: &str) -> Result<Self, ConfigError> {
         let origin = validate_backend_origin(origin)?;
-        Ok(Self { extra_pem: store.pem_for(&origin)?, origin })
+        Ok(Self {
+            extra_pem: store.pem_for(&origin)?,
+            origin,
+        })
     }
-    pub fn uses_extra_certificate(&self) -> bool { self.extra_pem.is_some() }
+    pub fn uses_extra_certificate(&self) -> bool {
+        self.extra_pem.is_some()
+    }
 }
 
 impl OriginTrustStore {
-    pub fn new(dir: PathBuf) -> Self { Self { path: dir.join(TRUST_FILE) } }
-    pub fn list(&self) -> Result<Vec<OriginTrustRecord>, ConfigError> { match fs::read(&self.path) { Ok(b)=>Ok(serde_json::from_slice(&b)?), Err(e) if e.kind()==io::ErrorKind::NotFound=>Ok(Vec::new()), Err(e)=>Err(e.into()) } }
-    pub fn import(&self, origin: &str, pem: &str) -> Result<OriginTrustRecord, ConfigError> {
-        let origin=validate_backend_origin(origin)?; let pem=pem.trim();
-        if pem.len()>200_000 { return Err(ConfigError::Invalid); }
-        let certificates = reqwest::Certificate::from_pem_bundle(pem.as_bytes()).map_err(|_| ConfigError::Invalid)?;
-        if certificates.is_empty() { return Err(ConfigError::Invalid); }
-        let mut h=Sha256::new(); h.update(pem.as_bytes()); let fingerprint=h.finalize().iter().map(|b| format!("{b:02x}")).collect();
-        let rec=OriginTrustRecord{origin:origin.clone(), fingerprint, pem:pem.to_string()}; let mut all=self.list()?; all.retain(|r|r.origin!=origin); all.push(rec.clone()); self.write(&all)?; let _ = self.ca_file_for(&origin)?; Ok(rec)
+    pub fn new(dir: PathBuf) -> Self {
+        Self {
+            path: dir.join(TRUST_FILE),
+        }
     }
-    pub fn delete(&self, origin: &str) -> Result<(), ConfigError> { let origin=validate_backend_origin(origin)?; let mut all=self.list()?; all.retain(|r|r.origin!=origin); self.write(&all)?; self.remove_ca_file(&origin) }
-    pub fn pem_for(&self, origin: &str) -> Result<Option<String>, ConfigError> { let origin=validate_backend_origin(origin)?; Ok(self.list()?.into_iter().find(|r|r.origin==origin).map(|r|r.pem)) }
+    pub fn list(&self) -> Result<Vec<OriginTrustRecord>, ConfigError> {
+        match fs::read(&self.path) {
+            Ok(b) => Ok(serde_json::from_slice(&b)?),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(e) => Err(e.into()),
+        }
+    }
+    pub fn import(&self, origin: &str, pem: &str) -> Result<OriginTrustRecord, ConfigError> {
+        let origin = validate_backend_origin(origin)?;
+        let pem = pem.trim();
+        if pem.len() > 200_000 {
+            return Err(ConfigError::Invalid);
+        }
+        let certificates = reqwest::Certificate::from_pem_bundle(pem.as_bytes())
+            .map_err(|_| ConfigError::Invalid)?;
+        if certificates.is_empty() {
+            return Err(ConfigError::Invalid);
+        }
+        let mut h = Sha256::new();
+        h.update(pem.as_bytes());
+        let fingerprint = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
+        let rec = OriginTrustRecord {
+            origin: origin.clone(),
+            fingerprint,
+            pem: pem.to_string(),
+        };
+        let mut all = self.list()?;
+        all.retain(|r| r.origin != origin);
+        all.push(rec.clone());
+        self.write(&all)?;
+        let _ = self.ca_file_for(&origin)?;
+        Ok(rec)
+    }
+    pub fn delete(&self, origin: &str) -> Result<(), ConfigError> {
+        let origin = validate_backend_origin(origin)?;
+        let mut all = self.list()?;
+        all.retain(|r| r.origin != origin);
+        self.write(&all)?;
+        self.remove_ca_file(&origin)
+    }
+    pub fn pem_for(&self, origin: &str) -> Result<Option<String>, ConfigError> {
+        let origin = validate_backend_origin(origin)?;
+        Ok(self
+            .list()?
+            .into_iter()
+            .find(|r| r.origin == origin)
+            .map(|r| r.pem))
+    }
     pub fn ca_file_for(&self, origin: &str) -> Result<Option<PathBuf>, ConfigError> {
         let origin = validate_backend_origin(origin)?;
-        let Some(pem) = self.pem_for(&origin)? else { return Ok(None) };
-        let mut hash = Sha256::new(); hash.update(origin.as_bytes());
-        let name = hash.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>();
-        let path = self.path.parent().unwrap_or_else(|| Path::new(".")).join("tls-trust").join(format!("{name}.pem"));
-        if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; }
+        let Some(pem) = self.pem_for(&origin)? else {
+            return Ok(None);
+        };
+        let mut hash = Sha256::new();
+        hash.update(origin.as_bytes());
+        let name = hash
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        let path = self
+            .path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("tls-trust")
+            .join(format!("{name}.pem"));
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         fs::write(&path, pem.as_bytes())?;
+        Ok(Some(path))
+    }
+    /// mpv's FFmpeg TLS backend needs a PEM bundle even for public HTTPS sites.
+    /// Extra certificates stay restricted to the exact origin that imported them.
+    pub fn media_ca_file_for(&self, origin: &str) -> Result<Option<PathBuf>, ConfigError> {
+        let origin = validate_backend_origin(origin)?;
+        if !origin.starts_with("https://") {
+            return Ok(None);
+        }
+        let native = rustls_native_certs::load_native_certs();
+        let certificates = webpki_root_certs::TLS_SERVER_ROOT_CERTS
+            .iter()
+            .chain(native.certs.iter())
+            .map(|der| pem::Pem::new("CERTIFICATE", der.as_ref()));
+        let mut bundle = pem::encode_many(&certificates.collect::<Vec<_>>());
+        if let Some(extra) = self.pem_for(&origin)? {
+            bundle.push_str(&extra);
+            bundle.push('\n');
+        }
+        // Immutable, content-addressed files avoid changing trust beneath a live load.
+        let name = Sha256::digest(bundle.as_bytes())
+            .iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        let directory = self.path.parent().unwrap_or_else(|| Path::new(".")).join("tls-trust");
+        fs::create_dir_all(&directory)?;
+        let path = directory.join(format!("media-{name}.pem"));
+        if !path.exists() {
+            let temporary = directory.join(format!("media-{}.tmp", uuid::Uuid::new_v4()));
+            fs::write(&temporary, bundle.as_bytes())?;
+            if let Err(error) = fs::rename(&temporary, &path) {
+                let _ = fs::remove_file(&temporary);
+                if !path.exists() { return Err(error.into()); }
+            }
+        }
         Ok(Some(path))
     }
     pub fn remove_ca_file(&self, origin: &str) -> Result<(), ConfigError> {
         let origin = validate_backend_origin(origin)?;
-        let mut hash = Sha256::new(); hash.update(origin.as_bytes());
-        let name = hash.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>();
-        let path = self.path.parent().unwrap_or_else(|| Path::new(".")).join("tls-trust").join(format!("{name}.pem"));
-        match fs::remove_file(path) { Ok(()) => Ok(()), Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()), Err(e) => Err(e.into()) }
+        let mut hash = Sha256::new();
+        hash.update(origin.as_bytes());
+        let name = hash
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        let path = self
+            .path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("tls-trust")
+            .join(format!("{name}.pem"));
+        match fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.into()),
+        }
     }
-    fn write(&self, all:&Vec<OriginTrustRecord>) -> Result<(), ConfigError> { if let Some(d)=self.path.parent(){fs::create_dir_all(d)?;} fs::write(&self.path, serde_json::to_vec(all)?)?; Ok(()) }
+    fn write(&self, all: &Vec<OriginTrustRecord>) -> Result<(), ConfigError> {
+        if let Some(d) = self.path.parent() {
+            fs::create_dir_all(d)?;
+        }
+        fs::write(&self.path, serde_json::to_vec(all)?)?;
+        Ok(())
+    }
 }
 
 /// Whitelisted player preferences. Every field is bounded and falls back to a
@@ -189,7 +308,9 @@ impl DesktopSettingsInput {
     }
 }
 
-fn default_window_material() -> String { "auto".into() }
+fn default_window_material() -> String {
+    "auto".into()
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -326,7 +447,10 @@ pub fn validate_backend_origin(value: &str) -> Result<String, ConfigError> {
     validate_backend_origin_with_policy(value, false)
 }
 
-pub fn validate_backend_origin_with_policy(value: &str, allow_remote_http: bool) -> Result<String, ConfigError> {
+pub fn validate_backend_origin_with_policy(
+    value: &str,
+    allow_remote_http: bool,
+) -> Result<String, ConfigError> {
     let parsed = reqwest::Url::parse(value.trim()).map_err(|_| ConfigError::Invalid)?;
     if parsed.username() != ""
         || parsed.password().is_some()
@@ -346,7 +470,10 @@ pub fn validate_backend_origin_with_policy(value: &str, allow_remote_http: bool)
                     .parse::<IpAddr>()
                     .is_ok_and(|ip| ip.is_loopback())
         });
-    if parsed.scheme() != "https" && !(allow_remote_http && parsed.scheme() == "http") && !is_loopback_http {
+    if parsed.scheme() != "https"
+        && !(allow_remote_http && parsed.scheme() == "http")
+        && !is_loopback_http
+    {
         return Err(ConfigError::Invalid);
     }
     Ok(parsed.as_str().trim_end_matches('/').to_owned())
@@ -437,14 +564,26 @@ pub struct MusicPartyCredentialStore;
 #[cfg(all(test, windows))]
 #[test]
 fn musicparty_credential_read_and_clear_are_origin_scoped() {
-    use std::{io::{BufRead, BufReader, Write}, net::TcpListener};
+    use std::{
+        io::{BufRead, BufReader, Write},
+        net::TcpListener,
+    };
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let target = MusicPartyCredentialStore::target(&origin).unwrap();
     struct Cleanup(String);
-    impl Drop for Cleanup { fn drop(&mut self) { let _ = platform::clear(&self.0); } }
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = platform::clear(&self.0);
+        }
+    }
     let _cleanup = Cleanup(target.clone());
-    platform::write_blob(&target, "MusicParty", br#"{"MP_SESSION":"test-session-secret","MP_CSRF":"test-csrf-secret"}"#).unwrap();
+    platform::write_blob(
+        &target,
+        "MusicParty",
+        br#"{"MP_SESSION":"test-session-secret","MP_CSRF":"test-csrf-secret"}"#,
+    )
+    .unwrap();
     let session = MusicPartyCredentialStore.read(&origin).unwrap().unwrap();
     assert_eq!(session.session, "test-session-secret");
     assert_eq!(session.csrf, "test-csrf-secret");
@@ -453,13 +592,17 @@ fn musicparty_credential_read_and_clear_are_origin_scoped() {
         let mut requests = Vec::new();
         for _ in 0..2 {
             let (mut stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
             let mut reader = BufReader::new(&stream);
             let mut headers = String::new();
             loop {
                 let mut line = String::new();
                 reader.read_line(&mut line).unwrap();
-                if line == "\r\n" || line.is_empty() { break; }
+                if line == "\r\n" || line.is_empty() {
+                    break;
+                }
                 headers.push_str(&line);
             }
             requests.push(headers.to_ascii_lowercase());
@@ -469,13 +612,18 @@ fn musicparty_credential_read_and_clear_are_origin_scoped() {
     });
     let bridge = crate::musicparty::MusicPartyBridge::default();
     let input = || crate::musicparty::MusicPartyRequest {
-        origin: origin.clone(), path: "/api/desktop/v1/invites/redeem".into(),
-        method: "POST".into(), body: None, client_version: "0.2.0".into(),
+        origin: origin.clone(),
+        path: "/api/desktop/v1/invites/redeem".into(),
+        method: "POST".into(),
+        body: None,
+        client_version: "0.2.0".into(),
     };
     assert_eq!(bridge.request(input()).unwrap().status, 200);
     bridge.clear(&origin).unwrap();
     assert!(MusicPartyCredentialStore.read(&origin).unwrap().is_none());
-    assert!(matches!(bridge.request(input()), Err(error) if error == "musicparty_credentials_failed"));
+    assert!(
+        matches!(bridge.request(input()), Err(error) if error == "musicparty_credentials_failed")
+    );
     let requests = server.join().unwrap();
     assert!(requests[0].contains("cookie: mp_session=test-session-secret"));
     assert!(requests[0].contains("x-csrf-token: test-csrf-secret"));
@@ -485,19 +633,47 @@ fn musicparty_credential_read_and_clear_are_origin_scoped() {
 }
 
 impl MusicPartyCredentialStore {
-    pub fn write(&self, origin: &str, session: &crate::http::MusicPartySession) -> Result<(), ConfigError> {
-        if session.session.is_empty() || session.csrf.is_empty() { return Err(ConfigError::CredentialOperation); }
-        #[derive(Serialize)] struct Blob<'a> { #[serde(rename="MP_SESSION")] session: &'a str, #[serde(rename="MP_CSRF")] csrf: &'a str, #[serde(rename="MP_ROOM_ACCESS", skip_serializing_if="Option::is_none")] room_access: Option<&'a str> }
-        let blob = Blob { session: &session.session, csrf: &session.csrf, room_access: session.room_access.as_deref() };
-        let bytes = zeroize::Zeroizing::new(serde_json::to_vec(&blob).map_err(|_| ConfigError::CredentialOperation)?);
+    pub fn write(
+        &self,
+        origin: &str,
+        session: &crate::http::MusicPartySession,
+    ) -> Result<(), ConfigError> {
+        if session.session.is_empty() || session.csrf.is_empty() {
+            return Err(ConfigError::CredentialOperation);
+        }
+        #[derive(Serialize)]
+        struct Blob<'a> {
+            #[serde(rename = "MP_SESSION")]
+            session: &'a str,
+            #[serde(rename = "MP_CSRF")]
+            csrf: &'a str,
+            #[serde(rename = "MP_ROOM_ACCESS", skip_serializing_if = "Option::is_none")]
+            room_access: Option<&'a str>,
+        }
+        let blob = Blob {
+            session: &session.session,
+            csrf: &session.csrf,
+            room_access: session.room_access.as_deref(),
+        };
+        let bytes = zeroize::Zeroizing::new(
+            serde_json::to_vec(&blob).map_err(|_| ConfigError::CredentialOperation)?,
+        );
         platform::write_blob(&Self::target(origin)?, "MusicParty", &bytes)
     }
     fn target(origin: &str) -> Result<String, ConfigError> {
-        Ok(format!("MusicParty Desktop/session/{}", validate_backend_origin(origin)?))
+        Ok(format!(
+            "MusicParty Desktop/session/{}",
+            validate_backend_origin(origin)?
+        ))
     }
 
-    pub fn read(&self, origin: &str) -> Result<Option<crate::http::MusicPartySession>, ConfigError> {
-        let Some((mut username, bytes)) = platform::read_blob(&Self::target(origin)?)? else { return Ok(None) };
+    pub fn read(
+        &self,
+        origin: &str,
+    ) -> Result<Option<crate::http::MusicPartySession>, ConfigError> {
+        let Some((mut username, bytes)) = platform::read_blob(&Self::target(origin)?)? else {
+            return Ok(None);
+        };
         username.zeroize();
         let bytes = zeroize::Zeroizing::new(bytes);
         #[derive(Deserialize)]
@@ -510,11 +686,23 @@ impl MusicPartyCredentialStore {
             room_access: Option<String>,
         }
         impl Drop for SessionBlob {
-            fn drop(&mut self) { self.session.zeroize(); self.csrf.zeroize(); if let Some(value) = &mut self.room_access { value.zeroize(); } }
+            fn drop(&mut self) {
+                self.session.zeroize();
+                self.csrf.zeroize();
+                if let Some(value) = &mut self.room_access {
+                    value.zeroize();
+                }
+            }
         }
-        let mut blob: SessionBlob = serde_json::from_slice(&bytes).map_err(|_| ConfigError::CredentialOperation)?;
-        let mut session = crate::http::MusicPartySession::new(std::mem::take(&mut blob.session), std::mem::take(&mut blob.csrf));
-        if let Some(room_access) = blob.room_access.take() { session = session.with_room_access(room_access); }
+        let mut blob: SessionBlob =
+            serde_json::from_slice(&bytes).map_err(|_| ConfigError::CredentialOperation)?;
+        let mut session = crate::http::MusicPartySession::new(
+            std::mem::take(&mut blob.session),
+            std::mem::take(&mut blob.csrf),
+        );
+        if let Some(room_access) = blob.room_access.take() {
+            session = session.with_room_access(room_access);
+        }
         Ok(Some(session))
     }
 
@@ -528,7 +716,11 @@ impl SiteCredentialStore {
         platform::has(credential_target(backend_origin)?.as_str())
     }
 
-    pub fn has_with_policy(&self, backend_origin: &str, allow_remote_http: bool) -> Result<bool, ConfigError> {
+    pub fn has_with_policy(
+        &self,
+        backend_origin: &str,
+        allow_remote_http: bool,
+    ) -> Result<bool, ConfigError> {
         platform::has(credential_target_with_policy(backend_origin, allow_remote_http)?.as_str())
     }
 
@@ -536,7 +728,11 @@ impl SiteCredentialStore {
         platform::read(credential_target(backend_origin)?.as_str())
     }
 
-    pub fn read_with_policy(&self, backend_origin: &str, allow_remote_http: bool) -> Result<Option<StoredSiteCredentials>, ConfigError> {
+    pub fn read_with_policy(
+        &self,
+        backend_origin: &str,
+        allow_remote_http: bool,
+    ) -> Result<Option<StoredSiteCredentials>, ConfigError> {
         platform::read(credential_target_with_policy(backend_origin, allow_remote_http)?.as_str())
     }
 
@@ -630,8 +826,14 @@ impl RoomSessionStore {
         self.read_with_policy(backend_origin, false)
     }
 
-    pub fn read_with_policy(&self, backend_origin: &str, allow_remote_http: bool) -> Result<Option<StoredRoomSession>, ConfigError> {
-        let blob = platform::read_blob(room_credential_target_with_policy(backend_origin, allow_remote_http)?.as_str())?;
+    pub fn read_with_policy(
+        &self,
+        backend_origin: &str,
+        allow_remote_http: bool,
+    ) -> Result<Option<StoredRoomSession>, ConfigError> {
+        let blob = platform::read_blob(
+            room_credential_target_with_policy(backend_origin, allow_remote_http)?.as_str(),
+        )?;
         let Some((_username, bytes)) = blob else {
             return Ok(None);
         };
@@ -655,11 +857,19 @@ impl RoomSessionStore {
         self.write_with_policy(backend_origin, session, false)
     }
 
-    pub fn write_with_policy(&self, backend_origin: &str, session: &StoredRoomSession, allow_remote_http: bool) -> Result<(), ConfigError> {
+    pub fn write_with_policy(
+        &self,
+        backend_origin: &str,
+        session: &StoredRoomSession,
+        allow_remote_http: bool,
+    ) -> Result<(), ConfigError> {
         let (room_id, client_id, access_token, owner_token, generation) = session.parts();
         let blob = serde_json::to_vec(&RoomSessionBlob {
-            room_id: room_id.into(), client_id: client_id.into(), access_token: access_token.into(),
-            owner_token: owner_token.map(str::to_owned), generation,
+            room_id: room_id.into(),
+            client_id: client_id.into(),
+            access_token: access_token.into(),
+            owner_token: owner_token.map(str::to_owned),
+            generation,
         })?;
         platform::write_blob(
             room_credential_target_with_policy(backend_origin, allow_remote_http)?.as_str(),
@@ -677,7 +887,10 @@ fn credential_target(backend_origin: &str) -> Result<String, ConfigError> {
     credential_target_with_policy(backend_origin, false)
 }
 
-fn credential_target_with_policy(backend_origin: &str, allow_remote_http: bool) -> Result<String, ConfigError> {
+fn credential_target_with_policy(
+    backend_origin: &str,
+    allow_remote_http: bool,
+) -> Result<String, ConfigError> {
     Ok(format!(
         "{CREDENTIAL_TARGET_PREFIX}{}",
         validate_backend_origin_with_policy(backend_origin, allow_remote_http)?
@@ -688,7 +901,10 @@ fn room_credential_target(backend_origin: &str) -> Result<String, ConfigError> {
     room_credential_target_with_policy(backend_origin, false)
 }
 
-fn room_credential_target_with_policy(backend_origin: &str, allow_remote_http: bool) -> Result<String, ConfigError> {
+fn room_credential_target_with_policy(
+    backend_origin: &str,
+    allow_remote_http: bool,
+) -> Result<String, ConfigError> {
     Ok(format!(
         "{ROOM_CREDENTIAL_TARGET_PREFIX}{}",
         validate_backend_origin_with_policy(backend_origin, allow_remote_http)?
@@ -922,14 +1138,26 @@ mod tests {
 
     #[test]
     fn origin_tls_policy_is_scoped_and_defaults_to_system_chain() {
-        let dir = std::env::temp_dir().join(format!("watchparty-tls-policy-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("watchparty-tls-policy-{}", uuid::Uuid::new_v4()));
         let store = OriginTrustStore::new(dir.clone());
-        assert!(!OriginTlsPolicy::for_origin(&store, "https://a.example").unwrap().uses_extra_certificate());
-        let certificate = rcgen::generate_simple_self_signed(vec!["a.example".into()]).unwrap().cert.pem();
-        assert!(store.import("https://a.example", "not a certificate").is_err());
+        assert!(!OriginTlsPolicy::for_origin(&store, "https://a.example")
+            .unwrap()
+            .uses_extra_certificate());
+        let certificate = rcgen::generate_simple_self_signed(vec!["a.example".into()])
+            .unwrap()
+            .cert
+            .pem();
+        assert!(store
+            .import("https://a.example", "not a certificate")
+            .is_err());
         store.import("https://a.example", &certificate).unwrap();
-        assert!(OriginTlsPolicy::for_origin(&store, "https://a.example").unwrap().uses_extra_certificate());
-        assert!(!OriginTlsPolicy::for_origin(&store, "https://b.example").unwrap().uses_extra_certificate());
+        assert!(OriginTlsPolicy::for_origin(&store, "https://a.example")
+            .unwrap()
+            .uses_extra_certificate());
+        assert!(!OriginTlsPolicy::for_origin(&store, "https://b.example")
+            .unwrap()
+            .uses_extra_certificate());
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -937,16 +1165,46 @@ mod tests {
     fn origin_trust_ca_file_lifecycle_is_replaceable_and_removable() {
         let dir = std::env::temp_dir().join(format!("watchparty-tls-ca-{}", uuid::Uuid::new_v4()));
         let store = OriginTrustStore::new(dir.clone());
-        let first_pem = rcgen::generate_simple_self_signed(vec!["a.example".into()]).unwrap().cert.pem();
-        let second_pem = rcgen::generate_simple_self_signed(vec!["a.example".into()]).unwrap().cert.pem();
+        let first_pem = rcgen::generate_simple_self_signed(vec!["a.example".into()])
+            .unwrap()
+            .cert
+            .pem();
+        let second_pem = rcgen::generate_simple_self_signed(vec!["a.example".into()])
+            .unwrap()
+            .cert
+            .pem();
         store.import("https://a.example", &first_pem).unwrap();
         let first = store.ca_file_for("https://a.example").unwrap().unwrap();
         assert_eq!(fs::read_to_string(&first).unwrap(), first_pem.trim());
         store.import("https://a.example", &second_pem).unwrap();
-        assert_eq!(fs::read_to_string(store.ca_file_for("https://a.example").unwrap().unwrap()).unwrap(), second_pem.trim());
+        assert_eq!(
+            fs::read_to_string(store.ca_file_for("https://a.example").unwrap().unwrap()).unwrap(),
+            second_pem.trim()
+        );
         store.delete("https://a.example").unwrap();
         assert!(!first.exists());
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn media_ca_bundle_has_public_roots_and_scopes_imported_trust() {
+        let dir = std::env::temp_dir().join(format!("watchparty-media-ca-{}", uuid::Uuid::new_v4()));
+        let store = OriginTrustStore::new(dir.clone());
+        let certificate = rcgen::generate_simple_self_signed(vec!["a.example".into()]).unwrap().cert;
+        let baseline = store.media_ca_file_for("https://a.example").unwrap().unwrap();
+        let public = pem::parse_many(fs::read(&baseline).unwrap()).unwrap();
+        assert!(public.iter().any(|cert| cert.contents() == webpki_root_certs::TLS_SERVER_ROOT_CERTS[0].as_ref()));
+        store.import("https://a.example", &certificate.pem()).unwrap();
+        let imported = store.media_ca_file_for("https://a.example").unwrap().unwrap();
+        assert_ne!(baseline, imported);
+        assert!(pem::parse_many(fs::read(&imported).unwrap()).unwrap().iter().any(|cert| cert.contents() == certificate.der().as_ref()));
+        let other = store.media_ca_file_for("https://b.example").unwrap().unwrap();
+        assert!(!pem::parse_many(fs::read(other).unwrap()).unwrap().iter().any(|cert| cert.contents() == certificate.der().as_ref()));
+        store.delete("https://a.example").unwrap();
+        let removed = store.media_ca_file_for("https://a.example").unwrap().unwrap();
+        assert!(!pem::parse_many(fs::read(removed).unwrap()).unwrap().iter().any(|cert| cert.contents() == certificate.der().as_ref()));
+        assert!(store.media_ca_file_for("http://127.0.0.1:9000").unwrap().is_none());
+        fs::remove_dir_all(dir).unwrap();
     }
 
     fn store() -> DesktopConfigStore {

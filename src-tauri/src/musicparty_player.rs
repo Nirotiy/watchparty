@@ -208,7 +208,7 @@ impl AudioWorker {
             self.wants_play = false;
             let ca = self
                 .trust
-                .ca_file_for(&parsed.origin().ascii_serialization())
+                .media_ca_file_for(&parsed.origin().ascii_serialization())
                 .map_err(|_| "musicparty_tls_unavailable")?;
             let cookie = (self.cookie_for_origin)(&parsed.origin().ascii_serialization());
             self.generation += 1;
@@ -308,4 +308,3 @@ impl AudioWorker {
         Ok(self.status())
     }
 }
-

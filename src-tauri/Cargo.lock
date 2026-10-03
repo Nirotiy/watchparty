@@ -1509,6 +1509,7 @@ dependencies = [
 name = "watchparty-desktop"
 version = "0.1.0"
 dependencies = [
+ "pem",
  "rcgen",
  "reqwest",
  "rustls",
@@ -1521,6 +1522,8 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
+ "webpki-root-certs",
+ "webpki-roots",
  "windows-sys 0.61.2",
  "zeroize",
 ]
@@ -1543,6 +1546,15 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "webpki-root-certs"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
+dependencies = [
+ "rustls-pki-types",
 ]
 
 [[package]]

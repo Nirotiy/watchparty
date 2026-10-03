@@ -74,7 +74,7 @@ export type DomainEvent =
   | { type: "server-ready"; apiVersion: string; minimumClientVersion?: string }
   | { type: "clock-sync"; pingId: string; clientSendTime: number; serverReceiveTime: number; serverSendTime: number; receivedAt: number }
   | { type: "player-notice"; code: string; severity: string; message: string }
-  | { type: "connection"; status: ConnectionStatus; message?: string }
+  | { type: "connection"; status: ConnectionStatus; message?: string; code?: string }
   | { type: "playback"; snapshot: PlaybackSnapshot }
   | { type: "room"; room: RoomSummary }
   | { type: "error"; code: string; message: string }

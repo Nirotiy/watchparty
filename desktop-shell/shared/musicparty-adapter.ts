@@ -348,6 +348,28 @@ export class MusicPartyPlaylistError extends Error {
   constructor(readonly code: string) { super(`playlist_${code}`); this.name = "MusicPartyPlaylistError" }
 }
 
+/** Only known transport reasons may enter a join dialog; arbitrary native errors stay private. */
+export function linkleJoinErrorMessage(error: unknown): string | undefined {
+  const messages: Record<string, string> = {
+    musicparty_tls_failed: "无法验证服务器证书，请检查系统时间或导入该站点的可信证书。",
+    musicparty_tls_invalid: "服务器证书配置无效，请重新导入该站点的可信证书。",
+    musicparty_unauthorized: "登录会话已失效，请重新连接服务器。",
+    musicparty_credentials_missing: "本机没有该服务器的登录会话，请先连接服务器。",
+    musicparty_credentials_failed: "无法读取本机登录凭据，请重新连接服务器。",
+    musicparty_forbidden: "服务器拒绝加入该房间，请检查房间密码和访问权限。",
+    musicparty_ws_http_404: "服务器没有提供房间连接接口，请检查服务地址。",
+    "version-incompatible": "客户端与服务器版本不兼容，请升级后重试。",
+    room_snapshot_timeout: "连接后未收到房间状态，请检查网络后重试。",
+  }
+  for (let depth = 0; depth < 4; depth += 1) {
+    const code = error instanceof Error ? error.message : typeof error === "string" ? error : ""
+    if (Object.hasOwn(messages, code)) return messages[code]
+    if (!(error instanceof Error) || !("cause" in error)) return undefined
+    error = error.cause
+  }
+  return undefined
+}
+
 /** Transport boundary for MusicParty. UI never sees raw HTTP or socket envelopes. */
 export class MusicPartyAdapter implements ProductAdapter {
   readonly product: ProductId = "musicparty"
@@ -598,7 +620,7 @@ export class MusicPartyAdapter implements ProductAdapter {
         if (event.type === "connection") {
           // connect() disconnects first, so only a stop after connecting abandoned this join.
           if (event.status === "connecting") connecting = true
-          else if (connecting && (event.status === "failed" || event.status === "idle")) finish(new Error("room_join_failed"))
+          else if (connecting && (event.status === "failed" || event.status === "idle")) finish(new Error(event.code ?? "room_join_failed"))
           return
         }
         if (event.type === "room" && event.room.id === roomId) finish()
@@ -1192,9 +1214,19 @@ export class MusicPartyAdapter implements ProductAdapter {
     ++this.nativeGeneration
     this.nativeActive = false
     this.welcomed = false
+    this.stopClockSync()
+    const code = error instanceof Error ? error.message : typeof error === "string" ? error : ""
+    const terminal = linkleJoinErrorMessage(code)
     const token = this.nativeGeneration
     void this.options.nativeInvoke?.("musicPartyWsDisconnect", {}).catch(() => undefined).then(() => {
       if (token !== this.nativeGeneration || this.stopped) return
+      if (terminal) {
+        this.stopped = true
+        clearTimeout(this.reconnectTimer)
+        clearTimeout(this.snapshotNudge)
+        this.emit({ type: "connection", status: "failed", code, message: terminal })
+        return
+      }
       if (++this.attempt > DEFAULT_RETRY_POLICY.maxAttempts) { this.emit({ type: "connection", status: "failed" }); return }
       this.emit({ type: "connection", status: "reconnecting" })
       clearTimeout(this.reconnectTimer)

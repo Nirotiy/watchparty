@@ -16,6 +16,9 @@ tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8"
 rustls-pemfile = "2"
+webpki-roots = "1"
+webpki-root-certs = "1"
+pem = "3"
 url = "2"
 urlencoding = "2"
 

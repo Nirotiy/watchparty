@@ -9,7 +9,7 @@ import { ProgressRing } from "@/components/ui/progress-ring"
 import { useShellToast } from "@/components/shell-toast"
 import { linkleReadinessLine } from "@/components/setup-guide-steps"
 import type { LobbyFacade } from "@/hooks/use-lobby-facade"
-import { probeMusicParty, type MusicPartyProbe } from "../../shared/musicparty-adapter"
+import { linkleJoinErrorMessage, probeMusicParty, type MusicPartyProbe } from "../../shared/musicparty-adapter"
 import { invoke } from "../../shared/desktop-runtime"
 import type { RoomIdentity, RoomSummaryRecord } from "../../shared/lobby-contract"
 
@@ -204,7 +204,7 @@ export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, ac
         : reason === "room_manage_not-found" ? "该房间已经不存在，请刷新列表。"
         : form === "create" ? "无法创建房间，请检查连接和创建权限。"
         : form === "rename" || form === "delete" ? "房间管理失败，请稍后重试。"
-        : "无法加入房间，请检查密码和服务连接后重试。")
+        : linkleJoinErrorMessage(error) ?? "无法加入房间，请检查密码和服务连接后重试。")
     }
     finally { setPending(false) }
   }

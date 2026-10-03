@@ -9,7 +9,29 @@ function moduleUrl(name) {
     .replace(/from "\.\/(musicparty-contract|retry|shared-room-state)"/g, (_, dependency) => `from "${moduleUrl(dependency)}"`)
   return `data:text/javascript;base64,${Buffer.from(js).toString('base64')}`
 }
-const { MusicPartyAdapter, probeMusicParty } = await import(moduleUrl('musicparty-adapter'))
+const { MusicPartyAdapter, probeMusicParty, linkleJoinErrorMessage } = await import(moduleUrl('musicparty-adapter'))
+
+test('native certificate and session failures survive joining without retry loops', async () => {
+  for (const code of ['musicparty_tls_failed', 'musicparty_credentials_missing', 'musicparty_unauthorized']) {
+    let connections = 0
+    const events = []
+    const adapter = new MusicPartyAdapter({ origin: 'https://music.example', fetchImpl: async () => Response.json({ apiVersion: '2026-01' }), nativeInvoke: async command => {
+      if (command === 'musicPartyWsConnect') { connections += 1; throw code }
+    } })
+    adapter.subscribe(event => events.push(event))
+    await assert.rejects(adapter.joinRoom('lounge'), { message: code })
+    assert.equal(connections, 1)
+    assert.equal(events.some(event => event.status === 'reconnecting'), false)
+    assert.ok(events.some(event => event.status === 'failed' && event.code === code))
+    await adapter.disconnect()
+  }
+})
+
+test('join diagnostics unwrap switch errors and suppress unknown payloads', () => {
+  const wrapped = new Error('switch failed', { cause: new Error('musicparty_tls_failed') })
+  assert.match(linkleJoinErrorMessage(wrapped), /证书/)
+  assert.equal(linkleJoinErrorMessage(new Error('private credential material')), undefined)
+})
 
 test('room summaries use the public list fields and respect existing access', async () => {
   const adapter = new MusicPartyAdapter({ origin: 'https://music.example/path', fetchImpl: async url => {

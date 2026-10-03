@@ -30,14 +30,24 @@ pub struct MusicPartyResponse {
 /// Serializes credential reads, requests and deletion. Each call drops its session
 /// and client before releasing the lock, so clear cannot leave a cached cookie.
 pub struct MusicPartyBridge(Mutex<()>, Option<std::sync::Arc<OriginTrustStore>>);
-impl Default for MusicPartyBridge { fn default() -> Self { Self(Mutex::new(()), None) } }
-impl MusicPartyBridge { pub fn with_trust_store(store: std::sync::Arc<OriginTrustStore>) -> Self { Self(Mutex::new(()), Some(store)) } }
+impl Default for MusicPartyBridge {
+    fn default() -> Self {
+        Self(Mutex::new(()), None)
+    }
+}
+impl MusicPartyBridge {
+    pub fn with_trust_store(store: std::sync::Arc<OriginTrustStore>) -> Self {
+        Self(Mutex::new(()), Some(store))
+    }
+}
 
 impl MusicPartyBridge {
-    /// Also reports whether this call emptied the origin's stored credentials, so the
-    /// host can drop a live socket: a session the server no longer honours must not
-    /// keep streaming room events just because the renderer forgot to disconnect.
-    pub fn request_with_clear(&self, input: MusicPartyRequest) -> Result<(MusicPartyResponse, bool), String> {
+    /// Also reports whether the origin's old session was cleared or replaced, so
+    /// the host can disconnect its socket before using the new identity.
+    pub fn request_with_clear(
+        &self,
+        input: MusicPartyRequest,
+    ) -> Result<(MusicPartyResponse, bool), String> {
         let _guard = self.0.lock().map_err(|_| "musicparty_unavailable")?;
         let origin =
             validate_backend_origin(&input.origin).map_err(|_| "invalid_musicparty_origin")?;
@@ -46,13 +56,23 @@ impl MusicPartyBridge {
             .map_err(|_| "musicparty_credentials_failed")?;
         let result = request_result(&origin, &input, session.as_ref(), self.1.as_deref())?;
         let response = result.response;
-        let logged_out = input.method == "POST" && input.path == "/api/account/logout" && (200..300).contains(&response.status);
+        let logged_out = input.method == "POST"
+            && input.path == "/api/account/logout"
+            && (200..300).contains(&response.status);
         if result.clear || logged_out {
-            MusicPartyCredentialStore.clear(&origin).map_err(|_| "musicparty_credentials_failed")?;
+            MusicPartyCredentialStore
+                .clear(&origin)
+                .map_err(|_| "musicparty_credentials_failed")?;
             return Ok((response, true));
         }
         if let Some(updated) = result.updated {
-            MusicPartyCredentialStore.write(&origin, &updated).map_err(|_| "musicparty_credentials_failed")?;
+            let replaced = session
+                .as_ref()
+                .is_some_and(|old| old.session != updated.session);
+            MusicPartyCredentialStore
+                .write(&origin, &updated)
+                .map_err(|_| "musicparty_credentials_failed")?;
+            return Ok((response, replaced));
         }
         Ok((response, false))
     }
@@ -79,7 +99,11 @@ struct NativeResult {
 /// into another segment or carry a query.
 fn room_path_id(path: &str) -> Option<&str> {
     let id = path.strip_prefix("/api/rooms/")?;
-    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_graphic() && !b"?#\\/.".contains(&b)) {
+    if id.is_empty()
+        || !id
+            .bytes()
+            .all(|b| b.is_ascii_graphic() && !b"?#\\/.".contains(&b))
+    {
         return None;
     }
     Some(id)
@@ -89,7 +113,9 @@ fn room_path_id(path: &str) -> Option<&str> {
 /// `/api/desktop/v1/albums/{platform}/{albumId}/songs`. Anything deeper is refused here rather than
 /// forwarded, so a mistyped URL cannot turn this into a general-purpose GET proxy.
 fn album_path_allowed(path: &str) -> bool {
-    let Some(rest) = path.strip_prefix("/api/desktop/v1/albums/") else { return false };
+    let Some(rest) = path.strip_prefix("/api/desktop/v1/albums/") else {
+        return false;
+    };
     // Each segment is checked on its own: unlike a room id, the album shape has two segments, so
     // the separator itself must stay legal while traversal and query characters do not.
     let segment_ok = |segment: &str| {
@@ -105,25 +131,45 @@ fn album_path_allowed(path: &str) -> bool {
     }
 }
 
-fn request_result(origin: &str, input: &MusicPartyRequest, session: Option<&MusicPartySession>, trust: Option<&OriginTrustStore>) -> Result<NativeResult, String> {
+fn request_result(
+    origin: &str,
+    input: &MusicPartyRequest,
+    session: Option<&MusicPartySession>,
+    trust: Option<&OriginTrustStore>,
+) -> Result<NativeResult, String> {
     let path = input.path.split('?').next().unwrap_or_default();
+    let establishes_identity = input.method == "POST"
+        && matches!(
+            path,
+            "/api/account/guest" | "/api/desktop/v1/invites/redeem"
+        );
     let allowed = match input.method.as_str() {
         "GET" => {
             matches!(
                 path,
-                "/api/desktop/v1/health" | "/api/desktop/v1/capabilities" | "/api/desktop/v1/readiness" | "/api/platforms" | "/api/rooms" | "/api/account/me"
+                "/api/desktop/v1/health"
+                    | "/api/desktop/v1/capabilities"
+                    | "/api/desktop/v1/readiness"
+                    | "/api/platforms"
+                    | "/api/rooms"
+                    | "/api/account/me"
             ) || path.starts_with("/api/desktop/v1/search/")
                 || album_path_allowed(path)
                 || (path.starts_with("/api/desktop/v1/music/") && path.ends_with("/lyrics"))
-                || (path.starts_with("/api/desktop/v1/media/") && (path.ends_with("/resolve") || path.ends_with("/lyrics")))
+                || (path.starts_with("/api/desktop/v1/media/")
+                    && (path.ends_with("/resolve") || path.ends_with("/lyrics")))
         }
-        "POST" => path == "/api/desktop/v1/invites/redeem"
-            || path == "/api/desktop/v1/rooms"
-            || path == "/api/account/logout"
-            || path.starts_with("/api/rooms/") && path.ends_with("/verify"),
-        // Renaming and deleting belong to whoever owns the room; the server decides that. The
-        // bridge only promises these two verbs never point anywhere but one room path.
-        "PUT" | "DELETE" => room_path_id(path).is_some(),
+        "POST" => {
+            path == "/api/desktop/v1/invites/redeem"
+                || path == "/api/account/guest"
+                || path == "/api/desktop/v1/rooms"
+                || path == "/api/account/logout"
+                || path.starts_with("/api/rooms/") && path.ends_with("/verify")
+        }
+        // Profile edits keep the current identity. Room management is limited
+        // to one room path; the server decides who may rename or delete it.
+        "PUT" => path == "/api/account/profile" || room_path_id(path).is_some(),
+        "DELETE" => room_path_id(path).is_some(),
         _ => false,
     };
     let state_changing = input.method != "GET";
@@ -136,7 +182,7 @@ fn request_result(origin: &str, input: &MusicPartyRequest, session: Option<&Musi
     {
         return Err("invalid_musicparty_request".into());
     }
-    if state_changing && path != "/api/desktop/v1/invites/redeem" && session.is_none() {
+    if state_changing && !establishes_identity && session.is_none() {
         return Err("musicparty_credentials_missing".into());
     }
     if path.starts_with("/api/rooms/") {
@@ -144,7 +190,11 @@ fn request_result(origin: &str, input: &MusicPartyRequest, session: Option<&Musi
             .strip_prefix("/api/rooms/")
             .map(|rest| rest.strip_suffix("/verify").unwrap_or(rest))
             .unwrap_or_default();
-        if id.is_empty() || !id.bytes().all(|b| b.is_ascii_graphic() && !b"?#\\/.".contains(&b)) {
+        if id.is_empty()
+            || !id
+                .bytes()
+                .all(|b| b.is_ascii_graphic() && !b"?#\\/.".contains(&b))
+        {
             return Err("invalid_musicparty_request".into());
         }
     }
@@ -160,8 +210,13 @@ fn request_result(origin: &str, input: &MusicPartyRequest, session: Option<&Musi
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(15));
-    if let Some(pem) = trust.and_then(|t| t.pem_for(origin).ok().flatten()) { if let Ok(cert)=reqwest::Certificate::from_pem(pem.as_bytes()) { client_builder = client_builder.add_root_certificate(cert); } }
-    let client = client_builder.build()
+    if let Some(pem) = trust.and_then(|t| t.pem_for(origin).ok().flatten()) {
+        if let Ok(cert) = reqwest::Certificate::from_pem(pem.as_bytes()) {
+            client_builder = client_builder.add_root_certificate(cert);
+        }
+    }
+    let client = client_builder
+        .build()
         .map_err(|_| "musicparty_network_failed")?;
     let method = match input.method.as_str() {
         "GET" => Method::GET,
@@ -174,7 +229,9 @@ fn request_result(origin: &str, input: &MusicPartyRequest, session: Option<&Musi
         .header("Accept", "application/json")
         .header("X-Desktop-API-Version", "2026-01")
         .header("X-Desktop-Client-Version", &input.client_version);
-    if let Some(session) = session {
+    // Guest login is public and creates a new identity. Do not send the old
+    // identity's cookies or private-room proof to that endpoint.
+    if let Some(session) = session.filter(|_| path != "/api/account/guest") {
         if session.session.is_empty()
             || session.csrf.is_empty()
             || !session
@@ -207,15 +264,28 @@ fn request_result(origin: &str, input: &MusicPartyRequest, session: Option<&Musi
             return Err("musicparty_response_too_large".into());
         }
         if status.is_redirection()
-            || session.is_some_and(|s| [&s.session, &s.csrf].into_iter().chain(s.room_access.iter()).any(|v| !v.is_empty() && body.contains(v)))
-            || error_cookies.iter().any(|(_, value)| value.as_ref().is_some_and(|v| !v.is_empty() && body.contains(v)))
+            || session.is_some_and(|s| {
+                [&s.session, &s.csrf]
+                    .into_iter()
+                    .chain(s.room_access.iter())
+                    .any(|v| !v.is_empty() && body.contains(v))
+            })
+            || error_cookies.iter().any(|(_, value)| {
+                value
+                    .as_ref()
+                    .is_some_and(|v| !v.is_empty() && body.contains(v))
+            })
         {
             body.clear();
         }
-        return Ok(NativeResult { response: MusicPartyResponse {
-            status: status.as_u16(),
-            body,
-        }, updated: None, clear: false });
+        return Ok(NativeResult {
+            response: MusicPartyResponse {
+                status: status.as_u16(),
+                body,
+            },
+            updated: None,
+            clear: false,
+        });
     }
     let mutations = cookie_mutations(response.headers(), origin);
     let mut body = String::new();
@@ -226,67 +296,131 @@ fn request_result(origin: &str, input: &MusicPartyRequest, session: Option<&Musi
     if body.len() > 2 * 1024 * 1024 {
         return Err("musicparty_response_too_large".into());
     }
-    if session.is_some_and(|s| [&s.session, &s.csrf].into_iter().chain(s.room_access.iter()).any(|v| !v.is_empty() && body.contains(v)))
-        || mutations.iter().any(|(_, value)| value.as_ref().is_some_and(|v| !v.is_empty() && body.contains(v))) {
+    if session.is_some_and(|s| {
+        [&s.session, &s.csrf]
+            .into_iter()
+            .chain(s.room_access.iter())
+            .any(|v| !v.is_empty() && body.contains(v))
+    }) || mutations.iter().any(|(_, value)| {
+        value
+            .as_ref()
+            .is_some_and(|v| !v.is_empty() && body.contains(v))
+    }) {
         return Err("musicparty_sensitive_response".into());
     }
-    let clear = mutations.iter().any(|(name, value)| *name != "MP_ROOM_ACCESS" && value.is_none());
-    let updated = if mutations.is_empty() || clear { None } else {
-        let mut value = MusicPartySession::new(session.map_or("", |s| s.session.as_str()), session.map_or("", |s| s.csrf.as_str()));
-        // Invite redemption establishes a new member session. Never carry a
-        // room proof from the previous session into that identity.
-        value.room_access = if path == "/api/desktop/v1/invites/redeem" {
+    let clear = mutations
+        .iter()
+        .any(|(name, value)| *name != "MP_ROOM_ACCESS" && value.is_none());
+    // A login response must establish both credentials itself. Never fill a
+    // missing cookie with one belonging to the previous identity.
+    if establishes_identity
+        && (clear
+            || ["MP_SESSION", "MP_CSRF"].iter().any(|required| {
+                !mutations
+                    .iter()
+                    .any(|(name, cookie)| name == required && cookie.is_some())
+            }))
+    {
+        return Err("musicparty_credentials_failed".into());
+    }
+    let updated = if mutations.is_empty() || clear {
+        None
+    } else {
+        let previous = session.filter(|_| !establishes_identity);
+        let mut value = MusicPartySession::new(
+            previous.map_or("", |s| s.session.as_str()),
+            previous.map_or("", |s| s.csrf.as_str()),
+        );
+        value.room_access = if establishes_identity {
             None
         } else {
             session.and_then(|s| s.room_access.clone())
         };
-        for (name, cookie) in mutations { match name {
-            "MP_SESSION" => value.session = cookie.unwrap_or_default(),
-            "MP_CSRF" => value.csrf = cookie.unwrap_or_default(),
-            _ => value.room_access = cookie,
-        } }
-        // A successful invite must establish both session and CSRF credentials.
-        if path == "/api/desktop/v1/invites/redeem"
-            && (value.session.is_empty() || value.csrf.is_empty())
-        {
+        for (name, cookie) in mutations {
+            match name {
+                "MP_SESSION" => value.session = cookie.unwrap_or_default(),
+                "MP_CSRF" => value.csrf = cookie.unwrap_or_default(),
+                _ if path != "/api/account/guest" => value.room_access = cookie,
+                _ => {}
+            }
+        }
+        if establishes_identity && (value.session.is_empty() || value.csrf.is_empty()) {
             return Err("musicparty_credentials_failed".into());
         }
         Some(value)
     };
-    Ok(NativeResult { response: MusicPartyResponse {
-        status: status.as_u16(),
-        body,
-    }, updated, clear })
+    Ok(NativeResult {
+        response: MusicPartyResponse {
+            status: status.as_u16(),
+            body,
+        },
+        updated,
+        clear,
+    })
 }
 
 /// Only host-scoped root cookies are eligible for the native credential blob.
-fn cookie_mutations(headers: &reqwest::header::HeaderMap, origin: &str) -> Vec<(&'static str, Option<String>)> {
-    let Ok(url) = reqwest::Url::parse(origin) else { return Vec::new() };
-    headers.get_all(reqwest::header::SET_COOKIE).iter().filter_map(|header| {
-        let text = header.to_str().ok()?;
-        let mut parts = text.split(';');
-        let (name, value) = parts.next()?.split_once('=')?;
-        let name = match name.trim() { "MP_SESSION" => "MP_SESSION", "MP_CSRF" => "MP_CSRF", "MP_ROOM_ACCESS" => "MP_ROOM_ACCESS", _ => return None };
-        if !value.bytes().all(|b| b.is_ascii_graphic() && !b";\"\\,".contains(&b)) { return None; }
-        let mut delete = false;
-        for part in parts {
-            let (key, attribute) = part.trim().split_once('=').unwrap_or((part.trim(), ""));
-            if key.eq_ignore_ascii_case("domain") && !attribute.eq_ignore_ascii_case(url.host_str()?) { return None; }
-            if key.eq_ignore_ascii_case("path") && attribute != "/" { return None; }
-            if key.eq_ignore_ascii_case("max-age") && attribute == "0" { delete = true; }
-        }
-        Some((name, if delete || value.is_empty() { None } else { Some(value.into()) }))
-    }).collect()
+fn cookie_mutations(
+    headers: &reqwest::header::HeaderMap,
+    origin: &str,
+) -> Vec<(&'static str, Option<String>)> {
+    let Ok(url) = reqwest::Url::parse(origin) else {
+        return Vec::new();
+    };
+    headers
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|header| {
+            let text = header.to_str().ok()?;
+            let mut parts = text.split(';');
+            let (name, value) = parts.next()?.split_once('=')?;
+            let name = match name.trim() {
+                "MP_SESSION" => "MP_SESSION",
+                "MP_CSRF" => "MP_CSRF",
+                "MP_ROOM_ACCESS" => "MP_ROOM_ACCESS",
+                _ => return None,
+            };
+            if !value
+                .bytes()
+                .all(|b| b.is_ascii_graphic() && !b";\"\\,".contains(&b))
+            {
+                return None;
+            }
+            let mut delete = false;
+            for part in parts {
+                let (key, attribute) = part.trim().split_once('=').unwrap_or((part.trim(), ""));
+                if key.eq_ignore_ascii_case("domain")
+                    && !attribute.eq_ignore_ascii_case(url.host_str()?)
+                {
+                    return None;
+                }
+                if key.eq_ignore_ascii_case("path") && attribute != "/" {
+                    return None;
+                }
+                if key.eq_ignore_ascii_case("max-age") && attribute == "0" {
+                    delete = true;
+                }
+            }
+            Some((
+                name,
+                if delete || value.is_empty() {
+                    None
+                } else {
+                    Some(value.into())
+                },
+            ))
+        })
+        .collect()
 }
-
-
-
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn request(origin: &str, input: &MusicPartyRequest, session: Option<&MusicPartySession>) -> Result<MusicPartyResponse, String> {
+    fn request(
+        origin: &str,
+        input: &MusicPartyRequest,
+        session: Option<&MusicPartySession>,
+    ) -> Result<MusicPartyResponse, String> {
         Ok(request_result(origin, input, session, None)?.response)
     }
     use std::{
@@ -300,7 +434,12 @@ mod tests {
         fixture_on(listener, status, body, headers)
     }
 
-    fn fixture_on(listener: TcpListener, status: &str, body: &str, headers: &str) -> (String, thread::JoinHandle<String>) {
+    fn fixture_on(
+        listener: TcpListener,
+        status: &str,
+        body: &str,
+        headers: &str,
+    ) -> (String, thread::JoinHandle<String>) {
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let reply = format!(
             "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n{body}",
@@ -342,13 +481,147 @@ mod tests {
         }
     }
 
+    fn guest_input() -> MusicPartyRequest {
+        let mut call = input("POST");
+        call.path = "/api/account/guest".into();
+        call.body = Some(serde_json::json!({"displayName": "Friend"}));
+        call
+    }
+
+    #[test]
+    fn guest_login_establishes_credentials_without_an_invite() {
+        let (origin, server) = fixture(
+            "200 OK",
+            "{\"publicId\":\"u_guest\",\"displayName\":\"Friend\",\"guest\":true,\"isAdmin\":false}",
+            "Set-Cookie: MP_SESSION=guest-session; Path=/; HttpOnly\r\nSet-Cookie: MP_CSRF=guest-csrf; Path=/\r\n",
+        );
+        let result = request_result(&origin, &guest_input(), None, None).unwrap();
+        let sent = server.join().unwrap();
+        assert!(sent.contains("post /api/account/guest http/1.1"));
+        assert!(!sent.contains("cookie:"));
+        assert!(!sent.contains("x-csrf-token:"));
+        let session = result.updated.unwrap();
+        assert_eq!(
+            (&*session.session, &*session.csrf),
+            ("guest-session", "guest-csrf")
+        );
+        assert!(session.room_access.is_none());
+        assert!(!result.clear);
+        assert_eq!(result.response.status, 200);
+        assert!(!result.response.body.contains("guest-session"));
+        assert!(!result.response.body.contains("guest-csrf"));
+    }
+
+    #[test]
+    fn guest_identity_replacement_does_not_reuse_room_proof() {
+        let (origin, server) = fixture(
+            "200 OK", "{}",
+            "Set-Cookie: MP_SESSION=guest-session; Path=/\r\nSet-Cookie: MP_CSRF=guest-csrf; Path=/\r\n",
+        );
+        let mut old = MusicPartySession::new("old-session", "old-csrf");
+        old.room_access = Some("old-room-proof".into());
+        let result = request_result(&origin, &guest_input(), Some(&old), None).unwrap();
+        assert!(result.updated.unwrap().room_access.is_none());
+        assert!(!server.join().unwrap().contains("old-room-proof"));
+    }
+
+    #[test]
+    fn identity_establishment_requires_both_fresh_cookies() {
+        let old = MusicPartySession::new("old-session", "old-csrf");
+        for path in ["/api/account/guest", "/api/desktop/v1/invites/redeem"] {
+            for cookies in [
+                "",
+                "Set-Cookie: MP_SESSION=new-session; Path=/\r\n",
+                "Set-Cookie: MP_CSRF=new-csrf; Path=/\r\n",
+                "Set-Cookie: MP_SESSION=new-session; Path=/\r\nSet-Cookie: MP_CSRF=; Max-Age=0; Path=/\r\n",
+                "Set-Cookie: MP_SESSION=new-session; Domain=other.test; Path=/\r\nSet-Cookie: MP_CSRF=new-csrf; Path=/\r\n",
+            ] {
+                let (origin, server) = fixture("200 OK", "{}", cookies);
+                let mut call = guest_input();
+                call.path = path.into();
+                assert_eq!(request_result(&origin, &call, Some(&old), None).err().as_deref(), Some("musicparty_credentials_failed"), "{path}");
+                server.join().unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn guest_failures_keep_the_existing_identity_and_hide_credentials() {
+        let old = MusicPartySession::new("old-session", "old-csrf");
+        for (status, body, expected) in [
+            (
+                "400 Bad Request",
+                "{\"message\":\"Display name is required\"}",
+                "{\"message\":\"Display name is required\"}",
+            ),
+            ("403 Forbidden", "old-session", ""),
+            ("403 Forbidden", "new-session", ""),
+        ] {
+            let (origin, server) = fixture(
+                status,
+                body,
+                "Set-Cookie: MP_SESSION=new-session; Path=/\r\n",
+            );
+            let result = request_result(&origin, &guest_input(), Some(&old), None).unwrap();
+            assert_eq!(result.response.body, expected);
+            assert!(result.updated.is_none());
+            assert!(!result.clear);
+            server.join().unwrap();
+        }
+        let (origin, server) = fixture("200 OK", "new-csrf", "Set-Cookie: MP_SESSION=new-session; Path=/\r\nSet-Cookie: MP_CSRF=new-csrf; Path=/\r\n");
+        assert_eq!(
+            request_result(&origin, &guest_input(), None, None)
+                .err()
+                .as_deref(),
+            Some("musicparty_sensitive_response")
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn guest_and_profile_routes_keep_exact_method_and_session_boundaries() {
+        for (method, path) in [
+            ("GET", "/api/account/guest"),
+            ("PUT", "/api/account/guest"),
+            ("POST", "/api/account/guest/"),
+            ("POST", "/api/account/guest?admin=true"),
+            ("POST", "/api/account/profile"),
+            ("PUT", "/api/account/profile/"),
+            ("PUT", "/api/account/profile?admin=true"),
+            ("PUT", "/api/account/change-password"),
+        ] {
+            let mut call = guest_input();
+            call.method = method.into();
+            call.path = path.into();
+            assert_eq!(
+                request("http://127.0.0.1:1", &call, None).err().as_deref(),
+                Some("invalid_musicparty_request"),
+                "{method} {path}"
+            );
+        }
+        let mut call = guest_input();
+        call.method = "PUT".into();
+        call.path = "/api/account/profile".into();
+        assert_eq!(
+            request("http://127.0.0.1:1", &call, None).err().as_deref(),
+            Some("musicparty_credentials_missing")
+        );
+        let (origin, server) = fixture("200 OK", "{\"displayName\":\"Friend\",\"guest\":true}", "");
+        let old = MusicPartySession::new("old-session", "old-csrf");
+        let result = request_result(&origin, &call, Some(&old), None).unwrap();
+        assert!(result.updated.is_none());
+        let sent = server.join().unwrap();
+        assert!(sent.contains("put /api/account/profile http/1.1"));
+        assert!(sent.contains("x-csrf-token: old-csrf"));
+    }
+
     #[test]
     fn native_cookie_csrf_and_header_isolation() {
         for method in ["GET", "POST"] {
             let (origin, server) = fixture(
                 "200 OK",
                 "{}",
-                "Set-Cookie: MP_SESSION=rotated-secret; HttpOnly\r\nX-CSRF-Token: hidden\r\n",
+                "Set-Cookie: MP_SESSION=rotated-secret; HttpOnly\r\nSet-Cookie: MP_CSRF=rotated-csrf; Path=/\r\nX-CSRF-Token: hidden\r\n",
             );
             let session = MusicPartySession::new("session-secret", "csrf-secret");
             let reply = request(&origin, &input(method), Some(&session)).unwrap();
@@ -433,12 +706,19 @@ mod tests {
     // neighbouring path through the same match arm.
     #[test]
     fn allows_desktop_readiness_probe_and_still_refuses_its_neighbours() {
-        let (origin, server) = fixture("200 OK", "{\"status\":\"ready\",\"readinessVersion\":1}", "");
+        let (origin, server) = fixture(
+            "200 OK",
+            "{\"status\":\"ready\",\"readinessVersion\":1}",
+            "",
+        );
         let mut allowed = input("GET");
         allowed.path = "/api/desktop/v1/readiness".into();
         let reply = request(&origin, &allowed, None).unwrap();
         assert_eq!(reply.status, 200);
-        assert!(server.join().unwrap().contains("get /api/desktop/v1/readiness http/1.1"));
+        assert!(server
+            .join()
+            .unwrap()
+            .contains("get /api/desktop/v1/readiness http/1.1"));
 
         for path in [
             "/api/desktop/v1/readiness/extra",
@@ -448,7 +728,9 @@ mod tests {
             let mut rejected = input("GET");
             rejected.path = path.into();
             assert_eq!(
-                request("http://127.0.0.1:1", &rejected, None).err().as_deref(),
+                request("http://127.0.0.1:1", &rejected, None)
+                    .err()
+                    .as_deref(),
                 Some("invalid_musicparty_request"),
                 "{path}"
             );
@@ -468,7 +750,9 @@ mod tests {
             let mut rejected = input("GET");
             rejected.path = path.into();
             assert_eq!(
-                request("http://127.0.0.1:1", &rejected, None).err().as_deref(),
+                request("http://127.0.0.1:1", &rejected, None)
+                    .err()
+                    .as_deref(),
                 Some("invalid_musicparty_request")
             );
         }
@@ -483,13 +767,20 @@ mod tests {
             "/api/desktop/v1/albums/netease?q=zhou",
             "/api/desktop/v1/albums/netease/12345/songs",
         ] {
-            let (origin, server) = fixture("200 OK", "{\"items\":[],\"total\":0,\"offset\":0,\"limit\":20}", "");
+            let (origin, server) = fixture(
+                "200 OK",
+                "{\"items\":[],\"total\":0,\"offset\":0,\"limit\":20}",
+                "",
+            );
             let mut call = input("GET");
             call.path = path.into();
             let reply = request(&origin, &call, None).unwrap();
             assert_eq!(reply.status, 200, "{path}");
             assert!(
-                server.join().unwrap().contains("get /api/desktop/v1/albums/"),
+                server
+                    .join()
+                    .unwrap()
+                    .contains("get /api/desktop/v1/albums/"),
                 "{path} must actually reach the network"
             );
         }
@@ -516,7 +807,11 @@ mod tests {
 
     #[test]
     fn desktop_reads_own_identity_but_no_other_account_route() {
-        let (origin, server) = fixture("200 OK", "{\"publicId\":\"u1\",\"displayName\":\"Friend\",\"guest\":false}", "");
+        let (origin, server) = fixture(
+            "200 OK",
+            "{\"publicId\":\"u1\",\"displayName\":\"Friend\",\"guest\":false}",
+            "",
+        );
         let mut allowed = input("GET");
         allowed.path = "/api/account/me".into();
         let reply = request(
@@ -527,11 +822,17 @@ mod tests {
         .unwrap();
         assert_eq!(reply.status, 200);
         server.join().unwrap();
-        for path in ["/api/account/sessions", "/api/admin/users", "/api/account/me/tokens"] {
+        for path in [
+            "/api/account/sessions",
+            "/api/admin/users",
+            "/api/account/me/tokens",
+        ] {
             let mut rejected = input("GET");
             rejected.path = path.into();
             assert_eq!(
-                request("http://127.0.0.1:1", &rejected, None).err().as_deref(),
+                request("http://127.0.0.1:1", &rejected, None)
+                    .err()
+                    .as_deref(),
                 Some("invalid_musicparty_request"),
                 "{path}"
             );
@@ -567,7 +868,9 @@ mod tests {
             let mut rejected = input("POST");
             rejected.path = path.into();
             assert_eq!(
-                request("http://127.0.0.1:1", &rejected, None).err().as_deref(),
+                request("http://127.0.0.1:1", &rejected, None)
+                    .err()
+                    .as_deref(),
                 Some("invalid_musicparty_request"),
                 "{path}"
             );
@@ -576,7 +879,9 @@ mod tests {
         let mut create = input("POST");
         create.path = "/api/desktop/v1/rooms".into();
         assert_eq!(
-            request("http://127.0.0.1:1", &create, None).err().as_deref(),
+            request("http://127.0.0.1:1", &create, None)
+                .err()
+                .as_deref(),
             Some("musicparty_credentials_missing"),
             "an anonymous caller must not be able to open rooms"
         );
@@ -600,7 +905,9 @@ mod tests {
             let mut call = input(method);
             call.path = path.into();
             assert_eq!(
-                request("http://127.0.0.1:1", &call, Some(&session)).err().as_deref(),
+                request("http://127.0.0.1:1", &call, Some(&session))
+                    .err()
+                    .as_deref(),
                 Some("invalid_musicparty_request"),
                 "{method} {path}"
             );
@@ -618,22 +925,43 @@ mod tests {
             let (origin, server) = fixture("200 OK", "{\"roomId\":\"room-1\"}", "");
             let mut call = input(method);
             call.path = "/api/rooms/room-1".into();
-            call.body = (method == "PUT").then(|| serde_json::json!({"name": "Renamed", "isPrivate": false}));
+            call.body = (method == "PUT")
+                .then(|| serde_json::json!({"name": "Renamed", "isPrivate": false}));
             assert_eq!(request(&origin, &call, Some(&session)).unwrap().status, 200);
             let sent = server.join().unwrap().to_lowercase();
             let verb = method.to_lowercase();
-            assert!(sent.contains(&format!("{verb} /api/rooms/room-1 http/1.1")), "{method}");
-            assert!(sent.contains("x-csrf-token: csrf-secret"), "{method} must double-submit CSRF");
+            assert!(
+                sent.contains(&format!("{verb} /api/rooms/room-1 http/1.1")),
+                "{method}"
+            );
+            assert!(
+                sent.contains("x-csrf-token: csrf-secret"),
+                "{method} must double-submit CSRF"
+            );
         }
     }
 
     #[test]
     fn cookie_parser_ignores_unrelated_or_out_of_scope_cookies() {
         let mut headers = reqwest::header::HeaderMap::new();
-        for cookie in ["OTHER=unknown; Path=/", "MP_SESSION=wrong-host; Domain=evil.test; Path=/", "MP_CSRF=wrong-path; Path=/api", "MP_ROOM_ACCESS=removed; Max-Age=0; Path=/", "MP_SESSION=session-new; Path=/", "MP_CSRF=csrf-new; Path=/"] {
+        for cookie in [
+            "OTHER=unknown; Path=/",
+            "MP_SESSION=wrong-host; Domain=evil.test; Path=/",
+            "MP_CSRF=wrong-path; Path=/api",
+            "MP_ROOM_ACCESS=removed; Max-Age=0; Path=/",
+            "MP_SESSION=session-new; Path=/",
+            "MP_CSRF=csrf-new; Path=/",
+        ] {
             headers.append(reqwest::header::SET_COOKIE, cookie.parse().unwrap());
         }
-        assert_eq!(cookie_mutations(&headers, "http://127.0.0.1:8080"), vec![("MP_ROOM_ACCESS", None), ("MP_SESSION", Some("session-new".into())), ("MP_CSRF", Some("csrf-new".into()))]);
+        assert_eq!(
+            cookie_mutations(&headers, "http://127.0.0.1:8080"),
+            vec![
+                ("MP_ROOM_ACCESS", None),
+                ("MP_SESSION", Some("session-new".into())),
+                ("MP_CSRF", Some("csrf-new".into()))
+            ]
+        );
     }
 
     #[cfg(windows)]
@@ -642,8 +970,71 @@ mod tests {
     #[cfg(windows)]
     impl Drop for CredentialCleanup {
         fn drop(&mut self) {
-            MusicPartyCredentialStore.clear(&self.0).expect("clean credential target");
+            MusicPartyCredentialStore
+                .clear(&self.0)
+                .expect("clean credential target");
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn guest_replacement_persists_new_identity_and_invalidates_old_socket() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let _cleanup = CredentialCleanup(origin.clone());
+        let mut old = MusicPartySession::new("old-session", "old-csrf");
+        old.room_access = Some("old-proof".into());
+        MusicPartyCredentialStore.write(&origin, &old).unwrap();
+        let bridge = MusicPartyBridge::default();
+        let run = |status: &str, cookies: &str| {
+            let (_, server) = fixture_on(listener.try_clone().unwrap(), status, "{}", cookies);
+            let mut call = guest_input();
+            call.origin = origin.clone();
+            let result = bridge.request_with_clear(call);
+            let sent = server.join().unwrap();
+            assert!(!sent.contains("cookie:"));
+            result
+        };
+        assert_eq!(run("400 Bad Request", "").unwrap().1, false);
+        assert_eq!(
+            run(
+                "200 OK",
+                "Set-Cookie: MP_SESSION=partial-session; Path=/\r\n"
+            )
+            .err()
+            .as_deref(),
+            Some("musicparty_credentials_failed")
+        );
+        let stored = MusicPartyCredentialStore.read(&origin).unwrap().unwrap();
+        assert_eq!(
+            (
+                &*stored.session,
+                &*stored.csrf,
+                stored.room_access.as_deref()
+            ),
+            ("old-session", "old-csrf", Some("old-proof"))
+        );
+        let result = run("200 OK", "Set-Cookie: MP_SESSION=new-session; Path=/\r\nSet-Cookie: MP_CSRF=new-csrf; Path=/\r\nSet-Cookie: MP_ROOM_ACCESS=unexpected-proof; Path=/\r\n").unwrap();
+        assert!(result.1, "host must disconnect the old identity's socket");
+        let stored = MusicPartyCredentialStore.read(&origin).unwrap().unwrap();
+        assert_eq!(
+            (
+                &*stored.session,
+                &*stored.csrf,
+                stored.room_access.as_deref()
+            ),
+            ("new-session", "new-csrf", None)
+        );
+        MusicPartyCredentialStore.clear(&origin).unwrap();
+        assert!(!run("200 OK", "Set-Cookie: MP_SESSION=first-session; Path=/\r\nSet-Cookie: MP_CSRF=first-csrf; Path=/\r\n").unwrap().1);
+        assert_eq!(
+            MusicPartyCredentialStore
+                .read(&origin)
+                .unwrap()
+                .unwrap()
+                .session,
+            "first-session"
+        );
     }
 
     #[cfg(windows)]
@@ -663,37 +1054,92 @@ mod tests {
             (response, server.join().unwrap())
         };
         let invite = "/api/desktop/v1/invites/redeem";
-        assert_eq!(run(invite, "200 OK", "Set-Cookie: MP_SESSION=incomplete; Path=/\r\n").0.err().as_deref(), Some("musicparty_credentials_failed"));
+        assert_eq!(
+            run(
+                invite,
+                "200 OK",
+                "Set-Cookie: MP_SESSION=incomplete; Path=/\r\n"
+            )
+            .0
+            .err()
+            .as_deref(),
+            Some("musicparty_credentials_failed")
+        );
         assert!(MusicPartyCredentialStore.read(&origin).unwrap().is_none());
         let (response, _) = run(invite, "200 OK", "Set-Cookie: MP_SESSION=session-first; Path=/\r\nSet-Cookie: MP_CSRF=csrf-first; Path=/\r\nSet-Cookie: MP_ROOM_ACCESS=room-first; Path=/\r\n");
-        assert_eq!(serde_json::to_value(response.unwrap()).unwrap(), serde_json::json!({"status":200,"body":""}));
+        assert_eq!(
+            serde_json::to_value(response.unwrap()).unwrap(),
+            serde_json::json!({"status":200,"body":""})
+        );
         let stored = MusicPartyCredentialStore.read(&origin).unwrap().unwrap();
-        assert_eq!((&*stored.session, &*stored.csrf, stored.room_access.as_deref()), ("session-first", "csrf-first", Some("room-first")));
+        assert_eq!(
+            (
+                &*stored.session,
+                &*stored.csrf,
+                stored.room_access.as_deref()
+            ),
+            ("session-first", "csrf-first", Some("room-first"))
+        );
         let other_listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let other = format!("http://{}", other_listener.local_addr().unwrap());
         MusicPartyCredentialStore.clear(&other).unwrap();
         let _other_cleanup = CredentialCleanup(other.clone());
         assert!(MusicPartyCredentialStore.read(&other).unwrap().is_none());
-        let (response, sent) = run("/api/rooms/room-1/verify", "200 OK", "Set-Cookie: MP_SESSION=session-second; Path=/\r\n");
+        let (response, sent) = run(
+            "/api/rooms/room-1/verify",
+            "200 OK",
+            "Set-Cookie: MP_SESSION=session-second; Path=/\r\n",
+        );
         response.unwrap();
-        assert!(sent.contains("cookie: mp_session=session-first; mp_csrf=csrf-first; mp_room_access=room-first"));
+        assert!(sent.contains(
+            "cookie: mp_session=session-first; mp_csrf=csrf-first; mp_room_access=room-first"
+        ));
         assert!(sent.contains("x-csrf-token: csrf-first"));
         let stored = MusicPartyCredentialStore.read(&origin).unwrap().unwrap();
-        assert_eq!((&*stored.session, &*stored.csrf), ("session-second", "csrf-first"));
-        run(invite, "200 OK", "Set-Cookie: MP_CSRF=csrf-second; Path=/\r\nSet-Cookie: MP_ROOM_ACCESS=expired; Max-Age=0; Path=/\r\nSet-Cookie: UNKNOWN=ignored\r\nSet-Cookie: MP_SESSION=wrong; Domain=evil.test\r\nSet-Cookie: MP_CSRF=wrong; Path=/api\r\n").0.unwrap();
+        assert_eq!(
+            (&*stored.session, &*stored.csrf),
+            ("session-second", "csrf-first")
+        );
+        run(invite, "200 OK", "Set-Cookie: MP_SESSION=session-second; Path=/\r\nSet-Cookie: MP_CSRF=csrf-second; Path=/\r\nSet-Cookie: MP_ROOM_ACCESS=expired; Max-Age=0; Path=/\r\nSet-Cookie: UNKNOWN=ignored\r\nSet-Cookie: MP_SESSION=wrong; Domain=evil.test\r\nSet-Cookie: MP_CSRF=wrong; Path=/api\r\n").0.unwrap();
         let stored = MusicPartyCredentialStore.read(&origin).unwrap().unwrap();
-        assert_eq!((&*stored.session, &*stored.csrf, stored.room_access.as_deref()), ("session-second", "csrf-second", None));
+        assert_eq!(
+            (
+                &*stored.session,
+                &*stored.csrf,
+                stored.room_access.as_deref()
+            ),
+            ("session-second", "csrf-second", None)
+        );
         // A created private room hands back its own access proof; the bridge stores it
         // in the same origin-scoped blob so the very next read joins without a password.
-        let (response, sent) = run("/api/desktop/v1/rooms", "200 OK", "Set-Cookie: MP_ROOM_ACCESS=room-created; Path=/\r\n");
+        let (response, sent) = run(
+            "/api/desktop/v1/rooms",
+            "200 OK",
+            "Set-Cookie: MP_ROOM_ACCESS=room-created; Path=/\r\n",
+        );
         response.unwrap();
         assert!(sent.contains("x-csrf-token: csrf-second"));
-        assert_eq!(MusicPartyCredentialStore.read(&origin).unwrap().unwrap().room_access.as_deref(), Some("room-created"));
-        for path in ["/api/rooms/../verify", "/api/rooms/%2e%2e/verify", "/api/rooms/a/b/verify"] {
+        assert_eq!(
+            MusicPartyCredentialStore
+                .read(&origin)
+                .unwrap()
+                .unwrap()
+                .room_access
+                .as_deref(),
+            Some("room-created")
+        );
+        for path in [
+            "/api/rooms/../verify",
+            "/api/rooms/%2e%2e/verify",
+            "/api/rooms/a/b/verify",
+        ] {
             let mut request = input("POST");
             request.origin = origin.clone();
             request.path = path.into();
-            assert_eq!(bridge.request(request).err().as_deref(), Some("invalid_musicparty_request"));
+            assert_eq!(
+                bridge.request(request).err().as_deref(),
+                Some("invalid_musicparty_request")
+            );
         }
         // request_with_clear is what tells the host to cancel this origin's room socket.
         let logout = |status: &str, cookies: &str| {
@@ -701,17 +1147,36 @@ mod tests {
             let mut request = input("POST");
             request.origin = origin.clone();
             request.path = "/api/account/logout".into();
-            let cleared = bridge.request_with_clear(request).map(|(_, cleared)| cleared);
+            let cleared = bridge
+                .request_with_clear(request)
+                .map(|(_, cleared)| cleared);
             server.join().unwrap();
             cleared
         };
-        assert_eq!(logout("403 Forbidden", "Set-Cookie: MP_SESSION=; Max-Age=0\r\n").unwrap(), false, "a failed logout keeps the session");
-        assert_eq!(MusicPartyCredentialStore.read(&origin).unwrap().unwrap().session, "session-second");
+        assert_eq!(
+            logout("403 Forbidden", "Set-Cookie: MP_SESSION=; Max-Age=0\r\n").unwrap(),
+            false,
+            "a failed logout keeps the session"
+        );
+        assert_eq!(
+            MusicPartyCredentialStore
+                .read(&origin)
+                .unwrap()
+                .unwrap()
+                .session,
+            "session-second"
+        );
         assert_eq!(logout("204 No Content", "").unwrap(), true);
         assert!(MusicPartyCredentialStore.read(&origin).unwrap().is_none());
         for cookie in ["MP_SESSION", "MP_CSRF"] {
             run(invite, "200 OK", "Set-Cookie: MP_SESSION=session-next; Path=/\r\nSet-Cookie: MP_CSRF=csrf-next; Path=/\r\n").0.unwrap();
-            run("/api/rooms/room-1/verify", "200 OK", &format!("Set-Cookie: {cookie}=deleted; Max-Age=0; Path=/\r\n")).0.unwrap();
+            run(
+                "/api/rooms/room-1/verify",
+                "200 OK",
+                &format!("Set-Cookie: {cookie}=deleted; Max-Age=0; Path=/\r\n"),
+            )
+            .0
+            .unwrap();
             assert!(MusicPartyCredentialStore.read(&origin).unwrap().is_none());
         }
     }

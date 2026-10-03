@@ -97,7 +97,7 @@ function musicSnapshot(adapter: MusicPartyAdapter, action: () => Promise<void>, 
     const timer = setTimeout(() => finish(new Error("room_snapshot_timeout")), timeoutMs)
     const unsubscribe = adapter.subscribe(event => {
       if (event.type === "room") finish()
-      else if (event.type === "connection" && event.status === "failed") finish(new Error("room_connection_failed"))
+      else if (event.type === "connection" && event.status === "failed") finish(new Error(event.code ?? "room_connection_failed"))
     })
     void action().catch(error => finish(error instanceof Error ? error : new Error("room_join_failed")))
   })
