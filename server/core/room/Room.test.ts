@@ -65,6 +65,7 @@ test("guests can use shared controls while owner-only commands stay protected", 
     { type: "rate", rate: 1.25 },
     { type: "loop", loop: true },
     { type: "playlistNext" },
+    { type: "playlistAutoNext" },
   ] as const;
   for (const command of forbidden) {
     const result = room.execute(guest, command, 5, false);
@@ -73,7 +74,7 @@ test("guests can use shared controls while owner-only commands stay protected", 
   }
 });
 
-test("automatic playlist advancement is separate from manual next", () => {
+test("automatic playlist advancement is owner-only and guards stale entries", () => {
   const { room } = createRoom();
   room.join(owner, "Owner");
   room.execute(owner, { type: "playlistAdd", media }, 0, true);
@@ -83,7 +84,10 @@ test("automatic playlist advancement is separate from manual next", () => {
   const manual = room.execute(guest, { type: "playlistNext", expectedCurrentPlaylistItemId: first.id }, 3, false);
   assert.equal(manual.ok, false);
   assert.equal(manual.error?.code, "FORBIDDEN");
-  const automatic = room.execute(guest, { type: "playlistAutoNext", expectedCurrentPlaylistItemId: first.id }, 3, false);
+  const automaticByGuest = room.execute(guest, { type: "playlistAutoNext", expectedCurrentPlaylistItemId: first.id }, 3, false);
+  assert.equal(automaticByGuest.ok, false);
+  assert.equal(automaticByGuest.error?.code, "FORBIDDEN");
+  const automatic = room.execute(owner, { type: "playlistAutoNext", expectedCurrentPlaylistItemId: first.id }, 3, true);
   assert.equal(automatic.ok, true);
   assert.equal(room.snapshot().currentPlaylistItemId, second.id);
 });

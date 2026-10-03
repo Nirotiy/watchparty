@@ -109,7 +109,6 @@ export type DesktopCommand =
   | { type: "seek"; positionSeconds: number }
   | { type: "rate"; rate: number }
   | { type: "loop"; loop: boolean }
-  | { type: "loop"; loop: boolean }
   | { type: "volume"; volume: number }
   | { type: "selectAudioTrack"; trackId: number }
   | { type: "selectSubtitleTrack"; trackId: number | null }
@@ -117,7 +116,6 @@ export type DesktopCommand =
   | { type: "fullscreen"; enabled: boolean }
   | { type: "playlistPlay"; itemId: string }
   | { type: "playlistNext"; expectedCurrentPlaylistItemId: string | null }
-  | { type: "playlistAutoNext"; expectedCurrentPlaylistItemId: string | null }
   | { type: "playlistAutoNext"; expectedCurrentPlaylistItemId: string | null }
   | { type: "lock"; locked: boolean }
   | { type: "name"; name: string }

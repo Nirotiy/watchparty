@@ -38,6 +38,7 @@ const OWNER_ONLY_COMMANDS = new Set<SharedCommand["type"]>([
   "mediaSet",
   "playlistPlay",
   "playlistNext",
+  "playlistAutoNext",
 ]);
 
 export type RoomEvent =

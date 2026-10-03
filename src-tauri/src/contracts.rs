@@ -246,7 +246,7 @@ pub enum DesktopCommand {
         #[serde(rename = "expectedCurrentPlaylistItemId")]
         expected_current_playlist_item_id: Option<String>,
     },
-    /// Owner-only room lock. The server rejects it without a valid owner token.
+    /// Legacy room-lock command retained for wire compatibility.
     Lock {
         locked: bool,
     },
@@ -265,16 +265,16 @@ pub enum DesktopCommand {
     MediaSet {
         media: MediaSource,
     },
-    /// Owner-only: appends to the playlist.
+    /// Adds a media item to the shared playlist.
     PlaylistAdd {
         media: MediaSource,
     },
-    /// Owner-only: removes a playlist item.
+    /// Removes a media item from the shared playlist.
     PlaylistRemove {
         #[serde(rename = "itemId")]
         item_id: String,
     },
-    /// Owner-only: moves a playlist item to a new index.
+    /// Moves a shared playlist item to a new index.
     PlaylistMove {
         #[serde(rename = "itemId")]
         item_id: String,
