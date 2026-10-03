@@ -960,6 +960,86 @@ async function runPlayCheck({ window, js, until, step }) {
     assert.equal(revealed.queueBeforeFullscreen, true, `队列/成员没排在全屏键左边: ${JSON.stringify(revealed)}`)
     assert.ok(revealed.closeVisible >= 0 && revealed.closeVisible < 48, `窗口三键不在顶部那条里: ${JSON.stringify(revealed)}`)
   })
+
+  /**
+   * P2·24 取证（2026-10-03 用户点单）：带片播放 × 三档窗宽 × 全屏往返。
+   * 三个窗宽下控制栏与文档不得横向溢出；全屏进出后回窗口态、几何还原、媒体不停。
+   */
+  await step('player-scaling', async () => {
+    const dir = join(tmpdir(), 'watchparty-media-check')
+    await mkdir(dir, { recursive: true })
+    const geometry = () => js(`(() => {
+      const box = el => { if (!el) return null; const r = el.getBoundingClientRect(); return { w: Math.round(r.width), sw: el.scrollWidth, cw: el.clientWidth, overflow: el.scrollWidth - el.clientWidth } }
+      return {
+        innerWidth: window.innerWidth,
+        row: box(document.querySelector('.media-control-row')),
+        seek: box(document.querySelector('.media-bottom-scrim > div:first-child')),
+        scrim: box(document.querySelector('.media-scrim')),
+        docOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        playing: /[0-9]{1,2}:[0-9]{2}:[0-9]{2}/.test(document.body.innerText),
+      }
+    })()`)
+    const wake = async () => {
+      await js(`document.querySelector('.media-scrim').dispatchEvent(new PointerEvent('pointermove', { bubbles: true }))`)
+      await wait(250)
+    }
+    const shots = []
+    for (const [label, width] of [['wide', 1300], ['mid', 1100], ['narrow', 960]]) {
+      window.setContentSize(width, 800)
+      await wake()
+      const shot = join(dir, `room-playing-${label}-${width}.png`)
+      await writeFile(shot, (await window.webContents.capturePage()).toPNG())
+      const geo = await geometry()
+      shots.push({ label, width, shot, geo })
+    }
+    console.log('PLAYER_PLAYING_WINDOWS ' + JSON.stringify(shots))
+    for (const row of shots) {
+      assert.equal(row.geo.playing, true, `带片几何采样时媒体已不在播放: ${JSON.stringify(row)}`)
+      assert.equal(row.geo.row?.overflow, 0, `带片控制栏在 ${row.width} 溢出: ${JSON.stringify(row.geo)}`)
+      assert.equal(row.geo.docOverflow, 0, `带片文档在 ${row.width} 溢出: ${JSON.stringify(row.geo)}`)
+    }
+    // 定位潜在布局溢出（clipped、不可见也要点名）：谁越过了容器的右缘。
+    const culprits = await js(`(() => {
+      const scan = (sel, label) => {
+        const root = document.querySelector(sel)
+        if (!root) return { label, missing: true }
+        const cr = root.getBoundingClientRect()
+        const out = []
+        for (const node of root.querySelectorAll('*')) {
+          const r = node.getBoundingClientRect()
+          if (r.width === 0 && r.height === 0) continue
+          if (r.right > cr.right + 1 || r.left < cr.left - 1) out.push({ cls: (String(node.className) || node.tagName).slice(0, 60), left: Math.round(r.left), right: Math.round(r.right) })
+          if (out.length >= 6) break
+        }
+        return { label, offenders: out }
+      }
+      return { scrim: scan('.media-scrim', 'scrim'), seek: scan('.media-bottom-scrim > div:first-child', 'seek') }
+    })()`)
+    console.log('PLAYER_OVERFLOW_CULPRITS ' + JSON.stringify(culprits))
+
+    window.setContentSize(1300, 800)
+    await wake()
+    await js(`document.querySelector('button[aria-label="全屏"]')?.click()`)
+    await until(async () => window.isFullScreen(), 'fullscreen on', 8000)
+    await wait(500)
+    const fullShot = join(dir, 'room-playing-fullscreen.png')
+    await writeFile(fullShot, (await window.webContents.capturePage()).toPNG())
+    const fullGeo = await geometry()
+    console.log('PLAYER_PLAYING_FULLSCREEN ' + JSON.stringify({ shot: fullShot, geo: fullGeo }))
+    assert.equal(fullGeo.playing, true, `进全屏后媒体停了: ${JSON.stringify(fullGeo)}`)
+    assert.equal(fullGeo.docOverflow, 0, `全屏下文档溢出: ${JSON.stringify(fullGeo)}`)
+
+    await js(`document.querySelector('button[aria-label="退出全屏"]')?.click()`)
+    await until(async () => !window.isFullScreen(), 'fullscreen off', 8000)
+    await wait(600)
+    window.setContentSize(1300, 800)
+    await wake()
+    const backGeo = await geometry()
+    console.log('PLAYER_PLAYING_BACK ' + JSON.stringify(backGeo))
+    assert.equal(backGeo.playing, true, `退出全屏后媒体停了: ${JSON.stringify(backGeo)}`)
+    assert.equal(backGeo.row?.overflow, 0, `退回窗口态后控制栏溢出: ${JSON.stringify(backGeo)}`)
+    assert.equal(backGeo.docOverflow, 0, `退回窗口态后文档溢出: ${JSON.stringify(backGeo)}`)
+  })
 }
 
 /**
