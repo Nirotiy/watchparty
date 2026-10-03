@@ -807,12 +807,7 @@ pub fn media_search(
     })
 }
 
-/// Routes the media library surface may reach on the configured WatchParty backend.
-/// Phase 3 adds the catalog reads and the two candidate writes plus the admin scrape
-/// pair. Each segment is checked on its own: a segment may not be `.`/`..` and may
-/// not carry `?`, `#`, `\\` or `/`, so a path cannot smuggle a second route or a
-/// query. Images are not paths here: they are their own command (`mediaImage`)
-/// because the answer is bytes, not JSON.
+/// Room browsing is read-only. Images use the separate `mediaImage` command.
 fn media_route_allowed(method: &str, path: &str) -> bool {
     let id_ok = media_id_ok;
     match (method, path.split('/').collect::<Vec<_>>().as_slice()) {
@@ -822,43 +817,6 @@ fn media_route_allowed(method: &str, path: &str) -> bool {
         ("GET", ["", "api", "media", "search"]) => true,
         ("GET", ["", "api", "media", "catalog"]) => true,
         ("GET", ["", "api", "media", "catalog", id]) => id_ok(id),
-        ("POST", ["", "api", "media", "catalog", id, "confirm"])
-        | ("POST", ["", "api", "media", "catalog", id, "reject"])
-        | ("POST", ["", "api", "media", "catalog", id, "unconfirm"])
-        | ("POST", ["", "api", "media", "catalog", id, "rebind"])
-        | ("POST", ["", "api", "media", "catalog", id, "split"]) => id_ok(id),
-        ("POST", ["", "api", "media", "catalog", "merge"]) => true,
-        ("GET", ["", "api", "media", "bangumi", "search"]) => true,
-        ("GET", ["", "api", "admin", "media-sources"]) => true,
-        ("POST", ["", "api", "admin", "media-sources"]) => true,
-        ("PATCH", ["", "api", "admin", "media-sources", id])
-        | ("DELETE", ["", "api", "admin", "media-sources", id]) => id_ok(id),
-        ("GET", ["", "api", "admin", "media-libraries", id, "scrape"])
-        | ("POST", ["", "api", "admin", "media-libraries", id, "scrape"])
-        | ("GET", ["", "api", "admin", "media-libraries", id, "scan"])
-        | ("POST", ["", "api", "admin", "media-libraries", id, "scan"])
-        // 草稿审阅（第 4 块）：scan → classify → judge → apply
-        | ("GET", ["", "api", "admin", "media-libraries", id, "classify"])
-        | ("POST", ["", "api", "admin", "media-libraries", id, "classify"])
-        | ("POST", ["", "api", "admin", "media-libraries", id, "judge"])
-        | ("POST", ["", "api", "admin", "media-libraries", id, "apply"]) => id_ok(id),
-        // 草稿编辑（§9 六个）：动作名固定，别的一律拒。
-        ("POST", ["", "api", "admin", "media-libraries", id, "draft", action]) => {
-            id_ok(id)
-                && matches!(
-                    *action,
-                    "edit" | "confirm" | "unconfirm" | "merge" | "split" | "keep-binding" | "exclude" | "unexclude"
-                )
-        }
-        // 批准门（§10.1/§11.1）：签发、撤销、带凭证应用、撤回，外加两条只读台账。
-        // `apply` 那条不会顺手覆盖 `apply-approved`（分段匹配），旧拼写一律拒。
-        ("POST", ["", "api", "admin", "media-libraries", id, "approval"])
-        | ("POST", ["", "api", "admin", "media-libraries", id, "approval", "revoke"])
-        | ("POST", ["", "api", "admin", "media-libraries", id, "apply-approved"])
-        | ("POST", ["", "api", "admin", "media-libraries", id, "rollback"]) => id_ok(id),
-        ("GET", ["", "api", "admin", "media-libraries", id, "approvals"])
-        | ("GET", ["", "api", "admin", "media-libraries", id, "exclusions"])
-        | ("GET", ["", "api", "admin", "media-libraries", id, "duplicates"]) => id_ok(id),
         _ => false,
     }
 }
@@ -876,7 +834,7 @@ fn media_id_ok(segment: &str) -> bool {
             .all(|b| b.is_ascii_graphic() && !b"? #\\/%".contains(&b))
 }
 
-/// One generic media call for the whole library surface. Returns `{status, body}` as
+/// One read-only media call for room browsing. Returns `{status, body}` as
 /// sent by the backend so the caller can map the server's own error code; only a
 /// transport failure becomes a desktop code here.
 pub fn media_request(
@@ -896,22 +854,7 @@ pub fn media_request(
     }
     configuration_task(state, move |state| {
         let _ = state.runtime()?;
-        let secret = if crate::approval::is_approval_route(&method, &path) {
-            let settings = settings_for_state(state)?;
-            let origin = settings
-                .backend_origin
-                .as_deref()
-                .ok_or_else(RuntimeError::not_configured)?;
-            crate::approval::ApprovalSecretStore::new(state.app_handle.0.data_dir()?)
-                .read(origin, settings.allow_remote_http)
-                .map_err(|_| RuntimeError::credential_error())?
-        } else {
-            None
-        };
-        let room_session = if method != "GET"
-            || path.starts_with("/api/admin/")
-            || path == "/api/media/capabilities"
-        {
+        let room_session = if path == "/api/media/capabilities" {
             None
         } else {
             Some(
@@ -929,31 +872,12 @@ pub fn media_request(
                 &path,
                 query.as_deref(),
                 body.as_ref(),
-                secret.as_deref().map(String::as_str),
+                None,
                 room_token,
                 room_id,
             )
             .map_err(|error| RuntimeError::from_transport(&error))?;
         Ok(serde_json::json!({ "status": status, "body": body }))
-    })
-}
-
-pub fn catalog_approval_secret_status(state: &NativeDesktopState) -> Result<crate::approval::ApprovalSecretStatus, RuntimeError> {
-    configuration_task(state, |state| {
-        let settings = settings_for_state(state)?;
-        let origin = settings.backend_origin.as_deref().ok_or_else(RuntimeError::not_configured)?;
-        crate::approval::ApprovalSecretStore::new(state.app_handle.0.data_dir()?)
-            .status(origin, settings.allow_remote_http).map_err(|_| RuntimeError::credential_error())
-    })
-}
-
-pub fn set_catalog_approval_secret(state: &NativeDesktopState, secret: String) -> Result<crate::approval::ApprovalSecretStatus, RuntimeError> {
-    let secret = zeroize::Zeroizing::new(secret);
-    configuration_task(state, move |state| {
-        let settings = settings_for_state(state)?;
-        let origin = settings.backend_origin.as_deref().ok_or_else(RuntimeError::not_configured)?;
-        crate::approval::ApprovalSecretStore::new(state.app_handle.0.data_dir()?)
-            .write(origin, settings.allow_remote_http, secret).map_err(|_| RuntimeError::credential_error())
     })
 }
 
@@ -1076,7 +1000,7 @@ mod tests {
     use serde_json::Value;
 
     #[test]
-    fn media_route_allowlist_covers_phase_one_and_refuses_the_rest() {
+    fn media_route_allowlist_keeps_room_browsing_read_only() {
         for (method, path) in [
             ("GET", "/api/media/capabilities"),
             ("GET", "/api/media/libraries"),
@@ -1084,6 +1008,10 @@ mod tests {
             ("GET", "/api/media/search"),
             ("GET", "/api/media/catalog"),
             ("GET", "/api/media/catalog/cat_1"),
+        ] {
+            assert!(media_route_allowed(method, path), "{method} {path}");
+        }
+        for (method, path) in [
             ("POST", "/api/media/catalog/cat_1/confirm"),
             ("POST", "/api/media/catalog/cat_1/reject"),
             ("POST", "/api/media/catalog/cat_1/unconfirm"),
@@ -1105,24 +1033,35 @@ mod tests {
             ("POST", "/api/admin/media-libraries/lib_anime/apply"),
             ("POST", "/api/admin/media-libraries/lib_anime/draft/edit"),
             ("POST", "/api/admin/media-libraries/lib_anime/draft/confirm"),
-            ("POST", "/api/admin/media-libraries/lib_anime/draft/unconfirm"),
+            (
+                "POST",
+                "/api/admin/media-libraries/lib_anime/draft/unconfirm",
+            ),
             ("POST", "/api/admin/media-libraries/lib_anime/draft/merge"),
             ("POST", "/api/admin/media-libraries/lib_anime/draft/split"),
             ("POST", "/api/admin/media-libraries/lib_anime/draft/exclude"),
-            ("POST", "/api/admin/media-libraries/lib_anime/draft/unexclude"),
+            (
+                "POST",
+                "/api/admin/media-libraries/lib_anime/draft/unexclude",
+            ),
             ("GET", "/api/admin/media-libraries/lib_anime/exclusions"),
-            ("POST", "/api/admin/media-libraries/lib_anime/draft/keep-binding"),
+            (
+                "POST",
+                "/api/admin/media-libraries/lib_anime/draft/keep-binding",
+            ),
             // 批准门（§10.1/§11.1）：签发 / 撤销 / 带凭证应用 / 撤回 + 两条只读台账
             ("POST", "/api/admin/media-libraries/lib_anime/approval"),
-            ("POST", "/api/admin/media-libraries/lib_anime/approval/revoke"),
-            ("POST", "/api/admin/media-libraries/lib_anime/apply-approved"),
+            (
+                "POST",
+                "/api/admin/media-libraries/lib_anime/approval/revoke",
+            ),
+            (
+                "POST",
+                "/api/admin/media-libraries/lib_anime/apply-approved",
+            ),
             ("POST", "/api/admin/media-libraries/lib_anime/rollback"),
             ("GET", "/api/admin/media-libraries/lib_anime/approvals"),
             ("GET", "/api/admin/media-libraries/lib_anime/duplicates"),
-        ] {
-            assert!(media_route_allowed(method, path), "{method} {path}");
-        }
-        for (method, path) in [
             // wrong verb on a known route
             ("POST", "/api/media/list"),
             ("PUT", "/api/media/libraries"),
@@ -1150,7 +1089,10 @@ mod tests {
             ("GET", "/api/admin/media-libraries/lib_anime/judge"),
             ("GET", "/api/admin/media-libraries/lib_anime/draft/edit"),
             ("POST", "/api/admin/media-libraries/lib_anime/draft/unknown"),
-            ("POST", "/api/admin/media-libraries/lib_anime/draft/edit/extra"),
+            (
+                "POST",
+                "/api/admin/media-libraries/lib_anime/draft/edit/extra",
+            ),
             ("POST", "/api/admin/media-libraries/lib_anime/draft"),
             // 批准门：verb 与形状都不能松（`apply` 那条不覆盖 `apply-approved`；两条只读不给写）
             ("GET", "/api/admin/media-libraries/lib_anime/approval"),
@@ -1158,11 +1100,23 @@ mod tests {
             ("GET", "/api/admin/media-libraries/lib_anime/rollback"),
             ("POST", "/api/admin/media-libraries/lib_anime/approvals"),
             ("POST", "/api/admin/media-libraries/lib_anime/duplicates"),
-            ("POST", "/api/admin/media-libraries/lib_anime/approval/unknown"),
-            ("POST", "/api/admin/media-libraries/lib_anime/approval/revoke/extra"),
-            ("POST", "/api/admin/media-libraries/lib_anime/apply/approved"),
+            (
+                "POST",
+                "/api/admin/media-libraries/lib_anime/approval/unknown",
+            ),
+            (
+                "POST",
+                "/api/admin/media-libraries/lib_anime/approval/revoke/extra",
+            ),
+            (
+                "POST",
+                "/api/admin/media-libraries/lib_anime/apply/approved",
+            ),
             ("DELETE", "/api/admin/media-libraries/lib_anime/approval"),
-            ("GET", "/api/admin/media-libraries/lib_anime/approvals/extra"),
+            (
+                "GET",
+                "/api/admin/media-libraries/lib_anime/approvals/extra",
+            ),
             // traversal and separator games
             ("PATCH", "/api/admin/media-sources/.."),
             ("PATCH", "/api/admin/media-sources/."),
