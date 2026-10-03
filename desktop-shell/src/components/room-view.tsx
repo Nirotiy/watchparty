@@ -289,7 +289,7 @@ export function RoomView({
               />
             </span>
           </SharedControl>
-          <output className="media-time w-11 shrink-0">{formatTime(position)}</output>
+          <output className="media-time w-16 shrink-0">{formatTime(position)}</output>
           <Slider
             variant="seek"
             className="min-w-0 flex-1"
@@ -310,7 +310,7 @@ export function RoomView({
               if (value !== undefined) void command({ type: "seek", positionSeconds: value })
             }}
           />
-          <output className="media-time w-11 shrink-0 text-right">{formatTime(duration)}</output>
+          <output className="media-time w-16 shrink-0 text-right">{formatTime(duration)}</output>
         </div>
 
         <div className="media-control-row">
@@ -408,7 +408,11 @@ export function RoomView({
         </div>
       </footer>
 
-      <RoomDrawer kind={drawer} state={state} command={command} onAdd={onOpenMedia} onClose={() => drawer && onDrawerChange(drawer)} />
+      {/* 抽屉常驻挂载只为滑入滑出动画；包一层裁剪层：否则它 translate 停在屏外时
+          会被 Chromium 计入 .media-scrim 的滚动溢出（P2·24 探针点名的 +340px）。 */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <RoomDrawer kind={drawer} state={state} command={command} onAdd={onOpenMedia} onClose={() => drawer && onDrawerChange(drawer)} />
+      </div>
     </section>
   )
 }
@@ -420,7 +424,7 @@ function RoomDrawer({ kind, state, command, onAdd, onClose }: { kind: Drawer; st
       inert={!kind}
       className={cn(
         "media-drawer absolute inset-y-0 right-0 z-40 w-[min(340px,42vw)] overflow-auto p-4 text-card-foreground transition-transform duration-200 ease-[var(--f2-ease-out)] motion-reduce:transition-none",
-        kind ? "translate-x-0" : "pointer-events-none translate-x-full",
+        kind ? "pointer-events-auto translate-x-0" : "pointer-events-none translate-x-full",
       )}
     >
       <div className="mb-2 flex min-h-11 items-center gap-2 border-b border-border pb-3">
