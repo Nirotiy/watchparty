@@ -145,7 +145,10 @@ export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, ac
       const result = await onConnectAccount(connectOrigin, connectName)
       if (result.probe) setChecked(result.probe)
       if (!result.ok) { setConnectError(result.message ?? "无法连接服务器。"); return }
-      void refresh()
+      // 首次连接会换 origin：刷新交给 origin 变化的 effect。旧闭包若在这里再刷一次，
+      // 会用旧 facade 递增同一个代次，把新地址的请求挤出 request.current，列表就一直是 0。
+      // 只有地址没变（已有配置的重连）才需要在这里补一次。
+      if (result.probe?.origin === origin) void refresh()
     } finally { setConnectBusy(false) }
   }
   /** 改显示名：服务端 displayName 与本机桌面昵称同步改（用户 2026-10-02 拍板）。 */
@@ -206,7 +209,7 @@ export function LobbyView({ facade, origin, busy, activeRoom, onRedeemInvite, ac
     finally { setPending(false) }
   }
   return <section className="linkle-lobby" aria-label="Linkle 一起听">
-    <header className="lobby-header"><div><h1>Linkle</h1><p>先确认连接，再决定去哪个房间。</p></div></header>
+    <header className="lobby-header"><div><h1>Linkle</h1></div></header>
 
     <div className="lobby-connect">
       <section className="lobby-card" aria-label={showAccount ? "服务与账号" : "当前服务器"}>

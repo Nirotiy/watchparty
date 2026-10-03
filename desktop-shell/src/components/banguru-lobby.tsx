@@ -88,7 +88,7 @@ export function BanguruLobby({ busy, activeRoomId, onCreate, onJoin, onEnterRoom
     } finally { setPending(false) }
   }
   return <section className="banguru-lobby" aria-label="Banguru 一起看">
-    <header className="lobby-header"><div><h1>Banguru <span className="banguru-lobby-subtitle">/ 入房</span></h1><p>先确认桌面服务，再进入观影房间。桌面端会自动保存可恢复的会话。</p></div></header>
+    <header className="lobby-header"><div><h1>Banguru <span className="banguru-lobby-subtitle">/ 入房</span></h1></div></header>
     <div className="bh-cols">
       <section className="bh-card" aria-label="桌面服务">
         <div className="bh-card-head">

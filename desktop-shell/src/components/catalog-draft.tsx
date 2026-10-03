@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 
-import { MaterialSymbol } from "@/components/material-symbol"
+import { ArrowSyncRegular, DismissRegular, LibraryRegular } from "@fluentui/react-icons"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -373,7 +373,7 @@ export function CatalogDraft({ libraryId, libraryName, admin }: { libraryId: str
     const kind = emptyKind(state)
     return (
       <div className="draft-empty">
-        <MaterialSymbol name="library" className="size-5 text-muted-foreground" />
+        <LibraryRegular className="size-5 text-muted-foreground" />
         <h4>{kind === "scanned-not-classified" ? `${libraryName} 扫描过，但还没有草稿` : `${libraryName} 还没有草稿`}</h4>
         <p>
           {kind === "scanned-not-classified"
@@ -455,20 +455,20 @@ export function CatalogDraft({ libraryId, libraryName, admin }: { libraryId: str
 
       {stale ? (
         <div className="draft-banner warn">
-          <MaterialSymbol name="sync" className="size-4" />
+          <ArrowSyncRegular className="size-4" />
           <span>草稿来自旧快照（草稿 rev {stale.draftRev ?? "—"} / 扫描 rev {stale.scanRev ?? "—"}）：不能直接应用，先重新分类。</span>
           <Button size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => void classify()}>重新分类</Button>
         </div>
       ) : null}
       {state.diff && state.diff.dropped.length > 0 ? (
         <div className="draft-banner warn">
-          <MaterialSymbol name="close" className="size-4" />
+          <DismissRegular className="size-4" />
           <span>{state.diff.dropped.length} 张库里有、草稿没有：机器确认的会被删，人工碰过的保留。</span>
         </div>
       ) : null}
       {rollback ? (
         <div className="draft-banner rollback">
-          <MaterialSymbol name="sync" className="size-4" />
+          <ArrowSyncRegular className="size-4" />
           <span>
             {rollback.text}
             {rollback.label ? <span className="draft-hint">（{rollback.label}）</span> : null}

@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState, useCallback, type CSSProperties } from "react"
 import { createPortal } from "react-dom"
 import { FluentProvider, webDarkTheme, webLightTheme } from "@fluentui/react-components"
-import { KeyRegular, PanelLeftContractRegular, PanelLeftExpandRegular, PlugConnectedRegular, PulseRegular, SaveRegular } from "@fluentui/react-icons"
+import { AddRegular, ArrowSyncRegular, DesktopRegular, KeyRegular, MusicNote2Regular, PanelLeftContractRegular, PanelLeftExpandRegular, PlayRegular, PlugConnectedRegular, PulseRegular, SaveRegular, SearchRegular, SettingsRegular } from "@fluentui/react-icons"
 import { ShellStatusToast, ShellToastProvider } from "@/components/shell-toast"
 
-import { MaterialSymbol, type MaterialSymbolName } from "@/components/material-symbol"
 import { LobbyView } from "@/components/lobby-view"
 import { BanguruLobby, type BanguruProbeState } from "@/components/banguru-lobby"
 import { SetupGuide, type SetupGuideServices } from "@/components/setup-guide"
@@ -547,9 +546,9 @@ function SessionBar({ service, roomId, media, status, onReturn }: {
   onReturn: () => void
 }) {
   const label = service === "musicparty" ? "Linkle" : "Banguru"
-  const icon: MaterialSymbolName = service === "musicparty" ? "music-note" : "monitor"
+  const ServiceIcon = service === "musicparty" ? MusicNote2Regular : DesktopRegular
   return <section className="desktop-session-bar" aria-label={`当前 ${label} 会话`}>
-    <div className="desktop-session-bar-service"><MaterialSymbol name={icon} /><span>{label}</span></div>
+    <div className="desktop-session-bar-service"><ServiceIcon /><span>{label}</span></div>
     <div className="desktop-session-bar-copy"><strong>{media}</strong><span>{roomId} · {status}</span></div>
     <span className="desktop-session-bar-permission">{service === "musicparty" ? "房主控制" : "同步播放"}</span>
     <Button variant="ghost" onClick={onReturn}>返回当前会话</Button>
@@ -582,19 +581,25 @@ function Sidebar({ view, state, roomId, status, onView, onDrawer, backendOrigin,
   return (
     <aside className={cn("desktop-sidebar", collapsed && "is-collapsed")}>
       <nav className="desktop-service-nav" aria-label="服务浏览">
-        <Button variant="ghost" aria-label="Banguru 一起看" aria-current={product === "watchparty" ? "page" : undefined} disabled={servicesDisabled} onClick={() => { onProduct("watchparty"); onView("home") }}><MaterialSymbol name="monitor" /><span><strong>Banguru</strong><small>一起看</small></span></Button>
-        <Button variant="ghost" aria-label="Linkle 一起听" aria-current={product === "musicparty" ? "page" : undefined} disabled={servicesDisabled} onClick={() => { onProduct("musicparty"); onView("home") }}><MaterialSymbol name="music-note" /><span><strong>Linkle</strong><small>一起听</small></span></Button>
+        <Button variant="ghost" aria-label="Banguru 一起看" aria-current={product === "watchparty" ? "page" : undefined} disabled={servicesDisabled} onClick={() => { onProduct("watchparty"); onView("home") }}><DesktopRegular /><span><strong>Banguru</strong><small>一起看</small></span></Button>
+        <Button variant="ghost" aria-label="Linkle 一起听" aria-current={product === "musicparty" ? "page" : undefined} disabled={servicesDisabled} onClick={() => { onProduct("musicparty"); onView("home") }}><MusicNote2Regular /><span><strong>Linkle</strong><small>一起听</small></span></Button>
       </nav>
       <div className={cn("desktop-session", !roomId && "desktop-session-empty")}>{roomId ? <><strong>{roomId}</strong><p>{state ? connectionLabel(state.connection) : status.text}</p><p>{backendOrigin ?? "Banguru 站点未配置"}</p></> : null}</div>
-      <div className="desktop-settings-link"><Button variant="ghost" aria-label="设置" aria-current={view === "settings" ? "page" : undefined} onClick={() => onView("settings")}><MaterialSymbol name="settings" /><span>设置</span></Button><Button variant="ghost" aria-label={collapsed ? "展开侧栏" : "折叠侧栏"} onClick={onCollapse}>{collapsed ? <PanelLeftExpandRegular /> : <PanelLeftContractRegular />}</Button></div>
+      <div className="desktop-settings-link"><Button variant="ghost" aria-label="设置" aria-current={view === "settings" ? "page" : undefined} onClick={() => onView("settings")}><SettingsRegular /><span>设置</span></Button><Button variant="ghost" aria-label={collapsed ? "展开侧栏" : "折叠侧栏"} onClick={onCollapse}>{collapsed ? <PanelLeftExpandRegular /> : <PanelLeftContractRegular />}</Button></div>
     </aside>
   )
 }
 
 /** M2.5：级别由调用点决定（页面标题 1、分节 2），不再硬编码 h1 复用到每一处。 */
-function SectionTitle({ children, detail, level = 2 }: { children: string; detail: string; level?: 1 | 2 | 3 }) {
+function SectionTitle({ children, detail, level = 2 }: { children: string; detail?: string; level?: 1 | 2 | 3 }) {
   const Heading = `h${level}` as "h1" | "h2" | "h3"
-  return <Heading className="text-sm font-semibold text-foreground">{children}<span className="ml-2 text-xs font-normal text-muted-foreground">{detail}</span></Heading>
+  // 灰副标题收敛（观感批）：标题只留白字，保留的说明下沉为正文小字。
+  return (
+    <>
+      <Heading className="text-sm font-semibold text-foreground">{children}</Heading>
+      {detail ? <p className="mt-1 text-xs text-[var(--text-secondary)]">{detail}</p> : null}
+    </>
+  )
 }
 
 function HomeView({ state, roomId, starting, onStart, onCreate, onAccess, onReturn, onProduct }: { state: ReturnType<typeof useDesktopSession>["state"]; roomId: string | null; starting: boolean; onStart: (ticket: string) => Promise<boolean>; onCreate: (nickname: string, pin?: string) => Promise<boolean>; onAccess: (roomId: string, nickname: string, pin?: string) => Promise<boolean>; onReturn: () => void; onProduct: (product: "watchparty" | "musicparty") => void }) {
@@ -603,8 +608,8 @@ function HomeView({ state, roomId, starting, onStart, onCreate, onAccess, onRetu
   const [pin, setPin] = useState("")
   const [joinRoomId, setJoinRoomId] = useState("")
   return (
-    <div className="mx-auto min-h-full w-full max-w-[1040px] px-8 py-8">
-      <div className="mb-6 border-b border-[var(--stroke-card)] pb-4"><div className="flex items-center justify-between"><div><p className="text-xs text-[var(--text-secondary)]">Banguru · Watch Party</p><SectionTitle level={1} detail={state ? "房间仍存活" : "等待网页交接"}>房间工作台</SectionTitle></div><span className="text-xs text-[var(--text-secondary)]">桌面端 · Fluent</span></div><TabBar value="watchparty" onValueChange={(next) => { if (next !== "watchparty") onProduct("musicparty") }} panelId="workspace-panel" idPrefix="product-tab" label="产品切换" className="mt-4 flex items-end gap-1 border-b border-[var(--stroke-divider)]"><TabBarItem value="watchparty">Banguru <span className="ml-1 text-xs font-normal text-[var(--text-secondary)]">Watch Party</span></TabBarItem><TabBarItem value="musicparty">Linkle <span className="ml-1 text-xs">Music Party</span></TabBarItem></TabBar></div>
+    <div className="mx-auto min-h-full w-full max-w-[var(--shell-content-wide)] px-8 py-8">
+      <div className="mb-6 border-b border-[var(--stroke-card)] pb-4"><div className="flex items-center justify-between"><div><p className="text-xs text-[var(--text-secondary)]">Banguru · Watch Party</p><SectionTitle level={1}>房间工作台</SectionTitle></div><span className="text-xs text-[var(--text-secondary)]">桌面端 · Fluent</span></div><TabBar value="watchparty" onValueChange={(next) => { if (next !== "watchparty") onProduct("musicparty") }} panelId="workspace-panel" idPrefix="product-tab" label="产品切换" className="mt-4 flex items-end gap-1 border-b border-[var(--stroke-divider)]"><TabBarItem value="watchparty">Banguru <span className="ml-1 text-xs font-normal text-[var(--text-secondary)]">Watch Party</span></TabBarItem><TabBarItem value="musicparty">Linkle <span className="ml-1 text-xs">Music Party</span></TabBarItem></TabBar></div>
       <div id="workspace-panel" role="tabpanel" aria-labelledby="product-tab-watchparty">
       {state ? (
         <section className="mt-3 flex items-center gap-3 rounded-sm border border-[var(--stroke-card)] bg-[var(--fill-card)] px-4 py-3">
@@ -615,7 +620,7 @@ function HomeView({ state, roomId, starting, onStart, onCreate, onAccess, onRetu
       ) : <p className="mt-3 text-xs text-[var(--text-secondary)]">尚未连接房间。请从网页端生成一次性交接码。</p>}
       {!state ? <>
         <SessionGate roomId={roomId} starting={starting} onStart={onStart} />
-        <section className="mt-5 max-w-[680px] border-y border-[var(--stroke-card)] py-4">
+        <section className="mt-5 max-w-[var(--shell-content-narrow)] border-y border-[var(--stroke-card)] py-4">
           <p className="text-xs font-semibold">独立桌面会话</p>
           <p className="mt-1 text-xs text-[var(--text-secondary)]">桌面端直接建房或输入房号加入，令牌只保存在本机凭据库。</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -630,10 +635,10 @@ function HomeView({ state, roomId, starting, onStart, onCreate, onAccess, onRetu
         </section>
       </> : (
         /* P1 死按钮收尾：会话在时这一行只是地址展示，把恒禁用按钮换成真能用的复制。 */
-        <div className="mt-5 flex max-w-[680px] items-center gap-2"><Input disabled value={`watchparty://${roomId ?? "room"}`} aria-label="当前房间地址" className="font-mono text-xs" /><CopyButton value={`watchparty://${roomId ?? "room"}`} label="复制地址" /></div>
+        <div className="mt-5 flex max-w-[var(--shell-content-narrow)] items-center gap-2"><Input disabled value={`watchparty://${roomId ?? "room"}`} aria-label="当前房间地址" className="font-mono text-xs" /><CopyButton value={`watchparty://${roomId ?? "room"}`} label="复制地址" /></div>
       )}
       <div className="mt-8 grid gap-4 md:grid-cols-2">
-        <section className="border-y border-[var(--stroke-card)] py-4"><SectionTitle detail="当前连接状态">服务与房间</SectionTitle><div className="mt-3 space-y-2 text-xs text-[var(--text-secondary)]"><p className="flex justify-between"><span>房间</span><span className="font-mono text-foreground">{roomId ?? "未加入"}</span></p><p className="flex justify-between"><span>播放会话</span><span className="text-foreground">{state ? "可恢复" : "等待连接"}</span></p><p className="flex justify-between"><span>队列</span><span className="text-foreground">{state ? "房间队列已同步" : "等待加入房间"}</span></p></div></section>
+        <section className="border-y border-[var(--stroke-card)] py-4"><SectionTitle>服务与房间</SectionTitle><div className="mt-3 space-y-2 text-xs text-[var(--text-secondary)]"><p className="flex justify-between"><span>房间</span><span className="font-mono text-foreground">{roomId ?? "未加入"}</span></p><p className="flex justify-between"><span>播放会话</span><span className="text-foreground">{state ? "可恢复" : "等待连接"}</span></p><p className="flex justify-between"><span>队列</span><span className="text-foreground">{state ? "房间队列已同步" : "等待加入房间"}</span></p></div></section>
         <section className="border-y border-[var(--stroke-card)] py-4"><SectionTitle detail="需要进入房间后可用">协作摘要</SectionTitle><div className="mt-3 space-y-2 text-xs text-[var(--text-secondary)]"><p className="flex justify-between"><span>成员</span><span className="text-foreground">{state ? "在线成员已同步" : "尚未连接"}</span></p><p className="flex justify-between"><span>播放队列</span><span className="text-foreground">{state ? "打开房间查看" : "等待加入房间"}</span></p><Button className="mt-2" disabled={!state} onClick={onReturn}>打开播放房间</Button></div></section>
       </div>
       </div>
@@ -1330,9 +1335,9 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
   const overlayHost = document.querySelector(".desktop-main")
 
   return (
-    <div className="media-library-view mx-auto min-h-full w-full max-w-[1120px] px-8 py-8">
+    <div className="media-library-view mx-auto min-h-full w-full max-w-[var(--shell-content-wide)] px-8 py-8">
       <header className="flex flex-wrap items-center gap-3">
-        <SectionTitle level={1} detail={usesLibraries ? "" : "OpenList"}>媒体库</SectionTitle>
+        <SectionTitle level={1}>媒体库</SectionTitle>
         <div className="flex-1" />
         {usesLibraries
           ? libraries.map((library) => (
@@ -1368,7 +1373,7 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
           setSearchPending(true)
           Promise.resolve(runSearch(query.trim())).catch(() => {}).finally(() => setSearchPending(false))
         }}>
-          <MaterialSymbol name="search" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <SearchRegular className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={mode === "titles" ? "搜索标题…" : "搜索文件名…"} aria-label={mode === "titles" ? "搜索标题" : "搜索媒体"} disabled={searchPending} className={cn("h-8 pl-9 text-xs", searchPending && "pr-8")} />
           {searchPending ? <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2"><ProgressRing size={16} /></span> : null}
         </form> : null}
@@ -1388,10 +1393,10 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
         <Input value={pasteUrl} onChange={(event) => setPasteUrl(event.target.value)} placeholder="https://example.com/video.mp4 或 .m3u8" aria-label="粘贴媒体地址" className="h-8 min-w-64 flex-1 font-mono text-xs" />
         <Input value={pasteTitle} onChange={(event) => setPasteTitle(event.target.value)} placeholder="标题（可选）" aria-label="粘贴媒体标题" className="h-8 w-40 text-xs" />
         <Button size="sm" disabled={!canControl || !pasteUrl.trim()} onClick={() => void submitPaste(true)}>
-          <MaterialSymbol name="play-arrow" />播放
+          <PlayRegular />播放
         </Button>
         <Button variant="outline" size="sm" disabled={!mediaQueueAvailable || !canControl || !pasteUrl.trim()} onClick={() => void submitPaste(false)}>
-          <MaterialSymbol name="add" />入队
+          <AddRegular />入队
         </Button>
       </form>
 
@@ -1412,7 +1417,7 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
           {scrape ? <span role="status">{scrapeSummary(scrape)}<button type="button" className="ml-2 underline" onClick={() => void refreshScrape()}>刷新</button></span> : null}
           {capabilities?.mediaAdmin === true ? (
             <Button size="sm" variant="outline" disabled={catalogBusy} onClick={() => void updateScrape()}>
-              <MaterialSymbol name="sync" />更新标题库
+              <ArrowSyncRegular />更新标题库
             </Button>
           ) : null}
         </div>

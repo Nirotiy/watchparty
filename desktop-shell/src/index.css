@@ -52,6 +52,9 @@
   --radius: 4px;
   --radius-control: 4px;
   --radius-overlay: 8px;
+  /* 观感收敛·版心A（2026-10-02）：内容列只有宽/窄两档。 */
+  --shell-content-wide: 1120px;
+  --shell-content-narrow: 680px;
   /* Motion: WinUI 3 P/Easing fundamentals. */
   --f2-ease-out: cubic-bezier(1, 0, 1, 1);  /* WinUI exit */
   --f2-ease-in-out: cubic-bezier(0, 0, 0, 1);  /* WinUI enter */
@@ -92,10 +95,12 @@
 
 .dark {
   color-scheme: dark;
-  --text-primary: #ffffff;
-  --text-secondary: #ffffffc5;
-  --text-tertiary: #ffffffa3;
-  --text-disabled: #ffffff5d;
+  /* 观感·Dracula Soft 方案A（2026-10-03）：窗口底 #191a21 → 内容面 #21222c → 卡片/列表 #282a36
+     → 浮层 #343746 四级紫灰，替代纯黑平铺；accent、控件底与描边维持原值。 */
+  --text-primary: #f6f6f4;
+  --text-secondary: rgba(246,246,244,.78);
+  --text-tertiary: #a4a5a9;
+  --text-disabled: rgba(246,246,244,.36);
   --accent: #4cc2ff;
   --accent-hover: #63ccff;
   --accent-press: #3aa8e0;
@@ -106,18 +111,18 @@
   --fill-subtle-hover: rgba(255,255,255,.061);
   --fill-subtle-press: rgba(255,255,255,.042);
   --fill-selected: rgba(255,255,255,.086);
-  --fill-card: rgba(255,255,255,.0512);
-  --fill-layer: rgba(58,58,58,.3);
-  --fill-menu: #292929;
+  --fill-card: #282a36;
+  --fill-layer: #21222c;
+  --fill-menu: #343746;
   --stroke-control: rgba(0,0,0,.2);
   --stroke-card: rgba(255,255,255,.0656);
   --stroke-divider: rgba(255,255,255,.0803);
   --stroke-strong: rgba(0,0,0,.44);
   --focus-outer: #fff;
   --focus-inner: #000;
-  --base: #000;
-  --base-secondary: #000;
-  --base-tertiary: #0a0a0a;
+  --base: #191a21;
+  --base-secondary: #21222c;
+  --base-tertiary: #282a36;
   /* Dark Mica lets the wallpaper read a little stronger, matching the reference. */
   --mica-tint-share: 74%;
   --mica-image-opacity: .5;
@@ -130,7 +135,7 @@
   /* The approved player-bar tooltip stays light in both themes. */
   --tooltip-bg: #fafafa;
   --tooltip-fg: #1b1b1b;
-  --menu-item-hover: #2d2d2d;
+  --menu-item-hover: rgba(255,255,255,.07);
   --scrollbar-thumb: #5a5a5a;
 }
 
@@ -546,9 +551,9 @@ body {
   font-size: 12px; line-height: 16px; color: var(--text-primary); background: rgba(0, 0, 0, .62);
 }
 .catalog-badge.status { left: auto; right: 6px; }
-.catalog-badge.candidate { border-color: #78350f; color: #fcd34d; }
+.catalog-badge.candidate { border-color: color-mix(in srgb, var(--caution) 45%, transparent); color: var(--caution); }
 .catalog-badge.unmatched { border-color: var(--stroke-card); color: var(--text-secondary); }
-.catalog-badge.rejected { border-color: #7f1d1d; color: #fda4af; }
+.catalog-badge.rejected { border-color: color-mix(in srgb, var(--destructive) 45%, transparent); color: var(--destructive); }
 .catalog-title { font-size: 14px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .catalog-sub { font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -585,7 +590,6 @@ body {
   justify-items: center;
   padding: 18px 20px;
   background: rgb(0 0 0 / 54%);
-  backdrop-filter: blur(8px);
   pointer-events: none;
 }
 .catalog-detail-scrim {
@@ -687,7 +691,7 @@ body {
 /* 绑定来源角标（人工选定的不会被自动流程改写，值得让人看见）。 */
 .catalog-source { border: 1px solid var(--stroke-control); border-radius: 999px; padding: 0 8px; font-size: 12px; line-height: 17px; color: var(--text-secondary); }
 .catalog-source.manual { border-color: var(--accent); color: var(--fg-on-accent); background: var(--accent); }
-.catalog-source.auto { border-color: #14532d; color: #6ee7b7; }
+.catalog-source.auto { border-color: color-mix(in srgb, var(--success) 45%, transparent); color: var(--success); }
 /* 人工修绑定：撤销确认 / 换绑一个 Bangumi 条目。 */
 .catalog-edit { display: grid; gap: 8px; border-top: 1px solid var(--stroke-divider, var(--stroke-card)); padding-top: 10px; }
 .catalog-edit-row { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -826,9 +830,21 @@ body {
 .media-icon[data-state="open"] { background: rgb(255 255 255 / .12); color: var(--text-primary) }
 .media-icon:focus-visible { outline: none; box-shadow: var(--focus-ring) }
 .media-icon:disabled { background: transparent; color: var(--text-disabled) }
-.media-icon svg,.media-icon .material-symbols { width: 20px; height: 20px }
+.media-icon svg { width: 20px; height: 20px }
 .media-icon.big { width: 40px; height: 40px }
-.media-icon.big svg,.media-icon.big .material-symbols { width: 26px; height: 26px }
+.media-icon.big svg { width: 26px; height: 26px }
+/* 播放条字形校准（2026-10-03）：Fluent 各字形在 20 盒里填充率不同（实测光学高 12～18.6），
+   按光学高度 ≈16.5 对齐——欠填的字形放大盒、过满的收小盒；大按钮主控对齐 ≈19.5。
+   ★ 这些规则必须是不分层写法：Fluent 图标自带 Griffel 原子样式（display/line-height，不分层），
+   按 CSS 分层规则压过 Tailwind 工具类，所以行内工具类改不动它的尺寸与显隐。 */
+.media-icon svg.glyph-18 { width: 18px; height: 18px }
+.media-icon svg.glyph-22 { width: 22px; height: 22px }
+.media-icon svg.glyph-24 { width: 24px; height: 24px }
+.media-icon svg.glyph-28 { width: 28px; height: 28px }
+.media-icon.big svg.glyph-24 { width: 24px; height: 24px }
+.media-icon.big svg.glyph-28 { width: 28px; height: 28px }
+/* 媒体工具条的 select 触发器只留图标：隐藏 radix 的尾部 chevron（同样原因，hidden 工具类无效）。 */
+.media-icon > svg:last-child:not(:first-child) { display: none }
 /* Transport primary action reads one tier brighter; declared last so it wins the
    equal-specificity tie against the state rules above. */
 .media-icon.primary { color: var(--text-primary) }
@@ -913,8 +929,6 @@ button:not(:disabled),
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
-  /* immersive 面板的 28px 静态模糊在 reduce 下也退场（AGENTS:56 取向：不常驻重绘的模糊层）。 */
-  .linkle-room.immersive .task.has-panel { backdrop-filter: none; }
 }
 
 /* Banguru / Linkle desktop lobby. The native Electron caption remains outside React. */
@@ -947,7 +961,7 @@ html.playback-mode .desktop-mica-layer{display:none}
 .desktop-service-nav button[aria-current="page"]:hover{background:var(--fill-selected)}
 .desktop-main{position:relative;display:block;overflow:hidden;background:var(--fill-layer);border-top-left-radius:var(--radius-overlay);border-bottom-left-radius:var(--radius-overlay)}
 .desktop-page{height:100%;padding-bottom:96px}
-.desktop-main{--shell-content-gutter:32px;--shell-content-width:960px}
+.desktop-main{--shell-content-gutter:32px;--shell-content-width:var(--shell-content-wide)}
 .lobby-header{padding-inline:var(--shell-content-gutter)}
 .lobby-header>div:first-child{width:min(var(--shell-content-width),100%)}
 .lobby-hint,.lobby-service-hint{margin-inline:var(--shell-content-gutter)}
@@ -991,11 +1005,11 @@ html.playback-mode .desktop-mica-layer{display:none}
 .draft-cell-title{font-weight:600;color:var(--text-primary)}
 .draft-rel{max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-size: 12px;color:var(--text-secondary);margin-top:2px}
 .draft-tag{display:inline-block;border:1px solid var(--stroke-control);border-radius:999px;padding:0 7px;font-size: 12px;line-height:17px;color:var(--text-secondary);margin-right:4px}
-.draft-tag.ok{border-color:#1e5a2e;color:#6ccb5f}
-.draft-tag.warn{border-color:#6b4d10;color:#fce100}
+.draft-tag.ok{border-color:color-mix(in srgb,var(--success) 45%,transparent);color:var(--success)}
+.draft-tag.warn{border-color:color-mix(in srgb,var(--caution) 45%,transparent);color:var(--caution)}
 .draft-tag.info{border-color:var(--accent);color:var(--accent)}
-.draft-tag.danger{border-color:#7f1d1d;color:#ff99a4}
-.draft-tag.auto{border-color:#1e5a2e;color:#6ccb5f}
+.draft-tag.danger{border-color:color-mix(in srgb,var(--destructive) 45%,transparent);color:var(--destructive)}
+.draft-tag.auto{border-color:color-mix(in srgb,var(--success) 45%,transparent);color:var(--success)}
 .draft-tag.manual{border-color:var(--accent);background:var(--accent);color:var(--fg-on-accent)}
 .draft-tag.dim{color:var(--text-secondary)}
 .draft-none{color:var(--text-secondary);padding:18px 6px;text-align:center}
@@ -1080,7 +1094,7 @@ html.playback-mode .desktop-mica-layer{display:none}
 .bh-dot.is-error{background:var(--destructive)}
 .bh-dot.is-unconfigured,.bh-dot.is-checking{background:var(--muted-foreground)}
 .bh-pill{margin-left:auto;border:1px solid var(--stroke-control);border-radius:999px;padding:1px 10px;font-size: 12px;color:var(--muted-foreground)}
-.bh-pill.is-online{border-color:#14532d;color:#6ee7b7}
+.bh-pill.is-online{border-color:color-mix(in srgb,var(--success) 45%,transparent);color:var(--success)}
 .bh-pill.is-error{border-color:var(--destructive);color:var(--destructive)}
 .bh-lead{margin:6px 0 0;color:var(--muted-foreground);font-size: 12px;overflow-wrap:anywhere}
 .bh-rows{display:grid;gap:7px;margin:14px 0 0}
@@ -1089,7 +1103,7 @@ html.playback-mode .desktop-mica-layer{display:none}
 .bh-rows dd{margin:0;min-width:0;overflow-wrap:anywhere}
 .bh-pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
 .bh-cap{border:1px solid var(--stroke-control);border-radius:999px;padding:1px 9px;font-size: 12px;color:var(--muted-foreground)}
-.bh-cap.is-on{border-color:#14532d;color:#6ee7b7}
+.bh-cap.is-on{border-color:color-mix(in srgb,var(--success) 45%,transparent);color:var(--success)}
 .bh-cap.is-off{border-color:var(--stroke-card);color:var(--text-tertiary,var(--muted-foreground));opacity:.75}
 .bh-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
 .bh-details{margin-top:14px;border-top:1px solid var(--stroke-divider);padding-top:12px}
@@ -1160,7 +1174,7 @@ html.playback-mode .desktop-mica-layer{display:none}
 }
 
 /* Settings shares the desktop content column. Fluent owns its controls and state. */
-.fluent-settings-provider{--settings-space-tight:var(--spacingVerticalS,8px);--settings-space:var(--spacingVerticalMNudge,10px);min-height:100%;background:transparent;font-size:14px;line-height:20px}.fluent-settings-layout{display:block;min-height:100%}.fluent-settings-nav{display:flex;align-items:center;gap:20px;border-bottom:1px solid var(--border);padding:20px max(var(--shell-content-gutter), calc((100% - 1120px) / 2 + var(--shell-content-gutter)))}.fluent-settings-nav-title{flex-shrink:0;margin:0}.fluent-settings-nav [role="tablist"]{align-items:center;gap:4px;overflow-x:auto}.fluent-settings-nav [role="tab"]{min-height:32px;white-space:nowrap}.fluent-settings-content{width:min(100%,calc(var(--shell-content-width) + (var(--shell-content-gutter) * 2)));min-height:0;max-width:none;overflow:auto;scrollbar-gutter:stable;padding:24px var(--shell-content-gutter)}.fluent-settings-heading{margin:0 0 var(--settings-space)}.fluent-settings-heading h1{margin:0}.fluent-settings-heading span{display:block;margin-top:var(--settings-space-tight);color:var(--muted-foreground)}.fluent-settings-content>h2{margin:var(--settings-space) 0}.fluent-settings-heading+h2{margin-top:0}.fluent-settings-group{border:1px solid var(--stroke-card);border-radius:var(--radius-control);background:var(--fill-card)}.fluent-settings-group+.fluent-settings-group{margin-top:var(--settings-space)}.fluent-settings-row{border-bottom-color:var(--stroke-divider);display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,auto);align-items:center;column-gap:var(--spacingHorizontalXL,20px);min-height:72px;padding:var(--settings-space) var(--spacingHorizontalL,16px);border-bottom:1px solid var(--border)}.fluent-settings-row:last-child{border-bottom:0}.fluent-settings-copy span{display:block}.fluent-settings-copy span+span{margin-top:var(--settings-space-tight);color:var(--text-secondary);font-size:12px;line-height:16px}.fluent-settings-control{justify-self:end;min-width:0}.fluent-settings-control [role="combobox"],.fluent-settings-control input{min-width:176px}.fluent-settings-slider,.fluent-settings-volume{display:grid;grid-template-columns:176px 42px;align-items:center;gap:var(--settings-space)}.fluent-settings-volume{user-select:none}.fluent-settings-actions{display:flex;flex-wrap:wrap;gap:var(--settings-space);margin-top:var(--settings-space)}.fluent-settings-message{margin-top:var(--settings-space)}.fluent-settings-message svg{vertical-align:middle;margin-right:var(--spacingHorizontalSNudge,6px)}.fluent-settings-capability{display:block;margin-top:var(--settings-space);color:var(--muted-foreground);font-family:var(--font-mono)}.fluent-settings-block{border-bottom-color:var(--stroke-divider);display:grid;gap:var(--settings-space);padding:var(--spacingVerticalL,16px) var(--spacingHorizontalL,16px);border-bottom:1px solid var(--border)}.fluent-settings-block:last-child{border-bottom:0}.fluent-settings-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--settings-space)}.fluent-settings-trust{display:flex;align-items:center;justify-content:space-between;gap:var(--settings-space);padding:var(--spacingVerticalMNudge,10px) var(--spacingHorizontalL,16px);border-top:1px solid var(--border)}
+.fluent-settings-provider{--settings-space-tight:var(--spacingVerticalS,8px);--settings-space:var(--spacingVerticalMNudge,10px);min-height:100%;background:transparent;font-size:14px;line-height:20px}.fluent-settings-layout{display:block;min-height:100%}.fluent-settings-nav{display:flex;align-items:center;gap:20px;border-bottom:1px solid var(--border);padding:20px max(var(--shell-content-gutter), calc((100% - var(--shell-content-wide)) / 2 + var(--shell-content-gutter)))}.fluent-settings-nav-title{flex-shrink:0;margin:0}.fluent-settings-nav [role="tablist"]{align-items:center;gap:4px;overflow-x:auto}.fluent-settings-nav [role="tab"]{min-height:32px;white-space:nowrap}.fluent-settings-content{width:min(100%,calc(var(--shell-content-width) + (var(--shell-content-gutter) * 2)));min-height:0;max-width:none;overflow:auto;scrollbar-gutter:stable;padding:24px var(--shell-content-gutter)}.fluent-settings-heading{margin:0 0 var(--settings-space)}.fluent-settings-heading h1{margin:0}.fluent-settings-heading span{display:block;margin-top:var(--settings-space-tight);color:var(--text-secondary)}.fluent-settings-content>h2{margin:var(--settings-space) 0}.fluent-settings-heading+h2{margin-top:0}.fluent-settings-group{border:1px solid var(--stroke-card);border-radius:var(--radius-control);background:var(--fill-card)}.fluent-settings-group+.fluent-settings-group{margin-top:var(--settings-space)}.fluent-settings-row{border-bottom-color:var(--stroke-divider);display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,auto);align-items:center;column-gap:var(--spacingHorizontalXL,20px);min-height:72px;padding:var(--settings-space) var(--spacingHorizontalL,16px);border-bottom:1px solid var(--border)}.fluent-settings-row:last-child{border-bottom:0}.fluent-settings-copy span{display:block}.fluent-settings-copy span+span{margin-top:var(--settings-space-tight);color:var(--text-secondary);font-size:12px;line-height:16px}.fluent-settings-control{justify-self:end;min-width:0}.fluent-settings-control [role="combobox"],.fluent-settings-control input:not(.fui-Switch__input):not(.fui-Checkbox__input){min-width:176px}.fluent-settings-slider,.fluent-settings-volume{display:grid;grid-template-columns:176px 42px;align-items:center;gap:var(--settings-space)}.fluent-settings-volume{user-select:none}.fluent-settings-actions{display:flex;flex-wrap:wrap;gap:var(--settings-space);margin-top:var(--settings-space)}.fluent-settings-message{margin-top:var(--settings-space)}.fluent-settings-message svg{vertical-align:middle;margin-right:var(--spacingHorizontalSNudge,6px)}.fluent-settings-capability{display:block;margin-top:var(--settings-space);color:var(--muted-foreground);font-family:var(--font-mono)}.fluent-settings-block{border-bottom-color:var(--stroke-divider);display:grid;gap:var(--settings-space);padding:var(--spacingVerticalL,16px) var(--spacingHorizontalL,16px);border-bottom:1px solid var(--border)}.fluent-settings-block:last-child{border-bottom:0}.fluent-settings-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--settings-space)}.fluent-settings-trust{display:flex;align-items:center;justify-content:space-between;gap:var(--settings-space);padding:var(--spacingVerticalMNudge,10px) var(--spacingHorizontalL,16px);border-top:1px solid var(--border)}
 .fluent-settings-probe{display:grid;gap:var(--spacingVerticalSNudge,4px);border:1px solid var(--stroke-card);border-radius:var(--radius-control);background:var(--fill-control);padding:var(--spacingVerticalMNudge,10px) var(--spacingHorizontalMNudge,12px)}
 .fluent-settings-probe span{overflow-wrap:anywhere}.fluent-settings-trust span{display:block}.fluent-settings-trust span+span{margin-top:var(--settings-space-tight);color:var(--muted-foreground);font-family:var(--font-mono);overflow-wrap:anywhere}@media(max-width:1120px){.fluent-settings-row{grid-template-columns:1fr}.fluent-settings-control{justify-self:start}.fluent-settings-fields{grid-template-columns:1fr}}
 
@@ -1184,7 +1198,7 @@ html.playback-mode .desktop-mica-layer{display:none}
      ★ 这里刻意不开 scrollbar-gutter:stable：预留槽会把内容整体推右 ~8px，而导航不在滚动盒里，
        两边就此错开（上一版就踩了这个，被 SETTINGS_LAYOUT 抓出来）。 */
   width: 100%;
-  padding: 24px max(var(--shell-content-gutter), calc((100% - 1120px) / 2 + var(--shell-content-gutter)));
+  padding: 24px max(var(--shell-content-gutter), calc((100% - var(--shell-content-wide)) / 2 + var(--shell-content-gutter)));
 }
 .fluent-settings-content-stack {
   display: flex;
@@ -1406,7 +1420,8 @@ html:not(.dark) .linkle-room .player{border-color:var(--stroke-divider)}
 .linkle-room .i32:hover{background:var(--f2-subtle-hover)}
 .linkle-room .i32:active{background:var(--f2-subtle-press);color:var(--text-secondary)}
 .linkle-room .i32[aria-pressed=true]{background:var(--f2-pressed-bg);color:var(--bar-accent);border-color:transparent}
-.linkle-room .room-actions .i32.selected{background:var(--fill-card);color:var(--text-primary);border-color:var(--stroke-card)}
+/* 底色A 后 --fill-card 已=纯黑；选中态是控件提亮面，不随容器一起下沉。 */
+.linkle-room .room-actions .i32.selected{background:var(--fill-control);color:var(--text-primary);border-color:var(--stroke-card)}
 .linkle-room .i32 svg{width:20px;height:20px}
 .linkle-room .i32:focus-visible{box-shadow:0 0 0 1px var(--base-tertiary),0 0 0 3px var(--focus-outer)}
 .linkle-room .i32[aria-disabled=true],.linkle-room .i32:disabled{opacity:.36;cursor:not-allowed}
@@ -1604,7 +1619,7 @@ html:not(.dark) .linkle-room .player{border-color:var(--stroke-divider)}
 /* The floating panel is the task column itself, so the geometry lives here. */
 /* 沉浸下的面板 = 主视图整页（用户 2026-09-23 裁决）：不再用浮层+遮罩，
    因此 faux-Mica 下的玻璃透明度与遮罩尺寸问题一并消失。 */
-.linkle-room.immersive .task.has-panel{display:flex;position:absolute;inset:0;width:auto;padding:0;border:0;border-radius:0;background:var(--fill-layer);background-image:none;backdrop-filter:blur(28px) saturate(1.2);box-shadow:none;overflow:hidden;z-index:4;color:var(--text-primary);scrollbar-gutter:auto}
+.linkle-room.immersive .task.has-panel{display:flex;position:absolute;inset:0;width:auto;padding:0;border:0;border-radius:0;background:var(--fill-layer);background-image:none;box-shadow:none;overflow:hidden;z-index:4;color:var(--text-primary);scrollbar-gutter:auto}
 /* 面板占满主视图时，房间内容（封面卡/歌词）整体让位：页面才不会透着底下的字。 */
 .linkle-room.immersive .bodygrid:has(.task.has-panel) .imm-left,
 .linkle-room.immersive .bodygrid:has(.task.has-panel) .lyrics{display:none}
@@ -1619,7 +1634,7 @@ html:not(.dark) .linkle-room .player{border-color:var(--stroke-divider)}
    数据边界：行内只用 name / visibility / memberCount / requiresPassword / creatorPublicId，
    没有封面、简介、标签——服务端今天不提供，画上去等于给实现挖坑。 */
 /* 邀请码收成次行后连接卡独占整行（B 版单卡；2026-10-02）。 */
-.lobby-connect{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;padding:4px var(--shell-content-gutter,32px) 0;max-width:var(--shell-content-width,960px)}
+.lobby-connect{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;padding:4px var(--shell-content-gutter,32px) 0;max-width:var(--shell-content-width)}
 .lobby-card{display:grid;gap:2px;align-content:start;border:1px solid var(--stroke-card);border-radius:var(--radius-control);background:var(--fill-card);padding:16px}
 .lobby-card-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
 .lobby-card-head strong{font-size:16px;font-weight:600}
@@ -1630,7 +1645,7 @@ html:not(.dark) .linkle-room .player{border-color:var(--stroke-divider)}
 .lobby-tag{font-size: 12px;color:var(--text-secondary);border:1px solid var(--stroke-control);border-radius:999px;padding:1px 8px}
 .lobby-tag.muted{color:var(--muted-foreground)}
 .lobby-account{margin-left:auto;font-size: 12px;color:var(--text-secondary)}
-.lobby-kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 14px;margin:0;font-size: 12px}
+.lobby-kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 14px;margin:14px 0 0;font-size: 12px}
 .lobby-kv dt{color:var(--text-secondary)}
 .lobby-kv dd{margin:0;overflow-wrap:anywhere}
 .lobby-note{margin:12px 0 0;font-size: 12px;line-height:1.5;color:var(--text-secondary)}
@@ -1656,13 +1671,13 @@ html:not(.dark) .linkle-room .player{border-color:var(--stroke-divider)}
 .lobby-rename{display:flex;align-items:center;gap:8px;margin-top:12px}
 .lobby-rename input{max-width:320px}
 .lobby-tag.guest{color:var(--warning);border-color:color-mix(in srgb,var(--warning) 45%,transparent)}
-.lobby-rooms{display:grid;gap:12px;padding:18px var(--shell-content-gutter,32px) 0;max-width:var(--shell-content-width,960px)}
+.lobby-rooms{display:grid;gap:12px;padding:18px var(--shell-content-gutter,32px) 0;max-width:var(--shell-content-width)}
 /* 大厅内容列：原来固定 960 宽贴左，窗口一宽右边就空一块（用户 2026-09-25 圈出）。
    现在填满可用宽度并居中，左右留白一致；超宽窗口下按 1120 封顶再居中。
    这段必须排在上面两条 max-width 规则之后，否则同权重被它们压回去。 */
-.lobby-connect,.lobby-rooms{max-width:min(100%, 1120px);margin-inline:auto}
-.lobby-header{padding-inline:max(var(--shell-content-gutter), calc((100% - 1120px) / 2 + var(--shell-content-gutter)))}
-.lobby-hint,.lobby-notice{margin-inline:max(var(--shell-content-gutter), calc((100% - 1120px) / 2 + var(--shell-content-gutter)))}
+.lobby-connect,.lobby-rooms{max-width:min(100%, var(--shell-content-wide));margin-inline:auto}
+.lobby-header{padding-inline:max(var(--shell-content-gutter), calc((100% - var(--shell-content-wide)) / 2 + var(--shell-content-gutter)))}
+.lobby-hint,.lobby-notice{margin-inline:max(var(--shell-content-gutter), calc((100% - var(--shell-content-wide)) / 2 + var(--shell-content-gutter)))}
 .lobby-rooms-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .lobby-rooms-title{display:flex;align-items:baseline;gap:8px;margin-right:auto}
 .lobby-rooms-title h2{margin:0;font-size: 14px;font-weight:600}

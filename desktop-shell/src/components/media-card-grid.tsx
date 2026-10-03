@@ -1,6 +1,6 @@
 import { useState } from "react"
 
-import { MaterialSymbol } from "@/components/material-symbol"
+import { AddRegular, FolderRegular, PlayRegular, VideoRegular } from "@fluentui/react-icons"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { MediaCard } from "@/lib/media-library-view"
@@ -67,7 +67,7 @@ function MediaCardTile({ card, onOpen, onPlay, onEnqueue, controlEnabled, queueE
           <span className="media-card-art" aria-hidden="true">
             {showImage
               ? <img src={card.imageUrl!} alt="" loading="lazy" onError={() => setImageFailed(true)} />
-              : <MaterialSymbol name={card.kind === "dir" ? "folder" : "movie"} className="size-6" />}
+              : (card.kind === "dir" ? <FolderRegular className="size-6" /> : <VideoRegular className="size-6" />)}
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm text-[var(--text-primary)]">{card.title}</span>
@@ -78,10 +78,10 @@ function MediaCardTile({ card, onOpen, onPlay, onEnqueue, controlEnabled, queueE
         {card.kind === "file" ? (
           <div className="flex items-center gap-2">
             <Button size="sm" disabled={!card.playable || !controlEnabled} title={card.note ?? "立即播放"} onClick={() => onPlay(card)}>
-              <MaterialSymbol name="play-arrow" />播放
+              <PlayRegular />播放
             </Button>
             <Button variant="outline" size="sm" disabled={!card.playable || !queueEnabled || !controlEnabled} title={card.note ?? "加入播放队列"} onClick={() => onEnqueue(card)}>
-              <MaterialSymbol name="add" />入队
+              <AddRegular />入队
             </Button>
           </div>
         ) : null}

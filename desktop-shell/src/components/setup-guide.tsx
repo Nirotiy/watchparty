@@ -200,7 +200,7 @@ export function SetupGuide({ services, onDone, seed }: SetupGuideProps) {
   }
 
   return (
-    <section aria-label="首次使用设置向导" className="mx-auto min-h-full w-full max-w-[720px] px-8 py-8">
+    <section aria-label="首次使用设置向导" className="mx-auto min-h-full w-full max-w-[var(--shell-content-narrow)] px-8 py-8">
       <StepRail step={step} skippedBanguruPath={skippedBanguruPath} />
       {step === "banguru-origin" ? (
         <BanguruOriginPanel

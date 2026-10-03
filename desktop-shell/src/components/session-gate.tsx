@@ -21,7 +21,7 @@ export function SessionGate({ roomId, starting, onStart, autoFocus = true }: Ses
   }
 
   return (
-    <section className="mt-5 max-w-[680px]" aria-labelledby="join-title">
+    <section className="mt-5 max-w-[var(--shell-content-narrow)]" aria-labelledby="join-title">
       <h2 id="join-title" className="sr-only">从网页接续观看</h2>
       <form autoComplete="off" onSubmit={submit}>
         <div className="flex flex-wrap gap-2">

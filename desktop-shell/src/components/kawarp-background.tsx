@@ -30,17 +30,11 @@ export function KawarpBackground({ cover, active, dark, onDegrade }: KawarpBackg
   const instanceRef = useRef<Kawarp | null>(null)
   const degradedRef = useRef(false)
   const [painted, setPainted] = useState(false)
-  // M2.5：组件自己也守 reduce（不只靠调用点），任何新调用方都绕不过；系统开了就让位给静态层。
-  const [reduced, setReduced] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches)
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-reduced-motion: reduce)")
-    const onChange = (event: MediaQueryListEvent) => setReduced(event.matches)
-    media.addEventListener("change", onChange)
-    return () => media.removeEventListener("change", onChange)
-  }, [])
   // Route B crossfades between two layers so a track change never flashes.
   const [layers, setLayers] = useState<{ a: string | null; b: string | null; top: "a" | "b" }>({ a: null, b: null, top: "b" })
-  const webgl = active && Boolean(cover) && !degradedRef.current && !reduced
+  // `active` 是最终决定：系统 reduce 只在「跟随系统」档由调用点叠进来；显式「开启」必须照样挂载
+  // （验收契约：explicit 开启 must bring up the WebGL route even when the system prefers reduced motion）。
+  const webgl = active && Boolean(cover) && !degradedRef.current
 
   useEffect(() => {
     if (!cover) { setLayers({ a: null, b: null, top: "b" }); return }

@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Select as SelectPrimitive } from "radix-ui"
 
-import { MaterialSymbol } from "@/components/material-symbol"
+import { CheckmarkRegular, ChevronDownRegular, ChevronUpRegular } from "@fluentui/react-icons"
 import { cn } from "@/lib/utils"
 
 const Select = SelectPrimitive.Root
@@ -19,7 +19,7 @@ function SelectTrigger({ className, children, ...props }: React.ComponentProps<t
     >
       {children}
       <SelectPrimitive.Icon asChild>
-        <MaterialSymbol name="expand-more" className="size-3 text-[var(--text-secondary)]" />
+        <ChevronDownRegular className="size-3 text-[var(--text-secondary)]" />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   )
@@ -39,11 +39,11 @@ function SelectContent({ className, children, position = "popper", ...props }: R
         {...props}
       >
         <SelectPrimitive.ScrollUpButton className="flex h-7 items-center justify-center text-[var(--text-secondary)]">
-          <MaterialSymbol name="expand-less" className="size-4" />
+          <ChevronUpRegular className="size-4" />
         </SelectPrimitive.ScrollUpButton>
         <SelectPrimitive.Viewport className="p-0">{children}</SelectPrimitive.Viewport>
         <SelectPrimitive.ScrollDownButton className="flex h-7 items-center justify-center text-[var(--text-secondary)]">
-          <MaterialSymbol name="expand-more" className="size-4" />
+          <ChevronDownRegular className="size-4" />
         </SelectPrimitive.ScrollDownButton>
       </SelectPrimitive.Content>
     </SelectPrimitive.Portal>
@@ -61,7 +61,7 @@ function SelectItem({ className, children, ...props }: React.ComponentProps<type
       {...props}
     >
       <span className="absolute right-2 flex size-4 items-center justify-center text-[var(--text-secondary)]">
-        <SelectPrimitive.ItemIndicator><MaterialSymbol name="check" className="size-4" /></SelectPrimitive.ItemIndicator>
+        <SelectPrimitive.ItemIndicator><CheckmarkRegular className="size-4" /></SelectPrimitive.ItemIndicator>
       </span>
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
     </SelectPrimitive.Item>

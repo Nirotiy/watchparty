@@ -1,6 +1,6 @@
 import { useState } from "react"
 
-import { MaterialSymbol } from "@/components/material-symbol"
+import { AddRegular, DismissRegular, LibraryRegular } from "@fluentui/react-icons"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -68,7 +68,7 @@ export function MediaSourceForm({ onCreate, onCancel }: {
   return (
     <form className="mt-4 border-y border-border py-3" autoComplete="off" onSubmit={(event) => { event.preventDefault(); void submit() }}>
       <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-        <MaterialSymbol name="library" className="size-4" />
+        <LibraryRegular className="size-4" />
         添加媒体源
         <span className="font-normal">保存前会逐个浅列库路径，任一路径不通就整体拒绝。</span>
       </div>
@@ -96,12 +96,12 @@ export function MediaSourceForm({ onCreate, onCancel }: {
             <Input value={row.path} onChange={(event) => patchRow(index, { path: event.target.value })} placeholder="/media/Movies" aria-label="库路径" className="h-8 flex-1 font-mono text-xs" />
             <Button type="button" variant="ghost" size="icon" aria-label="删除这个库" disabled={rows.length <= 1}
               onClick={() => setRows(current => current.filter((_, position) => position !== index))}>
-              <MaterialSymbol name="close" />
+              <DismissRegular />
             </Button>
           </div>
         ))}
         <Button type="button" variant="ghost" size="sm" onClick={() => setRows(current => [...current, { name: "", kind: "other", path: "/" }])}>
-          <MaterialSymbol name="add" />再加一个库
+          <AddRegular />再加一个库
         </Button>
       </div>
 

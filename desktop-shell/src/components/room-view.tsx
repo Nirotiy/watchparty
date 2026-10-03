@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import type { ReactElement } from "react"
-import { GaugeRegular } from "@fluentui/react-icons"
+import type { ComponentType, ReactElement } from "react"
+import {
+  AddRegular, ArrowExitRegular, ArrowSyncRegular, ChevronDownRegular, ChevronUpRegular, ClosedCaptionRegular,
+  DesktopRegular, DismissRegular, EyeOffRegular, FullScreenMaximizeRegular, FullScreenMinimizeRegular, GaugeRegular,
+  LockClosedRegular, MusicNote2Regular, NextRegular, PauseRegular, PeopleRegular, PlayRegular, Speaker2Regular,
+  TextBulletListLtrRegular,
+} from "@fluentui/react-icons"
 
-import { MaterialSymbol, type MaterialSymbolName } from "@/components/material-symbol"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
@@ -50,8 +54,9 @@ function trackLabel(track: Track): string {
   return [track.language, track.label, track.codec].filter(Boolean).join(" · ") || `轨道 ${track.id}`
 }
 
-function IconControl({ icon, label, active, disabled, onClick, className }: {
-  icon: MaterialSymbolName
+function IconControl({ icon: Glyph, iconClassName, label, active, disabled, onClick, className }: {
+  icon: ComponentType<{ className?: string }>
+  iconClassName?: string
   label: string
   active?: boolean
   disabled?: boolean
@@ -71,7 +76,7 @@ function IconControl({ icon, label, active, disabled, onClick, className }: {
           onClick={onClick}
           className={cn("media-icon", className)}
         >
-          <MaterialSymbol name={icon} />
+          <Glyph className={iconClassName} />
         </Button>
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
@@ -79,15 +84,15 @@ function IconControl({ icon, label, active, disabled, onClick, className }: {
   )
 }
 
-function SelectIconControl({ icon, label }: { icon: MaterialSymbolName; label: string }) {
+function SelectIconControl({ icon: Glyph, iconClassName, label }: { icon: ComponentType<{ className?: string }>; iconClassName?: string; label: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <SelectTrigger
           aria-label={label}
-          className="media-icon [&>svg:last-child]:hidden"
+          className="media-icon"
         >
-          <MaterialSymbol name={icon} />
+          <Glyph className={iconClassName} />
         </SelectTrigger>
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
@@ -231,7 +236,7 @@ export function RoomView({
       >
         {!player.loaded || !state.playerWindowVisible ? (
           <div className="pointer-events-none max-w-xl px-8 text-center">
-            <MaterialSymbol name={state.playerWindowVisible ? "monitor" : "visibility-off"} className="mx-auto mb-4 size-8 text-[var(--text-disabled)]" />
+            {state.playerWindowVisible ? <DesktopRegular className="mx-auto mb-4 size-8 text-[var(--text-disabled)]" /> : <EyeOffRegular className="mx-auto mb-4 size-8 text-[var(--text-disabled)]" />}
             <h1 className="truncate text-2xl font-semibold">{mediaTitle(room?.source ?? null)}</h1>
             <p className="mt-2 text-sm text-[var(--text-secondary)]">
               {!state.playerWindowVisible ? "播放画面已隐藏，会话仍保持。" : hasMedia ? "正在解析或载入媒体。" : "房间设置媒体后会在此处播放。"}
@@ -264,7 +269,8 @@ export function RoomView({
           <SharedControl reason={lockReason}>
             <span>
               <IconControl
-                icon={room?.paused === false ? "pause" : "play-arrow"}
+                icon={room?.paused === false ? PauseRegular : PlayRegular}
+                iconClassName={room?.paused === false ? "glyph-24" : "glyph-28"}
                 label={room?.paused === false ? "暂停" : "播放"}
                 disabled={!sharedEnabled}
                 onClick={() => void command({ type: room?.paused === false ? "pause" : "play" })}
@@ -275,7 +281,8 @@ export function RoomView({
           <SharedControl reason={lockReason}>
             <span>
               <IconControl
-                icon="skip-next"
+                icon={NextRegular}
+                iconClassName="glyph-22"
                 label="下一项"
                 disabled={!canAdvance}
                 onClick={() => void command({ type: "playlistNext", expectedCurrentPlaylistItemId })}
@@ -309,7 +316,7 @@ export function RoomView({
         <div className="media-control-row">
           <div className="media-control-group">
             <IconControl
-              icon="volume-up"
+              icon={Speaker2Regular}
               label={volume > 0 ? "静音" : "恢复音量"}
               disabled={!localEnabled}
               onClick={() => void command({ type: "volume", volume: volume > 0 ? 0 : 100 })}
@@ -340,7 +347,7 @@ export function RoomView({
             disabled={!localEnabled}
             onValueChange={(value) => void command({ type: "selectSubtitleTrack", trackId: value === "off" ? null : Number(value) })}
           >
-            <SelectIconControl icon="subtitles" label="字幕" />
+            <SelectIconControl icon={ClosedCaptionRegular} iconClassName="glyph-28" label="字幕" />
             <SelectContent>
               <SelectItem value="off">关闭字幕</SelectItem>
               {player.subtitleTracks.map((track) => <SelectItem key={track.id} value={String(track.id)}>{trackLabel(track)}</SelectItem>)}
@@ -352,14 +359,15 @@ export function RoomView({
             disabled={!localEnabled || player.audioTracks.length === 0}
             onValueChange={(value) => void command({ type: "selectAudioTrack", trackId: Number(value) })}
           >
-            <SelectIconControl icon="music-note" label="音轨" />
+            <SelectIconControl icon={MusicNote2Regular} iconClassName="glyph-22" label="音轨" />
             <SelectContent>
               {player.audioTracks.map((track) => <SelectItem key={track.id} value={String(track.id)}>{trackLabel(track)}</SelectItem>)}
             </SelectContent>
           </Select>
 
           <IconControl
-            icon="sync"
+            icon={ArrowSyncRegular}
+            iconClassName="glyph-18"
             label="重新同步到房间进度"
             disabled={!localEnabled || !state.playerWindowVisible || !room}
             onClick={() => void command({ type: "resync" })}
@@ -370,7 +378,7 @@ export function RoomView({
             disabled={!sharedEnabled}
             onValueChange={(value) => void command({ type: "rate", rate: Number(value) })}
           >
-            <SelectTrigger className="media-icon label [&>svg:last-child]:hidden" title="倍速" aria-label="倍速">
+            <SelectTrigger className="media-icon label" title="倍速" aria-label="倍速">
               <GaugeRegular aria-hidden="true" />
               <SelectValue />
             </SelectTrigger>
@@ -380,10 +388,11 @@ export function RoomView({
           </Select>
           </div>
           <div className="media-control-group media-control-group-end">
-            <IconControl icon="queue" label={`播放队列，${room?.playlist.length ?? 0} 项`} active={drawer === "queue"} disabled={!mediaQueueAvailable} onClick={() => onDrawerChange("queue")} />
-            <IconControl icon="group" label={`在线成员，${state.members.length} 人`} active={drawer === "members"} onClick={() => onDrawerChange("members")} />
+            <IconControl icon={TextBulletListLtrRegular} iconClassName="glyph-28" label={`播放队列，${room?.playlist.length ?? 0} 项`} active={drawer === "queue"} disabled={!mediaQueueAvailable} onClick={() => onDrawerChange("queue")} />
+            <IconControl icon={PeopleRegular} iconClassName="glyph-24" label={`在线成员，${state.members.length} 人`} active={drawer === "members"} onClick={() => onDrawerChange("members")} />
             <IconControl
-              icon={fullscreen ? "fullscreen-exit" : "fullscreen"}
+              icon={fullscreen ? FullScreenMinimizeRegular : FullScreenMaximizeRegular}
+              iconClassName="glyph-22"
               label={fullscreen ? "退出全屏" : "全屏"}
               disabled={!localEnabled}
               onClick={() => {
@@ -393,8 +402,8 @@ export function RoomView({
                 })
               }}
             />
-            <IconControl icon="add" label="添加媒体" onClick={onOpenMedia} />
-            <IconControl icon="logout" label="离开房间" onClick={onLeave} />
+            <IconControl icon={AddRegular} iconClassName="glyph-22" label="添加媒体" onClick={onOpenMedia} />
+            <IconControl icon={ArrowExitRegular} iconClassName="glyph-24" label="离开房间" onClick={onLeave} />
           </div>
         </div>
       </footer>
@@ -419,11 +428,11 @@ function RoomDrawer({ kind, state, command, onAdd, onClose }: { kind: Drawer; st
         <span className="flex-1" />
         {kind === "members" && state.isOwner ? (
           <Button variant="outline" size="sm" title={state.room?.locked ? "解锁房间" : "锁定房间（仅房主可控制）"} onClick={() => void command({ type: "lock", locked: !state.room?.locked })}>
-            <MaterialSymbol name="lock" />{state.room?.locked ? "解锁" : "锁定"}
+            <LockClosedRegular />{state.room?.locked ? "解锁" : "锁定"}
           </Button>
         ) : null}
-        {kind === "queue" ? <Button variant="outline" size="sm" onClick={onAdd}><MaterialSymbol name="add" />添加媒体</Button> : null}
-        <Button variant="ghost" size="icon" title="收起" aria-label="收起" onClick={onClose}><MaterialSymbol name="close" /></Button>
+        {kind === "queue" ? <Button variant="outline" size="sm" onClick={onAdd}><AddRegular />添加媒体</Button> : null}
+        <Button variant="ghost" size="icon" title="收起" aria-label="收起" onClick={onClose}><DismissRegular /></Button>
       </div>
       {kind === "queue" ? (
         state.room?.playlist.length ? state.room.playlist.map((item, index) => (
@@ -439,9 +448,9 @@ function RoomDrawer({ kind, state, command, onAdd, onClose }: { kind: Drawer; st
             </button>
             {state.canControlSharedPlayback ? (
               <span className="flex items-center gap-0.5">
-                <Button variant="ghost" size="icon" title="上移" aria-label={`上移 ${mediaTitle(item.media)}`} disabled={index === 0} onClick={() => void command({ type: "playlistMove", itemId: item.id, targetIndex: index - 1 })}><MaterialSymbol name="expand-less" /></Button>
-                <Button variant="ghost" size="icon" title="下移" aria-label={`下移 ${mediaTitle(item.media)}`} disabled={index >= (state.room?.playlist.length ?? 0) - 1} onClick={() => void command({ type: "playlistMove", itemId: item.id, targetIndex: index + 1 })}><MaterialSymbol name="expand-more" /></Button>
-                <Button variant="ghost" size="icon" title="移出队列" aria-label={`移出 ${mediaTitle(item.media)}`} onClick={() => void command({ type: "playlistRemove", itemId: item.id })}><MaterialSymbol name="close" /></Button>
+                <Button variant="ghost" size="icon" title="上移" aria-label={`上移 ${mediaTitle(item.media)}`} disabled={index === 0} onClick={() => void command({ type: "playlistMove", itemId: item.id, targetIndex: index - 1 })}><ChevronUpRegular /></Button>
+                <Button variant="ghost" size="icon" title="下移" aria-label={`下移 ${mediaTitle(item.media)}`} disabled={index >= (state.room?.playlist.length ?? 0) - 1} onClick={() => void command({ type: "playlistMove", itemId: item.id, targetIndex: index + 1 })}><ChevronDownRegular /></Button>
+                <Button variant="ghost" size="icon" title="移出队列" aria-label={`移出 ${mediaTitle(item.media)}`} onClick={() => void command({ type: "playlistRemove", itemId: item.id })}><DismissRegular /></Button>
               </span>
             ) : null}
           </div>

@@ -1,7 +1,6 @@
 import { useState } from "react"
-import { ArrowLeftRegular, ChevronDownRegular, ChevronUpRegular } from "@fluentui/react-icons"
+import { AddRegular, ArrowLeftRegular, CheckmarkRegular, ChevronDownRegular, ChevronUpRegular, DismissRegular, FolderRegular, PlayRegular, SearchRegular } from "@fluentui/react-icons"
 
-import { MaterialSymbol } from "@/components/material-symbol"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
@@ -134,10 +133,10 @@ export function CatalogRail({ detail, controlEnabled, queueEnabled, onPlay, onEn
                   <span className="t" title={child.hasEpisodeTitle ? child.title : `${detail.title} · ${child.title}`}>{child.hasEpisodeTitle ? child.title : `${detail.title} · ${child.title}`}</span>
                   {!child.playable ? <span className="catalog-ep-blocked" title={child.note ?? undefined}>不可播</span> : null}
                   <Button size="sm" variant="ghost" disabled={!controlEnabled || detail.status === "candidate" || !child.playable} title={child.playable ? "播放这一集" : child.note ?? "桌面端无法播放这个文件"} onClick={() => onPlay(child.mediaId, `${detail.title} ${child.label}`, containerOf(child.name))}>
-                    <MaterialSymbol name="play-arrow" />
+                    <PlayRegular />
                   </Button>
                   <Button size="sm" variant="ghost" disabled={!controlEnabled || !queueEnabled || detail.status === "candidate" || !child.playable} title="加入播放队列" onClick={() => onEnqueue(child.mediaId, `${detail.title} ${child.label}`, containerOf(child.name))}>
-                    <MaterialSymbol name="add" />
+                    <AddRegular />
                   </Button>
                 </div>
               ))}
@@ -178,7 +177,7 @@ function DetailHero({ detail, onClose, firstPlayable, controlEnabled, onPlay, co
             title={!firstPlayable.playable ? firstPlayable.note ?? "桌面端无法播放这个文件" : undefined}
             onClick={() => onPlay(firstPlayable.mediaId, detail.single ? detail.title : `${detail.title} ${firstPlayable.label}`, containerOf(firstPlayable.name))}
           >
-            <MaterialSymbol name="play-arrow" />{detail.single ? "播放正片" : "播放第一集"}
+            <PlayRegular />{detail.single ? "播放正片" : "播放第一集"}
           </Button>
         ) : null}
       </div>
@@ -300,17 +299,17 @@ function CandidateList({ detail, busy, onConfirm, onReject }: {
       {detail.candidates.map(candidate => (
         <div className="catalog-candidate" key={candidate.id}>
           <div className="l1">
-            <MaterialSymbol name="search" className="size-3.5 text-muted-foreground" />
+            <SearchRegular className="size-3.5 text-muted-foreground" />
             <b>{candidate.title}</b>
             {candidate.year ? <span className="muted">{candidate.year}</span> : null}
             <span className="score">{candidate.score.toFixed(2)}</span>
           </div>
           <div className="acts">
             <Button size="sm" variant="accent" disabled={busy} onClick={() => onConfirm(candidate.id)}>
-              <MaterialSymbol name="check" />确认
+              <CheckmarkRegular />确认
             </Button>
             <Button size="sm" variant="outline" disabled={busy} onClick={() => onReject(candidate.id)}>
-              <MaterialSymbol name="close" />拒绝
+              <DismissRegular />拒绝
             </Button>
           </div>
         </div>
@@ -325,7 +324,7 @@ export function UnmatchedLine({ count, onShowFiles }: { count: number; onShowFil
   return (
     <p className="catalog-unmatched">
       未匹配的 <b>{count}</b> 组不在标题墙里（不拿文件夹名冒充标题）：
-      <Button size="sm" variant="ghost" onClick={onShowFiles}><MaterialSymbol name="folder" />去 Files 看</Button>
+      <Button size="sm" variant="ghost" onClick={onShowFiles}><FolderRegular />去 Files 看</Button>
     </p>
   )
 }

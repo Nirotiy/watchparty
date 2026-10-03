@@ -10,7 +10,7 @@ import { ProgressRing } from "@/components/ui/progress-ring"
 import { Slider as WinUiSlider } from "@/components/ui/slider"
 import { TabBar, TabBarItem } from "@/components/ui/tabs"
 import {
-  CheckmarkCircleRegular, DeleteRegular, GlobeRegular, LibraryRegular,
+  AddRegular, CheckmarkCircleRegular, DeleteRegular, GlobeRegular, LibraryRegular,
   PlayCircleRegular, PulseRegular, SaveRegular, SettingsRegular, ShieldRegular, WarningRegular,
 } from "@fluentui/react-icons"
 import { connectionLabel, type DesktopUiState } from "@/lib/contracts"
@@ -23,7 +23,6 @@ import {
   type DesktopSettingsStatus, type MediaLibrary, type OriginTrustRecord, type PlayerPreferences,
 } from "@/lib/ipc"
 import { libraryKindLabel, mediaErrorText } from "@/lib/media-library-view"
-import { MaterialSymbol } from "@/components/material-symbol"
 import { MediaSourceForm, type MediaSourceDraft } from "@/components/media-source-form"
 import { CatalogDraft } from "@/components/catalog-draft"
 import { cn } from "@/lib/utils"
@@ -69,8 +68,9 @@ function SettingsRow({ children, description, label }: { children: React.ReactNo
   return <div className="fluent-settings-row"><div className="fluent-settings-copy"><Text weight="semibold">{label}</Text><Text size={200}>{description}</Text></div><div className="fluent-settings-control">{children}</div></div>
 }
 
-function SettingsHeading({ title, detail }: { title: string; detail: string }) {
-  return <header className="fluent-settings-heading"><Text as="h1" size={600} weight="semibold">{title}</Text><Text size={300}>{detail}</Text></header>
+function SettingsHeading({ title, detail }: { title: string; detail?: string }) {
+  // 灰副标题收敛（观感批）：标题行不再挂灰字；保留的说明按正文小字紧随其后。
+  return <header className="fluent-settings-heading"><Text as="h1" size={600} weight="semibold">{title}</Text>{detail ? <Text size={300}>{detail}</Text> : null}</header>
 }
 
 export function FluentSettingsView({ state, themePreference, onThemeChange, windowMaterial, onWindowMaterialChange, musicPartyOrigin, onMusicPartyLogout }: {
@@ -115,7 +115,7 @@ function GeneralPanel({ themePreference, onThemeChange, windowMaterial, onWindow
     catch (error) { setError(errorMessage(error, fallback)) }
     finally { setBusy(false) }
   }
-  return <><SettingsHeading title="基础" detail="调整桌面端的外观和窗口行为。" /><div className="fluent-settings-group"><SettingsRow label="应用主题" description="保存到本机设置；「跟随系统」随 Windows 明暗变化，播放页的封面取色不受影响。"><div className="flex items-center gap-2" role="group" aria-label="应用主题">{([["system", "跟随系统"], ["dark", "深色"], ["light", "浅色"]] as const).map(([value, label]) => <Button key={value} size="sm" variant="toggle" disabled={busy} aria-pressed={themePreference === value} onClick={() => void save(() => onThemeChange(value), "主题保存失败")}>{label}</Button>)}</div></SettingsRow><SettingsRow label="窗口材质" description="跟随系统时使用 Windows Mica；系统不支持或关闭透明效果时使用纯色。"><Switch disabled={busy} checked={windowMaterial === "auto"} label={windowMaterial === "auto" ? "跟随系统" : "关闭"} onChange={() => void save(onWindowMaterialChange, "窗口材质保存失败")} /></SettingsRow></div><StatusMessage message={error} intent="error" /></>
+  return <><SettingsHeading title="基础" /><div className="fluent-settings-group"><SettingsRow label="应用主题" description="保存到本机设置；「跟随系统」随 Windows 明暗变化，播放页的封面取色不受影响。"><Dropdown aria-label="应用主题" value={themePreference === "system" ? "跟随系统" : themePreference === "dark" ? "深色" : "浅色"} selectedOptions={[themePreference]} disabled={busy} onOptionSelect={(_, data) => { const next = data.optionValue as ThemePreference | undefined; if (next && next !== themePreference) void save(() => onThemeChange(next), "主题保存失败") }}><Option value="system">跟随系统</Option><Option value="dark">深色</Option><Option value="light">浅色</Option></Dropdown></SettingsRow><SettingsRow label="窗口材质" description="跟随系统时使用 Windows Mica；系统不支持或关闭透明效果时使用纯色。"><Switch disabled={busy} checked={windowMaterial === "auto"} label={windowMaterial === "auto" ? "跟随系统" : "关闭"} onChange={() => void save(onWindowMaterialChange, "窗口材质保存失败")} /></SettingsRow></div><StatusMessage message={error} intent="error" /></>
 }
 
 function CredentialsPanel() {
@@ -159,7 +159,7 @@ function PlaybackPanel({ state }: { state: DesktopUiState | null }) {
       setMessage(partiallyApplied ? "已保存，部分即时项未能应用到当前播放器" : "播放设置已保存", partiallyApplied ? "warning" : "success")
     } catch (error) { setMessage(errorMessage(error, "播放设置保存失败"), "error") } finally { setBusy(false) }
   }
-  if (!preferences) return <><SettingsHeading title="播放" detail="设置这台电脑上的画面、声音和字幕。" /><StatusMessage message={message || "正在读取…"} intent={intent} /></>
+  if (!preferences) return <><SettingsHeading title="播放" /><StatusMessage message={message || "正在读取…"} intent={intent} /></>
   return <><SettingsHeading title="播放" detail="仅影响本机播放。修改后点击“保存播放设置”；离开本页会丢弃未保存的修改。" /><Text as="h2" size={400} weight="semibold">画面与声音</Text><div className="fluent-settings-group">
     <SettingsRow label="硬件解码" description="使用显卡解码视频，减少处理器负担。播放器重新创建后生效。"><Choice value={preferences.hardwareDecoding} choices={[["auto-safe", "自动（兼容优先）"], ["auto", "自动"], ["no", "关闭"]]} onChange={value => patch({ hardwareDecoding: value as PlayerPreferences["hardwareDecoding"] })} /></SettingsRow>
     <SettingsRow label="去隔行" description="减少隔行视频的梳齿边缘。一般保持自动，保存后尝试应用。"><Choice value={preferences.deinterlace} choices={[["auto", "自动"], ["on", "开"], ["off", "关"]]} onChange={value => patch({ deinterlace: value as PlayerPreferences["deinterlace"] })} /></SettingsRow>
@@ -275,13 +275,13 @@ function MediaLibrarySettingsPanel() {
     <div className="border-y border-border">
       <SettingsRow label="已配置的片源" description={sources === null ? "读取中…" : sources.length === 0 ? "还没有片源" : `${sources.length} 个站点 · ${libraries.length} 个库`}>
         <Button disabled={admin !== true} aria-expanded={adding} onClick={() => setAdding(open => !open)}>
-          <MaterialSymbol name="add" />添加媒体源
+          <AddRegular />添加媒体源
         </Button>
       </SettingsRow>
       {sources && sources.length > 0 ? <ul className="media-source-list">
         {sources.map(source => (
           <li key={source.id}>
-            <MaterialSymbol name="library" className="size-4 text-muted-foreground" />
+            <LibraryRegular className="size-4 text-muted-foreground" />
             <span className="media-source-name">{source.name}</span>
             <span className="media-source-detail">{source.internalBaseUrl}{source.username ? ` · ${source.username}` : ""}{source.passwordSet ? " · 已存密码" : ""}</span>
             <span className="media-source-libs">{source.libraries.map(library => `${library.name}（${libraryKindLabel(library.kind)}）`).join(" / ")}</span>
@@ -429,7 +429,7 @@ function SecurityPanel({ musicPartyOrigin, onLogout }: { musicPartyOrigin: strin
     finally { setProbing(false) }
   }
   return <>
-    <SettingsHeading title="安全与高级" detail="管理站点登录、自定义证书和 Linkle 登录会话。" />
+    <SettingsHeading title="安全与高级" />
     <div className="fluent-settings-group"><div className="fluent-settings-block">
       <Switch checked={allowRemoteHttp} disabled={!settings || busy} onChange={(_, data) => void saveRemoteHttp(data.checked)} label="允许远程 HTTP" />
       <Text size={200}>默认关闭。开启后允许向非回环 HTTP 地址发送站点请求，可能明文传输凭据；仅用于受控测试网络。</Text>
