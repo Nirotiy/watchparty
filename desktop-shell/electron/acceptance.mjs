@@ -1290,13 +1290,22 @@ async function checkLinkleWorkspace({ js, until, wait, service, shot, shotRect, 
 
   // 浅色主题下的沉浸视图（用户 2026-09-24）：深色歌词必须落在浅色底上，而不是直接压在照片上——
   // 压照片时对比度由封面决定，深色封面会直接把字吃掉。切主题走设置里的真控件，再回到会话。
-  // 2026-10-02：M3 主题三态把单一 switch 换成「跟随系统/深色/浅色」段钮，按名字点。
-  const themeSwitch = label => `(() => {
-    const row = Array.from(document.querySelectorAll('.fluent-settings-row')).find(item => (item.textContent ?? '').includes('应用主题'))
-    const button = Array.from(row?.querySelectorAll('button') ?? []).find(node => node.textContent.trim() === ${JSON.stringify(label)})
-    if (button) button.click()
-    return Boolean(button)
-  })()`
+  // 2026-10-03：应用主题改成下拉框（Fluent Dropdown）——先开菜单，再点选项。
+  const themeSwitch = async label => {
+    const opened = await js(`(() => {
+      const row = Array.from(document.querySelectorAll('.fluent-settings-row')).find(item => (item.textContent ?? '').includes('应用主题'))
+      const combo = row?.querySelector('[role="combobox"]')
+      if (combo) combo.click()
+      return Boolean(combo)
+    })()`)
+    if (!opened) return false
+    await until(() => js(`Boolean(Array.from(document.querySelectorAll('[role="option"]')).find(node => node.textContent.trim() === ${JSON.stringify(label)}))`), '应用主题选项')
+    return js(`(() => {
+      const option = Array.from(document.querySelectorAll('[role="option"]')).find(node => node.textContent.trim() === ${JSON.stringify(label)})
+      if (option) option.click()
+      return Boolean(option)
+    })()`)
+  }
   // Linkle 房间没有底部会话栏（那是 Banguru 的），回房间走侧栏的 Linkle 入口。
   const returnToRoom = `(() => {
     const button = Array.from(document.querySelectorAll('.desktop-service-nav button')).find(item => item.textContent.includes('Linkle'))
@@ -1307,7 +1316,7 @@ async function checkLinkleWorkspace({ js, until, wait, service, shot, shotRect, 
   await until(() => js(`Boolean(document.querySelector('.fluent-settings-nav'))`), 'settings for the theme switch')
   await js(`Array.from(document.querySelectorAll('.fluent-settings-nav [role="tab"]')).find(tab => tab.textContent.includes('基础'))?.click()`)
   await until(() => js(`Boolean(Array.from(document.querySelectorAll('.fluent-settings-row')).find(item => (item.textContent ?? '').includes('应用主题')))`), 'appearance row')
-  assert.ok(await js(themeSwitch('浅色')), '设置里找不到应用主题开关')
+  assert.ok(await themeSwitch('浅色'), '设置里找不到应用主题开关')
   await until(() => js(`!document.documentElement.classList.contains('dark')`), 'light theme applied')
   assert.ok(await js(returnToRoom), '会话栏里没有返回当前会话')
   await until(() => js(`Boolean(document.querySelector('.linkle-room'))`), 'room after returning in light theme')
@@ -1430,7 +1439,7 @@ async function checkLinkleWorkspace({ js, until, wait, service, shot, shotRect, 
   await until(() => js(`Boolean(document.querySelector('.fluent-settings-nav'))`), 'settings for the dark switch back')
   await js(`Array.from(document.querySelectorAll('.fluent-settings-nav [role="tab"]')).find(tab => tab.textContent.includes('基础'))?.click()`)
   await until(() => js(`Boolean(Array.from(document.querySelectorAll('.fluent-settings-row')).find(item => (item.textContent ?? '').includes('应用主题')))`), 'appearance row again')
-  assert.ok(await js(themeSwitch('深色')), '第二次找不到应用主题开关')
+  assert.ok(await themeSwitch('深色'), '第二次找不到应用主题开关')
   await until(() => js(`document.documentElement.classList.contains('dark')`), 'dark theme restored')
   assert.ok(await js(returnToRoom), '会话栏里没有返回当前会话（第二次）')
   await until(() => js(`Boolean(document.querySelector('.linkle-room'))`), 'room after returning in dark theme')
