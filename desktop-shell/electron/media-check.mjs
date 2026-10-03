@@ -996,10 +996,13 @@ async function runPlayCheck({ window, js, until, step }) {
     for (const row of shots) {
       assert.equal(row.geo.playing, true, `带片几何采样时媒体已不在播放: ${JSON.stringify(row)}`)
       assert.equal(row.geo.row?.overflow, 0, `带片控制栏在 ${row.width} 溢出: ${JSON.stringify(row.geo)}`)
+      assert.equal(row.geo.seek?.overflow, 0, `带片进条行在 ${row.width} 溢出: ${JSON.stringify(row.geo)}`)
+      assert.equal(row.geo.scrim?.overflow, 0, `带片主叠层在 ${row.width} 溢出: ${JSON.stringify(row.geo)}`)
       assert.equal(row.geo.docOverflow, 0, `带片文档在 ${row.width} 溢出: ${JSON.stringify(row.geo)}`)
     }
-    // 定位潜在布局溢出（clipped、不可见也要点名）：谁越过了容器的右缘。
-    const culprits = await js(`(() => {
+    // 定位潜在布局溢出（clipped、不可见也要点名）：仅在真有溢出时打印，免得绿跑成噪音。
+    if (shots.some(row => (row.geo.seek?.overflow ?? 0) > 0 || (row.geo.scrim?.overflow ?? 0) > 0)) {
+      const culprits = await js(`(() => {
       const scan = (sel, label) => {
         const root = document.querySelector(sel)
         if (!root) return { label, missing: true }
@@ -1015,7 +1018,8 @@ async function runPlayCheck({ window, js, until, step }) {
       }
       return { scrim: scan('.media-scrim', 'scrim'), seek: scan('.media-bottom-scrim > div:first-child', 'seek') }
     })()`)
-    console.log('PLAYER_OVERFLOW_CULPRITS ' + JSON.stringify(culprits))
+      console.log('PLAYER_OVERFLOW_CULPRITS ' + JSON.stringify(culprits))
+    }
 
     window.setContentSize(1300, 800)
     await wake()
@@ -1027,6 +1031,8 @@ async function runPlayCheck({ window, js, until, step }) {
     const fullGeo = await geometry()
     console.log('PLAYER_PLAYING_FULLSCREEN ' + JSON.stringify({ shot: fullShot, geo: fullGeo }))
     assert.equal(fullGeo.playing, true, `进全屏后媒体停了: ${JSON.stringify(fullGeo)}`)
+    assert.equal(fullGeo.seek?.overflow, 0, `全屏进条行溢出: ${JSON.stringify(fullGeo)}`)
+    assert.equal(fullGeo.scrim?.overflow, 0, `全屏主叠层溢出: ${JSON.stringify(fullGeo)}`)
     assert.equal(fullGeo.docOverflow, 0, `全屏下文档溢出: ${JSON.stringify(fullGeo)}`)
 
     await js(`document.querySelector('button[aria-label="退出全屏"]')?.click()`)
@@ -1038,6 +1044,8 @@ async function runPlayCheck({ window, js, until, step }) {
     console.log('PLAYER_PLAYING_BACK ' + JSON.stringify(backGeo))
     assert.equal(backGeo.playing, true, `退出全屏后媒体停了: ${JSON.stringify(backGeo)}`)
     assert.equal(backGeo.row?.overflow, 0, `退回窗口态后控制栏溢出: ${JSON.stringify(backGeo)}`)
+    assert.equal(backGeo.seek?.overflow, 0, `退回窗口态后进条行溢出: ${JSON.stringify(backGeo)}`)
+    assert.equal(backGeo.scrim?.overflow, 0, `退回窗口态后主叠层溢出: ${JSON.stringify(backGeo)}`)
     assert.equal(backGeo.docOverflow, 0, `退回窗口态后文档溢出: ${JSON.stringify(backGeo)}`)
   })
 }
