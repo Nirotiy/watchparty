@@ -28,7 +28,17 @@ export type SharedCommand =
   | { type: "playlistRemove"; itemId: string }
   | { type: "playlistMove"; itemId: string; targetIndex: number }
   | { type: "playlistPlay"; itemId: string }
-  | { type: "playlistNext"; expectedCurrentPlaylistItemId?: string };
+  | { type: "playlistNext"; expectedCurrentPlaylistItemId?: string }
+  | { type: "playlistAutoNext"; expectedCurrentPlaylistItemId?: string };
+
+const OWNER_ONLY_COMMANDS = new Set<SharedCommand["type"]>([
+  "seek",
+  "rate",
+  "loop",
+  "mediaSet",
+  "playlistPlay",
+  "playlistNext",
+]);
 
 export type RoomEvent =
   | { event: "snapshot"; payload: RoomSnapshot }
@@ -52,6 +62,7 @@ export class Room {
   private paused = true;
   private playbackRate = 1;
   private loop = false;
+  /** Deprecated compatibility field; playback authorization is command-scoped. */
   private locked = true;
   private playlist: PlaylistItem[] = [];
   private revision = 0;
@@ -135,8 +146,9 @@ export class Room {
     }
     if (expectedRevision !== this.revision)
       return errorResult("REVISION_CONFLICT");
-    if (command.type === "lock" && !isOwner) return errorResult("FORBIDDEN");
-    if (this.locked && !isOwner) return errorResult("FORBIDDEN");
+    if ((command.type === "lock" || OWNER_ONLY_COMMANDS.has(command.type)) && !isOwner) {
+      return errorResult("FORBIDDEN");
+    }
 
     switch (command.type) {
       case "play":
@@ -226,7 +238,8 @@ export class Room {
         this.stateChangedAtMs = this.now();
         break;
       }
-      case "playlistNext": {
+      case "playlistNext":
+      case "playlistAutoNext": {
         // Old clients (e.g. an MPV that just finished a superseded media) must
         // not advance a playlist entry they no longer correspond to.
         if (

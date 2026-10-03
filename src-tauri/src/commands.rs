@@ -69,6 +69,7 @@ pub fn validate_command(command: &DesktopCommand) -> Result<(), String> {
             Ok(())
         }
         DesktopCommand::Rate { rate } if rate.is_finite() && (0.25..=2.0).contains(rate) => Ok(()),
+        DesktopCommand::Loop { .. } => Ok(()),
         DesktopCommand::Volume { volume }
             if volume.is_finite() && (0.0..=100.0).contains(volume) =>
         {
@@ -83,6 +84,18 @@ pub fn validate_command(command: &DesktopCommand) -> Result<(), String> {
         DesktopCommand::PlayerVisibility { .. } | DesktopCommand::Fullscreen { .. } => Ok(()),
         DesktopCommand::PlaylistPlay { item_id } if !item_id.is_empty() => Ok(()),
         DesktopCommand::PlaylistNext {
+            expected_current_playlist_item_id,
+        } => {
+            if expected_current_playlist_item_id
+                .as_ref()
+                .is_some_and(|id| id.is_empty())
+            {
+                Err("playlist item id must not be empty".into())
+            } else {
+                Ok(())
+            }
+        }
+        DesktopCommand::PlaylistAutoNext {
             expected_current_playlist_item_id,
         } => {
             if expected_current_playlist_item_id

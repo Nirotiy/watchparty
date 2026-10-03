@@ -92,6 +92,7 @@ export interface DesktopUiState {
   roomId?: string | null
   room: RoomSnapshot | null
   members: RoomMember[]
+  /** Legacy aggregate; command permissions are derived from isOwner. */
   canControlSharedPlayback: boolean
   /** Whether this client owns the room. */
   isOwner?: boolean
@@ -107,6 +108,8 @@ export type DesktopCommand =
   | { type: "play" | "pause" | "resync" }
   | { type: "seek"; positionSeconds: number }
   | { type: "rate"; rate: number }
+  | { type: "loop"; loop: boolean }
+  | { type: "loop"; loop: boolean }
   | { type: "volume"; volume: number }
   | { type: "selectAudioTrack"; trackId: number }
   | { type: "selectSubtitleTrack"; trackId: number | null }
@@ -114,6 +117,8 @@ export type DesktopCommand =
   | { type: "fullscreen"; enabled: boolean }
   | { type: "playlistPlay"; itemId: string }
   | { type: "playlistNext"; expectedCurrentPlaylistItemId: string | null }
+  | { type: "playlistAutoNext"; expectedCurrentPlaylistItemId: string | null }
+  | { type: "playlistAutoNext"; expectedCurrentPlaylistItemId: string | null }
   | { type: "lock"; locked: boolean }
   | { type: "name"; name: string }
   | { type: "transferOwner"; targetClientId: string }

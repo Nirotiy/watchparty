@@ -210,6 +210,18 @@ function bindCommands(
   socket.on("CMD:playlistNext", (payload, ack) =>
     run(payload, { type: "playlistNext" }, ack),
   );
+  socket.on("CMD:playlistAutoNext", (payload, ack) =>
+    run(
+      payload,
+      {
+        type: "playlistAutoNext",
+        ...(isRecord(payload) && typeof payload.expectedCurrentPlaylistItemId === "string"
+          ? { expectedCurrentPlaylistItemId: payload.expectedCurrentPlaylistItemId }
+          : {}),
+      },
+      ack,
+    ),
+  );
   socket.on("CMD:transferOwner", (payload, ack) => {
     if (!isRecord(payload) || typeof payload.targetClientId !== "string")
       return ack(errorResult("INVALID_REQUEST"));

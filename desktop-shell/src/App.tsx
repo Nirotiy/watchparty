@@ -940,7 +940,8 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
   const [onlyReview, setOnlyReview] = useState(false)
   const [backendOrigin, setBackendOrigin] = useState<string | null>(null)
   useEffect(() => { void getDesktopSettings().then((s) => setBackendOrigin(s.backendOrigin)).catch(() => setMessage("请先配置后端站点")) }, [])
-  const canControl = Boolean(state?.canControlSharedPlayback)
+  const canPlay = Boolean(state?.isOwner)
+  const canQueue = state?.connection === "ready" && Boolean(state.room)
   const usesLibraries = capabilities?.libraries === true
   const activeLibrary = libraries.find(entry => entry.id === activeLibraryId) ?? null
   const mode: "titles" | "files" = activeLibraryId ? modeByLibrary[activeLibraryId] ?? "titles" : "files"
@@ -1206,8 +1207,8 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
 
   /** 标题墙的播放走和文件视图同一条房间路径，只是 mediaId 来自条目的子项。 */
   async function playCatalogChild(mediaId: string, title: string, container: string) {
-    if (!canControl) {
-      setMessage("当前无控制权限（房间已锁定或非房主）")
+    if (!canPlay) {
+      setMessage("选片仅限房主操作")
       return
     }
     const media: MediaSource = { kind: "openlist", mediaId, title, container: container || "mp4" }
@@ -1219,8 +1220,8 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
 
   async function enqueueCatalogChild(mediaId: string, title: string, container: string) {
     if (!mediaQueueAvailable) return
-    if (!canControl) {
-      setMessage("当前无控制权限（房间已锁定或非房主）")
+    if (!canQueue) {
+      setMessage("请先加入房间")
       return
     }
     const media: MediaSource = { kind: "openlist", mediaId, title, container: container || "mp4" }
@@ -1239,8 +1240,8 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
       setMessage(card.note ?? "桌面端无法播放这个文件")
       return
     }
-    if (!canControl) {
-      setMessage("当前无控制权限（房间已锁定或非房主）")
+    if (!canPlay) {
+      setMessage("选片仅限房主操作")
       return
     }
     const media: MediaSource = { kind: "openlist", mediaId: card.id, title: card.title, container: card.extension || "mp4" }
@@ -1252,8 +1253,8 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
 
   async function enqueueCard(card: MediaCard) {
     if (!mediaQueueAvailable || !card.playable) return
-    if (!canControl) {
-      setMessage("当前无控制权限（房间已锁定或非房主）")
+    if (!canQueue) {
+      setMessage("请先加入房间")
       return
     }
     const media: MediaSource = { kind: "openlist", mediaId: card.id, title: card.title, container: card.extension || "mp4" }
@@ -1316,8 +1317,12 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
   async function submitPaste(play: boolean) {
     if (!pasteUrl.trim()) return
     if (!play && !mediaQueueAvailable) return
-    if (!canControl) {
-      setMessage("当前无控制权限（房间已锁定或非房主）")
+    if (play && !canPlay) {
+      setMessage("选片仅限房主操作")
+      return
+    }
+    if (!play && !canQueue) {
+      setMessage("请先加入房间")
       return
     }
     const media = pastedMedia()
@@ -1392,10 +1397,10 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
         <span className="text-xs font-semibold text-muted-foreground">粘贴 HTTPS / HLS</span>
         <Input value={pasteUrl} onChange={(event) => setPasteUrl(event.target.value)} placeholder="https://example.com/video.mp4 或 .m3u8" aria-label="粘贴媒体地址" className="h-8 min-w-64 flex-1 font-mono text-xs" />
         <Input value={pasteTitle} onChange={(event) => setPasteTitle(event.target.value)} placeholder="标题（可选）" aria-label="粘贴媒体标题" className="h-8 w-40 text-xs" />
-        <Button size="sm" disabled={!canControl || !pasteUrl.trim()} onClick={() => void submitPaste(true)}>
+        <Button size="sm" disabled={!canPlay || !pasteUrl.trim()} onClick={() => void submitPaste(true)}>
           <PlayRegular />播放
         </Button>
-        <Button variant="outline" size="sm" disabled={!mediaQueueAvailable || !canControl || !pasteUrl.trim()} onClick={() => void submitPaste(false)}>
+        <Button variant="outline" size="sm" disabled={!mediaQueueAvailable || !canQueue || !pasteUrl.trim()} onClick={() => void submitPaste(false)}>
           <AddRegular />入队
         </Button>
       </form>
@@ -1438,8 +1443,8 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
                 <button type="button" className="catalog-detail-scrim" aria-label="关闭作品详情" onClick={closeDetail} />
                 <CatalogRail
                   detail={detail}
-                  controlEnabled={canControl}
-                  queueEnabled={mediaQueueAvailable}
+                  controlEnabled={canPlay}
+                  queueEnabled={mediaQueueAvailable && canQueue}
                   onPlay={playCatalogChild}
                   onEnqueue={enqueueCatalogChild}
                   onConfirm={candidateId => void reviewCandidate("confirm", candidateId)}
@@ -1489,8 +1494,8 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
           {view?.cards.length ? (
             <MediaCardGrid
               cards={visibleCards(view.cards, showAllFiles)}
-              controlEnabled={canControl}
-              queueEnabled={mediaQueueAvailable}
+              controlEnabled={canPlay}
+              queueEnabled={mediaQueueAvailable && canQueue}
               onOpen={card => void playCard(card)}
               onPlay={card => void playCard(card)}
               onEnqueue={card => void enqueueCard(card)}

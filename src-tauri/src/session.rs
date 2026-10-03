@@ -310,8 +310,8 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
             }
             _ => {}
         }
-        // Locked rooms also require owner proof for play/seek/queue commands.
         // The token stays native and is sent only while the snapshot names us as owner.
+        // Server-side command policy decides which shared actions require it.
         let is_owner = self.owner_token.is_some()
             && self.snapshot.as_ref().is_some_and(|snapshot| {
                 self.client_id.as_deref() == Some(snapshot.owner_client_id.as_str())
@@ -445,7 +445,7 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
                         .and_then(|snapshot| snapshot.current_playlist_item_id.as_ref());
                     if current_item == Some(&ended_item) {
                         match self.execute(
-                            DesktopCommand::PlaylistNext {
+                            DesktopCommand::PlaylistAutoNext {
                                 expected_current_playlist_item_id: Some(ended_item),
                             },
                             now,
@@ -597,10 +597,10 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
                 room_id: self.room_id.clone(),
                 room: self.snapshot.clone(),
                 members: self.members.clone(),
-                can_control_shared_playback: self
-                    .snapshot
-                    .as_ref()
-                    .is_some_and(|snapshot| !snapshot.locked || is_owner),
+                // Compatibility aggregate for older renderers. Shared playback
+                // is available to every connected member; owner-only commands
+                // use `is_owner` in the renderer and on the server.
+                can_control_shared_playback: self.snapshot.is_some(),
                 is_owner,
                 client_id: self.client_id.clone(),
                 player_window_visible: player.loaded && !self.locally_suspended,

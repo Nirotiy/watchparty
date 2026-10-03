@@ -149,7 +149,7 @@ async function claimGrant(backend: Backend, identity: DesktopIdentity): Promise<
   return { status: 200, ...(await response.json() as { ownerToken: string }) };
 }
 
-test("desktop creator locks the room through the owner token header and guests are forbidden", async () => {
+test("desktop command permissions are scoped per operation", async () => {
   const backend = await boot();
   const clientId = randomUUID();
   const created = await fetch(url(backend, "/api/desktop/rooms"), {
@@ -162,27 +162,26 @@ test("desktop creator locks the room through the owner token header and guests a
   const owner: DesktopIdentity = { roomId: room.roomId, clientId, accessToken: room.accessToken, generation: 1 };
   const guest = await joinDesktop(backend, room.roomId, "Guest");
 
-  const locked = await desktopCommand(backend, owner, { type: "lock", locked: true, expectedRevision: 0 }, room.ownerToken);
-  assert.equal(locked.status, 200);
-  assert.ok(locked.ack.ok);
-
-  // A room created from scratch starts locked at revision 0; after the lock
-  // command (already locked) the revision moved to 1.
+  // The legacy snapshot flag is ignored by the new command policy.
   const snapshot = await desktopSnapshot(backend, owner);
   assert.equal(snapshot.locked, true);
+  const guestPause = await desktopCommand(backend, guest, { type: "pause", expectedRevision: snapshot.revision });
+  assert.equal(guestPause.status, 200);
+  assert.ok(guestPause.ack.ok);
+  const guestSeek = await desktopCommand(backend, guest, { type: "seek", positionSeconds: 10, expectedRevision: guestPause.ack.revision }, room.ownerToken);
+  assert.equal(guestSeek.status, 403);
+  assert.equal(guestSeek.ack.error?.code, "FORBIDDEN");
+  const guestQueue = await desktopCommand(backend, guest, { type: "playlistAdd", media: { kind: "http", url: "https://example.com/guest.mp4" }, expectedRevision: guestPause.ack.revision });
+  assert.equal(guestQueue.status, 200);
+  assert.ok(guestQueue.ack.ok);
 
-  const guestPlay = await desktopCommand(backend, guest, { type: "pause", expectedRevision: snapshot.revision });
-  assert.equal(guestPlay.status, 403);
-  assert.equal(guestPlay.ack.error?.code, "FORBIDDEN");
-
-  // Owner commands without the header never reach Room.execute as owner.
-  const noHeader = await desktopCommand(backend, owner, { type: "lock", locked: false, expectedRevision: snapshot.revision });
+  // Owner-only media selection still requires the owner proof.
+  const noHeader = await desktopCommand(backend, owner, { type: "mediaSet", media: { kind: "http", url: "https://example.com/owner.mp4" }, expectedRevision: guestQueue.ack.revision });
   assert.equal(noHeader.status, 403);
   assert.equal(noHeader.ack.error?.code, "FORBIDDEN");
-
-  const ownerUnlock = await desktopCommand(backend, owner, { type: "lock", locked: false, expectedRevision: snapshot.revision }, room.ownerToken);
-  assert.equal(ownerUnlock.status, 200);
-  assert.ok(ownerUnlock.ack.ok);
+  const ownerMedia = await desktopCommand(backend, owner, { type: "mediaSet", media: { kind: "http", url: "https://example.com/owner.mp4" }, expectedRevision: guestQueue.ack.revision }, room.ownerToken);
+  assert.equal(ownerMedia.status, 200);
+  assert.ok(ownerMedia.ack.ok);
 });
 
 test("browser owner transfers to a desktop member through a one-time grant claim", async () => {

@@ -180,7 +180,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
     return { content: rawSubtitleContent, offsetSeconds: subtitleOffset };
   }, [activeSubtitleTrack, rawSubtitleContent, subtitleOffset]);
 
-  // 6. 房主锁与操作拦截提示
+  // 6. 房主专属操作提示
   const [lockWarning, setLockWarning] = useState<string | null>(null);
   const lockWarningTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -284,9 +284,9 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
 
-  // 房主锁操作拦截气泡
+  // 房主专属操作的提示气泡
   const triggerLockWarning = useCallback((actionText: string) => {
-    setLockWarning(`房主已开启控制锁：仅房主可${actionText}`);
+    setLockWarning(`仅房主可${actionText}`);
     if (lockWarningTimerRef.current) clearTimeout(lockWarningTimerRef.current);
     lockWarningTimerRef.current = setTimeout(() => setLockWarning(null), 2500);
   }, []);
@@ -464,8 +464,8 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
 
   // 权限与房主判定
   const isOwner = snapshot?.ownerClientId === clientId;
-  const isLocked = snapshot?.locked ?? false;
-  const canControl = !isLocked || isOwner;
+  const canControl = Boolean(snapshot);
+  const canOwnerControl = Boolean(snapshot && isOwner);
 
   const waitForNewerRevision = useCallback(async (revision: number): Promise<number | null> => {
     const deadline = Date.now() + 1_000;
@@ -568,7 +568,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
   const handleSeekCommit = async (values: number[]) => {
     setSeekPreview(null);
     if (!snapshot || !socketRef.current || totalDuration === 0) return;
-    if (!canControl) {
+    if (!canOwnerControl) {
       triggerLockWarning("调整播放进度");
       return;
     }
@@ -584,7 +584,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
 
   const handlePrevTrack = async () => {
     if (!snapshot || !socketRef.current) return;
-    if (!canControl) {
+    if (!canOwnerControl) {
       triggerLockWarning("切换播放条目");
       return;
     }
@@ -597,24 +597,16 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
 
   const handleNextTrack = async () => {
     if (!snapshot || !socketRef.current) return;
-    if (!canControl) {
+    if (!canOwnerControl) {
       triggerLockWarning("切换播放条目");
       return;
     }
     await runCommand((socket, revision) => socket.playlistNext(revision));
   };
 
-  const handleToggleLock = async () => {
-    if (!snapshot || !socketRef.current || !isOwner) {
-      triggerLockWarning("修改房主控制锁");
-      return;
-    }
-    await runCommand((socket, revision) => socket.lock(!snapshot.locked, revision));
-  };
-
   const handleRateChange = async () => {
     if (!snapshot || !socketRef.current) return;
-    if (!canControl) {
+    if (!canOwnerControl) {
       triggerLockWarning("调整倍速");
       return;
     }
@@ -625,7 +617,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
 
   const handleToggleLoop = async () => {
     if (!snapshot || !socketRef.current) return;
-    if (!canControl) {
+    if (!canOwnerControl) {
       triggerLockWarning("切换循环");
       return;
     }
@@ -660,7 +652,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
       onKeyDown={revealControls}
       className="relative flex h-dvh w-screen flex-col overflow-hidden bg-black font-sans text-white select-none"
     >
-      {/* ================= 1. 顶部呼出层：房间状态 + 锁/成员/媒体库 + 标题来源 ================= */}
+      {/* ================= 1. 顶部呼出层：房间状态、成员、媒体库和标题来源 ================= */}
       <div
         data-controls-state={shouldPinControls || areControlsVisible ? "visible" : "hidden"}
         className={cn(
@@ -681,12 +673,6 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
             {isSocketConnected ? "已连接" : "重连中..."}
           </span>
           <span className="flex-1" />
-          <IconControl
-            icon={isLocked ? "lock" : "lock_open"}
-            label={isLocked ? "房主锁已开启" : "自由控制"}
-            onClick={handleToggleLock}
-            active={isLocked}
-          />
           <IconControl
             icon="group"
             label={`在线成员 (${members.length})`}
@@ -714,7 +700,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
       {/* ================= 2. 真实视频播放区域 (Video Stage) ================= */}
       <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden bg-black">
 
-        {/* 房主锁警告拦截提示 */}
+        {/* 房主专属操作提示 */}
         {lockWarning && (
           <div className="absolute top-16 z-40 rounded border border-amber-500/40 bg-amber-950/90 px-4 py-2 text-xs font-semibold text-amber-300 shadow-xl backdrop-blur-sm">
             🔒 {lockWarning}
@@ -762,7 +748,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
             onEnded={() => {
               // 自动切播下一首
               if (snapshot && socketRef.current && canControl) {
-                void runCommand((socket, revision) => socket.playlistNext(revision));
+                void runCommand((socket, revision) => socket.playlistAutoNext(snapshot.currentPlaylistItemId, revision));
               }
             }}
             onPlayClick={handleTogglePlay}
@@ -804,7 +790,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
               value={[Math.min(seekPreview ?? currentTime, totalDuration || 0)]}
               max={totalDuration || 1}
               step={1}
-              disabled={!canControl || totalDuration === 0}
+              disabled={!canOwnerControl || totalDuration === 0}
               onValueChange={(values) => setSeekPreview(values[0] ?? null)}
               onValueCommit={handleSeekCommit}
               aria-label="播放进度"
@@ -955,7 +941,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
         onToggleFullPage={() => setIsLibraryFullPage((value) => !value)}
         onPlayNow={async (media) => {
           if (!snapshot || !socketRef.current) return;
-          if (!canControl) {
+          if (!canOwnerControl) {
             triggerLockWarning("切换播放媒体");
             return;
           }
@@ -963,7 +949,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
         }}
         onPlayOnDesktop={async (media) => {
           if (!snapshot || !socketRef.current) return false;
-          if (!canControl) {
+          if (!canOwnerControl) {
             triggerLockWarning("切换播放媒体");
             return false;
           }
@@ -976,18 +962,10 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
         }}
         onAddToQueue={async (media) => {
           if (!snapshot || !socketRef.current) return;
-          if (!canControl) {
-            triggerLockWarning("修改播放清单");
-            return;
-          }
           await runCommand((socket, revision) => socket.playlistAdd(media, revision));
         }}
         onBatchAdd={async (medias) => {
           if (!snapshotRef.current || !socketRef.current) return;
-          if (!canControl) {
-            triggerLockWarning("修改播放清单");
-            return;
-          }
           let revision = snapshotRef.current.revision;
           for (const media of medias) {
             let acknowledgement = await socketRef.current.playlistAdd(media, revision);
@@ -1014,7 +992,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
         currentPlaylistItemId={snapshot?.currentPlaylistItemId}
         onPlayItem={async (itemId) => {
           if (!snapshot || !socketRef.current) return;
-          if (!canControl) {
+          if (!canOwnerControl) {
             triggerLockWarning("切换播放条目");
             return;
           }
@@ -1022,25 +1000,17 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
         }}
         onRemoveItem={async (itemId) => {
           if (!snapshot || !socketRef.current) return;
-          if (!canControl) {
-            triggerLockWarning("移除播放条目");
-            return;
-          }
           await runCommand((socket, revision) => socket.playlistRemove(itemId, revision));
         }}
         onMoveItem={async (itemId, targetIndex) => {
           if (!snapshot || !socketRef.current) return;
-          if (!canControl) {
-            triggerLockWarning("调整播放列表顺序");
-            return;
-          }
           await runCommand((socket, revision) =>
             socket.playlistMove(itemId, targetIndex, revision),
           );
         }}
         onOpenMediaSelector={() => setIsOpenListModalOpen(true)}
-        isLocked={isLocked}
-        isOwner={isOwner}
+        canPlayItem={canOwnerControl}
+        canEditQueue={canControl}
       />
 
       <MembersModal

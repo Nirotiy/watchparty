@@ -61,7 +61,7 @@ function MediaCardTile({ card, onOpen, onPlay, onEnqueue, controlEnabled, queueE
           type="button"
           className="media-card-open"
           title={card.relativePath || card.title}
-          disabled={card.kind === "file" && !card.playable}
+          disabled={card.kind === "file" && (!card.playable || !controlEnabled)}
           onClick={() => card.kind === "dir" ? onOpen(card) : onPlay(card)}
         >
           <span className="media-card-art" aria-hidden="true">
@@ -80,7 +80,7 @@ function MediaCardTile({ card, onOpen, onPlay, onEnqueue, controlEnabled, queueE
             <Button size="sm" disabled={!card.playable || !controlEnabled} title={card.note ?? "立即播放"} onClick={() => onPlay(card)}>
               <PlayRegular />播放
             </Button>
-            <Button variant="outline" size="sm" disabled={!card.playable || !queueEnabled || !controlEnabled} title={card.note ?? "加入播放队列"} onClick={() => onEnqueue(card)}>
+            <Button variant="outline" size="sm" disabled={!card.playable || !queueEnabled} title={card.note ?? "加入播放队列"} onClick={() => onEnqueue(card)}>
               <AddRegular />入队
             </Button>
           </div>

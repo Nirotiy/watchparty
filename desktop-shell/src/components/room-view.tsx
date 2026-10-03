@@ -3,7 +3,7 @@ import type { ComponentType, ReactElement } from "react"
 import {
   AddRegular, ArrowExitRegular, ArrowSyncRegular, ChevronDownRegular, ChevronUpRegular, ClosedCaptionRegular,
   DesktopRegular, DismissRegular, EyeOffRegular, FullScreenMaximizeRegular, FullScreenMinimizeRegular, GaugeRegular,
-  LockClosedRegular, MusicNote2Regular, NextRegular, PauseRegular, PeopleRegular, PlayRegular, Speaker2Regular,
+  MusicNote2Regular, NextRegular, PauseRegular, PeopleRegular, PlayRegular, Speaker2Regular,
   TextBulletListLtrRegular,
 } from "@fluentui/react-icons"
 
@@ -199,16 +199,15 @@ export function RoomView({
 
   const hasMedia = Boolean(room?.source)
   const ready = state.connection === "ready"
-  const sharedEnabled = ready && hasMedia && state.canControlSharedPlayback
-  const lockReason = ready && hasMedia && !state.canControlSharedPlayback && room?.locked
-    ? "房主已锁定，请从网页端控制"
-    : null
+  const sharedEnabled = ready && hasMedia
+  const ownerEnabled = sharedEnabled && Boolean(state.isOwner)
+  const ownerReason = sharedEnabled && !state.isOwner ? "仅房主可操作" : null
   const localEnabled = player.loaded
   const subtitleTrack = player.subtitleTracks.find((track) => track.selected)
   const audioTrack = player.audioTracks.find((track) => track.selected)
   const showControls = controlsPinned || controlsVisible
   const expectedCurrentPlaylistItemId = room?.currentPlaylistItemId ?? null
-  const canAdvance = mediaQueueAvailable && sharedEnabled && Boolean(room?.playlist.length)
+  const canAdvance = mediaQueueAvailable && ownerEnabled && Boolean(room?.playlist.length)
   const overlayRight = drawer ? "min(340px, 42vw)" : "0px"
 
   const overlayClass = cn(
@@ -266,7 +265,7 @@ export function RoomView({
 
       <footer style={{ right: overlayRight }} className={cn(overlayClass, "media-bottom-scrim bottom-0 space-y-2 px-4 pt-14 pb-4 transition-[opacity,right] duration-200 ease-[var(--f2-ease-out)] motion-reduce:transition-none")} {...holdControls}>
         <div className="flex items-center gap-2">
-          <SharedControl reason={lockReason}>
+          <SharedControl reason={null}>
             <span>
               <IconControl
                 icon={room?.paused === false ? PauseRegular : PlayRegular}
@@ -278,7 +277,7 @@ export function RoomView({
               />
             </span>
           </SharedControl>
-          <SharedControl reason={lockReason}>
+          <SharedControl reason={ownerReason}>
             <span>
               <IconControl
                 icon={NextRegular}
@@ -300,7 +299,7 @@ export function RoomView({
             value={[position]}
             title={formatTime(position)}
             formatHover={value => formatTime(value)}
-            disabled={!sharedEnabled || !localEnabled || duration <= 0}
+            disabled={!ownerEnabled || !localEnabled || duration <= 0}
             onValueChange={([value]) => {
               setSeeking(true)
               setPosition(value ?? 0)
@@ -353,6 +352,18 @@ export function RoomView({
               {player.subtitleTracks.map((track) => <SelectItem key={track.id} value={String(track.id)}>{trackLabel(track)}</SelectItem>)}
             </SelectContent>
           </Select>
+          <SharedControl reason={ownerReason}>
+            <span>
+              <IconControl
+                icon={ArrowSyncRegular}
+                iconClassName="glyph-18"
+                label={room?.loop ? "关闭循环" : "开启循环"}
+                active={room?.loop}
+                disabled={!ownerEnabled}
+                onClick={() => void command({ type: "loop", loop: !room?.loop })}
+              />
+            </span>
+          </SharedControl>
 
           <Select
             value={audioTrack ? String(audioTrack.id) : undefined}
@@ -375,7 +386,7 @@ export function RoomView({
 
           <Select
             value={String(room?.playbackRate ?? 1)}
-            disabled={!sharedEnabled}
+            disabled={!ownerEnabled}
             onValueChange={(value) => void command({ type: "rate", rate: Number(value) })}
           >
             <SelectTrigger className="media-icon label" title="倍速" aria-label="倍速">
@@ -418,6 +429,8 @@ export function RoomView({
 }
 
 function RoomDrawer({ kind, state, command, onAdd, onClose }: { kind: Drawer; state: DesktopUiState; command: (command: DesktopCommand) => Promise<boolean>; onAdd: () => void; onClose: () => void }) {
+  const roomReady = state.connection === "ready" && Boolean(state.room)
+  const ownerOnlyEnabled = roomReady && Boolean(state.isOwner)
   return (
     <aside
       aria-hidden={!kind}
@@ -430,11 +443,6 @@ function RoomDrawer({ kind, state, command, onAdd, onClose }: { kind: Drawer; st
       <div className="mb-2 flex min-h-11 items-center gap-2 border-b border-border pb-3">
         <h2 className="text-sm font-semibold">{kind === "members" ? `在线成员 ${state.members.length}` : `播放队列 ${state.room?.playlist.length ?? 0} 项`}</h2>
         <span className="flex-1" />
-        {kind === "members" && state.isOwner ? (
-          <Button variant="outline" size="sm" title={state.room?.locked ? "解锁房间" : "锁定房间（仅房主可控制）"} onClick={() => void command({ type: "lock", locked: !state.room?.locked })}>
-            <LockClosedRegular />{state.room?.locked ? "解锁" : "锁定"}
-          </Button>
-        ) : null}
         {kind === "queue" ? <Button variant="outline" size="sm" onClick={onAdd}><AddRegular />添加媒体</Button> : null}
         <Button variant="ghost" size="icon" title="收起" aria-label="收起" onClick={onClose}><DismissRegular /></Button>
       </div>
@@ -444,13 +452,13 @@ function RoomDrawer({ kind, state, command, onAdd, onClose }: { kind: Drawer; st
             <button
               type="button"
               className="winui-focus grid w-full grid-cols-[30px_minmax(0,1fr)] gap-2 rounded-sm text-left disabled:cursor-default"
-              disabled={!state.canControlSharedPlayback || item.id === state.room?.currentPlaylistItemId}
+              disabled={!ownerOnlyEnabled || item.id === state.room?.currentPlaylistItemId}
               onClick={() => void command({ type: "playlistPlay", itemId: item.id })}
             >
               <span className="font-mono text-muted-foreground">{String(index + 1).padStart(2, "0")}</span>
               <span className="min-w-0"><span className="block truncate">{mediaTitle(item.media)}</span><span className="mt-1 block truncate text-xs text-muted-foreground">{item.id === state.room?.currentPlaylistItemId ? `正在播放 · ${formatTime(state.player.time)}` : `${state.members.find((member) => member.clientId === item.addedByClientId)?.name ?? "成员"} 添加`}</span></span>
             </button>
-            {state.canControlSharedPlayback ? (
+            {roomReady ? (
               <span className="flex items-center gap-0.5">
                 <Button variant="ghost" size="icon" title="上移" aria-label={`上移 ${mediaTitle(item.media)}`} disabled={index === 0} onClick={() => void command({ type: "playlistMove", itemId: item.id, targetIndex: index - 1 })}><ChevronUpRegular /></Button>
                 <Button variant="ghost" size="icon" title="下移" aria-label={`下移 ${mediaTitle(item.media)}`} disabled={index >= (state.room?.playlist.length ?? 0) - 1} onClick={() => void command({ type: "playlistMove", itemId: item.id, targetIndex: index + 1 })}><ChevronDownRegular /></Button>

@@ -617,7 +617,7 @@ fn frequent_snapshot_polls_keep_member_refreshes_throttled() {
 }
 
 #[test]
-fn renderer_receives_the_effective_shared_control_permission() {
+fn renderer_exposes_shared_control_to_every_room_member() {
     let mut transport = FakeTransport::default();
     let mut locked = snapshot(2, "i1");
     locked.locked = true;
@@ -630,7 +630,7 @@ fn renderer_receives_the_effective_shared_control_permission() {
 
     session.poll(250);
     let locked = serde_json::to_value(session.event()).unwrap();
-    assert_eq!(locked["state"]["canControlSharedPlayback"], false);
+    assert_eq!(locked["state"]["canControlSharedPlayback"], true);
 }
 
 #[test]
@@ -671,7 +671,7 @@ fn owner_commands_gate_on_ownership_and_persist_transitions() {
         Some(Some("ot-1".into()))
     );
 
-    // Shared playback also needs owner proof when the room is locked.
+    // Shared playback keeps the owner proof when the caller is the owner.
     session.execute(DesktopCommand::Play, 350).unwrap();
     assert_eq!(session.transport.command_owner_tokens.pop(), Some(Some("ot-1".into())));
 

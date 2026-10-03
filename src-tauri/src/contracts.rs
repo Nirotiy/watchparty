@@ -208,6 +208,10 @@ pub enum DesktopCommand {
     Rate {
         rate: f64,
     },
+    Loop {
+        #[serde(rename = "loop")]
+        loop_enabled: bool,
+    },
     /// Local-only player volume. It is intercepted before the room transport.
     Volume {
         volume: f64,
@@ -235,6 +239,10 @@ pub enum DesktopCommand {
         item_id: String,
     },
     PlaylistNext {
+        #[serde(rename = "expectedCurrentPlaylistItemId")]
+        expected_current_playlist_item_id: Option<String>,
+    },
+    PlaylistAutoNext {
         #[serde(rename = "expectedCurrentPlaylistItemId")]
         expected_current_playlist_item_id: Option<String>,
     },
@@ -293,6 +301,10 @@ impl<'de> Deserialize<'de> for DesktopCommand {
             Rate {
                 rate: f64,
             },
+            Loop {
+                #[serde(rename = "loop")]
+                loop_enabled: bool,
+            },
             Volume {
                 volume: f64,
             },
@@ -315,6 +327,10 @@ impl<'de> Deserialize<'de> for DesktopCommand {
                 item_id: String,
             },
             PlaylistNext {
+                #[serde(rename = "expectedCurrentPlaylistItemId")]
+                expected_current_playlist_item_id: Option<String>,
+            },
+            PlaylistAutoNext {
                 #[serde(rename = "expectedCurrentPlaylistItemId")]
                 expected_current_playlist_item_id: Option<String>,
             },
@@ -358,12 +374,14 @@ impl<'de> Deserialize<'de> for DesktopCommand {
             "play" | "pause" | "resync" => &["type"],
             "seek" => &["type", "positionSeconds"],
             "rate" => &["type", "rate"],
+            "loop" => &["type", "loop"],
             "volume" => &["type", "volume"],
             "selectAudioTrack" | "selectSubtitleTrack" => &["type", "trackId"],
             "playerVisibility" => &["type", "visible"],
             "fullscreen" => &["type", "enabled"],
             "playlistPlay" => &["type", "itemId"],
             "playlistNext" => &["type", "expectedCurrentPlaylistItemId"],
+            "playlistAutoNext" => &["type", "expectedCurrentPlaylistItemId"],
             "lock" => &["type", "locked"],
             "name" => &["type", "name"],
             "transferOwner" => &["type", "targetClientId"],
@@ -386,6 +404,7 @@ impl<'de> Deserialize<'de> for DesktopCommand {
             WireCommand::Resync => Self::Resync,
             WireCommand::Seek { position_seconds } => Self::Seek { position_seconds },
             WireCommand::Rate { rate } => Self::Rate { rate },
+            WireCommand::Loop { loop_enabled } => Self::Loop { loop_enabled },
             WireCommand::Volume { volume } => Self::Volume { volume },
             WireCommand::SelectAudioTrack { track_id } => Self::SelectAudioTrack { track_id },
             WireCommand::SelectSubtitleTrack { track_id } => Self::SelectSubtitleTrack { track_id },
@@ -395,6 +414,11 @@ impl<'de> Deserialize<'de> for DesktopCommand {
             WireCommand::PlaylistNext {
                 expected_current_playlist_item_id,
             } => Self::PlaylistNext {
+                expected_current_playlist_item_id,
+            },
+            WireCommand::PlaylistAutoNext {
+                expected_current_playlist_item_id,
+            } => Self::PlaylistAutoNext {
                 expected_current_playlist_item_id,
             },
             WireCommand::Lock { locked } => Self::Lock { locked },

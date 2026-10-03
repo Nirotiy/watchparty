@@ -140,7 +140,7 @@ export function CatalogRail({ detail, controlEnabled, queueEnabled, onPlay, onEn
                   <Button size="sm" variant="ghost" disabled={!controlEnabled || detail.status === "candidate" || !child.playable} title={child.playable ? "播放这一集" : child.note ?? "桌面端无法播放这个文件"} onClick={() => onPlay(child.mediaId, `${detail.title} ${child.label}`, containerOf(child.name))}>
                     <PlayRegular />
                   </Button>
-                  <Button size="sm" variant="ghost" disabled={!controlEnabled || !queueEnabled || detail.status === "candidate" || !child.playable} title="加入播放队列" onClick={() => onEnqueue(child.mediaId, `${detail.title} ${child.label}`, containerOf(child.name))}>
+                  <Button size="sm" variant="ghost" disabled={!queueEnabled || detail.status === "candidate" || !child.playable} title="加入播放队列" onClick={() => onEnqueue(child.mediaId, `${detail.title} ${child.label}`, containerOf(child.name))}>
                     <AddRegular />
                   </Button>
                 </div>

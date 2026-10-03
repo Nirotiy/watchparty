@@ -15,8 +15,8 @@ interface PlaylistModalProps {
   onRemoveItem: (itemId: string) => void;
   onMoveItem: (itemId: string, targetIndex: number) => void;
   onOpenMediaSelector: () => void;
-  isLocked: boolean;
-  isOwner: boolean;
+  canPlayItem: boolean;
+  canEditQueue: boolean;
 }
 
 export function PlaylistModal({
@@ -28,12 +28,10 @@ export function PlaylistModal({
   onRemoveItem,
   onMoveItem,
   onOpenMediaSelector,
-  isLocked,
-  isOwner,
+  canPlayItem,
+  canEditQueue,
 }: PlaylistModalProps) {
   if (!isOpen) return null;
-
-  const canControl = !isLocked || isOwner;
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -106,7 +104,7 @@ export function PlaylistModal({
 
                   <div className="flex items-center gap-1.5 shrink-0">
                     {/* 上移 / 下移 */}
-                    {canControl && (
+                    {canEditQueue && (
                       <div className="flex items-center gap-0.5">
                         <Button
                           variant="ghost"
@@ -133,7 +131,7 @@ export function PlaylistModal({
                       </div>
                     )}
 
-                    {!isCurrent && canControl && (
+                    {!isCurrent && canPlayItem && (
                       <Button
                         variant="ghost"
                         size="icon-sm"
@@ -145,7 +143,7 @@ export function PlaylistModal({
                         <Play className="size-3 fill-black" />
                       </Button>
                     )}
-                    {canControl && (
+                    {canEditQueue && (
                       <Button
                         variant="ghost"
                         size="icon-sm"

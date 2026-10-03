@@ -531,6 +531,10 @@ export function runNativeCommand(
       if (typeof body.rate !== "number") return errorResult("INVALID_REQUEST");
       command = { type: "rate", rate: body.rate };
       break;
+    case "loop":
+      if (typeof body.loop !== "boolean") return errorResult("INVALID_REQUEST");
+      command = { type: "loop", loop: body.loop };
+      break;
     case "lock":
       if (typeof body.locked !== "boolean")
         return errorResult("INVALID_REQUEST");
@@ -544,6 +548,16 @@ export function runNativeCommand(
     case "playlistNext":
       command = {
         type: "playlistNext",
+        ...(typeof body.expectedCurrentPlaylistItemId === "string"
+          ? {
+              expectedCurrentPlaylistItemId: body.expectedCurrentPlaylistItemId,
+            }
+          : {}),
+      };
+      break;
+    case "playlistAutoNext":
+      command = {
+        type: "playlistAutoNext",
         ...(typeof body.expectedCurrentPlaylistItemId === "string"
           ? {
               expectedCurrentPlaylistItemId: body.expectedCurrentPlaylistItemId,
@@ -592,7 +606,7 @@ export function runNativeCommand(
 export const runMpvCommand = runNativeCommand;
 
 /**
- * Desktop command dispatch. `lock` reuses the shared Room semantics gated by
+ * Desktop command dispatch. Owner-only playback commands prove ownership with
  * the owner token header; `name` renames the caller; `transferOwner` rotates
  * ownership across client types. Everything else is the restricted native set.
  */
