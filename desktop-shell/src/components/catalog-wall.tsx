@@ -1,11 +1,9 @@
 import { useState } from "react"
-import { AddRegular, ArrowLeftRegular, CheckmarkRegular, ChevronDownRegular, ChevronUpRegular, DismissRegular, FolderRegular, PlayRegular, SearchRegular } from "@fluentui/react-icons"
+import { AddRegular, ArrowLeftRegular, FolderRegular, PlayRegular } from "@fluentui/react-icons"
 
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import type { BangumiHit } from "@/lib/ipc"
-import { posterHue, titleInitial, UNCONFIRM_NOTICE, type WallCard, type WallDetail } from "@/lib/catalog-view"
+import { posterHue, titleInitial, type WallCard, type WallDetail } from "@/lib/catalog-view"
 
 /**
  * The title wall from the 2026-09-26 mockup (option B): posters on the left, the selected
@@ -66,22 +64,15 @@ function CatalogArt({ imageUrl, title }: { imageUrl: string | null; title: strin
   )
 }
 
-export function CatalogRail({ detail, controlEnabled, queueEnabled, onPlay, onEnqueue, onConfirm, onReject, onUnconfirm, onSearchBangumi, onRebind, onClose, busy }: {
+export function CatalogRail({ detail, controlEnabled, queueEnabled, onPlay, onEnqueue, onClose, busy }: {
   detail: WallDetail
   controlEnabled: boolean
   queueEnabled: boolean
   onPlay: (mediaId: string, title: string, container: string) => void
   onEnqueue: (mediaId: string, title: string, container: string) => void
-  onConfirm: (candidateId: string) => void
-  onReject: (candidateId: string) => void
-  /** 已确认的条目才给编辑：撤销确认 / 换绑一个 Bangumi 条目。 */
-  onUnconfirm: () => void
-  onSearchBangumi: (query: string) => Promise<BangumiHit[]>
-  onRebind: (hit: BangumiHit) => void
   onClose: () => void
   busy: boolean
 }) {
-  const [advancedOpen, setAdvancedOpen] = useState(false)
   const containerOf = (name: string) => (/.([a-z0-9]{2,5})$/i.exec(name)?.[1] ?? "mp4").toLowerCase()
   if (busy) {
     return (
@@ -116,8 +107,6 @@ export function CatalogRail({ detail, controlEnabled, queueEnabled, onPlay, onEn
           </Button>
         ) : null}
         {detail.status === "candidate" ? <p className="catalog-note">还在候选态：先确认标题，再播放（文件与标题都可能被换掉）。</p> : null}
-        <Button size="sm" variant="ghost" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(value => !value)}>更多 {advancedOpen ? <ChevronUpRegular /> : <ChevronDownRegular />}</Button>
-        {advancedOpen ? <><CandidateList detail={detail} busy={busy} onConfirm={onConfirm} onReject={onReject} /><RebindPanel detail={detail} busy={busy} onUnconfirm={onUnconfirm} onSearchBangumi={onSearchBangumi} onRebind={onRebind} /></> : null}
       </section>
     )
   }
@@ -154,8 +143,6 @@ export function CatalogRail({ detail, controlEnabled, queueEnabled, onPlay, onEn
           <PlayRegular />播放第一集
         </Button>
       ) : null}
-      <Button size="sm" variant="ghost" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(value => !value)}>更多 {advancedOpen ? <ChevronUpRegular /> : <ChevronDownRegular />}</Button>
-      {advancedOpen ? <><CandidateList detail={detail} busy={busy} onConfirm={onConfirm} onReject={onReject} /><RebindPanel detail={detail} busy={busy} onUnconfirm={onUnconfirm} onSearchBangumi={onSearchBangumi} onRebind={onRebind} /></> : null}
     </section>
   )
 }
@@ -173,78 +160,6 @@ function DetailHero({ detail, onClose }: { detail: WallDetail; onClose: () => vo
         <div className="catalog-detail-head-copy"><RailHead detail={detail} /></div>
       </div>
     </>
-  )
-}
-
-/**
- * 人工修绑定的出口（后端 2026-09-27 的编辑 API）：
- * 直接搜 Bangumi 挑一个条目绑上去（走 rebind）——刮削提不出正确条目的"死口"就靠它；
- * 已确认的条目额外给「撤销确认」回到待判定。merge/split 是批量操作，这版不做 UI（用 API 走）。
- */
-function RebindPanel({ detail, busy, onUnconfirm, onSearchBangumi, onRebind }: {
-  detail: WallDetail
-  busy: boolean
-  onUnconfirm: () => void
-  onSearchBangumi: (query: string) => Promise<BangumiHit[]>
-  onRebind: (hit: BangumiHit) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState(detail.title)
-  const [hits, setHits] = useState<BangumiHit[] | null>(null)
-  const [searching, setSearching] = useState(false)
-  const [message, setMessage] = useState("")
-  // 两步确认：撤销会让卡立刻离开标题墙（粘住的落点在审阅页「待人工」），先提醒再动手。
-  // 用 id 记而不是布尔，切换卡片时自动复位，不需要 effect（本仓禁 effect 里 setState）。
-  const [confirmingId, setConfirmingId] = useState<string | null>(null)
-  const confirming = confirmingId === detail.id
-  // 没有文件就没什么可绑的。
-  if (detail.seasons.every(season => season.children.length === 0)) return null
-  async function search() {
-    const text = query.trim()
-    if (text.length < 2) { setMessage("至少两个字"); return }
-    setSearching(true); setMessage("")
-    try {
-      const found = await onSearchBangumi(text)
-      setHits(found)
-      setMessage(found.length ? "" : "没有匹配条目，换个关键词试试")
-    } catch {
-      setMessage("搜索失败，稍后重试")
-    } finally { setSearching(false) }
-  }
-  return (
-    <div className="catalog-edit">
-      <div className="catalog-edit-row">
-        {detail.status === "confirmed" ? (
-          confirming ? (
-            <>
-              <Button size="sm" variant="accent" disabled={busy} onClick={() => { setConfirmingId(null); onUnconfirm() }}>确认撤销</Button>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmingId(null)}>取消</Button>
-            </>
-          ) : (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmingId(detail.id)}>撤销确认</Button>
-          )
-        ) : null}
-        <Button size="sm" variant="ghost" aria-expanded={open} onClick={() => { setOpen(value => !value); setMessage("") }}>换绑条目…</Button>
-      </div>
-      {detail.status === "confirmed" && confirming ? <p className="catalog-edit-note" role="status">{UNCONFIRM_NOTICE}</p> : null}
-      {open ? (
-        <div className="catalog-rebind">
-          <div className="catalog-rebind-search">
-            <Input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜 Bangumi 条目" aria-label="搜索 Bangumi 条目" className="h-8 text-xs" onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void search() } }} />
-            <Button size="sm" variant="outline" disabled={searching || busy} onClick={() => void search()}>{searching ? "搜索中…" : "搜索"}</Button>
-          </div>
-          {message ? <p className="catalog-edit-note">{message}</p> : null}
-          {hits?.map(hit => (
-            <div className="catalog-hit" key={hit.externalId}>
-              <b>{hit.title}</b>
-              {hit.year ? <span className="muted">{hit.year}</span> : null}
-              {hit.episodes ? <span className="muted">{hit.episodes} 集</span> : null}
-              <Button size="sm" variant="accent" disabled={busy} onClick={() => onRebind(hit)}>绑定</Button>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
   )
 }
 
@@ -274,38 +189,6 @@ function RailHead({ detail }: { detail: WallDetail }) {
         </div>
       ) : null}
     </header>
-  )
-}
-
-function CandidateList({ detail, busy, onConfirm, onReject }: {
-  detail: WallDetail
-  busy: boolean
-  onConfirm: (candidateId: string) => void
-  onReject: (candidateId: string) => void
-}) {
-  if (detail.candidates.length === 0) return null
-  return (
-    <div className="catalog-candidates">
-      <h4>候选（{detail.candidates.length}）</h4>
-      {detail.candidates.map(candidate => (
-        <div className="catalog-candidate" key={candidate.id}>
-          <div className="l1">
-            <SearchRegular className="size-3.5 text-muted-foreground" />
-            <b>{candidate.title}</b>
-            {candidate.year ? <span className="muted">{candidate.year}</span> : null}
-            <span className="score">{candidate.score.toFixed(2)}</span>
-          </div>
-          <div className="acts">
-            <Button size="sm" variant="accent" disabled={busy} onClick={() => onConfirm(candidate.id)}>
-              <CheckmarkRegular />确认
-            </Button>
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => onReject(candidate.id)}>
-              <DismissRegular />拒绝
-            </Button>
-          </div>
-        </div>
-      ))}
-    </div>
   )
 }
 

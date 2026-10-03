@@ -28,7 +28,7 @@ import { childDirectoryPath } from "@/lib/media-library-navigation"
 import { healthLabel, legacyView, libraryKindLabel, mediaErrorText, toView, type MediaCard, type MediaView } from "@/lib/media-library-view"
 import { MediaCardGrid, MediaFolderBanner } from "@/components/media-card-grid"
 import { CatalogRail, CatalogWall, UnmatchedLine } from "@/components/catalog-wall"
-import { catalogErrorText, toDetail, toWall, scrapeSummary, type Wall, type WallCard, type WallDetail } from "@/lib/catalog-view"
+import { catalogErrorText, toDetail, toWall, type Wall, type WallCard, type WallDetail } from "@/lib/catalog-view"
 import { hiddenCardCount, visibleCards } from "@/lib/media-library-view"
 
 import { winuiFluentTheme } from "@/lib/winui-theme"
@@ -41,7 +41,7 @@ import { invoke, listen } from "../shared/desktop-runtime"
 import { getDesktopWallpaperBackdrop } from "@/lib/ipc"
 import type { DomainEvent } from "../shared/domain"
 import { LinkleRoom } from "@/components/linkle-room"
-import { backendAddressError, bangumiSearch, createDesktopRoom, createMediaSource, catalogRebind, catalogUnconfirm, errorMessage, getDesktopSettings, listenForSettings, mediaCapabilities, mediaLibraries, mediaLibraryPage, mediaLibrarySearch, mediaList, mediaRoots, mediaSearch, probeDesktopBackend, probeDesktopReadiness, promptSiteCredentials, updateDesktopSettings, verifyBackend, catalogPage, catalogDetail, catalogConfirm, catalogReject, libraryScrapeStatus, startLibraryScrape, type BangumiHit, type DesktopProbeReport, type DesktopSettingsStatus, artworkUrl, type MediaCapabilities, type MediaLibrary, type ScrapeJob } from "@/lib/ipc"
+import { backendAddressError, createDesktopRoom, errorMessage, getDesktopSettings, listenForSettings, mediaCapabilities, mediaLibraries, mediaLibraryPage, mediaLibrarySearch, mediaList, mediaRoots, mediaSearch, probeDesktopBackend, probeDesktopReadiness, promptSiteCredentials, updateDesktopSettings, verifyBackend, catalogPage, catalogDetail, type DesktopProbeReport, type DesktopSettingsStatus, artworkUrl, type MediaCapabilities, type MediaLibrary } from "@/lib/ipc"
 
 type View = "home" | "room" | "media" | "settings"
 type Drawer = "queue" | "members" | null
@@ -934,10 +934,7 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
   const detailRequest = useRef(0)
   const [catalogBusy, setCatalogBusy] = useState(false)
   const [catalogQuery, setCatalogQuery] = useState("")
-  const [scrape, setScrape] = useState<ScrapeJob | null>(null)
   const [showAllFiles, setShowAllFiles] = useState(false)
-  // 冠军稿的「只看待确认」：只在已载入的那一页里筛，不额外打请求。
-  const [onlyReview, setOnlyReview] = useState(false)
   const [backendOrigin, setBackendOrigin] = useState<string | null>(null)
   useEffect(() => { void getDesktopSettings().then((s) => setBackendOrigin(s.backendOrigin)).catch(() => setMessage("请先配置后端站点")) }, [])
   const canPlay = Boolean(state?.isOwner)
@@ -1077,97 +1074,9 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
     setSelectedId(null)
   }
 
-  /** 确认/拒绝是唯一两种标题库写入；两个都不碰凭据。 */
-  async function reviewCandidate(action: "confirm" | "reject", candidateId: string) {
-    if (!detail || catalogBusy) return
-    const request = ++detailRequest.current
-    setCatalogBusy(true)
-    try {
-      const next = action === "confirm" ? await catalogConfirm(detail.id, candidateId) : await catalogReject(detail.id, candidateId)
-      if (request !== detailRequest.current) return
-      setDetail(toDetail(next, catalogPoster))
-      // 确认会换掉墙上的标题/年份/海报，整页重取一次最省事。
-      if (activeLibraryId) void loadWall(activeLibraryId, undefined, catalogQuery.trim() || undefined)
-      setMessage(action === "confirm" ? `已确认《${next.title}》` : "已拒绝这个候选，下次刮削不会再提")
-    } catch (error) {
-      setMessage(catalogErrorText(error, "这条写入没成功"))
-    } finally {
-      if (request === detailRequest.current) setCatalogBusy(false)
-    }
-  }
 
-  /** 撤销确认：绑定清空、标题回到解析名，文件一张不丢（后端 2026-09-27 的编辑 API）。 */
-  async function unconfirmCurrent() {
-    if (!detail || catalogBusy) return
-    const request = ++detailRequest.current
-    setCatalogBusy(true)
-    try {
-      const next = await catalogUnconfirm(detail.id)
-      if (request !== detailRequest.current) return
-      setDetail(toDetail(next, catalogPoster))
-      if (activeLibraryId) void loadWall(activeLibraryId, undefined, catalogQuery.trim() || undefined)
-      setMessage(`已撤销确认：${next.title}`)
-    } catch (error) {
-      setMessage(catalogErrorText(error, "撤销没成功"))
-    } finally {
-      if (request === detailRequest.current) setCatalogBusy(false)
-    }
-  }
 
-  /** 人工挑条目：刮削提不出正确条目时的出口。 */
-  async function searchBangumi(query: string): Promise<BangumiHit[]> {
-    const result = await bangumiSearch(query.trim())
-    return (result.items ?? []).filter(hit => hit.externalDb === "bangumi")
-  }
 
-  /** 换绑：直接绑一个条目，服务端走 confirmed_by='rebind' 并顺带拉封面。 */
-  async function rebindCurrent(hit: BangumiHit) {
-    if (!detail || catalogBusy) return
-    const request = ++detailRequest.current
-    setCatalogBusy(true)
-    try {
-      const next = await catalogRebind(detail.id, {
-        externalDb: hit.externalDb, externalId: hit.externalId, title: hit.title,
-        year: hit.year ?? null, originalTitle: hit.originalTitle ?? null,
-      })
-      if (request !== detailRequest.current) return
-      setDetail(toDetail(next, catalogPoster))
-      if (activeLibraryId) void loadWall(activeLibraryId, undefined, catalogQuery.trim() || undefined)
-      setMessage(`已绑定《${next.title}》`)
-    } catch (error) {
-      setMessage(catalogErrorText(error, "换绑没成功"))
-    } finally {
-      if (request === detailRequest.current) setCatalogBusy(false)
-    }
-  }
-
-  /** 刮削只给管理员：本机桌面端能看到这个按钮，网页端拿不到 mediaAdmin。 */
-  async function updateScrape() {
-    if (!activeLibraryId || catalogBusy) return
-    setCatalogBusy(true)
-    try {
-      // 后端有个已知竞态：首次 POST 可能先回 404 而任务其实已经跑起来了，
-      // 所以这里不把 POST 的失败当结论，接着读一次状态。
-      await startLibraryScrape(activeLibraryId).catch(() => null)
-      const job = await libraryScrapeStatus(activeLibraryId)
-      setScrape(job)
-      void loadWall(activeLibraryId, undefined, catalogQuery.trim() || undefined)
-      setMessage(scrapeSummary(job))
-    } catch (error) {
-      setMessage(catalogErrorText(error, "刮削没启动"))
-    } finally {
-      setCatalogBusy(false)
-    }
-  }
-
-  async function refreshScrape() {
-    if (!activeLibraryId) return
-    await refreshScrapeFor(activeLibraryId)
-  }
-
-  const refreshScrapeFor = useCallback(async (libraryId: string) => {
-    try { setScrape(await libraryScrapeStatus(libraryId)) } catch { setScrape(null) }
-  }, [])
 
   /** 换模式只补自己缺的那半：标题墙和目录页各自缓存，来回切不重发。 */
   function selectMode(next: "titles" | "files") {
@@ -1176,11 +1085,9 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
     setSearching(false)
     setQuery("")
     setCatalogQuery("")
-    setOnlyReview(false)
     setMessage("")
     if (next === "titles") {
       if (!wall) void loadWall(activeLibraryId)
-      void refreshScrape()
       return
     }
     if (!view) void loadLibrary(activeLibraryId, "/")
@@ -1197,11 +1104,9 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
     setWall(null)
     setDetail(null)
     setSelectedId(null)
-    setScrape(null)
-    setOnlyReview(false)
     setMessage("")
     const next = modeByLibrary[libraryId] ?? "titles"
-    if (next === "titles") { void loadWall(libraryId); void refreshScrapeFor(libraryId); return }
+    if (next === "titles") { void loadWall(libraryId); return }
     void loadLibrary(libraryId, "/")
   }
 
@@ -1279,7 +1184,6 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
             setActiveLibraryId(first.id)
             // 默认进 Titles（裁决 ②）；文件视图切过去时再按需载入。
             await loadWall(first.id)
-            void refreshScrapeFor(first.id)
           } else {
             setMessage("这台服务器还没有可浏览的库")
           }
@@ -1301,7 +1205,7 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
       }
     })()
     return () => { live = false }
-  }, [loadLibrary, loadLegacy, loadWall, refreshScrapeFor])
+  }, [loadLibrary, loadLegacy, loadWall])
 
   const [pasteUrl, setPasteUrl] = useState("")
   const [pasteTitle, setPasteTitle] = useState("")
@@ -1384,7 +1288,7 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
         </form> : null}
       </header>
 
-      {/* 添加/管理片源已经搬到「设置 · 媒体库」：房间里只做选片。 */}
+      {/* 片源与库的管理在服务端（网页/管理工具）；桌面端只做选片与播放。 */}
 
       {unhealthyLibrary ? (
         <div className="mt-3 flex items-center gap-3 border border-[var(--stroke-card)] bg-[var(--fill-card)] px-3 py-2 text-xs text-muted-foreground" role="status">
@@ -1408,22 +1312,10 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
       {usesLibraries && activeLibraryId && mode === "titles" ? (
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span>{wall ? `${wall.cards.filter(card => card.status !== "unmatched").length} 个标题 · ${wall.cards.filter(card => card.needsReview).length} 个待确认` : "正在读取标题库…"}</span>
-          {wall && wall.cards.some(card => card.needsReview) ? (
-            <Button size="sm" variant={onlyReview ? "default" : "ghost"} aria-pressed={onlyReview} onClick={() => setOnlyReview(value => !value)}>
-              只看待确认
-            </Button>
-          ) : null}
           {catalogQuery.trim() ? (
             <span className="catalog-query">标题：{catalogQuery}
               <button type="button" onClick={() => { setCatalogQuery(""); setSearching(false); setQuery(""); if (activeLibraryId) void loadWall(activeLibraryId) }}>清除</button>
             </span>
-          ) : null}
-          <span className="flex-1" />
-          {scrape ? <span role="status">{scrapeSummary(scrape)}<button type="button" className="ml-2 underline" onClick={() => void refreshScrape()}>刷新</button></span> : null}
-          {capabilities?.mediaAdmin === true ? (
-            <Button size="sm" variant="outline" disabled={catalogBusy} onClick={() => void updateScrape()}>
-              <ArrowSyncRegular />更新标题库
-            </Button>
           ) : null}
         </div>
       ) : null}
@@ -1433,7 +1325,7 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
           <>
             <div className="catalog-split">
               <CatalogWall
-                cards={wall.cards.filter(card => card.status !== "unmatched" && (!onlyReview || card.needsReview))}
+                cards={wall.cards.filter(card => card.status !== "unmatched")}
                 selectedId={selectedId}
                 onSelect={card => void openDetail(card)}
               />
@@ -1447,11 +1339,6 @@ function MediaLibraryView({ state, command, navigate, mediaSearchAvailable, medi
                   queueEnabled={mediaQueueAvailable && canQueue}
                   onPlay={playCatalogChild}
                   onEnqueue={enqueueCatalogChild}
-                  onConfirm={candidateId => void reviewCandidate("confirm", candidateId)}
-                  onReject={candidateId => void reviewCandidate("reject", candidateId)}
-                  onUnconfirm={() => void unconfirmCurrent()}
-                  onSearchBangumi={searchBangumi}
-                  onRebind={hit => void rebindCurrent(hit)}
                   onClose={closeDetail}
                   busy={catalogBusy}
                 />

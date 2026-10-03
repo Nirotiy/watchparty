@@ -1,5 +1,4 @@
 import { invoke, listen, type UnlistenFn } from "../../shared/desktop-runtime"
-import { refreshCatalog, type CatalogAccepted, type CatalogScan } from "../../shared/catalog-refresh"
 
 import type { CommandAck, DesktopCommand, DesktopUiState, MediaCompatibility, MediaDirectoryPage } from "@/lib/contracts"
 
@@ -34,14 +33,6 @@ export interface DesktopSettingsStatus {
 }
 
 export interface DesktopRoomResult { roomId: string }
-
-export interface ApprovalSecretStatus { configured: boolean; mask: string | null }
-export function catalogApprovalSecretStatus(): Promise<ApprovalSecretStatus> {
-  return invoke("catalogApprovalSecretStatus", {})
-}
-export function setCatalogApprovalSecret(secret: string): Promise<ApprovalSecretStatus> {
-  return invoke("setCatalogApprovalSecret", { secret })
-}
 
 export interface DesktopProbeReport {
   status: "ok"
@@ -289,11 +280,6 @@ function musicPartyRequest(origin: string | null, path: string, body?: unknown):
   return invoke("musicPartyRequest", { input: { origin, path, method: "POST", body: body ?? null, clientVersion: "0.2.0" } })
 }
 
-export async function verifyPrivateRoom(roomId: string, password: string, origin: string | null): Promise<void> {
-  const response = await musicPartyRequest(origin, `/api/rooms/${encodeURIComponent(roomId)}/verify`, { password })
-  if (response.status < 200 || response.status >= 300) throw new Error(`musicparty_http_${response.status}`)
-}
-
 export interface OriginTrustRecord { origin: string; fingerprint: string; label?: string }
 
 export function listOriginTrust(): Promise<OriginTrustRecord[]> {
@@ -426,40 +412,10 @@ export interface CatalogDetail extends CatalogCard {
   confirmedBy?: CatalogConfirmedBy | null
 }
 
-export interface BangumiHit {
-  externalDb: "bangumi" | "tmdb"
-  externalId: string
-  title: string
-  originalTitle?: string | null
-  year?: number | null
-  episodes?: number | null
-  imageUrl?: string | null
-}
-
-export interface CatalogRebindInput {
-  externalDb: "bangumi" | "tmdb"
-  externalId: string
-  title: string
-  year?: number | null
-  overview?: string | null
-  originalTitle?: string | null
-  imageUrl?: string | null
-}
-
 export interface CatalogPage {
   items: CatalogCard[]
   hasMore: boolean
   nextCursor?: string | null
-}
-
-export interface ScrapeJob {
-  reviewRequired?: boolean
-  libraryId: string
-  status: "running" | "done" | "failed"
-  total: number
-  scanned: number
-  matched: number
-  lastError: string | null
 }
 
 export function catalogPage(input: { libraryId: string; cursor?: string; q?: string }): Promise<CatalogPage> {
@@ -472,55 +428,6 @@ export function catalogDetail(id: string, includeEpisodeTitles = true): Promise<
   return mediaRequest<CatalogDetail>("GET", `/api/media/catalog/${encodeURIComponent(id)}`, {
     query: includeEpisodeTitles ? undefined : { episodeTitles: "0" },
   })
-}
-
-/** Confirming writes the chosen candidate as the item's title; the poster is cached server-side. */
-export function catalogConfirm(id: string, candidateId: string): Promise<CatalogDetail> {
-  return mediaRequest<CatalogDetail>("POST", `/api/media/catalog/${encodeURIComponent(id)}/confirm`, { body: { candidateId } })
-}
-
-export function catalogReject(id: string, candidateId: string): Promise<CatalogDetail> {
-  return mediaRequest<CatalogDetail>("POST", `/api/media/catalog/${encodeURIComponent(id)}/reject`, { body: { candidateId } })
-}
-
-/** 撤销确认：绑定清空、标题回到解析名，文件一张不丢。 */
-export function catalogUnconfirm(id: string): Promise<CatalogDetail> {
-  return mediaRequest<CatalogDetail>("POST", `/api/media/catalog/${encodeURIComponent(id)}/unconfirm`)
-}
-
-/** 人工挑条目（刮削提不出正确条目时的出口）。 */
-export function bangumiSearch(q: string): Promise<{ items: BangumiHit[] }> {
-  return mediaRequest<{ items: BangumiHit[] }>("GET", "/api/media/bangumi/search", { query: { q } })
-}
-
-/** 直接绑一个条目，走 confirmed_by='rebind'，服务端顺带拉封面。 */
-export function catalogRebind(id: string, input: CatalogRebindInput): Promise<CatalogDetail> {
-  return mediaRequest<CatalogDetail>("POST", `/api/media/catalog/${encodeURIComponent(id)}/rebind`, { body: input })
-}
-
-export function libraryScrapeStatus(libraryId: string): Promise<ScrapeJob> {
-  return mediaRequest<ScrapeJob>("GET", `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/scrape`)
-}
-
-// ---- 草稿审阅与应用（第 4 块，2026-09-28） ----
-// 链路 scan → classify → judge → apply：前三段只写 catalog_draft，正式卡一行不动；
-// apply 是唯一落库动作。形状见 temp-html/library-catalog-draft-ui-handoff.md §2/§3。
-
-export interface DraftCandidate {
-  externalDb: string
-  externalId: string
-  title: string
-  originalTitle: string | null
-  year: number | null
-  score: number
-}
-
-export interface DraftChild {
-  mediaId: string
-  name: string
-  relativePath: string
-  season: number | null
-  episode: number | null
 }
 
 /** `draft[]` 的一项。列表投影**不含** children（§8.1：展开单张才走 `?item=` 子请求）。 */
@@ -550,15 +457,6 @@ export interface DraftItem {
    * diff 里的 `keepsBindingOnKey` 是 apply 预览的推算结果，两者平时一致。
    */
   carriesKey: string | null
-}
-
-/** 展开单张：`GET .../classify?item=<itemKey>`。 */
-export interface DraftCardDetail {
-  libraryId: string
-  card: DraftItem
-  children: DraftChild[]
-  /** 候选跟 children 一起从 ?item= 返回（顺序与分数即判定结果）。 */
-  candidates: DraftCandidate[]
 }
 
 /** 差异项：added/dropped/moved 用 `files: number`；changed/confirmedDrift 用 `{from,to}`。 */
@@ -641,35 +539,6 @@ export interface DraftState {
   diff: DraftDiff | null
 }
 
-export interface DraftJudgeResult {
-  libraryId: string
-  kind: string
-  judged: number
-  confirmed: number
-  pending: number
-  /** 本批判定过的 itemKey（表格只刷这几行）。 */
-  items: string[]
-  diff: DraftDiff | null
-}
-
-export interface DraftApplyResult {
-  libraryId: string
-  cards: number
-  created: number
-  updated: number
-  skipped: number
-  deferred: number
-  posters: number
-  /** 本次按 keep-binding 搬走了几张绑定（§9）。 */
-  transferred?: number
-  /** 这次应用留下的台账 id（纯元数据应用为 null，§11）。 */
-  approvalId?: string | null
-  /** 这次应用能不能撤回——**唯一判据**，别用 created>0 猜（§11）。 */
-  rollbackAvailable?: boolean
-  /** 本次实际动到的结构（apply/apply-approved 都会回，§10.1）。 */
-  structural?: CatalogStructuralChanges
-}
-
 /** 会改变文件集合或卡片存亡的那部分差异（§10）：批准门看的就这四类。 */
 export interface CatalogStructuralChanges {
   added: string[]
@@ -677,20 +546,6 @@ export interface CatalogStructuralChanges {
   moved: string[]
   /** 人工确认过的卡换掉了文件集合（from/to 是**文件数**，集数行不在此列）。 */
   drift: Array<{ itemKey: string; from: number; to: number }>
-}
-
-/** `/approval` 的返回：apply 模式回 structural，rollback 模式回 rollback（两者互斥，§11.1）。 */
-export interface CatalogApprovalIssue {
-  libraryId: string
-  approvalId: string
-  /** 明文只在这里回一次，界面拿到就用、不落盘不显示（§10.1）。 */
-  approvalToken: string
-  expiresAt: string
-  approvedBy: string
-  /** 签发这一刻顺手回收掉的过期 undo 条数（不用展示，只用于日志/诊断）。 */
-  pruned?: number
-  structural?: CatalogStructuralChanges
-  rollback?: { approvalId: string; keys: string[]; counts: { created: number; removed: number; changed: number } }
 }
 
 /** 台账一行（`GET .../approvals`，不含 token/哈希）。判"能不能撤"只看 rollbackAvailable。 */
@@ -712,15 +567,6 @@ export interface CatalogApprovalLedgerRow {
   windowClosed: boolean
 }
 
-export interface CatalogRollbackResult {
-  libraryId: string
-  rollbackOf: string
-  restored: number
-  removed: number
-  keys: string[]
-  diff: DraftDiff | null
-}
-
 /** 409 的响应体带数据（§8.3）：弹窗直接拿这里的数字，不用猜。 */
 export interface DraftErrorData {
   pending?: number
@@ -738,69 +584,6 @@ export interface DraftErrorData {
   expiresAt?: string
   pruned?: number
   rolledBackAt?: string
-}
-
-/** 读回草稿 + 差异（审阅页的数据源）；未分类时返回空草稿。 */
-export function mediaDraft(libraryId: string): Promise<DraftState> {
-  return mediaRequest<DraftState>("GET", `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/classify`)
-}
-
-/** 展开一张：children 走这条子请求（列表里已经没有 children 了）。未知 itemKey → 404。 */
-export function mediaDraftCard(libraryId: string, itemKey: string): Promise<DraftCardDetail> {
-  return mediaRequest<DraftCardDetail>("GET", `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/classify`, { query: { item: itemKey } })
-}
-
-/** 重新分组落草稿。整批替换：已有判定会被清空。 */
-export function mediaDraftClassify(libraryId: string): Promise<DraftState> {
-  const path = `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/classify`
-  return refreshCatalog(() => mediaDraft(libraryId),
-    () => mediaRequest<CatalogAccepted | { status: "done"; running: false }>("POST", path),
-    (current, before) => current.classifiedAt !== null && current.classifiedAt !== before.classifiedAt)
-}
-
-/** 只判定草稿里 pending 的前 N 张（打条目站，匿名限速 ~60 req/min）。 */
-export function mediaDraftJudge(libraryId: string, max: number): Promise<DraftJudgeResult> {
-  return mediaRequest<DraftJudgeResult>("POST", `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/judge`, { query: { max: String(max) } })
-}
-
-/** 唯一让草稿落到正式卡的步骤。force=1 才允许未判完就应用（代价见回执 §4）。 */
-export function mediaDraftApply(libraryId: string, force = false): Promise<DraftApplyResult> {
-  return mediaRequest<DraftApplyResult>("POST", `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/apply`, { query: force ? { force: "1" } : undefined })
-}
-
-/**
- * 人点出来的那张批准（§10.1）：apply 模式签"这次结构变更"，带 `rollbackOf` 时签的是"撤回那次应用"。
- * 明文 token 只在这里回一次，调用方拿到就立刻用掉，不落盘、不显示。
- */
-export function mediaCatalogApproval(libraryId: string, input: { approvedBy?: string; rollbackOf?: string } = {}): Promise<CatalogApprovalIssue> {
-  return mediaRequest<CatalogApprovalIssue>("POST", `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/approval`, { body: input })
-}
-
-/** 带着刚签的凭证执行。失败也会把凭证烧掉（先消费后执行），失败后必须重新批准。 */
-export function mediaCatalogApplyApproved(libraryId: string, input: { approvalToken: string; force?: boolean }): Promise<DraftApplyResult> {
-  return mediaRequest<DraftApplyResult>("POST", `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/apply-approved`, { body: input })
-}
-
-/** 撤回一次已经落地的结构应用（也要先走 /approval{rollbackOf} 拿凭证，§11.1）。 */
-export function mediaCatalogRollback(libraryId: string, input: { rollbackOf: string; approvalToken: string }): Promise<CatalogRollbackResult> {
-  return mediaRequest<CatalogRollbackResult>("POST", `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/rollback`, { body: input })
-}
-
-/** 台账（只读）。判"能不能撤"只看每行的 rollbackAvailable，不要自己推窗口（§11.2/§13）。 */
-export function mediaCatalogApprovals(libraryId: string): Promise<{ libraryId: string; items: CatalogApprovalLedgerRow[] }> {
-  return mediaRequest<{ libraryId: string; items: CatalogApprovalLedgerRow[] }>("GET", `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/approvals`)
-}
-
-/** 只枚举片源存快照（rev+1），不分组、不判定、不动卡。 */
-export function mediaLibraryScan(libraryId: string): Promise<CatalogScan> {
-  const path = `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/scan`
-  return refreshCatalog(() => mediaRequest<CatalogScan>("GET", path),
-    () => mediaRequest<CatalogScan | CatalogAccepted>("POST", path),
-    (current, before) => current.rev > before.rev)
-}
-
-export function startLibraryScrape(libraryId: string): Promise<ScrapeJob> {
-  return mediaRequest<ScrapeJob>("POST", `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/scrape`)
 }
 
 /** Raised for any non-2xx media answer. `code` is the server's own code when the body carries one. */
@@ -877,115 +660,9 @@ export function mediaLibrarySearch(input: { libraryId: string; q: string; cursor
   })
 }
 
-export interface AdminMediaLibrary { id: string; name: string; kind: MediaLibraryKind; path: string }
-
-/** Admin view of a source. The password never comes back — only whether one is set. */
-export interface AdminMediaSource {
-  id: string
-  name: string
-  internalBaseUrl: string
-  publicBaseUrl: string
-  username: string
-  passwordSet: boolean
-  libraries: AdminMediaLibrary[]
-}
-
-/**
- * Add a source. The body's password is write-only: the server stores it and returns
- * `passwordSet` instead. Loopback peers or the admin header are the only callers the
- * server accepts (`ADMIN_FORBIDDEN` otherwise).
- */
-export function createMediaSource(input: {
-  name: string
-  internalBaseUrl: string
-  publicBaseUrl: string
-  username: string
-  password: string
-  libraries: Array<{ name: string; kind: MediaLibraryKind; path: string }>
-}): Promise<AdminMediaSource> {
-  return mediaRequest<AdminMediaSource>("POST", "/api/admin/media-sources", { body: input })
-}
-
 export function errorMessage(error: unknown, fallback: string): string {
   if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
     return error.message
   }
   return fallback
-}
-
-// ---- 草稿编辑（第 4 块扩成编辑机能；§9 的六个接口） ----
-// 共同约定：只写草稿、身份用 itemKey、任何编辑置 confirmedBy=manual + lookupState=done、
-// 重新 classify 会整体丢掉编辑。每次写返回同一份摘要，前端直接换本地状态。
-
-/**
- * `DRAFT_EDIT_INVALID` 的 reason（§9）。`keepsBindingOnKey === itemKey` 是**复位**不是
- * 非法（后端 2026-09-28 的 `1c4c866c` 起的语义），所以 bad-carrier 只在不认识那个键时出现。
- */
-export type DraftEditReason =
-  | "no-candidate"
-  | "unknown-candidate"
-  | "nothing-to-split"
-  | "bad-carrier"
-  | "bad-keep-list"
-  | "unknown-media"
-
-/** 统一返回：与 classify 的摘要同形（`card` 是列表投影那一行）。 */
-export interface DraftEditResult {
-  libraryId: string
-  card: DraftItem
-  cards: number
-  files: number
-  pending: number
-  diff: DraftDiff
-  /** 仅 split：新建出来的草稿键。 */
-  createdKeys?: string[]
-}
-
-export interface DraftEditInput {
-  itemKey: string
-  title?: string
-  originalTitle?: string | null
-  year?: number | null
-  overview?: string | null
-  posterUrl?: string | null
-  externalDb?: "bangumi" | "tmdb" | null
-  externalId?: string | null
-}
-
-/** 改草稿的展示/绑定字段（给了 externalId → confirmed，只改名 → candidate）。 */
-export function mediaDraftEdit(input: { libraryId: string } & DraftEditInput): Promise<DraftEditResult> {
-  return mediaRequest<DraftEditResult>("POST", `/api/admin/media-libraries/${encodeURIComponent(input.libraryId)}/draft/edit`, { body: input })
-}
-
-/** 人工确认（不传条目对 = 确认第一个候选；传了必须是该卡候选之一）。 */
-export function mediaDraftConfirm(input: { libraryId: string; itemKey: string; externalDb?: string; externalId?: string }): Promise<DraftEditResult> {
-  return mediaRequest<DraftEditResult>("POST", `/api/admin/media-libraries/${encodeURIComponent(input.libraryId)}/draft/confirm`, { body: input })
-}
-
-/** 撤销草稿上的人工决定：条目对与名字都留着，只退回 candidate。 */
-export function mediaDraftUnconfirm(input: { libraryId: string; itemKey: string }): Promise<DraftEditResult> {
-  return mediaRequest<DraftEditResult>("POST", `/api/admin/media-libraries/${encodeURIComponent(input.libraryId)}/draft/unconfirm`, { body: input })
-}
-
-/** 合并草稿卡；drop 行里有人工决定 → 400 DRAFT_EDIT_CONFLICT（带 keys）。 */
-export function mediaDraftMerge(input: { libraryId: string; keepKey: string; dropKeys: string[] }): Promise<DraftEditResult> {
-  return mediaRequest<DraftEditResult>("POST", `/api/admin/media-libraries/${encodeURIComponent(input.libraryId)}/draft/merge`, { body: input })
-}
-
-/** 拆分草稿卡：`keep` 是留在原卡的那批 mediaId，其余按父目录自动成新卡。 */
-export function mediaDraftSplit(input: { libraryId: string; itemKey: string; keep: string[] }): Promise<DraftEditResult> {
-  return mediaRequest<DraftEditResult>("POST", `/api/admin/media-libraries/${encodeURIComponent(input.libraryId)}/draft/split`, { body: input })
-}
-
-export function mediaCatalogExclusions(libraryId: string): Promise<import("../../shared/catalog-exclusions").CatalogExclusions> {
-  return mediaRequest("GET", `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/exclusions`)
-}
-
-export function mediaDraftExclusion(libraryId: string, action: "exclude" | "unexclude", paths: string[]): Promise<import("../../shared/catalog-exclusions").CatalogExclusions> {
-  return mediaRequest("POST", `/api/admin/media-libraries/${encodeURIComponent(libraryId)}/draft/${action}`, { body: { paths } })
-}
-
-/** 绑定改由另一份草稿承接（apply 时才搬；目标卡已有人工答案会跳过；原卡变 unmatched）。 */
-export function mediaDraftKeepBinding(input: { libraryId: string; itemKey: string; keepsBindingOnKey: string }): Promise<DraftEditResult> {
-  return mediaRequest<DraftEditResult>("POST", `/api/admin/media-libraries/${encodeURIComponent(input.libraryId)}/draft/keep-binding`, { body: input })
 }
