@@ -1,17 +1,14 @@
-import { useEffect, useRef, useState, useCallback, type CSSProperties } from "react"
+import { lazy, Suspense, useEffect, useRef, useState, useCallback, type CSSProperties } from "react"
 import { createPortal } from "react-dom"
 import { FluentProvider, webDarkTheme, webLightTheme } from "@fluentui/react-components"
 import { AddRegular, ArrowSyncRegular, DesktopRegular, KeyRegular, MusicNote2Regular, PanelLeftContractRegular, PanelLeftExpandRegular, PlayRegular, PlugConnectedRegular, PulseRegular, SaveRegular, SearchRegular, SettingsRegular } from "@fluentui/react-icons"
 import { ShellStatusToast, ShellToastProvider } from "@/components/shell-toast"
 
-import { LobbyView } from "@/components/lobby-view"
-import { BanguruLobby, type BanguruProbeState } from "@/components/banguru-lobby"
-import { SetupGuide, type SetupGuideServices } from "@/components/setup-guide"
+import type { BanguruProbeState } from "@/components/banguru-lobby"
+import type { SetupGuideServices, VerifyFailure } from "@/components/setup-guide"
 import { linkleReadinessLine } from "@/components/setup-guide-steps"
-import { FluentSettingsView } from "@/components/fluent-settings"
 import { useLobbyFacade } from "@/hooks/use-lobby-facade"
 import type { RoomIdentity, SwitchTarget } from "../shared/lobby-contract"
-import { RoomView } from "@/components/room-view"
 import { SessionGate } from "@/components/session-gate"
 import { Button } from "@/components/ui/button"
 import { CopyButton } from "@/components/ui/copy-button"
@@ -26,8 +23,7 @@ import { connectionLabel, type DesktopCommand, type DesktopUiState, type MediaSo
 import { cn } from "@/lib/utils"
 import { childDirectoryPath } from "@/lib/media-library-navigation"
 import { healthLabel, legacyView, libraryKindLabel, mediaErrorText, toView, type MediaCard, type MediaView } from "@/lib/media-library-view"
-import { MediaCardGrid, MediaFolderBanner } from "@/components/media-card-grid"
-import { CatalogRail, CatalogWall, UnmatchedLine } from "@/components/catalog-wall"
+import { MediaFolderBanner } from "@/components/media-folder-banner"
 import { catalogErrorText, toDetail, toWall, type Wall, type WallCard, type WallDetail } from "@/lib/catalog-view"
 import { hiddenCardCount, visibleCards } from "@/lib/media-library-view"
 
@@ -40,8 +36,24 @@ import { AudioFocusOwner } from "../shared/player"
 import { invoke, listen } from "../shared/desktop-runtime"
 import { getDesktopWallpaperBackdrop } from "@/lib/ipc"
 import type { DomainEvent } from "../shared/domain"
-import { LinkleRoom } from "@/components/linkle-room"
-import { backendAddressError, createDesktopRoom, errorMessage, getDesktopSettings, listenForSettings, mediaCapabilities, mediaLibraries, mediaLibraryPage, mediaLibrarySearch, mediaList, mediaRoots, mediaSearch, probeDesktopBackend, probeDesktopReadiness, promptSiteCredentials, updateDesktopSettings, verifyBackend, catalogPage, catalogDetail, type DesktopProbeReport, type DesktopSettingsStatus, artworkUrl, type MediaCapabilities, type MediaLibrary } from "@/lib/ipc"
+import { backendAddressError, createDesktopRoom, errorMessage, getDesktopSettings, listenForSettings, mediaCapabilities, mediaLibraries, mediaLibraryPage, mediaLibrarySearch, mediaList, mediaRoots, mediaSearch, probeDesktopBackend, probeDesktopReadiness, promptSiteCredentials, updateDesktopSettings, catalogPage, catalogDetail, type DesktopProbeReport, type DesktopSettingsStatus, artworkUrl, type MediaCapabilities, type MediaLibrary } from "@/lib/ipc"
+
+/** Route and media views are deliberately split from the shell so the first paint does not
+ * eagerly parse the room player, Linkle panels, settings, and catalog wall together. */
+const BanguruLobby = lazy(() => import("@/components/banguru-lobby").then(module => ({ default: module.BanguruLobby })))
+const LobbyView = lazy(() => import("@/components/lobby-view").then(module => ({ default: module.LobbyView })))
+const SetupGuide = lazy(() => import("@/components/setup-guide").then(module => ({ default: module.SetupGuide })))
+const FluentSettingsView = lazy(() => import("@/components/fluent-settings").then(module => ({ default: module.FluentSettingsView })))
+const RoomView = lazy(() => import("@/components/room-view").then(module => ({ default: module.RoomView })))
+const LinkleRoom = lazy(() => import("@/components/linkle-room").then(module => ({ default: module.LinkleRoom })))
+const MediaCardGrid = lazy(() => import("@/components/media-card-grid").then(module => ({ default: module.MediaCardGrid })))
+const CatalogWall = lazy(() => import("@/components/catalog-wall").then(module => ({ default: module.CatalogWall })))
+const CatalogRail = lazy(() => import("@/components/catalog-wall").then(module => ({ default: module.CatalogRail })))
+const UnmatchedLine = lazy(() => import("@/components/catalog-wall").then(module => ({ default: module.UnmatchedLine })))
+
+function ViewLoading({ label = "正在载入…" }: { label?: string }) {
+  return <div className="grid min-h-32 place-items-center text-sm text-muted-foreground" role="status">{label}</div>
+}
 
 type View = "home" | "room" | "media" | "settings"
 type Drawer = "queue" | "members" | null
@@ -57,6 +69,37 @@ function capabilityLabel(capability?: NativeCapabilityReport): string {
   return [capability.vo, capability.hwdec, capability.videoCodec, capability.audioCodec]
     .filter(Boolean)
     .join(" · ") || "libmpv 已就绪"
+}
+
+function nativeErrorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) return undefined
+  return typeof error.code === "string" ? error.code : undefined
+}
+
+/** Keep native probe classifications visible in the first-run guide. */
+function backendVerifyFailure(error: unknown, origin: string): VerifyFailure {
+  const code = nativeErrorCode(error)
+  const message = errorMessage(error, `无法验证 ${origin}。`)
+  switch (code) {
+    case "AUTH_REQUIRED":
+      return { ok: false, message, hint: "这个服务器要求站点账号和密码，请在这里设置后重新验证。", action: "credentials" }
+    case "AUTH_REJECTED":
+      return { ok: false, message, hint: "已保存的站点账号或密码未被接受，请更新凭据后重新验证。", action: "credentials" }
+    case "TLS_TRUST_REQUIRED":
+      return { ok: false, message, hint: "请到「设置 → 安全与高级」导入并核对服务器证书，然后重试。" }
+    case "DNS_FAILED":
+      return { ok: false, message, hint: "无法解析这个主机名，请检查地址拼写或 DNS 设置。" }
+    case "CONNECTION_REFUSED":
+      return { ok: false, message, hint: "目标主机拒绝连接，请确认 Banguru 后端正在运行并监听该端口。" }
+    case "PROTOCOL_VERSION_MISMATCH":
+      return { ok: false, message, hint: "客户端与服务器协议版本不兼容，请更新桌面端或后端。" }
+    case "CAPABILITY_UNAVAILABLE":
+      return { ok: false, message, hint: "服务器没有开放桌面端需要的创建或加入能力，请检查后端版本和配置。" }
+    case "DESKTOP_REQUEST_FAILED":
+      return { ok: false, message, hint: "服务器返回了无法识别的响应，请确认地址指向 Banguru 后端而非管理网页。" }
+    default:
+      return { ok: false, message, hint: "请检查服务器地址、网络连接和后端状态；如果使用 HTTPS，请确认系统信任该证书。" }
+  }
 }
 
 /** 文件浏览器与标题墙共用的取图入口：库封面走 media，目录海报走 poster。 */
@@ -146,7 +189,7 @@ export default function App() {
   }, [])
 
   // Setup Guide 注入面：只用既有 IPC 白名单命令（getDesktopSettings / updateDesktopSettings /
-  // verifyBackend / probeDesktopBackend / promptSiteCredentials / Linkle adapter）。
+  // probeDesktopBackend / promptSiteCredentials / Linkle adapter）。
   const setupServices: SetupGuideServices = {
     async loadInitial() {
       const settings = await getDesktopSettings()
@@ -170,11 +213,15 @@ export default function App() {
       } catch (error) { return { ok: false, message: errorMessage(error, "地址保存失败，请检查格式后重试。") } }
     },
     async verifyBanguru() {
-      const current = await getDesktopSettings()
+      let current: DesktopSettingsStatus
+      try {
+        current = await getDesktopSettings()
+      } catch (error) {
+        return backendVerifyFailure(error, "Banguru")
+      }
       const origin = current.backendOrigin
       if (!origin) return { ok: false, message: "还没有可验证的服务器地址。", hint: "回到上一步填写 Banguru 服务器地址后再验证。" }
       try {
-        await verifyBackend()
         const report = await probeDesktopBackend()
         const enabled = [
           report.capabilities.createRoom ? "创建" : null,
@@ -191,12 +238,8 @@ export default function App() {
           capabilityLine: enabled.length ? enabled.join(" · ") + " 均可用" : "服务器未开放任何能力位",
           accountLine: current.credentialsConfigured ? "已设置" : "未设置（服务器未要求 Basic Auth）",
         }
-      } catch {
-        return {
-          ok: false,
-          message: "无法连接 " + origin + "。",
-          hint: "请确认 Banguru 后端已启动（默认监听 8080）、主机与端口正确、防火墙放行；远程网络请改用 HTTPS。服务器要求账号时到「安全与高级」设置。",
-        }
+      } catch (error) {
+        return backendVerifyFailure(error, origin)
       }
     },
     // 与 ipc.ts 的 promptSiteCredentials 同名：方法名不构成词法绑定，这里调用的是导入的 IPC 包装。
@@ -443,19 +486,21 @@ export default function App() {
   return (
     <TooltipProvider>
       {isPlaybackView && state ? (
-        <RoomView
-          state={state}
-          roomId={activeRoomId}
-          drawer={drawer}
-          command={session.command}
-          mediaQueueAvailable={capabilities?.mediaQueue ?? false}
-          fullscreen={fullscreen}
-          statusText={session.status.text}
-          onFullscreenChange={setFullscreen}
-          onDrawerChange={(nextDrawer) => { if (nextDrawer !== "queue" || capabilities?.mediaQueue) setDrawer((current) => current === nextDrawer ? null : nextDrawer) }}
-          onOpenMedia={() => { if (capabilities?.mediaSearch || capabilities?.mediaQueue) void navigate("media") }}
-          onLeave={() => void leaveRoom()}
-        />
+        <Suspense fallback={<ViewLoading label="正在载入播放器…" />}>
+          <RoomView
+            state={state}
+            roomId={activeRoomId}
+            drawer={drawer}
+            command={session.command}
+            mediaQueueAvailable={capabilities?.mediaQueue ?? false}
+            fullscreen={fullscreen}
+            statusText={session.status.text}
+            onFullscreenChange={setFullscreen}
+            onDrawerChange={(nextDrawer) => { if (nextDrawer !== "queue" || capabilities?.mediaQueue) setDrawer((current) => current === nextDrawer ? null : nextDrawer) }}
+            onOpenMedia={() => { if (capabilities?.mediaSearch || capabilities?.mediaQueue) void navigate("media") }}
+            onLeave={() => void leaveRoom()}
+          />
+        </Suspense>
       ) : (
         <FluentProvider applyStylesToPortals={false} theme={winuiFluentTheme(theme === "dark" ? webDarkTheme : webLightTheme)} className="desktop-shell-surface desktop-shell-grid text-foreground" data-sidebar={sidebarCollapsed ? "collapsed" : "expanded"}>
           {windowMaterial === "auto" ? (
@@ -483,6 +528,7 @@ export default function App() {
             servicesDisabled={setupCompleted === false}
           />
           <main id="desktop-main" tabIndex={-1} className="desktop-main">
+            <Suspense fallback={<ViewLoading />}>
             <div className={cn("desktop-page", view === "settings" && "desktop-page-settings")}>{view === "home" && setupCompleted === false ? (
               <SetupGuide services={setupServices} onDone={() => setSetupCompleted(true)} />
             ) : view === "home" ? (product === "musicparty" ? (currentLobbyRoom?.service === "musicparty" ? (
@@ -516,6 +562,7 @@ export default function App() {
                 onMusicPartyLogout={musicParty.logout}
               />
             )}</div>
+            </Suspense>
             {currentLobbyRoom?.service !== "musicparty" && (currentLobbyRoom || state?.roomId) ? <SessionBar
               service="watchparty"
               roomId={currentLobbyRoom?.roomId ?? state?.roomId ?? ""}

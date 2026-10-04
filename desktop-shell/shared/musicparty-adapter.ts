@@ -6,6 +6,7 @@ import type { PlayerAdapter } from "./player"
 import { DEFAULT_RETRY_POLICY, retryDelay } from "./retry"
 import { MUSICPARTY_DESKTOP_API_VERSION, MUSICPARTY_MIN_CLIENT_VERSION } from "./musicparty-contract"
 import { addClockSample, applyPlayerState, applyProgress, emptySharedRoomState } from "./shared-room-state"
+import { invoke as defaultDesktopInvoke } from "./desktop-runtime"
 
 export interface MusicPartyTransport {
   origin: string
@@ -290,7 +291,7 @@ async function sendDesktopRequest(transport: MusicPartyTransport, path: string, 
   if (init.body) headers.set("Content-Type", "application/json")
   // Explicit transport injection supports browser fixtures; production uses native IPC.
   if (transport.fetchImpl) return transport.fetchImpl(new URL(path, transport.origin), { ...init, headers })
-  const invoke = transport.nativeInvoke ?? (await import("./desktop-runtime")).invoke
+  const invoke = transport.nativeInvoke ?? defaultDesktopInvoke
   const result = await invoke<{ status: number; body: string }>("musicPartyRequest", { input: {
     origin: transport.origin, path, method: init.method ?? "GET",
     body: typeof init.body === "string" ? JSON.parse(init.body) as unknown : null,
@@ -457,7 +458,7 @@ export class MusicPartyAdapter implements ProductAdapter {
     if (this.artworkCache.has(target)) return this.artworkCache.get(target) ?? null
     let dataUrl: string | null = null
     try {
-      const invoke = this.options.nativeInvoke ?? (await import("./desktop-runtime")).invoke
+      const invoke = this.options.nativeInvoke ?? defaultDesktopInvoke
       const reply = await invoke<{ dataUrl?: unknown }>("fetchArtworkImage", { url: target })
       if (typeof reply?.dataUrl === "string" && reply.dataUrl.startsWith("data:image/")) dataUrl = reply.dataUrl
     } catch { dataUrl = null }
@@ -997,7 +998,7 @@ export class MusicPartyAdapter implements ProductAdapter {
 
   async clearSession(): Promise<void> {
     await this.disconnect()
-    const invoke = this.options.nativeInvoke ?? (await import("./desktop-runtime")).invoke
+    const invoke = this.options.nativeInvoke ?? defaultDesktopInvoke
     await invoke<void>("clearMusicPartySession", { origin: this.options.origin })
     this.snapshot = null
     this.queue = []
@@ -1037,7 +1038,7 @@ export class MusicPartyAdapter implements ProductAdapter {
 
   private async openSocket(): Promise<void> {
     if (this.stopped) return
-    if (!this.options.webSocketFactory) { if (!this.options.nativeInvoke) (this.options as MusicPartyAdapterOptions).nativeInvoke = (await import("./desktop-runtime")).invoke as MusicPartyInvoke; await this.openNative(); return }
+    if (!this.options.webSocketFactory) { if (!this.options.nativeInvoke) (this.options as MusicPartyAdapterOptions).nativeInvoke = defaultDesktopInvoke as MusicPartyInvoke; await this.openNative(); return }
     const factory = this.options.webSocketFactory ?? ((url: string) => new WebSocket(url))
     const url = new URL("/api/desktop/v1/ws", this.options.origin.replace(/^http/, "ws"))
     if (this.options.roomId) url.searchParams.set("roomId", this.options.roomId)

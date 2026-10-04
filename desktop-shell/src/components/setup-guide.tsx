@@ -38,6 +38,8 @@ export interface VerifyFailure {
   ok: false
   message: string
   hint: string
+  /** Native verification errors can offer the relevant settings action. */
+  action?: "credentials"
 }
 
 export type VerifyOutcome = VerifySuccess | VerifyFailure
@@ -220,6 +222,16 @@ export function SetupGuide({ services, onDone, seed }: SetupGuideProps) {
           onBack={() => { setVerify({ kind: "idle" }); setStep((current) => transition(current, "back")) }}
           onRetry={runVerify}
           onContinue={() => setStep((current) => transition(current, "next"))}
+          credentialsBusy={busy}
+          onPromptCredentials={() => {
+            setBusy(true)
+            void services.promptSiteCredentials().then((saved) => {
+              if (saved) {
+                setCredentialsConfigured(true)
+                setVerify({ kind: "idle" })
+              }
+            }).catch(() => {}).finally(() => setBusy(false))
+          }}
         />
       ) : null}
       {step === "account" ? (
@@ -338,9 +350,11 @@ export interface VerifyPanelProps {
   onBack(): void
   onRetry(): void
   onContinue(): void
+  credentialsBusy?: boolean
+  onPromptCredentials?: () => void
 }
 
-export function VerifyPanel({ origin, verify, onBack, onRetry, onContinue }: VerifyPanelProps) {
+export function VerifyPanel({ origin, verify, onBack, onRetry, onContinue, credentialsBusy = false, onPromptCredentials }: VerifyPanelProps) {
   return (
     <div>
       <h1 className="mb-1 text-xl font-semibold">验证连接</h1>
@@ -362,7 +376,15 @@ export function VerifyPanel({ origin, verify, onBack, onRetry, onContinue }: Ver
       ) : (
         <>
           <MessageBar variant="error">
-            <div>{verify.outcome.message}<span className="mt-0.5 block text-[var(--text-secondary)]">{verify.outcome.hint}</span></div>
+            <div>
+              {verify.outcome.message}
+              <span className="mt-0.5 block text-[var(--text-secondary)]">{verify.outcome.hint}</span>
+              {verify.outcome.action === "credentials" && onPromptCredentials ? (
+                <Button className="mt-2" size="sm" variant="default" disabled={credentialsBusy} onClick={onPromptCredentials}>
+                  设置站点账号和密码
+                </Button>
+              ) : null}
+            </div>
           </MessageBar>
           <p className="my-3 text-xs text-[var(--text-secondary)]">可以修正地址后重试，或保存并继续——之后随时在「设置 → 连接」重新配置。</p>
         </>

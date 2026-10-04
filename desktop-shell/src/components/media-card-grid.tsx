@@ -27,22 +27,6 @@ export function MediaCardGrid({ cards, onOpen, onPlay, onEnqueue, controlEnabled
   )
 }
 
-/**
- * Cover of the directory you are inside (phase 2). The backend only exposes a poster
- * for the current directory — not for each subfolder card — so this band is where a
- * folder's own `poster.jpg` shows up in the Files view.
- */
-export function MediaFolderBanner({ imageUrl, title }: { imageUrl: string; title: string }) {
-  const [failed, setFailed] = useState(false)
-  if (failed) return null
-  return (
-    <div className="media-folder-banner">
-      <img src={imageUrl} alt="" onError={() => setFailed(true)} />
-      <span className="media-folder-banner-name">{title}</span>
-    </div>
-  )
-}
-
 function MediaCardTile({ card, onOpen, onPlay, onEnqueue, controlEnabled, queueEnabled }: {
   card: MediaCard
   onOpen: (card: MediaCard) => void
