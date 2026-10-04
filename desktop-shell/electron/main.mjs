@@ -7,8 +7,9 @@ import { SidecarClient } from './sidecar-client.mjs'
 import policy from './policy.cjs'
 import { fetchArtworkImage } from './artwork.mjs'
 import { getWallpaperBackdrop } from './wallpaper.mjs'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { desktopProfile } from './profile.mjs'
 
 const directory = dirname(fileURLToPath(import.meta.url))
 if (['no-sandbox', 'disable-renderer-sandbox', 'disable-gpu-sandbox'].some(flag => app.commandLine.hasSwitch(flag))) {
@@ -17,6 +18,9 @@ if (['no-sandbox', 'disable-renderer-sandbox', 'disable-gpu-sandbox'].some(flag 
 app.enableSandbox()
 // Separate application identity and data directory preserve the user's Tauri client.
 app.setName('Banguru')
+const appId = 'top.nirotiy.banguru'
+const appIcon = join(directory, 'assets', process.platform === 'win32' ? 'banguru-logo.ico' : 'banguru-logo-256.png')
+if (process.platform === 'win32') app.setAppUserModelId(appId)
 const smoke = process.argv.includes('--smoke') || process.argv.includes('--conditions=watchparty-smoke')
 const acceptance = process.argv.includes('--acceptance')
 const linkleCheck = process.argv.includes('--linkle-check')
@@ -26,13 +30,31 @@ const mediaCheck = process.argv.includes('--media-check')
 const uiAudit = process.argv.includes('--ui-audit')
 const viewShot = process.argv.includes('--view-shot')
 const protocolProbe = process.argv.find(arg => arg.startsWith('--protocol-probe='))?.slice('--protocol-probe='.length)
+const configureLocal = process.argv.includes('--configure-local')
+const configureOrigin = process.argv.find(arg => arg.startsWith('--configure-origin='))?.slice('--configure-origin='.length)
+const configureCertificate = process.argv.find(arg => arg.startsWith('--configure-certificate='))?.slice('--configure-certificate='.length)
+const configureCredentials = process.argv.includes('--configure-site-credentials')
 const acceptanceProfile = protocolProbe ?? process.argv.find(arg => arg.startsWith('--acceptance-profile='))?.slice('--acceptance-profile='.length)
 if (acceptanceProfile && (dirname(resolve(acceptanceProfile)) !== resolve(tmpdir()) || !basename(acceptanceProfile).startsWith('watchparty-electron-smoke-'))) throw new Error('invalid_acceptance_profile')
-const userDataPath = acceptanceProfile ?? (smoke || acceptance || linkleCheck || startupCheck || setupGuideCheck || mediaCheck || uiAudit || viewShot ? mkdtempSync(join(tmpdir(), 'watchparty-electron-smoke-')) : join(app.getPath('appData'), 'WatchParty-Electron-Local'))
+const checking = smoke || acceptance || linkleCheck || startupCheck || setupGuideCheck || mediaCheck || uiAudit || viewShot
+const { installed, portable, legacyPath: legacyUserDataPath, userDataPath } = desktopProfile({
+  defaultApp: process.defaultApp, executableDirectory: dirname(process.execPath),
+  appData: app.getPath('appData'), localAppData: process.env.LOCALAPPDATA, acceptanceProfile, checking,
+})
+// Native credentials must use the same profile decision, never a caller's inherited flag.
+process.env.WATCHPARTY_INSTALLED_PROFILE = installed ? '1' : '0'
 // Chromium's Windows single-instance lock is created inside userData. Create the
 // directory first so a first launch cannot fail with an opaque access-denied lock error.
 mkdirSync(userDataPath, { recursive: true })
+if (portable && !existsSync(join(userDataPath, 'settings.json'))) {
+  for (const file of ['settings.json', 'trust.json']) {
+    const source = join(legacyUserDataPath, file)
+    const target = join(userDataPath, file)
+    if (existsSync(source) && !existsSync(target)) copyFileSync(source, target)
+  }
+}
 app.setPath('userData', userDataPath)
+if (installed) app.setPath('sessionData', userDataPath)
 protocol.registerSchemesAsPrivileged([{ scheme: 'watchparty-app', privileges: { standard: true, secure: true, supportFetchAPI: true } }])
 const entry = 'watchparty-app://desktop/index.html'
 let window
@@ -73,8 +95,9 @@ if (process.argv.includes('--register-deep-link')) {
   void app.whenReady().then(() => {
     const args = process.defaultApp ? [app.getAppPath()] : []
     if (protocolProbe) args.push(`--protocol-probe=${protocolProbe}`)
-    const ok = app.setAsDefaultProtocolClient('watchparty', process.execPath, args)
-      && app.isDefaultProtocolClient('watchparty', process.execPath, args)
+    const executable = process.env.WATCHPARTY_PORTABLE_LAUNCHER ?? process.execPath
+    const ok = app.setAsDefaultProtocolClient('watchparty', executable, args)
+      && app.isDefaultProtocolClient('watchparty', executable, args)
     console.log(ok ? 'WATCHPARTY_PROTOCOL_REGISTERED' : 'WATCHPARTY_PROTOCOL_REGISTRATION_FAILED')
     app.exit(ok ? 0 : 1)
   })
@@ -148,6 +171,7 @@ if (process.argv.includes('--register-deep-link')) {
   assetOrigin = `http://127.0.0.1:${assetServer.address().port}`
   window = new BrowserWindow({
     width: 1300, height: 800, minWidth: 960, minHeight: 640, title: 'Banguru',
+    icon: appIcon,
     // 显示窗口不依赖 renderer 的 dom-ready。资源、sidecar 或 IPC 出错时仍需让用户看到
     // Electron 窗口和启动日志，而不是静默停留在后台。
     show: true, transparent: false, backgroundColor: '#202020',
@@ -157,6 +181,11 @@ if (process.argv.includes('--register-deep-link')) {
     titleBarStyle: 'hidden',
     webPreferences: { preload: join(directory, 'preload-built.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true },
   })
+  if (process.platform === 'win32' && process.env.WATCHPARTY_PORTABLE_LAUNCHER) {
+    window.setAppDetails({ appId, relaunchDisplayName: 'Banguru',
+      relaunchCommand: `"${process.env.WATCHPARTY_PORTABLE_LAUNCHER}"`,
+      relaunchIcon: appIcon, relaunchIconIndex: 0 })
+  }
   applyWindowMaterial('auto')
   window.setMenu(null)
   window.on('enter-full-screen', () => window.webContents.send('watchparty:fullscreen', true))
@@ -294,6 +323,44 @@ if (process.argv.includes('--register-deep-link')) {
     } catch (error) {
       console.error(error instanceof Error ? error.stack ?? error.message : `electron_check_rejected ${JSON.stringify(error) ?? String(error)}`)
       console.error('ELECTRON_SETUP_GUIDE_CHECK_FAILED')
+      stopping = true
+      await native.close()
+      app.exit(1)
+    }
+    return
+  }
+  if (configureLocal) {
+    try {
+      const origin = new URL(configureOrigin ?? '')
+      if (origin.protocol !== 'https:' || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) throw new Error('invalid_configuration_origin')
+      if (!configureCertificate) throw new Error('certificate_path_required')
+      const pem = await readFile(resolve(configureCertificate), 'utf8')
+      const trust = await native.request('importOriginTrust', { origin: origin.origin, pem })
+      if (trust?.origin !== origin.origin || !/^[a-f0-9]{64}$/.test(trust?.fingerprint ?? '')) throw new Error('certificate_import_failed')
+      const current = await native.request('getDesktopSettings')
+      const settings = await native.request('updateDesktopSettings', { input: {
+        backendOrigin: origin.origin,
+        allowRemoteHttp: false,
+        nickname: current.nickname,
+        theme: current.theme,
+        windowMaterial: current.windowMaterial,
+        playerPreferences: current.playerPreferences,
+        setupCompleted: current.setupCompleted,
+      } })
+      if (settings?.backendOrigin !== origin.origin) throw new Error('server_settings_not_saved')
+      if (configureCredentials) {
+        const credentials = await native.request('promptSiteCredentials')
+        console.log(credentials ? 'WATCHPARTY_SITE_CREDENTIALS_SAVED' : 'WATCHPARTY_SITE_CREDENTIALS_SKIPPED')
+      }
+      console.log('WATCHPARTY_LOCAL_CONFIGURATION_OK')
+      stopping = true
+      await native.close()
+      app.exit(0)
+    } catch (error) {
+      const code = typeof error === 'string' && /^[a-zA-Z0-9_:-]{1,96}$/.test(error)
+        ? error
+        : error instanceof Error && /^[a-zA-Z0-9_:-]{1,96}$/.test(error.message) ? error.message : 'local_configuration_failed'
+      console.error(`WATCHPARTY_LOCAL_CONFIGURATION_FAILED ${code}`)
       stopping = true
       await native.close()
       app.exit(1)

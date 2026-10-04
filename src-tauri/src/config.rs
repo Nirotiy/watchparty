@@ -13,6 +13,12 @@ const CREDENTIAL_TARGET_PREFIX: &str = "WatchParty/site-basic/";
 const ROOM_CREDENTIAL_TARGET_PREFIX: &str = "WatchParty/room-session/";
 const TRUST_FILE: &str = "trust.json";
 
+/// Removes only installed Banguru credentials, including origins no longer in settings.
+#[cfg(windows)]
+pub fn clear_installed_credentials() -> Result<(), ConfigError> {
+    platform::clear_prefix(crate::installed_profile::CREDENTIAL_PREFIX)
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct OriginTrustRecord {
@@ -606,7 +612,7 @@ fn musicparty_credential_read_and_clear_are_origin_scoped() {
                 headers.push_str(&line);
             }
             requests.push(headers.to_ascii_lowercase());
-            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\nSet-Cookie: MP_SESSION=stale\r\n\r\n{}").unwrap();
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\nSet-Cookie: MP_SESSION=test-session-secret; Path=/\r\nSet-Cookie: MP_CSRF=test-csrf-secret; Path=/\r\n\r\n{}").unwrap();
         }
         requests
     });
@@ -621,9 +627,8 @@ fn musicparty_credential_read_and_clear_are_origin_scoped() {
     assert_eq!(bridge.request(input()).unwrap().status, 200);
     bridge.clear(&origin).unwrap();
     assert!(MusicPartyCredentialStore.read(&origin).unwrap().is_none());
-    assert!(
-        matches!(bridge.request(input()), Err(error) if error == "musicparty_credentials_failed")
-    );
+    assert_eq!(bridge.request(input()).unwrap().status, 200);
+    assert!(MusicPartyCredentialStore.read(&origin).unwrap().is_some());
     let requests = server.join().unwrap();
     assert!(requests[0].contains("cookie: mp_session=test-session-secret"));
     assert!(requests[0].contains("x-csrf-token: test-csrf-secret"));
@@ -661,8 +666,11 @@ impl MusicPartyCredentialStore {
         platform::write_blob(&Self::target(origin)?, "MusicParty", &bytes)
     }
     fn target(origin: &str) -> Result<String, ConfigError> {
+        let prefix = crate::installed_profile::credential_prefix(
+            "MusicParty Desktop/session/", "musicparty-session/",
+        );
         Ok(format!(
-            "MusicParty Desktop/session/{}",
+            "{prefix}{}",
             validate_backend_origin(origin)?
         ))
     }
@@ -891,8 +899,9 @@ fn credential_target_with_policy(
     backend_origin: &str,
     allow_remote_http: bool,
 ) -> Result<String, ConfigError> {
+    let prefix = crate::installed_profile::credential_prefix(CREDENTIAL_TARGET_PREFIX, "site-basic/");
     Ok(format!(
-        "{CREDENTIAL_TARGET_PREFIX}{}",
+        "{prefix}{}",
         validate_backend_origin_with_policy(backend_origin, allow_remote_http)?
     ))
 }
@@ -905,8 +914,9 @@ fn room_credential_target_with_policy(
     backend_origin: &str,
     allow_remote_http: bool,
 ) -> Result<String, ConfigError> {
+    let prefix = crate::installed_profile::credential_prefix(ROOM_CREDENTIAL_TARGET_PREFIX, "room-session/");
     Ok(format!(
-        "{ROOM_CREDENTIAL_TARGET_PREFIX}{}",
+        "{prefix}{}",
         validate_backend_origin_with_policy(backend_origin, allow_remote_http)?
     ))
 }
@@ -920,7 +930,7 @@ mod platform {
         Win32::{
             Foundation::GetLastError,
             Security::Credentials::{
-                CredDeleteW, CredFree, CredReadW, CredUIPromptForCredentialsW, CredWriteW,
+                CredDeleteW, CredEnumerateW, CredFree, CredReadW, CredUIPromptForCredentialsW, CredWriteW,
                 CREDENTIALW, CREDUI_FLAGS_DO_NOT_PERSIST, CREDUI_FLAGS_GENERIC_CREDENTIALS,
                 CREDUI_INFOW, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
             },
@@ -1049,6 +1059,32 @@ mod platform {
         }
     }
 
+    pub fn clear_prefix(prefix: &str) -> Result<(), ConfigError> {
+        let filter = wide(&format!("{prefix}*"));
+        let mut count = 0;
+        let mut credentials = ptr::null_mut();
+        if unsafe { CredEnumerateW(filter.as_ptr(), 0, &mut count, &mut credentials) } == 0 {
+            return match unsafe { GetLastError() } {
+                ERROR_NOT_FOUND => Ok(()),
+                _ => Err(ConfigError::CredentialOperation),
+            };
+        }
+        let targets = (|| {
+            let mut targets = Vec::new();
+            for index in 0..count as usize {
+                let credential = unsafe { &**credentials.add(index) };
+                if credential.Type == CRED_TYPE_GENERIC {
+                    let target = string_from_wide(credential.TargetName)?;
+                    if target.starts_with(prefix) { targets.push(target); }
+                }
+            }
+            Ok::<_, ConfigError>(targets)
+        })();
+        unsafe { CredFree(credentials.cast()) };
+        for target in targets? { clear(&target)?; }
+        Ok(())
+    }
+
     pub fn write_blob(target: &str, username: &str, blob: &[u8]) -> Result<(), ConfigError> {
         let mut target = wide(target);
         let mut username = wide(username);
@@ -1135,6 +1171,42 @@ mod platform {
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn credential_targets_follow_profile_namespace() {
+        let origin = "https://profile-test.example";
+        let actual = [credential_target(origin).unwrap(), room_credential_target(origin).unwrap(),
+            MusicPartyCredentialStore::target(origin).unwrap()];
+        let prefixes = if crate::installed_profile::is_installed() {
+            ["Banguru/installed/site-basic/", "Banguru/installed/room-session/", "Banguru/installed/musicparty-session/"]
+        } else {
+            ["WatchParty/site-basic/", "WatchParty/room-session/", "MusicParty Desktop/session/"]
+        };
+        for (target, prefix) in actual.iter().zip(prefixes) {
+            assert_eq!(target, &format!("{prefix}{origin}"));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn installed_credential_cleanup_is_scoped_and_idempotent() {
+        let prefix = format!("Banguru-test/{}/installed/", uuid::Uuid::new_v4());
+        let other = format!("{prefix}outside");
+        let owned = format!("{prefix}credentials/");
+        platform::write_blob(&other, "test", b"retain").unwrap();
+        let targets: Vec<_> = ["site-basic/a", "room-session/b", "musicparty-session/c"]
+            .iter().map(|suffix| format!("{owned}{suffix}")).collect();
+        for target in &targets { platform::write_blob(target, "test", b"fake").unwrap(); }
+        let result = platform::clear_prefix(&owned);
+        let removed = targets.iter().all(|target| !platform::has(target).unwrap());
+        let retained = platform::has(&other).unwrap();
+        for target in &targets { platform::clear(target).unwrap(); }
+        platform::clear(&other).unwrap();
+        result.unwrap();
+        assert!(removed);
+        assert!(retained);
+        platform::clear_prefix(&owned).unwrap();
+    }
 
     #[test]
     fn origin_tls_policy_is_scoped_and_defaults_to_system_chain() {

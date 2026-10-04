@@ -35,3 +35,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "watchparty-native-sidecar"
 path = "src/bin/desktop_sidecar.rs"
+
+[[bin]]
+name = "banguru-profile-cleanup"
+path = "src/bin/profile_cleanup.rs"

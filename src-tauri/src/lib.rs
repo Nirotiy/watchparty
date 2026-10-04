@@ -4,6 +4,7 @@ pub mod sidecar;
 pub mod clock;
 pub mod commands;
 pub mod config;
+pub mod installed_profile;
 pub mod contracts;
 pub mod http;
 pub mod musicparty;

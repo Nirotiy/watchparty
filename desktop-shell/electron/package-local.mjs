@@ -4,9 +4,13 @@ import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
+import { rcedit } from 'rcedit'
+import { installationMarker } from './profile.mjs'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const directory = fileURLToPath(new URL('.', import.meta.url))
+const installed = process.argv.includes('--installed')
+if (process.argv.slice(2).some(arg => arg !== '--installed')) throw new Error('invalid_package_argument')
 const sidecarPath = join(directory, 'native', 'watchparty-native-sidecar.exe')
 async function newestMtime(folder) {
   let newest = { mtimeMs: 0, file: '' }
@@ -28,6 +32,10 @@ if (!sidecarStat) throw new Error(`sidecar_missing: ${sidecarPath} — run npm r
 if (sidecarStat.mtimeMs < newestSource.mtimeMs) {
   throw new Error(`sidecar_stale: ${newestSource.file} changed after ${sidecarPath} was built — run npm run electron:build`)
 }
+if (installed) {
+  const cleanup = await stat(join(directory, 'native/banguru-profile-cleanup.exe')).catch(() => null)
+  if (!cleanup || cleanup.mtimeMs < newestSource.mtimeMs) throw new Error('profile_cleanup_missing_or_stale: run npm run electron:build')
+}
 // Electron no longer runs a postinstall: index.js fetches dist/ on first
 // require, which must happen before dist/ is copied below.
 createRequire(import.meta.url)('electron')
@@ -44,16 +52,28 @@ for (const entry of await readdir(join(directory, 'node_modules/electron/dist'))
   await cp(join(directory, 'node_modules/electron/dist', entry), join(output, entry), { recursive: true, errorOnExist: true, force: false })
 }
 await rename(join(output, 'electron.exe'), join(output, 'watchparty-runtime.exe'))
+if (installed) {
+  await writeFile(join(output, installationMarker), '')
+  await copyFile(join(directory, 'native/banguru-profile-cleanup.exe'), join(output, 'BanguruCleanup.exe'))
+}
 execFileSync('rustc', ['--edition=2024', '-C', 'opt-level=2', '-C', 'strip=symbols', join(directory, 'portable-launcher.rs'), '-o', join(output, 'Banguru.exe')], { stdio: 'inherit', windowsHide: true })
+const icon = join(directory, 'assets', 'banguru-logo.ico')
+for (const executable of ['Banguru.exe', 'watchparty-runtime.exe']) {
+  await rcedit(join(output, executable), { icon })
+}
 const app = join(output, 'resources/app')
 await mkdir(join(app, 'electron/native'), { recursive: true })
 await writeFile(join(app, 'package.json'), JSON.stringify({ name: 'watchparty-electron-local', version: '0.1.0', type: 'module', main: 'electron/main.mjs' }, null, 2))
-for (const file of ['main.mjs', 'preload-built.cjs', 'policy.cjs', 'sidecar-client.mjs', 'smoke.mjs', 'wallpaper.mjs', 'artwork.mjs']) await copyFile(join(directory, file), join(app, 'electron', file))
+for (const file of ['main.mjs', 'profile.mjs', 'preload-built.cjs', 'policy.cjs', 'sidecar-client.mjs', 'smoke.mjs', 'wallpaper.mjs', 'artwork.mjs']) await copyFile(join(directory, file), join(app, 'electron', file))
+await cp(join(directory, 'assets'), join(app, 'electron/assets'), { recursive: true })
 await cp(join(directory, '../dist-electron'), join(app, 'dist-electron'), { recursive: true })
 const native = join(app, 'electron/native')
 await copyFile(join(directory, 'native/watchparty-native-sidecar.exe'), join(native, 'watchparty-native-sidecar.exe'))
 await copyFile(process.env.WATCHPARTY_LIBMPV_PATH ?? join(process.env.LOCALAPPDATA, 'WatchParty/runtime/libmpv-2.dll'), join(native, 'libmpv-2.dll'))
+await copyFile(join(directory, 'LICENSE-public-ca.txt'), join(output, 'LICENSE-public-ca.txt'))
 await writeFile(join(output, 'Start-WatchParty.cmd'), '@echo off\r\nstart "" "%~dp0Banguru.exe" %*\r\n')
+await copyFile(join(directory, 'create-desktop-shortcut.ps1'), join(output, 'Create-Desktop-Shortcut.ps1'))
+await writeFile(join(output, 'Create-Desktop-Shortcut.cmd'), '@echo off\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Create-Desktop-Shortcut.ps1"\r\n')
 const hashes = {}
 async function hashTree(folder, prefix = '') {
   for (const entry of (await readdir(folder, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
@@ -64,6 +84,7 @@ async function hashTree(folder, prefix = '') {
 }
 await hashTree(output)
 const manifest = {
+  distribution: installed ? 'installed-payload' : 'portable',
   builtAt, watchpartyHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
   sourceState: 'dirty working tree; HEAD alone cannot reproduce this package',
   profile: 'local unsigned Windows x64; debug Rust sidecar; Electron directory distribution',
