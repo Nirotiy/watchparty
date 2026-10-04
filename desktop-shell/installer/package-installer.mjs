@@ -12,7 +12,10 @@ const args = process.argv.slice(2)
 const payloadArgument = args.find(arg => arg.startsWith('--payload='))
 const outputArgument = args.find(arg => arg.startsWith('--output='))
 const payload = payloadArgument ? resolve(payloadArgument.slice('--payload='.length)) : null
-const output = outputArgument ? resolve(outputArgument.slice('--output='.length)) : join(root, 'artifacts', 'installer', `Banguru-${version}-Setup.exe`)
+const distributionRoot = process.env.LOCALAPPDATA
+  ? join(process.env.LOCALAPPDATA, 'Banguru', 'distribution')
+  : join(root, 'artifacts', 'installer')
+const output = outputArgument ? resolve(outputArgument.slice('--output='.length)) : join(distributionRoot, `Banguru-${version}-Setup.exe`)
 if (args.some(arg => !arg.startsWith('--payload=') && !arg.startsWith('--output='))) throw new Error('invalid_installer_argument')
 
 let payloadDirectory = payload

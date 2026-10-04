@@ -1,5 +1,6 @@
 ﻿Unicode true
 RequestExecutionLevel user
+SetCompressor /SOLID lzma
 
 !include "MUI2.nsh"
 !include "nsDialogs.nsh"
@@ -25,7 +26,6 @@ InstallDirRegKey HKCU "Software\Banguru" "InstallDir"
 ShowInstDetails show
 ShowUninstDetails show
 RequestExecutionLevel user
-
 VIProductVersion "${VERSION}.0"
 VIAddVersionKey /LANG=2052 "ProductName" "Banguru"
 VIAddVersionKey /LANG=2052 "CompanyName" "Nirotiy"
