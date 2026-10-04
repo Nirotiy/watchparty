@@ -753,6 +753,26 @@ impl SiteCredentialStore {
         platform::prompt_and_store(credential_target(backend_origin)?.as_str(), owner_hwnd)
     }
 
+    /// Stores explicitly supplied credentials in the native credential vault.
+    /// The caller is restricted to the private sidecar transport; renderer code
+    /// uses the Windows-owned prompt instead.
+    pub fn write(
+        &self,
+        backend_origin: &str,
+        username: &str,
+        password: &str,
+    ) -> Result<(), ConfigError> {
+        let username = username.trim();
+        if username.is_empty() || username.len() > 256 || password.is_empty() || password.len() > 4096 {
+            return Err(ConfigError::Invalid);
+        }
+        platform::write_blob(
+            credential_target(backend_origin)?.as_str(),
+            username,
+            password.as_bytes(),
+        )
+    }
+
     pub fn clear(&self, backend_origin: &str) -> Result<(), ConfigError> {
         platform::clear(credential_target(backend_origin)?.as_str())
     }

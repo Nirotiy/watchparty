@@ -57,6 +57,8 @@ enum Command {
     DeleteTrust { origin: String },
     #[serde(rename = "promptSiteCredentials")]
     PromptCredentials {},
+    #[serde(rename = "setSiteCredentials")]
+    SetCredentials { input: api::SiteCredentialsInput },
     #[serde(rename = "clearSiteCredentials")]
     ClearCredentials {},
     #[serde(rename = "verifyBackend")]
@@ -215,6 +217,7 @@ impl State {
             Command::ImportTrust { origin, pem } => encode(api::importOriginTrust(s, origin, pem)),
             Command::DeleteTrust { origin } => encode(api::deleteOriginTrust(s, origin)),
             Command::PromptCredentials {} => encode(api::prompt_site_credentials(s)),
+            Command::SetCredentials { input } => encode(api::set_site_credentials(input, s)),
             Command::ClearCredentials {} => encode(api::clear_site_credentials(s)),
             Command::Verify {} => encode(api::verify_backend(s)),
             Command::ProbeDesktopBackend {} => encode(api::probe_desktop_backend(s)),

@@ -1,0 +1,7 @@
+{
+  "formatVersion": 1,
+  "profileId": "vps-default-v1",
+  "backendOrigin": "https://39.108.227.53:8443",
+  "caAsset": "vps-root-ca.pem",
+  "caPemSha256": "c14399671d2f58139e592aec825be0883f26d81ecb90bca4638582d764719d0c"
+}

@@ -9,6 +9,7 @@ const electronDirectory = resolve(installerDirectory, '..', 'electron')
 const root = resolve(installerDirectory, '../..')
 const version = JSON.parse(await readFile(join(electronDirectory, 'package.json'), 'utf8')).version
 const args = process.argv.slice(2)
+const preconfigured = args.includes('--preconfigured')
 const payloadArgument = args.find(arg => arg.startsWith('--payload='))
 const outputArgument = args.find(arg => arg.startsWith('--output='))
 const payload = payloadArgument ? resolve(payloadArgument.slice('--payload='.length)) : null
@@ -16,13 +17,14 @@ const distributionRoot = process.env.LOCALAPPDATA
   ? join(process.env.LOCALAPPDATA, 'Banguru', 'distribution')
   : join(root, 'artifacts', 'installer')
 const output = outputArgument ? resolve(outputArgument.slice('--output='.length)) : join(distributionRoot, `Banguru-${version}-Setup.exe`)
-if (args.some(arg => !arg.startsWith('--payload=') && !arg.startsWith('--output='))) throw new Error('invalid_installer_argument')
+if (args.some(arg => arg !== '--preconfigured' && !arg.startsWith('--payload=') && !arg.startsWith('--output='))) throw new Error('invalid_installer_argument')
+if (preconfigured && payloadArgument) throw new Error('preconfigured_cannot_reuse_payload')
 
 let payloadDirectory = payload
 if (payloadDirectory) {
   if (!(await stat(join(payloadDirectory, 'Banguru.exe')).catch(() => null))) throw new Error('payload_missing_Banguru_exe')
 } else {
-  const raw = execFileSync(process.execPath, ['package-local.mjs', '--installed'], { cwd: electronDirectory, encoding: 'utf8' })
+  const raw = execFileSync(process.execPath, ['package-local.mjs', '--installed', ...(preconfigured ? ['--preconfigured'] : [])], { cwd: electronDirectory, encoding: 'utf8' })
   const record = JSON.parse(raw.trim())
   payloadDirectory = record.output
 }

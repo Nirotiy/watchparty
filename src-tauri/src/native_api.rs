@@ -285,6 +285,12 @@ pub struct DesktopRoomInput {
     pub initial_media: Option<MediaSource>,
 }
 
+#[derive(Deserialize)]
+pub struct SiteCredentialsInput {
+    pub username: String,
+    pub password: String,
+}
+
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopRoomResult {
@@ -703,6 +709,32 @@ pub fn prompt_site_credentials(
         state.settings_status().map(Some)
     })
 
+}
+
+
+/// Applies credentials supplied by a trusted package bootstrapper. Renderer
+/// policy does not expose this command; normal users use the native prompt.
+pub fn set_site_credentials(
+    input: SiteCredentialsInput,
+    state: &NativeDesktopState,
+) -> Result<DesktopSettingsStatus, RuntimeError> {
+    configuration_task(state, move |state| {
+        let settings = state
+            .config_store
+            .load()
+            .map_err(|_| RuntimeError::configuration_error())?;
+        let origin = settings
+            .backend_origin
+            .as_deref()
+            .ok_or_else(RuntimeError::not_configured)?;
+        state
+            .credential_store
+            .write(origin, &input.username, &input.password)
+            .map_err(|_| RuntimeError::credential_error())?;
+        let _ = state.room_store.clear(origin);
+        state.rebuild_runtime(&settings)?;
+        state.settings_status()
+    })
 }
 
 impl NativeDesktopState {

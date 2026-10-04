@@ -2,7 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, protocol } from 'electron'
 import { basename, dirname, join, resolve, relative, isAbsolute, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'node:http'
-import { readFile, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { readFile, writeFile, rm } from 'node:fs/promises'
 import { SidecarClient } from './sidecar-client.mjs'
 import policy from './policy.cjs'
 import { fetchArtworkImage } from './artwork.mjs'
@@ -55,6 +56,7 @@ if (portable && !existsSync(join(userDataPath, 'settings.json'))) {
 }
 app.setPath('userData', userDataPath)
 if (installed) app.setPath('sessionData', userDataPath)
+const freshInstalledProfile = installed && !existsSync(join(userDataPath, 'settings.json'))
 protocol.registerSchemesAsPrivileged([{ scheme: 'watchparty-app', privileges: { standard: true, secure: true, supportFetchAPI: true } }])
 const entry = 'watchparty-app://desktop/index.html'
 let window
@@ -65,6 +67,63 @@ let appliedWindowMaterial = 'none'
 let assetServer
 let assetOrigin
 const pendingLinks = []
+
+function pemHash(pem) {
+  return createHash('sha256').update(pem.replace(/\r\n?/g, '\n'), 'utf8').digest('hex')
+}
+
+async function readBundledConnectionProfile() {
+  if (!freshInstalledProfile) return null
+  try {
+    const profilePath = join(directory, 'assets', 'connection-profile.json')
+    const profile = JSON.parse(await readFile(profilePath, 'utf8'))
+    const origin = new URL(profile.backendOrigin)
+    if (profile.formatVersion !== 1 || profile.profileId !== 'vps-default-v1' || origin.protocol !== 'https:' || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) throw new Error('invalid_connection_profile')
+    if (typeof profile.caAsset !== 'string' || basename(profile.caAsset) !== profile.caAsset || profile.caAsset !== 'vps-root-ca.pem' || !/^[a-f0-9]{64}$/.test(profile.caPemSha256 ?? '')) throw new Error('invalid_connection_profile')
+    const pem = await readFile(join(directory, 'assets', profile.caAsset), 'utf8')
+    const hash = pemHash(pem)
+    if (hash !== profile.caPemSha256) throw new Error('connection_profile_ca_hash_mismatch')
+    const credentials = profile.siteBasicAuth
+    if (credentials !== undefined && (typeof credentials !== 'object' || typeof credentials.username !== 'string' || typeof credentials.password !== 'string' || !credentials.username.trim() || !credentials.password || credentials.username.length > 256 || credentials.password.length > 4096)) throw new Error('invalid_connection_profile_credentials')
+    return { origin: origin.origin, pem, credentials: credentials ? { username: credentials.username, password: credentials.password } : null }
+  } catch (error) {
+    console.error(`BANGURU_CONNECTION_PROFILE_SKIPPED ${error instanceof Error ? error.message : 'invalid_connection_profile'}`)
+    return null
+  }
+}
+
+async function applyBundledConnectionProfile() {
+  const profile = await readBundledConnectionProfile()
+  if (!profile) return
+  let credentialsWritten = false
+  try {
+    await native.request('importOriginTrust', { origin: profile.origin, pem: profile.pem })
+    const current = await native.request('getDesktopSettings')
+    if (current.backendOrigin && current.backendOrigin !== profile.origin) throw new Error('connection_profile_origin_conflict')
+    await native.request('updateDesktopSettings', { input: {
+      backendOrigin: profile.origin,
+      allowRemoteHttp: false,
+      nickname: current.nickname,
+      theme: current.theme,
+      windowMaterial: current.windowMaterial,
+      playerPreferences: current.playerPreferences,
+      setupCompleted: current.setupCompleted,
+    } })
+    if (profile.credentials) {
+      credentialsWritten = true
+      await native.request('setSiteCredentials', { input: profile.credentials })
+    }
+    console.log(profile.credentials ? 'BANGURU_CONNECTION_PROFILE_APPLIED_WITH_CREDENTIALS' : 'BANGURU_CONNECTION_PROFILE_APPLIED')
+  } catch (error) {
+    console.error(`BANGURU_CONNECTION_PROFILE_FAILED ${error instanceof Error ? error.message : 'connection_profile_failed'}`)
+    if (freshInstalledProfile) {
+      if (credentialsWritten) {
+        try { await native.request('clearSiteCredentials') } catch {}
+      }
+      try { await rm(join(userDataPath, 'settings.json'), { force: true }) } catch {}
+    }
+  }
+}
 // 进程级兜底（M2 键盘与读屏批）：未捕获异常先收侧车再退出，别留孤儿进程；
 // 未处理的 Promise 拒绝只记录日志，不打断正在跑的会话。
 process.on('uncaughtException', (error) => {
@@ -212,6 +271,7 @@ if (process.argv.includes('--register-deep-link')) {
   const handle = window.getNativeWindowHandle()
   const hwnd = handle.length === 8 ? handle.readBigUInt64LE().toString() : handle.readUInt32LE().toString()
   native = new SidecarClient(join(directory, 'native', 'watchparty-native-sidecar.exe'), [app.getPath('userData'), hwnd])
+  await applyBundledConnectionProfile()
   native.on('event', (name, payload) => {
     if (name === '__fullscreen' && typeof payload === 'boolean') window.setFullScreen(payload)
     if (policy.events.includes(name)) window.webContents.send(name, payload)

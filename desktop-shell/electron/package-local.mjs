@@ -10,7 +10,10 @@ import { installationMarker } from './profile.mjs'
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const directory = fileURLToPath(new URL('.', import.meta.url))
 const installed = process.argv.includes('--installed')
-if (process.argv.slice(2).some(arg => arg !== '--installed')) throw new Error('invalid_package_argument')
+const preconfigured = process.argv.includes('--preconfigured')
+if (process.argv.slice(2).some(arg => arg !== '--installed' && arg !== '--preconfigured')) throw new Error('invalid_package_argument')
+if (preconfigured && !installed) throw new Error('preconfigured_package_requires_installed')
+if (preconfigured && (!process.env.BANGURU_PRESET_USERNAME || !process.env.BANGURU_PRESET_PASSWORD)) throw new Error('preconfigured_package_requires_explicit_credentials')
 const sidecarPath = join(directory, 'native', 'watchparty-native-sidecar.exe')
 async function newestMtime(folder) {
   let newest = { mtimeMs: 0, file: '' }
@@ -66,6 +69,25 @@ await mkdir(join(app, 'electron/native'), { recursive: true })
 await writeFile(join(app, 'package.json'), JSON.stringify({ name: 'watchparty-electron-local', version: '0.1.0', type: 'module', main: 'electron/main.mjs' }, null, 2))
 for (const file of ['main.mjs', 'profile.mjs', 'preload-built.cjs', 'policy.cjs', 'sidecar-client.mjs', 'smoke.mjs', 'wallpaper.mjs', 'artwork.mjs']) await copyFile(join(directory, file), join(app, 'electron', file))
 await cp(join(directory, 'assets'), join(app, 'electron/assets'), { recursive: true })
+if (preconfigured) {
+  const origin = new URL(process.env.BANGURU_PRESET_ORIGIN?.trim() || 'https://39.108.227.53:8443')
+  if (origin.protocol !== 'https:' || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) throw new Error('invalid_preset_origin')
+  const caPath = process.env.BANGURU_PRESET_CA_PATH?.trim() || join(directory, 'assets', 'vps-root-ca.pem')
+  const pem = await readFile(caPath, 'utf8')
+  const profile = {
+    formatVersion: 1,
+    profileId: 'vps-default-v1',
+    backendOrigin: origin.origin,
+    caAsset: 'vps-root-ca.pem',
+    caPemSha256: createHash('sha256').update(pem.replace(/\r\n?/g, '\n'), 'utf8').digest('hex'),
+    siteBasicAuth: {
+      username: process.env.BANGURU_PRESET_USERNAME,
+      password: process.env.BANGURU_PRESET_PASSWORD,
+    },
+  }
+  await copyFile(caPath, join(app, 'electron/assets/vps-root-ca.pem'))
+  await writeFile(join(app, 'electron/assets/connection-profile.json'), JSON.stringify(profile, null, 2) + '\n')
+}
 await cp(join(directory, '../dist-electron'), join(app, 'dist-electron'), { recursive: true })
 const native = join(app, 'electron/native')
 await copyFile(join(directory, 'native/watchparty-native-sidecar.exe'), join(native, 'watchparty-native-sidecar.exe'))
