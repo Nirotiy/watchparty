@@ -3,7 +3,7 @@
  * 严格按照 UNIVERSAL_ALIGNMENT_SPEC.md 规范实现
  */
 
-import { refreshCatalog, type CatalogAccepted, type CatalogScan } from "../../desktop-shell/shared/catalog-refresh";
+import { refreshCatalog, type CatalogAccepted, type CatalogScan } from "../shared/catalog-refresh";
 import { mediaRoomHeaders } from "./media-room-access";
 
 import {
@@ -182,10 +182,10 @@ export const api = {
   splitDraft: (libraryId: string, input: { itemKey: string; keep: string[] }): Promise<DraftEditResult> =>
     request<DraftEditResult>(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/draft/split`, { method: "POST", body: JSON.stringify(input) }),
 
-  catalogExclusions: (libraryId: string): Promise<import("../../desktop-shell/shared/catalog-exclusions").CatalogExclusions> =>
+  catalogExclusions: (libraryId: string): Promise<import("../shared/catalog-exclusions").CatalogExclusions> =>
     request(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/exclusions`),
 
-  draftExclusion: (libraryId: string, action: "exclude" | "unexclude", paths: string[]): Promise<import("../../desktop-shell/shared/catalog-exclusions").CatalogExclusions> =>
+  draftExclusion: (libraryId: string, action: "exclude" | "unexclude", paths: string[]): Promise<import("../shared/catalog-exclusions").CatalogExclusions> =>
     request(`/api/admin/media-libraries/${encodeURIComponent(libraryId)}/draft/${action}`, { method: "POST", body: JSON.stringify({ paths }) }),
 
   keepDraftBinding: (libraryId: string, input: { itemKey: string; keepsBindingOnKey: string }): Promise<DraftEditResult> =>
@@ -277,18 +277,17 @@ export const api = {
       { headers: { "X-WatchParty-Token": accessToken } },
     ),
 
-  // 11. 签发一次性 native 交接票据（5 分钟 TTL；交接码不进 URL）
+  // 11. 签发一次性 MPV 交接票据（5 分钟 TTL；交接码不进 URL）
   issueHandoffTicket: (
     roomId: string,
     accessToken: string,
-    target: "mpv" | "desktop" = "mpv",
   ): Promise<HandoffTicketResponse> =>
     request<HandoffTicketResponse>(
       `/api/rooms/${encodeURIComponent(roomId)}/handoff`,
       {
         method: "POST",
         headers: { "X-WatchParty-Token": accessToken },
-        body: JSON.stringify({ target }),
+        body: JSON.stringify({ target: "mpv" }),
       },
     ),
 };

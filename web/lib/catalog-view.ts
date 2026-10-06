@@ -1,8 +1,8 @@
 import type { CatalogCandidate, CatalogCard, CatalogChild, CatalogDetail, CatalogPage, CatalogStatus } from "@/lib/contracts"
-import { exclusionText } from "../../desktop-shell/shared/catalog-exclusions"
+import { exclusionText } from "../shared/catalog-exclusions"
 
 /**
- * 标题墙的视图模型。与桌面壳那份（`desktop-shell/src/lib/catalog-view.ts`）同语义、不同文件：
+ * 标题墙的视图模型。与归档的桌面壳实现保持同语义：
  * 计划里明确不做共享包，两端各持一份，形状随服务端契约。
  */
 export interface WallCard {
@@ -22,8 +22,8 @@ export interface WallChild {
   name: string
   /** 浏览器能不能播；缺 compatibility 的旧数据按可播处理。 */
   playable: boolean
-  /** 桌面端能播、浏览器不能：给"去桌面端"的提示，而不是一句"不可播"。 */
-  desktopOnly: boolean
+  /** MPV 能播、浏览器不能：说明可通过 MPV 插件加入房间播放。 */
+  mpvOnly: boolean
   /** 不能播时的一句话（服务端的 browserReason 优先）。 */
   note: string | null
 }
@@ -132,14 +132,14 @@ export function groupSeasons(children: CatalogChild[]): WallSeason[] {
   for (const child of children) {
     const key = (child.relDir ?? "").replace(/\/+$/, "") || "unknown"
     const playable = child.compatibility == null || child.compatibility.browser === "supported"
-    const desktopOnly = !playable && child.compatibility?.desktop === "supported"
+    const mpvOnly = !playable && child.compatibility?.desktop === "supported"
     groups.set(key, [...(groups.get(key) ?? []), {
       mediaId: child.mediaId,
       label: childLabel(child),
       name: child.name,
       playable,
-      desktopOnly,
-      note: playable ? null : child.compatibility?.browserReason?.trim() || "浏览器无法播放这个文件（桌面端可以）",
+      mpvOnly,
+      note: playable ? null : child.compatibility?.browserReason?.trim() || "浏览器无法播放这个文件（MPV 可以）",
     }])
     if (typeof child.season === "number") {
       const set = seasons.get(key) ?? new Set<number>()

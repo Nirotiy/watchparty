@@ -3,7 +3,7 @@ import http from "node:http";
 import { afterEach, test } from "node:test";
 import { createBackend, type Backend } from "../app.ts";
 import { loadConfig } from "../config.ts";
-import { DESKTOP_SERVICE_VERSION, PROTOCOL_VERSION } from "../core/protocol.ts";
+import { SERVICE_VERSION, PROTOCOL_VERSION } from "../core/protocol.ts";
 import { createReadinessProbe } from "../core/http/readiness.ts";
 
 const backends: Backend[] = [];
@@ -106,11 +106,11 @@ function url(backend: Backend, path: string): string {
   return `http://127.0.0.1:${backend.port}${path}`;
 }
 
-test("desktop readiness is public, ready against a healthy source, and reports the bound listener", async () => {
+test("readiness is public, ready against a healthy source, and reports the bound listener", async () => {
   const openlistUrl = await startFakeOpenlist("ok");
   const backend = await boot({ openlistUrl, readinessCacheTtlMs: 0 });
 
-  const response = await fetch(url(backend, "/api/desktop/readiness"));
+  const response = await fetch(url(backend, "/api/readiness"));
   assert.equal(response.status, 200);
   const body = (await response.json()) as {
     status: string;
@@ -133,7 +133,7 @@ test("desktop readiness is public, ready against a healthy source, and reports t
   assert.equal(body.status, "ready");
   assert.equal(body.service, "watchparty");
   assert.equal(body.protocolVersion, PROTOCOL_VERSION);
-  assert.equal(body.serviceVersion, DESKTOP_SERVICE_VERSION);
+  assert.equal(body.serviceVersion, SERVICE_VERSION);
   assert.equal(body.readinessVersion, 1);
   assert.equal(body.listener.boundPort, backend.port);
   assert.equal(body.listener.configuredPort, 0);
@@ -162,10 +162,10 @@ test("desktop readiness is public, ready against a healthy source, and reports t
   );
 });
 
-test("readiness alias /api/readiness shares the same probe (same bootId)", async () => {
+test("readiness reports the same bootId across requests", async () => {
   const openlistUrl = await startFakeOpenlist("ok");
   const backend = await boot({ openlistUrl, readinessCacheTtlMs: 0 });
-  const aRes = await fetch(url(backend, "/api/desktop/readiness"));
+  const aRes = await fetch(url(backend, "/api/readiness"));
   const a = (await aRes.json()) as { bootId?: string };
   const bRes = await fetch(url(backend, "/api/readiness"));
   const b = (await bRes.json()) as { bootId?: string };
@@ -179,7 +179,7 @@ test("unreachable OpenList degrades with a stable code and remediation", async (
     openlistUrl: "http://127.0.0.1:1",
     readinessCacheTtlMs: 0,
   });
-  const response = await fetch(url(backend, "/api/desktop/readiness"));
+  const response = await fetch(url(backend, "/api/readiness"));
   assert.equal(response.status, 200);
   const body = (await response.json()) as {
     status: string;
@@ -200,7 +200,7 @@ test("unreachable OpenList degrades with a stable code and remediation", async (
 test("auth failure maps to OPENLIST_AUTH_FAILED with a credentials remediation", async () => {
   const openlistUrl = await startFakeOpenlist("auth-failed");
   const backend = await boot({ openlistUrl, readinessCacheTtlMs: 0 });
-  const body = (await (await fetch(url(backend, "/api/desktop/readiness"))).json()) as {
+  const body = (await (await fetch(url(backend, "/api/readiness"))).json()) as {
     status: string;
     components: { openlist: { code: string; remediation?: string } };
   };
@@ -219,7 +219,7 @@ test("a hung OpenList surfaces OPENLIST_TIMEOUT with a timeout remediation", asy
     readinessCacheTtlMs: 0,
     openlistPingTimeoutMs: 150,
   });
-  const body = (await (await fetch(url(backend, "/api/desktop/readiness"))).json()) as {
+  const body = (await (await fetch(url(backend, "/api/readiness"))).json()) as {
     status: string;
     components: { openlist: { code: string; remediation?: string } };
   };
@@ -231,7 +231,7 @@ test("a hung OpenList surfaces OPENLIST_TIMEOUT with a timeout remediation", asy
 test("a missing media root degrades readiness without leaking its path", async () => {
   const openlistUrl = await startFakeOpenlist("film-missing");
   const backend = await boot({ openlistUrl, readinessCacheTtlMs: 0 });
-  const body = (await (await fetch(url(backend, "/api/desktop/readiness"))).json()) as {
+  const body = (await (await fetch(url(backend, "/api/readiness"))).json()) as {
     status: string;
     components: {
       openlist: { status: string };
@@ -249,24 +249,11 @@ test("a missing media root degrades readiness without leaking its path", async (
   assert.ok(!JSON.stringify(body).includes(FILM), "root paths must not leak");
 });
 
-test("readiness requires only an optional protocol header (426 on explicit mismatch)", async () => {
+test("readiness is available without MPV protocol headers", async () => {
   const openlistUrl = await startFakeOpenlist("ok");
   const backend = await boot({ openlistUrl, readinessCacheTtlMs: 0 });
-  const mismatch = await fetch(url(backend, "/api/desktop/readiness"), {
-    headers: { "x-watchparty-protocol": String(PROTOCOL_VERSION + 1) },
-  });
-  assert.equal(mismatch.status, 426);
-  const noHeader = await fetch(url(backend, "/api/desktop/readiness"));
+  const noHeader = await fetch(url(backend, "/api/readiness"));
   assert.equal(noHeader.status, 200);
-});
-
-test("capabilities advertise the readiness capability", async () => {
-  const openlistUrl = await startFakeOpenlist("ok");
-  const backend = await boot({ openlistUrl, readinessCacheTtlMs: 0 });
-  const body = (await (await fetch(url(backend, "/api/desktop/capabilities"))).json()) as {
-    capabilities: Record<string, unknown>;
-  };
-  assert.equal(body.capabilities.readiness, true);
 });
 
 test("probe cache honors ttl and single-flight (shared checkedAt)", async () => {
@@ -345,7 +332,7 @@ type ReadinessConfigBody = {
 };
 
 async function fetchConfigProbe(backend: Backend): Promise<ReadinessConfigBody> {
-  const response = await fetch(url(backend, "/api/desktop/readiness"));
+  const response = await fetch(url(backend, "/api/readiness"));
   assert.equal(response.status, 200);
   return (await response.json()) as ReadinessConfigBody;
 }

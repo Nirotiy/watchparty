@@ -20,9 +20,9 @@ type TicketState =
   | { phase: "error"; message: string };
 
 /**
- * “桌面播放”：签发 Tauri 一次性交接码（5 分钟 TTL）并展示倒计时。
+ * “在 MPV 中播放”：签发一次性交接码（5 分钟 TTL）并展示倒计时。
  * 交接码只展示与复制，不进入 URL、localStorage 或 shell 命令；
- * Tauri 只通过 watchparty://<roomId> 接收公开 roomId，再由用户粘贴交接码。
+ * MPV 只通过 watchparty://<roomId> 接收公开 roomId，再由用户粘贴交接码。
  *
  * 状态承载在仅打开时挂载的内部组件上：重新打开即全新签发，无需重置 effect。
  */
@@ -60,7 +60,7 @@ function MpvLaunchContent({
     if (!accessToken) return;
     let cancelled = false;
     api
-      .issueHandoffTicket(roomId, accessToken, "desktop")
+      .issueHandoffTicket(roomId, accessToken)
       .then((result) => {
         if (cancelled) return;
         // 以本地收到响应的时刻为倒计时基准（服务端 epoch 与本地钟的微小偏差可接受）
@@ -116,7 +116,7 @@ function MpvLaunchContent({
       <div className="flex items-center justify-between border-b border-border pb-3">
         <DialogTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <Tv className="size-4 text-sky-400" />
-          <span>在 WatchParty 桌面端播放</span>
+          <span>在 MPV 中播放</span>
         </DialogTitle>
         <Button
           variant="ghost"
@@ -199,7 +199,7 @@ function MpvLaunchContent({
               }}
             >
               <Tv className="size-4" />
-              打开桌面端
+              打开 MPV
             </Button>
             <Button
               variant="outline"
@@ -223,12 +223,12 @@ function MpvLaunchContent({
               </p>
             )}
             <ol className="list-decimal space-y-1 pl-4 text-[11px] leading-relaxed text-muted-foreground">
-              <li>点击“打开桌面端”，系统只会把房间号交给 WatchParty</li>
-              <li>在桌面端粘贴本页自动复制的一次性交接码</li>
-              <li>连接成功后，原生播放器会载入媒体并与房间同步</li>
+              <li>点击“打开 MPV”，系统只会把房间号交给 MPV 插件</li>
+              <li>在 MPV 中按 Ctrl+J 读取本页自动复制的一次性交接码</li>
+              <li>连接成功后，MPV 会载入媒体并与房间同步</li>
             </ol>
 
-            {/* Tauri 是 watchparty:// 的唯一协议处理器。 */}
+            {/* The MPV plugin handles the watchparty:// protocol. */}
             <div className="rounded border border-border bg-secondary/60 p-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
@@ -251,12 +251,12 @@ function MpvLaunchContent({
                 </Button>
               </div>
               <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
-                此链接只携带房间号，不含交接码。未安装桌面端时可以先复制备用。
+                此链接只携带房间号，不含交接码。配置 MPV 协议关联后可用它恢复房间。
               </p>
             </div>
 
             <p className="text-[10px] text-muted-foreground">
-              交接码只能使用一次；过期或已使用后需重新生成。桌面端永远是普通成员，不会获得房主权限。
+              交接码只能使用一次；过期或已使用后需重新生成。MPV 永远是普通成员，不会获得房主权限。
             </p>
           </>
         )}

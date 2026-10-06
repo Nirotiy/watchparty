@@ -10,10 +10,8 @@ import { registerCoreHttp } from "./core/http/routes.ts";
 import { createReadinessProbe } from "./core/http/readiness.ts";
 import {
   registerHandoffHttp,
-  registerDesktopLifecycleHttp,
-  registerDesktopProbeHttp,
-  registerNativeClientHttp,
-  registerNativeHandoffHttp,
+  registerMpvClientHttp,
+  registerMpvHandoffHttp,
 } from "./core/http/native-routes.ts";
 import { registerLibraryHttp } from "./core/http/library-routes.ts";
 import { createWatchpartyMedia } from "./media/watchparty-media.ts";
@@ -92,8 +90,7 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
   app.use(cors());
   app.use(express.json());
 
-  // 慢请求日志：桌面那条链路的客户端总超时是 15s（src-tauri/http.rs），所以"服务端到底在哪条
-  // 请求上花时间"必须能在服务端这边看到，否则偶发 NETWORK_ERROR 只能靠猜。默认 1s 起报，
+  // 慢请求日志用于定位原生播放器与网页媒体请求的延迟。默认 1s 起报，
   // 设成 0 关掉。只打 path 不打 query —— item 键、凭据都可能出现在 query 里，而归属只需要路由。
   const slowRequestMs = Number(process.env.WATCHPARTY_SLOW_REQUEST_MS ?? 1_000);
   if (Number.isFinite(slowRequestMs) && slowRequestMs > 0) {
@@ -118,7 +115,7 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
         )
       : new http.Server(app);
 
-  // 桌面那条链路用的是 reqwest，池里空闲连接默认留 90s；Node 的 keepAliveTimeout 缺省只有 5s。
+  // MPV side clients use reqwest, whose idle pool connections last 90s by default; Node defaults to 5s.
   // 服务端先悄悄关掉连接、客户端却不知道，下一条请求就写到一条死连接上 —— 表现是"隔几秒再打
   // 就 15s 超时"（harness 里 scan/delete 之后那条请求）。让服务端的空闲窗口比客户端长，
   // 客户端先关就没这个竞争。headersTimeout 必须更大，否则请求头还没收全就先被掐。
@@ -169,7 +166,7 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
     ...(options.fetchPoster !== undefined ? { fetchPoster: options.fetchPoster } : {}),
     ...(options.syncGraceMs !== undefined ? { syncGraceMs: options.syncGraceMs } : {}),
   });
-  // Readiness keeps the original single-source media. Library ids are routed only to HTTP/native playback.
+  // Readiness keeps the original single-source media. Library ids are routed only to HTTP/MPV playback.
   const routedMedia = routeLibraryMedia(media, library);
 
   const readiness = createReadinessProbe({
@@ -190,13 +187,12 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
 
   registerLibraryHttp(app, library, registry);
   registerCoreHttp(app, registry, cfg, routedMedia);
-  registerDesktopProbeHttp(app, { readiness, getListenerInfo });
+  app.get("/api/readiness", async (_req, res) => {
+    res.json(await readiness.snapshot(getListenerInfo()));
+  });
   registerHandoffHttp(app, registry);
-  registerDesktopLifecycleHttp(app, registry);
-  registerNativeHandoffHttp(app, registry, "mpv");
-  registerNativeHandoffHttp(app, registry, "desktop");
-  registerNativeClientHttp(app, registry, routedMedia, "mpv", undefined, cfg.mediaPublicOrigins);
-  registerNativeClientHttp(app, registry, routedMedia, "desktop", io, cfg.mediaPublicOrigins);
+  registerMpvHandoffHttp(app, registry);
+  registerMpvClientHttp(app, registry, routedMedia, cfg.mediaPublicOrigins);
 
   if (options.serveStatic !== false) {
     mountLegacyUi(app, cfg.buildDirectory);

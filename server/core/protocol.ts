@@ -33,7 +33,7 @@ export type RoomSnapshot = {
   playlist: PlaylistItem[];
 };
 
-export type ClientType = "browser" | "mpv" | "desktop";
+export type ClientType = "browser" | "mpv";
 
 export type RoomMember = {
   clientId: string;
@@ -165,19 +165,7 @@ export type CoreServer = Server<
 >;
 
 export const PROTOCOL_VERSION = 2 as const;
-export const DESKTOP_SERVICE_VERSION = "0.1.0" as const;
-
-export const DESKTOP_CAPABILITIES = {
-  createRoom: true,
-  joinRoom: true,
-  restoreSession: true,
-  mediaSearch: true,
-  mediaQueue: true,
-  handoffCode: true,
-  readiness: true,
-} as const;
-
-export type DesktopCapabilities = typeof DESKTOP_CAPABILITIES;
+export const SERVICE_VERSION = "0.1.0" as const;
 
 export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   INVALID_REQUEST: "请求参数无效",

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DESKTOP_SERVICE_VERSION, PROTOCOL_VERSION } from "../protocol.ts";
+import { PROTOCOL_VERSION, SERVICE_VERSION } from "../protocol.ts";
 import type { ConfigStatus } from "../../config.ts";
 import type {
   MediaHealth,
@@ -9,7 +9,7 @@ import type {
 } from "../../media/watchparty-media.ts";
 
 /**
- * Readiness contract for the desktop setup guide (readinessVersion 1).
+ * Public readiness contract for backend and media dependencies.
  *
  * This endpoint answers "can this backend serve content right now?" without
  * credentials. The HTTP status is always 200 while the process itself is up:
@@ -55,7 +55,7 @@ export type ReadinessSnapshot = {
   status: "ready" | "degraded";
   service: "watchparty";
   protocolVersion: typeof PROTOCOL_VERSION;
-  serviceVersion: typeof DESKTOP_SERVICE_VERSION;
+  serviceVersion: typeof SERVICE_VERSION;
   readinessVersion: typeof READINESS_VERSION;
   bootId: string;
   startedAt: number;
@@ -257,7 +257,7 @@ export function createReadinessProbe(
         status: result.status,
         service: "watchparty",
         protocolVersion: PROTOCOL_VERSION,
-        serviceVersion: DESKTOP_SERVICE_VERSION,
+        serviceVersion: SERVICE_VERSION,
         readinessVersion: READINESS_VERSION,
         bootId,
         startedAt,

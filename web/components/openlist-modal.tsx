@@ -57,7 +57,7 @@ interface OpenListModalProps {
   isOpen: boolean;
   onClose: () => void;
   onPlayNow: (media: MediaSource) => void;
-  onPlayOnDesktop?: (media: MediaSource) => boolean | void | Promise<boolean | void>;
+  onPlayOnMpv?: (media: MediaSource) => boolean | void | Promise<boolean | void>;
   onAddToQueue: (media: MediaSource) => void;
   onBatchAdd: (medias: MediaSource[]) => void | Promise<void>;
   /** 裁决 ②：媒体库可以是整页。弹窗是"房间内快速挑一个"，整页是浏览与整理。 */
@@ -98,7 +98,7 @@ export function OpenListModal({
   isOpen,
   onClose,
   onPlayNow,
-  onPlayOnDesktop,
+  onPlayOnMpv,
   onAddToQueue,
   onBatchAdd,
   fullPage = false,
@@ -835,8 +835,8 @@ export function OpenListModal({
                 const isDir = item.type === "dir";
                 // 严格等于 supported 才可播：maybe 与未知值都不放行（handoff §2 D7）。
                 const isBrowserPlayable = item.compatibility.browser === "supported";
-                const isDesktopPlayable = item.compatibility.desktop === "supported";
-                const isDesktopOnly = !isBrowserPlayable && isDesktopPlayable;
+                const isMpvPlayable = item.compatibility.desktop === "supported";
+                const isMpvOnly = !isBrowserPlayable && isMpvPlayable;
                 const media: MediaSource = {
                   kind: "openlist",
                   mediaId: item.id,
@@ -852,7 +852,7 @@ export function OpenListModal({
                         ? "border-border bg-card hover:border-ring hover:bg-secondary"
                         : isBrowserPlayable
                         ? "border-border bg-black text-foreground/90 hover:border-sky-500/50"
-                        : isDesktopPlayable
+                        : isMpvPlayable
                         ? "border-sky-900/70 bg-sky-950/20 text-foreground/90 hover:border-sky-700"
                         : "border-border bg-card/40 text-muted-foreground opacity-60"
                     }`}
@@ -875,9 +875,9 @@ export function OpenListModal({
                       <span className={`truncate ${isDir ? "font-medium text-white" : ""}`}>
                         {item.name}
                       </span>
-                      {!isDir && isDesktopPlayable && !isBrowserPlayable && (
+                      {!isDir && isMpvPlayable && !isBrowserPlayable && (
                         <span className="shrink-0 rounded border border-sky-800 bg-sky-950/40 px-1 py-0.5 text-[9px] text-sky-300">
-                          桌面端 / MPV
+                          MPV 可播
                         </span>
                       )}
                       {item.relativePath && (
@@ -917,14 +917,14 @@ export function OpenListModal({
                       </div>
                     )}
 
-                    {!isDir && isDesktopOnly && (
+                    {!isDir && isMpvOnly && (
                       <div className="flex shrink-0 items-center gap-2">
                         <Button
                           size="sm"
                           className="h-7 bg-sky-500 px-2 text-[11px] font-semibold text-black hover:bg-sky-400"
                           onClick={async () => {
-                            if (onPlayOnDesktop) {
-                              const accepted = await onPlayOnDesktop(media);
+                            if (onPlayOnMpv) {
+                              const accepted = await onPlayOnMpv(media);
                               if (accepted === false) return;
                             } else {
                               onPlayNow(media);
@@ -933,7 +933,7 @@ export function OpenListModal({
                           }}
                         >
                           <Tv className="size-3" />
-                          <span>{onPlayOnDesktop ? "桌面端播放" : "选择此媒体"}</span>
+                          <span>{onPlayOnMpv ? "交给 MPV" : "选择此媒体"}</span>
                         </Button>
                         <Button
                           variant="outline"

@@ -96,7 +96,7 @@ function mediaSourceKey(source: MediaSource): string {
   return `${source.kind}:${source.url}`;
 }
 
-function requiresDesktopPlayback(source: MediaSource): boolean {
+function requiresMpvPlayback(source: MediaSource): boolean {
   return source.kind === "openlist" && source.container.toLowerCase() === "mkv";
 }
 
@@ -315,7 +315,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
         return;
       }
 
-      if (requiresDesktopPlayback(source)) {
+      if (requiresMpvPlayback(source)) {
         setIsResolving(false);
         setGlobalError(null);
         return;
@@ -680,7 +680,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
             badge={members.length}
           />
           <IconControl icon="video_library" label="点播媒体库" onClick={() => setIsOpenListModalOpen(true)} />
-          <IconControl icon="tv" label="桌面端 / 交接码" onClick={() => setIsMpvModalOpen(true)} />
+          <IconControl icon="tv" label="MPV / 交接码" onClick={() => setIsMpvModalOpen(true)} />
         </div>
         <div className="mt-1.5 flex min-w-0 items-center gap-2">
           <span className="truncate text-xs font-medium text-white text-shadow-md [text-shadow:_0_1px_3px_rgb(0_0_0_/_80%)]">
@@ -716,15 +716,15 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
         )}
 
         {/* 真实多内核 PlayerAdapter 渲染 */}
-        {snapshot?.source && requiresDesktopPlayback(snapshot.source) ? (
+        {snapshot?.source && requiresMpvPlayback(snapshot.source) ? (
           <div className="flex size-full flex-col items-center justify-center gap-3 px-6 text-center">
             <div className="flex size-14 items-center justify-center rounded-full border border-sky-900 bg-sky-950/40">
               <MsIcon name="tv" className="text-[28px] text-sky-400" />
             </div>
             <div className="space-y-1">
-              <p className="text-sm font-semibold text-white">此媒体需要 WatchParty 桌面端</p>
+              <p className="text-sm font-semibold text-white">此媒体需要 MPV 播放</p>
               <p className="text-xs text-muted-foreground">
-                房间已经同步选片；桌面端加入后会使用 libmpv 播放 MKV 并继续接收房间控制。
+                房间已经同步选片；MPV 插件加入后会播放 MKV 并继续接收房间控制。
               </p>
             </div>
             <Button size="sm" onClick={() => setIsMpvModalOpen(true)}>
@@ -947,7 +947,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
           }
           await runCommand((socket, revision) => socket.mediaSet(media, revision));
         }}
-        onPlayOnDesktop={async (media) => {
+        onPlayOnMpv={async (media) => {
           if (!snapshot || !socketRef.current) return false;
           if (!canOwnerControl) {
             triggerLockWarning("切换播放媒体");

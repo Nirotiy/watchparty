@@ -1,0 +1,33 @@
+/* 方案 C′ 附加样式 —— 追加到 desktop-shell/src/index.css 末尾（Tailwind v4 之外的自定义件） */
+
+/* 媒体库网格（方案 C′）：海报位等 IPC fetchThumbnail 接入后替换 .th 的渐变占位 */
+.c-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tile {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--card);
+  text-align: left;
+}
+
+.tile .th {
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(135deg, var(--muted), var(--card));
+}
+
+.tile .tt {
+  font-size: 11px;
+  color: var(--foreground);
+  padding: 7px 8px 2px;
+}
+
+.tile .tm {
+  font-size: 10px;
+  color: var(--muted-foreground);
+  padding: 0 8px 8px;
+}
