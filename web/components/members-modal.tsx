@@ -113,7 +113,7 @@ export function MembersModal({
               <span>确认移交房主权限？</span>
             </div>
             <p className="text-foreground/85">
-              您即将把房主权限转让给 <strong className="text-white">{confirmTarget.name}</strong>。移交后您将失去房主锁和播放控制优先权。
+              您即将把房主权限转让给 <strong className="text-white">{confirmTarget.name}</strong>。移交后您将失去房主专属操作权限。
             </p>
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="outline" size="sm" onClick={() => setConfirmTarget(null)}>取消</Button>

@@ -52,11 +52,11 @@ export const CATALOG_TOOLS: ToolSpec[] = [
     properties: { libraryId: id, itemId: { type: "string", description: "给出时读这张卡的详情" }, q: { type: "string" }, cursor: { type: "string" } },
     required: ["libraryId"],
     async run(call, args) {
-      if (typeof args.itemId === "string") return call("GET", `/api/media/catalog/${encodeURIComponent(args.itemId)}`);
+      if (typeof args.itemId === "string") return call("GET", `/api/admin/media-catalog/${encodeURIComponent(args.itemId)}`);
       const query = new URLSearchParams({ libraryId: String(args.libraryId) });
       if (typeof args.q === "string") query.set("q", args.q);
       if (typeof args.cursor === "string") query.set("cursor", args.cursor);
-      return call("GET", `/api/media/catalog?${query.toString()}`);
+      return call("GET", `/api/admin/media-catalog?${query.toString()}`);
     },
   },
   {

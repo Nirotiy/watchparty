@@ -203,18 +203,18 @@ test("handoff → mpv identity → snapshot polling → command ack full chain",
   );
   assert.equal(upToDate.status, 204);
 
-  // 4. Command via HTTP behaves like CMD:* (locked room → FORBIDDEN 403).
-  const locked = await post(
+  // 4. Play/pause are shared controls, even while the legacy lock flag is set.
+  const sharedPlay = await post(
     backend,
     `/api/rooms/${roomId}/mpv/command`,
     { type: "play", expectedRevision: 0 },
     mpvHeaders(mpv.accessToken),
   );
-  assert.equal(locked.status, 403);
-  assert.equal(errorCode(await locked.json()), "FORBIDDEN");
+  assert.equal(sharedPlay.status, 200);
+  assert.equal(((await sharedPlay.json()) as CommandAck).ok, true);
 });
 
-test("browser owner unlock lets MPV run commands and both sides see the same state", async () => {
+test("owner-only playback commands stay protected from MPV members", async () => {
   const backend = await boot();
   const created = await createRoom(backend);
   const socket = connectBrowser(
@@ -225,11 +225,6 @@ test("browser owner unlock lets MPV run commands and both sides see the same sta
     created.ownerToken,
   );
   await connected(socket);
-  const unlocked = new Promise<CommandAck>((resolve) =>
-    socket.emit("CMD:lock", { locked: false, expectedRevision: 0 }, resolve),
-  );
-  assert.equal((await unlocked).ok, true);
-
   // The REC:members broadcast fires during redemption, so listen first.
   const membersPromise = membersContaining(socket, "MPV");
   const ticket = await issueTicket(
@@ -240,23 +235,15 @@ test("browser owner unlock lets MPV run commands and both sides see the same sta
   const mpv = (await redeem(backend, ticket.ticket)).body as RedeemResult;
   const headers = mpvHeaders(mpv.accessToken);
 
-  // MPV seek via HTTP is accepted and visible in a fresh snapshot.
+  // MPV is a room member, but seek remains owner-only.
   const response = await post(
     backend,
     `/api/rooms/${created.roomId}/mpv/command`,
-    { type: "seek", positionSeconds: 42, expectedRevision: 1 },
+    { type: "seek", positionSeconds: 42, expectedRevision: 0 },
     headers,
   );
-  assert.equal(response.status, 200);
-  const ack = (await response.json()) as CommandAck;
-  assert.equal(ack.ok, true);
-  assert.equal(ack.revision, 2);
-
-  const snapshot = await fetch(
-    `${origin(backend)}/api/rooms/${created.roomId}/mpv/snapshot`,
-    { headers },
-  );
-  assert.equal(((await snapshot.json()) as RoomSnapshot).positionSeconds, 42);
+  assert.equal(response.status, 403);
+  assert.equal(errorCode(await response.json()), "FORBIDDEN");
 
   // The native client can select a concrete playlist item without exposing media URLs.
   const room = backend.registry.get(created.roomId);
@@ -290,9 +277,9 @@ test("browser owner unlock lets MPV run commands and both sides see the same sta
     },
     headers,
   );
-  assert.equal(playlistPlay.status, 200);
-  assert.equal(((await playlistPlay.json()) as CommandAck).ok, true);
-  assert.equal(room.snapshot().currentPlaylistItemId, firstItem.id);
+  assert.equal(playlistPlay.status, 403);
+  assert.equal(errorCode(await playlistPlay.json()), "FORBIDDEN");
+  assert.equal(room.snapshot().currentPlaylistItemId, undefined);
 
   // Stale expectedRevision conflicts exactly like the socket path.
   const conflict = await post(
@@ -556,23 +543,13 @@ test("stale-pruned MPV with a valid token rejoins as a visible member on its nex
   assert.equal(conflict.status, 409);
   assert.equal(errorCode(await conflict.json()), "REVISION_CONFLICT");
 
-  // New rooms start locked; unlock as the owner so the member command is legal.
-  const unlock = room.execute(
-    created.clientId,
-    { type: "lock", locked: false },
-    room.snapshot().revision,
-    true,
-  );
-  assert.ok(unlock.ok);
-
-  // And a valid command from the returning member is accepted as a member.
+  // A shared command from the returning member is accepted as a member.
   const ok = await post(
     backend,
     `/api/rooms/${created.roomId}/mpv/command`,
     {
-      type: "seek",
-      positionSeconds: 5,
-      expectedRevision: unlock.ok ? unlock.revision : 0,
+      type: "play",
+      expectedRevision: room.snapshot().revision,
     },
     headers,
   );

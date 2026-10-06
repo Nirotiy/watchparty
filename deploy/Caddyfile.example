@@ -2,8 +2,8 @@
 # /socket.io/* are exposed; the OpenList admin UI stays off the public network.
 watch.example.test {
   # Gate 1 / Basic Auth option A: keep the site-wide auth boundary.
-  # DesktopSession supplies this credential in native memory for API and /p/*
-  # fallback requests; it is never passed to the WebView or placed in a URL.
+  # Native media clients supply this credential for API and /p/* fallback
+  # requests; it is never placed in a URL.
   # Approval endpoints have their own administrator authentication in Next.
   # Do not turn that credential into the site-wide password or an MCP environment value.
   @siteAuth not path /api/catalog-approval/*
@@ -23,9 +23,7 @@ watch.example.test {
     }
   }
 
-  # This includes browser, MPV, and desktop handoff/session endpoints.
-  # Do not exempt /api/desktop/* from this site-wide auth without revising the
-  # native credential contract and its security review.
+  # This includes browser and MPV handoff/session endpoints.
   handle /api/catalog-approval/* {
     reverse_proxy 127.0.0.1:3000
   }

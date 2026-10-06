@@ -33,7 +33,7 @@ export type RoomSnapshot = {
   playlist: PlaylistItem[];
 };
 
-export type ClientType = "browser" | "mpv" | "desktop";
+export type ClientType = "browser" | "mpv";
 
 export type RoomMember = {
   clientId: string;
@@ -129,6 +129,10 @@ export interface ClientToServerEvents {
     payload: CommandInput,
     ack: (result: CommandAck) => void,
   ) => void;
+  "CMD:playlistAutoNext": (
+    payload: CommandInput & { expectedCurrentPlaylistItemId?: string },
+    ack: (result: CommandAck) => void,
+  ) => void;
   "CMD:transferOwner": (
     payload: CommandInput & { targetClientId: string },
     ack: (result: CommandAck) => void,
@@ -161,19 +165,7 @@ export type CoreServer = Server<
 >;
 
 export const PROTOCOL_VERSION = 2 as const;
-export const DESKTOP_SERVICE_VERSION = "0.1.0" as const;
-
-export const DESKTOP_CAPABILITIES = {
-  createRoom: true,
-  joinRoom: true,
-  restoreSession: true,
-  mediaSearch: true,
-  mediaQueue: true,
-  handoffCode: true,
-  readiness: true,
-} as const;
-
-export type DesktopCapabilities = typeof DESKTOP_CAPABILITIES;
+export const SERVICE_VERSION = "0.1.0" as const;
 
 export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   INVALID_REQUEST: "请求参数无效",
@@ -182,7 +174,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   RATE_LIMITED: "PIN 尝试次数过多，请稍后重试",
   ACCESS_TOKEN_INVALID: "访问凭据已失效",
   OWNER_TOKEN_INVALID: "房主凭据已失效",
-  FORBIDDEN: "当前房间锁定，只有房主可以执行此操作",
+  FORBIDDEN: "只有房主可以执行此操作",
   OPENLIST_UNAVAILABLE: "OpenList 媒体服务暂时不可用",
   MEDIA_NOT_FOUND: "媒体不存在或已下架",
   MEDIA_UNSUPPORTED: "该媒体格式不受支持",

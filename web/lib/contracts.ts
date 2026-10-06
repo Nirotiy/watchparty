@@ -52,7 +52,7 @@ export interface RoomSnapshot {
 }
 
 // 4. 在线成员与身份
-export type ClientType = "browser" | "mpv" | "desktop";
+export type ClientType = "browser" | "mpv";
 
 export interface RoomMember {
   clientId: string;
@@ -88,7 +88,6 @@ export interface ApiError {
 export interface RoomInfoResponse {
   roomId: string;
   isProtected: boolean;
-  onlineCount: number;
 }
 
 // 7. 创建房间请求与响应
@@ -259,7 +258,7 @@ export type CommandAck<T = undefined> =
 export interface HandoffTicketResponse {
   ticket: string;
   ticketExpiresAt: number;
-  target?: "mpv" | "desktop";
+  target?: "mpv";
 }
 
 // 13. 草稿审阅与应用（第 4 块，2026-09-28）：scan → classify → judge → apply。

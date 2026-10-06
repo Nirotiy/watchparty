@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Check, Film, ListPlus, Play, Search, Tv, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { MediaImage } from "@/components/media-image";
 import { cn } from "@/lib/utils";
 import type { MediaSource } from "@/lib/contracts";
 import { tintedStyle, titleInitial, type WallCard, type WallDetail } from "@/lib/catalog-view";
@@ -70,9 +71,7 @@ function TintedArt({ title, seed }: { title: string; seed: string }) {
 }
 
 function WallPoster({ src }: { src: string }) {
-  const [failed, setFailed] = useState(false)
-  if (failed) return <Film className="size-5 text-muted-foreground" aria-hidden="true" />
-  return <img src={src} alt="" loading="lazy" className="size-full object-cover" onError={() => setFailed(true)} />
+  return <MediaImage src={src} alt="" loading="lazy" className="size-full object-cover" fallback={<Film className="size-5 text-muted-foreground" aria-hidden="true" />} />
 }
 
 function badgeTone(status: string): string {
@@ -144,7 +143,7 @@ export function CatalogRail({ detail, busy, onConfirm, onReject, onPlay, onAddTo
                   <span className="min-w-0 flex-1 truncate text-muted-foreground" title={child.name}>{child.name}</span>
                   {!child.playable ? (
                     <span className="shrink-0 rounded-full border border-border px-1.5 text-[10px] text-muted-foreground" title={child.note ?? undefined}>
-                      {child.desktopOnly ? "桌面端 / MPV" : "不可播"}
+                      {child.mpvOnly ? "MPV 可播" : "不可播"}
                     </span>
                   ) : null}
                   <Button size="sm" variant="ghost" className="size-6 shrink-0 p-0" title={child.playable ? "播放这一集" : child.note ?? "浏览器无法播放这个文件"}
@@ -203,7 +202,7 @@ function SingleChild({ detail, onPlay, onAddToQueue, containerOf }: {
         <Tv className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-muted-foreground" title={child?.name}>{child?.name ?? "（没有可播文件）"}</span>
         {child && !child.playable ? (
-          <span className="shrink-0 rounded-full border border-border px-1.5 text-[10px] text-muted-foreground">{child.desktopOnly ? "桌面端 / MPV" : "不可播"}</span>
+          <span className="shrink-0 rounded-full border border-border px-1.5 text-[10px] text-muted-foreground">{child.mpvOnly ? "MPV 可播" : "不可播"}</span>
         ) : null}
       </div>
       <div className="flex flex-wrap gap-1.5">

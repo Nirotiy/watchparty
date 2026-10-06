@@ -3,6 +3,8 @@
  * message 仅在码未知时兜底显示，且码本身不会当句子显示给用户。
  */
 const MEDIA_ERROR_TEXT: Record<string, string> = {
+  ROOM_ACCESS_REQUIRED: "请先加入房间再浏览媒体库",
+  ACCESS_TOKEN_INVALID: "房间凭据已失效，请重新加入房间",
   OPENLIST_UNAVAILABLE: "源站暂时不可用，稍后重试",
   SOURCE_UNREACHABLE: "连不上这个源，检查地址或网络后重试",
   SOURCE_AUTH_FAILED: "源站拒绝了凭据，检查用户名与密码",

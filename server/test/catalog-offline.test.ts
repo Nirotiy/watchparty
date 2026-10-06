@@ -8,6 +8,7 @@ import { openCatalogStore, structuralCount, structuralChanges, diffSnapshots } f
 import { exportOfflineBundle, inspectOfflineBundle, stageOfflineBundle, readOfflinePoster } from "../media/catalog-offline.ts";
 import type { CatalogGroup } from "../media/catalog-names.ts";
 import { createBackend } from "../app.ts";
+import { roomFetch } from "./room-fetch.ts";
 import { loadConfig } from "../config.ts";
 
 function fixture() {
@@ -154,13 +155,13 @@ test("HTTP offline staging and apply work without vendors; explicit bonus nulls 
     assert.equal((await post("import/offline-stage", { bundleId: "test-bundle", bundleSha256: report.bundleSha256 })).status, 200);
     assert.equal((await post("approval")).status, 401);
     assert.equal((await post("apply")).status, 200);
-    const response = await fetch(`${origin}/api/media/catalog/${f.id}`);
+    const response = await roomFetch(backend, `${origin}/api/media/catalog/${f.id}`);
     assert.equal(response.status, 200);
     const detail = await response.json();
     assert.equal(detail.children[0].episodeTitle, "Portable title");
     assert.equal(detail.children[1].episode, null);
     assert.equal(detail.subtitle, null);
-    assert.equal((await fetch(`${origin}/api/media/posters/${f.id}`)).status, 200);
+    assert.equal((await roomFetch(backend, `${origin}/api/media/posters/${f.id}`)).status, 200);
     assert.equal(externalCalls, 0);
     await backend.close();
     const reopened = openCatalogStore(path.join(f.root, "catalog.sqlite"), path.join(f.root, "posters"));
@@ -239,7 +240,7 @@ test("unassigned files block import; retained exclusions still require human str
     assert.equal((await post("rollback", { rollbackOf: outcome.approvalId, approvalToken: rollbackApproval.approvalToken })).status, 200);
     const exclusions = await (await fetch(`${origin}/exclusions`)).json();
     assert.equal(exclusions.excluded, 1);
-    const detail = await (await fetch(`http://127.0.0.1:${backend.port}/api/media/catalog/${f.id}`)).json();
+    const detail = await (await roomFetch(backend, `http://127.0.0.1:${backend.port}/api/media/catalog/${f.id}`)).json();
     assert.equal(detail.children.length, 2);
   } finally { await backend.close(); fs.rmSync(f.root, { recursive: true, force: true }); }
 });

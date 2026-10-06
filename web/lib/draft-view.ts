@@ -2,7 +2,7 @@ import type { CatalogApprovalLedgerRow, CatalogStructuralChanges, DraftDiff, Dra
 
 /**
  * 草稿审阅（方案 B：按卡片 + 过滤器/搜索）的纯视图模型。
- * 与桌面壳那份（`desktop-shell/src/lib/draft-view.ts`）同语义、不同文件：计划里不做共享包。
+ * 与归档的桌面壳实现保持同语义：计划里不做共享包。
  */
 
 export type DraftBucketKey = "all" | "added" | "dropped" | "moved" | "changed" | "confirmedDrift" | "unchanged";
@@ -392,7 +392,7 @@ export function applySideEffects(input: { pending: number; humanConfirmed: numbe
  * 空态判定：后端在"还没扫过"时给的是 **200 + 空草稿**（cards 0 / scan.rev 0），
  * 不是 409 CATALOG_DRAFT_EMPTY（那个码留给了别的路径）。所以按数据判，别只认码。
  */
-export { exclusionText } from "../../desktop-shell/shared/catalog-exclusions";
+export { exclusionText } from "../shared/catalog-exclusions";
 
 export function emptyKind(state: DraftState | null): "never-scanned" | "scanned-not-classified" | null {
   if (!state || state.draft.length > 0 || state.classifiedAt) return null;

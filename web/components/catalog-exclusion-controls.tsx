@@ -2,7 +2,7 @@
 import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useEffect, useState } from "react";
-import { type CatalogExclusions } from "../../desktop-shell/shared/catalog-exclusions";
+import { type CatalogExclusions } from "../shared/catalog-exclusions";
 
 import { exclusionText } from "@/lib/draft-view";
 

@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>WatchParty 桌面客户端 · 方案 C′ 设计基线</title>
+<style>
+  /* ============================================================
+     WatchParty 桌面客户端 · 方案 C′ 设计基线（独立文件）
+     分节：TOKENS → 图标 → 应用骨架 → 折叠轨 → 首页 → 播放页 → 抽屉 → 媒体库 → 表单
+     主题：深色默认，浅色经右上角开关（:has 驱动变量切换）
+     ============================================================
+     token 与控件样式对齐 desktop-shell/src/index.css 的 shadcn/ui 契约：
+     --background/--card/--popover/--primary/--muted/--border/--input/--ring/--radius/--positive/--warning/--destructive
+     控件按 desktop-shell/src/components/ui/*.tsx 的 className 渲染（按钮 bg-primary h-9 rounded-md、
+     输入 border-input h-9 rounded-md、focus-visible ring、disabled opacity-45）。
+     ============================================================ */
+  :root { color-scheme: dark;
+    --background: oklch(0 0 0);
+    --foreground: oklch(0.97 0.004 255);
+    --card: oklch(0.095 0.008 255);
+    --card-foreground: oklch(0.97 0.004 255);
+    --popover: oklch(0.13 0.01 255);
+    --popover-foreground: oklch(0.97 0.004 255);
+    --primary: oklch(0.76 0.13 230);
+    --primary-foreground: oklch(0.12 0.02 230);
+    --muted: oklch(0.16 0.009 255);
+    --muted-foreground: oklch(0.72 0.015 255);
+    --accent: oklch(0.19 0.018 235);
+    --accent-foreground: oklch(0.97 0.004 255);
+    --destructive: oklch(0.7 0.17 25);
+    --border: oklch(0.23 0.012 255);
+    --input: oklch(0.3 0.014 255);
+    --ring: oklch(0.76 0.13 230);
+    --positive: oklch(0.76 0.13 160);
+    --warning: oklch(0.82 0.14 85);
+    --radius: 0.375rem;
+    /* 设计稿层派生（供布局类使用；与 token 一致） */
+    --surface: var(--card); --surface2: var(--muted);
+    --surface-hover: var(--accent);
+    --accent-soft: color-mix(in oklab, var(--primary) 12%, transparent);
+    --radius-lg: calc(var(--radius) * 1.5);
+    --line: var(--border); --line2: var(--input);
+
+    --ink: var(--foreground); --ink2: var(--muted-foreground); --ink3: oklch(0.5 0.014 255);
+    --accent-ink: var(--primary-foreground); --good: var(--positive); --bad: var(--destructive); }
+  :root:has(.theme-toggle input:checked) { color-scheme: light;
+    --background: oklch(0.985 0 0);
+    --foreground: oklch(0.16 0.008 255);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.16 0.008 255);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.16 0.008 255);
+    --primary: oklch(0.55 0.16 235);
+    --primary-foreground: oklch(0.99 0 0);
+    --muted: oklch(0.94 0.005 255);
+    --muted-foreground: oklch(0.43 0.015 255);
+    --accent: oklch(0.92 0.018 235);
+    --accent-foreground: oklch(0.25 0.03 235);
+    --destructive: oklch(0.58 0.2 25);
+    --border: oklch(0.87 0.008 255);
+    --input: oklch(0.79 0.012 255);
+    --ring: oklch(0.55 0.16 235);
+    --positive: oklch(0.52 0.14 160);
+    --warning: oklch(0.58 0.14 80);
+    --radius: 0.375rem;
+    --surface: var(--card); --surface2: var(--muted);
+    --surface-hover: var(--accent);
+    --accent-soft: color-mix(in oklab, var(--primary) 12%, transparent);
+    --radius-lg: calc(var(--radius) * 1.5);
+    --line: var(--border); --line2: var(--input);
+    --ink: var(--foreground); --ink2: var(--muted-foreground); --ink3: oklch(0.56 0.014 255);
+    --accent-ink: var(--primary-foreground); --good: var(--positive); --bad: var(--destructive); }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--background); color: var(--ink);
+    font: 14px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    padding: 32px 24px 80px; }
+  .doc { max-width: 1240px; margin: 0 auto; }
+  h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
+  h3 { font-size: 13px; font-weight: 600; color: var(--ink2); margin: 26px 0 10px; }
+  .doc-intro { color: var(--ink2); font-size: 13px; margin: 10px 0 16px; max-width: 88ch; }
+  .doc-intro b { color: var(--ink); font-weight: 500; }
+  .spec { border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+    padding: 14px 16px; margin: 14px 0 26px; font-size: 12px; color: var(--ink2); }
+  .spec b { color: var(--ink); font-weight: 600; }
+  .spec ul { padding-left: 18px; margin: 6px 0 0; }
+  .spec li { margin: 3px 0; }
+  .theme-toggle { position: fixed; top: 18px; right: 20px; z-index: 50; display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--ink2); background: var(--surface); border: 1px solid var(--line);
+    padding: 7px 12px; border-radius: 8px; cursor: pointer; user-select: none; }
+  .theme-toggle input { accent-color: var(--accent); }
+
+  /* ---- 图标 sprite（Material Symbols Outlined 同名字形；正式实现用 material-symbols 包） ---- */
+  .icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+  .msicon { width: 20px; height: 20px; fill: currentColor; stroke: none; flex: none; }
+  .msbtn { width: 2rem; height: 2rem; display: inline-flex; align-items: center; justify-content: center;
+    border: none; border-radius: var(--radius); background: transparent; color: var(--muted-foreground); cursor: pointer;
+    transition: background-color 150ms ease, color 150ms ease; }
+  .msbtn:hover { background: var(--accent); color: var(--accent-foreground); }
+  .msbtn:disabled { opacity: .45; cursor: default; pointer-events: none; }
+  .msbtn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--ring); }
+
+  /* ---- 应用窗口骨架 ---- */
+  .app { border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden;
+    background: var(--background); color: var(--ink); margin-bottom: 8px; }
+  .app-bar { height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 12px;
+    background: var(--surface); border-bottom: 1px solid var(--line); }
+  .dots { display: flex; gap: 6px; }
+  .dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--line2); }
+  .app-title { font-size: 11px; color: var(--ink3); margin-left: 6px; }
+  .app-body { display: flex; min-height: 560px; }
+
+  /* ---- 折叠轨（唯一入口；播放页不渲染） ---- */
+  .c2-rail { width: 44px; border-right: 1px solid var(--line); display: flex; flex-direction: column;
+    align-items: center; padding: 10px 0; gap: 4px; background: var(--surface); }
+  .c2-rail .ric { width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center;
+    justify-content: center; font-size: 9px; color: var(--ink3); }
+  .c2-rail .ric.on { background: color-mix(in oklab, var(--primary) 12%, transparent); color: var(--primary); }
+  .c2-rail .ric[style] { cursor: not-allowed; }
+  .c2-rail .sp { flex: 1; }
+  .c2-stage { flex: 1; position: relative; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+  /* ---- 小件（对齐 shadcn ui/button · ui/input） ---- */
+  .field { height: 2.25rem; min-width: 0; width: 100%; border-radius: var(--radius); border: 1px solid var(--input);
+    background: transparent; padding: 0 .75rem; font: 14px/1 ui-sans-serif; color: var(--foreground);
+    outline: none; transition: border-color 150ms ease, box-shadow 150ms ease; }
+  .field::placeholder { color: var(--muted-foreground); }
+  .field:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 40%, transparent); }
+  .field:disabled { opacity: .5; cursor: not-allowed; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; height: 2.25rem; padding: 0 1rem;
+    border: 1px solid transparent; border-radius: var(--radius); background: var(--primary); color: var(--primary-foreground);
+    font: 500 13px/1 ui-sans-serif; cursor: pointer; white-space: nowrap;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; outline: none; }
+  .btn:hover { background: color-mix(in oklab, var(--primary) 90%, transparent); }
+  .btn:focus-visible { box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--ring); }
+  .btn:disabled { opacity: .45; cursor: default; pointer-events: none; }
+  .btn.ghost { background: transparent; color: var(--muted-foreground); border-color: transparent; }
+  .btn.ghost:hover { background: var(--accent); color: var(--accent-foreground); }
+  .btn.outline { background: var(--background); color: var(--muted-foreground); border-color: var(--border); }
+  .btn.outline:hover { background: var(--accent); color: var(--accent-foreground); }
+  .pill { font: 500 10px/1 ui-monospace, Consolas, monospace; padding: 3px 7px; border-radius: 4px;
+    border: 1px solid var(--line2); color: var(--ink2); }
+  .dot-live { width: 6px; height: 6px; border-radius: 50%; background: var(--good); display: inline-block; }
+  .avatar { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+    font: 600 10px/1 ui-sans-serif; background: var(--surface2); color: var(--ink2); border: 1px solid var(--line2); }
+  .avatar.mpv { color: var(--primary); border-color: var(--primary); }
+  .label { font: 500 10px/1.4 ui-sans-serif; letter-spacing: .06em; color: var(--ink3); }
+
+  /* ---- 首页 · 统一入口 ---- */
+  .home-wrap { width: min(680px, 100%); margin: 0 auto; display: grid; gap: 18px; }
+  .resume-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 12px; color: var(--ink2); }
+  .resume-bar b { font-family: ui-monospace, Consolas, monospace; color: var(--ink); }
+  .home-input-row { display: flex; gap: 10px; }
+  .home-input-row .btn { white-space: nowrap; flex-shrink: 0; }
+  .home-input-row .home-input { flex: 1; min-width: 0; }
+  .home-input { height: 2.75rem; font-size: 14px; border-color: var(--input); }
+  .home-input-row .btn { height: 2.75rem; padding: 0 1.1rem; }
+  .intent-hint { font-size: 11px; color: var(--ink3); margin-top: 8px; }
+  .intent-hint.ok { color: var(--accent); }
+  .home-secondary { display: flex; gap: 14px; }
+  .home-secondary label { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--ink2); }
+  .anchor-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .acard { display: block; width: 100%; text-align: left; border: 1px solid var(--border); border-radius: var(--radius-lg);
+    padding: .9rem 1rem; background: var(--card); cursor: pointer; outline: none;
+    transition: border-color 150ms ease, background-color 150ms ease; }
+  .acard:hover { border-color: var(--primary); }
+  .acard:focus-visible { box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--ring); }
+  .acard-title { font-size: 12.5px; font-weight: 600; color: var(--card-foreground); }
+  .acard-desc { font-size: 11px; color: var(--muted-foreground); margin-top: 3px; }
+  .status-line { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--ink3); margin-top: 4px; }
+
+  /* ---- 播放页 · 全出血（对齐浏览器端播放页） ---- */
+  .pfull { position: relative; height: 100%; min-height: 560px; background: #000; overflow: hidden; }
+  .pfull-canvas { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--ink3); font-size: 12px; }
+  .player-overlay { position: absolute; left: 0; right: 0; z-index: 3; display: flex; align-items: center; gap: 10px;
+    padding: 12px 18px; transition: opacity 150ms ease-out; }
+  .player-top { top: 0; justify-content: flex-start;
+    background: linear-gradient(to bottom, rgb(0 0 0 / .82), rgb(0 0 0 / 0)); }
+  .player-bottom { bottom: 0; flex-direction: column; align-items: stretch; gap: 8px; padding-bottom: 16px;
+    background: linear-gradient(to top, rgb(0 0 0 / .85), rgb(0 0 0 / 0)); }
+  .player-overlay .ctl { padding: 0; }
+  .player-room-code { font: 11px ui-monospace, Consolas, monospace; color: var(--ink2); }
+  .ovmeta { font-size: 11px; color: var(--ink2); }
+  .overlay-spacer { flex: 1; }
+  .pchip { display: inline-flex; align-items: center; gap: .4rem; height: 2rem; padding: 0 .75rem; border-radius: var(--radius);
+    border: 1px solid var(--border); background: rgb(0 0 0 / .4); color: var(--muted-foreground); font-size: 12px; cursor: pointer;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; outline: none; }
+  .pchip:hover { background: var(--accent); color: var(--accent-foreground); }
+  .pchip.on { border-color: var(--primary); color: var(--primary); background: color-mix(in oklab, var(--primary) 12%, transparent); }
+  .pchip.warn { color: var(--destructive); border-color: color-mix(in oklab, var(--destructive) 40%, transparent); }
+  .pchip:focus-visible { box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--ring); }
+  :root:has(.theme-toggle input:checked) .pchip { background: rgb(255 255 255 / .6); }
+  .ctl { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--ink2); }
+  .ctl .bar { flex: 1; height: 4px; border-radius: 2px; background: var(--line2); position: relative; }
+  .ctl .bar i { position: absolute; left: 0; top: 0; bottom: 0; width: 38%; background: var(--accent); border-radius: 2px; }
+  .timecode { font: 11px/1 ui-monospace, Consolas, monospace; color: var(--ink2); }
+  .range-control { accent-color: var(--primary); }
+  .rate-readout { font: 600 11px ui-sans-serif, system-ui; color: var(--foreground); padding: 0 6px; }
+  @media (prefers-reduced-motion: reduce) { .player-overlay { transition: none; } }
+
+  /* ---- 播放页抽屉（右缘滑出） ---- */
+  .wdrawer { position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; width: min(360px, 45%);
+    background: var(--surface); border-left: 1px solid var(--line2); padding: 16px 14px; overflow: auto; }
+  :root:has(.theme-toggle input:checked) .wdrawer { box-shadow: -14px 0 36px rgba(15,23,42,.14); }
+  .dhead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .dclose { font-size: 11px; color: var(--ink3); }
+  .row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line);
+    border-radius: 7px; background: var(--surface); }
+  .row .t { font-size: 12px; color: var(--ink); }
+  .row .m { font-size: 11px; color: var(--ink3); }
+
+  /* ---- 媒体库网格 ---- */
+  .c-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .tile { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+  .tile .th { aspect-ratio: 16 / 9; background: linear-gradient(135deg, var(--surface2), var(--surface)); }
+  .tile .tt { font-size: 11px; color: var(--ink); padding: 7px 8px 2px; }
+  .tile .tm { font-size: 10px; color: var(--ink3); padding: 0 8px 8px; }
+
+  /* ---- 表单（设置 · 站点凭据） ---- */
+  .form { display: grid; gap: 10px; max-width: 430px; }
+  .form .lab { font-size: 11px; color: var(--ink2); margin-bottom: 4px; }
+  .form-note { font-size: 11px; color: var(--ink3); }
+</style>
+</head>
+<body>
+  <label class="theme-toggle"><input type="checkbox" aria-label="切换浅色模式">浅色模式</label>
+  <svg class="icon-sprite" aria-hidden="true"><symbol id="ms-skip-previous" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm11.5 0L9 12l8.5 6z"/></symbol><symbol id="ms-play-arrow" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></symbol><symbol id="ms-pause" viewBox="0 0 24 24"><path d="M6 19h4V5H6zm8-14v14h4V5z"/></symbol><symbol id="ms-skip-next" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6zM16 6h2v12h-2z"/></symbol><symbol id="ms-volume-up" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.5 4.5 0 0 0 16.5 12z"/></symbol><symbol id="ms-subtitles" viewBox="0 0 24 24"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2M4 12h4v2H4zm16 6H4v-2h10zm6 0h-4v-2h4zm0-4H10v-2h10z"/></symbol><symbol id="ms-speed" viewBox="0 0 24 24"><path d="M20.4 5.6 19 7A8 8 0 1 0 12 4v2a6 6 0 1 1 5.6 3.8z"/><circle cx="12" cy="14" r="2"/></symbol><symbol id="ms-fullscreen" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7zm0-4h2V7h3V5H7zm10 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z"/></symbol><symbol id="ms-fullscreen-exit" viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5zm5-10H5v5h2V8h3zm5 11h3v-3h2v5h-5zm3-11V5h-5v2h3z"/></symbol><symbol id="ms-add" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z"/></symbol><symbol id="ms-monitor" viewBox="0 0 24 24"><path d="M21 3H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7v2H7v2h10v-2h-3v-2h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></symbol><symbol id="ms-hide" viewBox="0 0 24 24"><path d="M12 6a9.77 9.77 0 0 1 8.94 5.5 9.77 9.77 0 0 1-2.44 3.13l1.42 1.42A11.8 11.8 0 0 0 23 11.5 11.8 11.8 0 0 0 12 4a11.9 11.9 0 0 0-3.23.44l1.66 1.66A9 9 0 0 1 12 6M3.7 6.3l1.42 1.42A11.8 11.8 0 0 0 1 11.5 11.8 11.8 0 0 0 12 19a11.8 11.8 0 0 0 4.23-.82l2.27 2.27 1.42-1.42L5.1 4.9zm3.32 3.32 1.62 1.62a3 3 0 0 0 3.94 3.94l1.62 1.62a5 5 0 0 1-7.18-7.18z"/></symbol><symbol id="ms-queue" viewBox="0 0 24 24"><path d="M21 15V6M18.5 18.5 21 21l2.5-2.5M3 6h12M3 12h12M3 18h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol><symbol id="ms-group" viewBox="0 0 24 24"><path d="M16 11a3 3 0 1 0-3-3 3 3 0 0 0 3 3m-8 0a3 3 0 1 0-3-3 3 3 0 0 0 3 3m0 2c-2.3 0-7 1.2-7 3.5V19h14v-2.5C15 14.2 10.3 13 8 13m8 0c-.3 0-.6 0-1 .1a5 5 0 0 1 0 4.9V19h6v-2.5c0-2.3-4.7-3.5-7-3.5"/></symbol><symbol id="ms-library" viewBox="0 0 24 24"><path d="m16 6 4 14M12 6v14M8 8v12M4 4v16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol><symbol id="ms-logout" viewBox="0 0 24 24"><path d="m17 8-1.4 1.4 2.6 2.6H8v2h10.2l-2.6 2.6L17 18l5-5zM4 3h8v2H6v14h6v2H4z"/></symbol></svg>
+
+  <div class="page">
+    <div class="doc">
+      <h1>WatchParty 桌面客户端 · 方案 C′ 设计基线</h1>
+      <p class="doc-intro">本文件是方案 C′ 的<b>唯一设计基线</b>：首页统一入口（智能输入框）、全出血播放页（上下 overlay 自动隐藏、无侧栏）、媒体库网格、站点凭据设置。深浅双主题（右上角切换）。字形为 Material Symbols Outlined 示意——正式实现使用与浏览器端同源的 material-symbols 包。</p>
+      <div class="spec">
+        <b>交互规格（实现契约）</b>
+        <ul>
+          <li>播放页 = 全出血面：无左轨 / 顶栏 / 状态栏；页面切换经顶部 overlay。</li>
+          <li>overlay：指针移动 / 按键唤起，2.4s 无操作隐藏（150ms ease-out，prefers-reduced-motion 关闭）；抽屉打开时常显。</li>
+          <li>抽屉：右缘滑出 min(360px, 45%)，实色表面 + 左边框，不挤压画幅；队列 / 成员各一个，同一时间只开一个。</li>
+          <li>左轨 = 唯一入口（房间 / 队列 / 成员 / 媒体库 / 设置）；队列与成员未加入房间时置灰。</li>
+          <li>首页智能输入：房号 / watchparty:// → 加入（受保护 401 后行内 PIN）；媒体直链 / m3u8 / YouTube → 创建并开播（创建者为房主，房间默认锁定）。</li>
+          <li>上次房间仍存活时显示恢复条，否则整条隐藏。</li>
+        </ul>
+      </div>
+    </div>
+    <div class="frames">
+<div class="frames">
+
+      <div>
+        <h3>首页 · 统一入口（默认态：输入为空，上次房间仍存活）</h3>
+        <div class="app">
+          <div class="app-bar"><span class="dots"><i></i><i></i><i></i></span><span class="app-title">WatchParty</span></div>
+          <div class="app-body">
+            <div class="c2-rail">
+              <div class="ric on">房间</div><div class="ric">队列</div><div class="ric">成员</div>
+              <div class="sp"></div><div class="ric">媒体库</div><div class="ric">设置</div>
+            </div>
+            <div class="c2-stage" style="align-items:center;">
+              <div class="home-wrap">
+                <div class="resume-bar">
+                  <span class="dot-live"></span>
+                  <span>上次观看 · <b style="font-family:ui-monospace,monospace;color:var(--ink);">room-74bcde5d</b> · 正在播放 雾都夜行 EP07</span>
+                  <span class="btn ghost" style="margin-left:auto;">返回房间</span>
+                </div>
+                <div class="home-entry">
+                  <div class="home-input-row">
+                    <input class="field home-input" placeholder="输入房号、watchparty:// 链接或媒体直链…">
+                    <button class="btn" type="button">加入房间</button>
+                  </div>
+                  <div class="intent-hint">输入房号加入房间；粘贴媒体直链（http / m3u8 / YouTube）可直接创建新房间并开播。</div>
+                </div>
+                <div class="anchor-cards">
+                  <div class="acard">
+                    <div class="acard-title">从媒体库点播开房</div>
+                    <div class="acard-desc">浏览 Anime / Film / TV Shows，选片即建新房</div>
+                  </div>
+                  <div class="acard">
+                    <div class="acard-title">加入已有房间</div>
+                    <div class="acard-desc">输入房号；受保护房间会要求 PIN</div>
+                  </div>
+                </div>
+                <div class="status-line">
+                  <span class="dot-live"></span><span>后端 127.0.0.1:8080 已连接</span>
+                  <span style="color:var(--line2);">·</span>
+                  <span>站点凭据已配置</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3>首页 · 识别态（粘贴媒体直链，一步创建并开播）</h3>
+        <div class="app">
+          <div class="app-bar"><span class="dots"><i></i><i></i><i></i></span><span class="app-title">WatchParty</span></div>
+          <div class="app-body">
+            <div class="c2-rail">
+              <div class="ric on">房间</div><div class="ric">队列</div><div class="ric">成员</div>
+              <div class="sp"></div><div class="ric">媒体库</div><div class="ric">设置</div>
+            </div>
+            <div class="c2-stage" style="align-items:center;">
+              <div class="home-wrap">
+                <div class="resume-bar">
+                  <span class="dot-live"></span>
+                  <span>上次观看 · <b style="font-family:ui-monospace,monospace;color:var(--ink);">room-74bcde5d</b></span>
+                  <span class="btn ghost" style="margin-left:auto;">返回房间</span>
+                </div>
+                <div class="home-entry">
+                  <div class="home-input-row">
+                    <input class="field home-input" value="https://example.com/media/night-falls.mp4">
+                    <button class="btn" type="button">创建并开播</button>
+                  </div>
+                  <div class="intent-hint ok">检测到媒体直链 · 将创建新房间（你为房主）并自动开播</div>
+                  <div class="home-secondary">
+                    <label>昵称 <input class="field" style="width:130px;" value="Bob"></label>
+                    <label>房间 PIN（可选） <input class="field" style="width:110px;" placeholder="0000"></label>
+                  </div>
+                </div>
+                <div class="anchor-cards">
+                  <div class="acard" style="border-color:var(--accent);">
+                    <div class="acard-title">链接开播</div>
+                    <div class="acard-desc">已识别 · 直链 / m3u8 / YouTube</div>
+                  </div>
+                  <div class="acard">
+                    <div class="acard-title">加入已有房间</div>
+                    <div class="acard-desc">清空后输入房号即可切换</div>
+                  </div>
+                </div>
+                <div class="status-line">
+                  <span class="dot-live"></span><span>后端已连接</span>
+                  <span style="color:var(--line2);">·</span>
+                  <span>站点凭据未配置 →</span><span style="color:var(--accent);">去设置</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+              <h3>播放页 · 全出血（对齐浏览器端播放页；实现后 overlay 由指针/键盘唤起，2.4s 自动隐藏）</h3>
+        <div class="app">
+          <div class="app-bar"><span class="dots"><i></i><i></i><i></i></span><span class="app-title">WatchParty — room-74bcde5d</span></div>
+          <div class="pfull">
+            <header class="player-overlay player-top"><span class="player-room-code">/room-74bcde5d</span><span class="dot-live"></span><span class="ovmeta">同步 38ms</span><span class="overlay-spacer"></span><button class="pchip on" type="button" title="队列"><svg class="msicon"><use href="#ms-queue"></use></svg></button><button class="pchip" type="button" title="成员"><svg class="msicon"><use href="#ms-group"></use></svg></button><button class="pchip" type="button" title="媒体库"><svg class="msicon"><use href="#ms-library"></use></svg></button><button class="pchip" type="button" title="离开房间"><svg class="msicon"><use href="#ms-logout"></use></svg></button></header><div class="pfull-canvas">libmpv 画幅 · 雾都夜行 EP07</div><footer class="player-overlay player-bottom"><div class="ctl seek-row"><button class="msbtn" type="button" title="上一项" aria-label="上一项"><svg class="msicon"><use href="#ms-skip-previous"></use></svg></button><button class="msbtn" type="button" title="播放" aria-label="播放"><svg class="msicon"><use href="#ms-play-arrow"></use></svg></button><button class="msbtn" type="button" title="下一项" aria-label="下一项"><svg class="msicon"><use href="#ms-skip-next"></use></svg></button><div class="bar"><i></i></div><span class="timecode">18:24 / 24:02</span></div><div class="ctl tail-row"><button class="msbtn" type="button" title="音量" aria-label="音量"><svg class="msicon"><use href="#ms-volume-up"></use></svg></button><input class="range-control" style="width:88px;" type="range" min="0" max="100" value="85" aria-label="音量"><button class="msbtn" type="button" title="字幕" aria-label="字幕"><svg class="msicon"><use href="#ms-subtitles"></use></svg></button><span class="rate-readout" title="倍速">1.00x</span><button class="msbtn" type="button" title="显示播放器" aria-label="显示播放器"><svg class="msicon"><use href="#ms-monitor"></use></svg></button><button class="msbtn" type="button" title="隐藏播放器" aria-label="隐藏播放器"><svg class="msicon"><use href="#ms-hide"></use></svg></button><button class="msbtn" type="button" title="全屏" aria-label="全屏"><svg class="msicon"><use href="#ms-fullscreen"></use></svg></button><button class="msbtn" type="button" title="添加媒体" aria-label="添加媒体"><svg class="msicon"><use href="#ms-add"></use></svg></button></div></footer>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3>播放页 · 队列抽屉（右缘滑出，打开时 overlay 保持可见）</h3>
+        <div class="app">
+          <div class="app-bar"><span class="dots"><i></i><i></i><i></i></span><span class="app-title">WatchParty — room-74bcde5d</span></div>
+          <div class="pfull">
+            <header class="player-overlay player-top"><span class="player-room-code">/room-74bcde5d</span><span class="dot-live"></span><span class="ovmeta">同步 38ms</span><span class="overlay-spacer"></span><button class="pchip on" type="button" title="队列"><svg class="msicon"><use href="#ms-queue"></use></svg></button><button class="pchip" type="button" title="成员"><svg class="msicon"><use href="#ms-group"></use></svg></button><button class="pchip" type="button" title="媒体库"><svg class="msicon"><use href="#ms-library"></use></svg></button><button class="pchip" type="button" title="离开房间"><svg class="msicon"><use href="#ms-logout"></use></svg></button></header><div class="pfull-canvas">libmpv 画幅 · 雾都夜行 EP07</div><footer class="player-overlay player-bottom"><div class="ctl seek-row"><button class="msbtn" type="button" title="上一项" aria-label="上一项"><svg class="msicon"><use href="#ms-skip-previous"></use></svg></button><button class="msbtn" type="button" title="播放" aria-label="播放"><svg class="msicon"><use href="#ms-play-arrow"></use></svg></button><button class="msbtn" type="button" title="下一项" aria-label="下一项"><svg class="msicon"><use href="#ms-skip-next"></use></svg></button><div class="bar"><i></i></div><span class="timecode">18:24 / 24:02</span></div><div class="ctl tail-row"><button class="msbtn" type="button" title="音量" aria-label="音量"><svg class="msicon"><use href="#ms-volume-up"></use></svg></button><input class="range-control" style="width:88px;" type="range" min="0" max="100" value="85" aria-label="音量"><button class="msbtn" type="button" title="字幕" aria-label="字幕"><svg class="msicon"><use href="#ms-subtitles"></use></svg></button><span class="rate-readout" title="倍速">1.00x</span><button class="msbtn" type="button" title="显示播放器" aria-label="显示播放器"><svg class="msicon"><use href="#ms-monitor"></use></svg></button><button class="msbtn" type="button" title="隐藏播放器" aria-label="隐藏播放器"><svg class="msicon"><use href="#ms-hide"></use></svg></button><button class="msbtn" type="button" title="全屏" aria-label="全屏"><svg class="msicon"><use href="#ms-fullscreen"></use></svg></button><button class="msbtn" type="button" title="添加媒体" aria-label="添加媒体"><svg class="msicon"><use href="#ms-add"></use></svg></button></div></footer><aside class="wdrawer"><div class="dhead"><span class="label">播放队列</span><span class="dclose">收起 ×</span></div><div style="display:grid;gap:6px;margin-top:10px;"><div class="row" style="padding:6px 8px;border-color:var(--accent);background:transparent;"><div class="t" style="font-size:11px;">雾都夜行 EP07</div><div class="m" style="font-size:10px;">播放中</div></div><div class="row" style="padding:6px 8px;background:transparent;"><div class="t" style="font-size:11px;">雾都夜行 EP08</div><div class="m" style="font-size:10px;">24:31</div></div><div class="row" style="padding:6px 8px;background:transparent;"><div class="t" style="font-size:11px;">银翼残响 剧场版</div><div class="m" style="font-size:10px;">1:48:02</div></div></div><div style="font-size:10px;color:var(--ink3);margin-top:10px;">成员抽屉同理，从左轨「成员」开启。抽屉打开时 overlay 常显。</div></aside>
+          </div>
+        </div>
+      </div>
+
+      <h3>媒体库 与 站点凭据</h3>
+        <div class="app">
+          <div class="app-bar"><span class="dots"><i></i><i></i><i></i></span><span class="app-title">WatchParty — 媒体库</span></div>
+          <div class="app-body">
+            <div class="c2-rail">
+              <div class="ric">房间</div><div class="ric">队列</div><div class="ric">成员</div>
+              <div class="sp"></div><div class="ric on">媒体库</div><div class="ric">设置</div>
+            </div>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column;">
+          <div class="c-top">
+            <span class="b-logo">Watch<span>Party</span></span>
+            <input class="field c-search" placeholder="搜索…">
+            <span style="flex:1"></span>
+            <span class="pill">Anime</span><span class="pill">Film</span><span class="pill">TV Shows</span>
+          </div>
+          <div class="c-main">
+            <div class="c-grid" style="grid-template-columns:repeat(5,1fr);">
+              <div class="tile"><div class="th"></div><div class="tt">雾都夜行 第2季</div><div class="tm">24 集 · 1080p</div></div>
+              <div class="tile"><div class="th"></div><div class="tt">银翼残响 剧场版</div><div class="tm">4K HDR</div></div>
+              <div class="tile"><div class="th"></div><div class="tt">星屑航线 OV</div><div class="tm">3 集</div></div>
+              <div class="tile"><div class="th"></div><div class="tt">潮汐信号</div><div class="tm">2:04:11</div></div>
+              <div class="tile"><div class="th"></div><div class="tt">夜航西坞</div><div class="tm">1:52:38</div></div>
+            </div>
+          </div>
+            </div>
+          </div>
+        </div>
+        <div class="app" style="margin-top:16px;">
+          <div class="app-bar"><span class="dots"><i></i><i></i><i></i></span><span class="app-title">设置 — 站点凭据</span></div>
+          <div style="padding:16px;">
+            <div style="display:flex; gap:14px;">
+            <div class="c2-rail" style="border:1px solid var(--line); border-radius:8px; align-self:flex-start; padding:8px 0;">
+              <div class="ric">房间</div><div class="ric">队列</div><div class="ric">成员</div>
+              <div class="sp"></div><div class="ric">媒体库</div><div class="ric on">设置</div>
+            </div>
+<div class="form">
+              <div><div class="lab">后端地址</div><input class="field" value="https://watch.example.test"></div>
+              <div><div class="lab">站点用户名（Caddy Basic Auth）</div><input class="field" value="alice"></div>
+              <div><div class="lab">站点密码</div><input class="field" type="password" value="............"></div>
+              <div style="display:flex;gap:8px;"><span class="btn">保存到系统凭据库</span><span class="btn ghost">清除</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    </div>
+    <div class="doc">
+      <p class="doc-intro" style="margin-top:26px;">实现对照：token 表 / 状态矩阵 / IPC 映射见 <b>dev/desktop-redesign-brief.html</b>；多方案对比与演进史见 dev/desktop-redesign-mockups.html。</p>
+    </div>
+  </div>
+</body>
+</html>

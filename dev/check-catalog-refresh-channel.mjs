@@ -6,7 +6,7 @@ import path from 'node:path'
 import { createBackend } from '../server/app.ts'
 import { loadConfig } from '../server/config.ts'
 import { WATCHPARTY_ROOTS } from '../server/media/watchparty-media.ts'
-import { refreshCatalog } from '../desktop-shell/shared/catalog-refresh.ts'
+import { refreshCatalog } from '../web/shared/catalog-refresh.ts'
 
 const directory = await mkdtemp(path.join(os.tmpdir(), 'catalog-refresh-channel-'))
 let fail = false

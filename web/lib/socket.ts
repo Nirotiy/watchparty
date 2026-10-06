@@ -299,6 +299,16 @@ export class WatchPartySocket {
     return this.emitCommand("CMD:playlistNext", { expectedRevision });
   }
 
+  public playlistAutoNext(
+    expectedCurrentPlaylistItemId: string | undefined,
+    expectedRevision: number,
+  ): Promise<CommandAck> {
+    return this.emitCommand("CMD:playlistAutoNext", {
+      expectedRevision,
+      ...(expectedCurrentPlaylistItemId ? { expectedCurrentPlaylistItemId } : {}),
+    });
+  }
+
   public transferOwner(
     targetClientId: string,
     expectedRevision: number,

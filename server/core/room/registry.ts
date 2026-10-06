@@ -32,18 +32,11 @@ type RoomAccess = {
   ownerClientId: string;
   /** Last snapshot poll per MPV clientId, used to drop abandoned MPV members. */
   mpvLastSeen: Map<string, number>;
-  /** Current generation and heartbeat for each desktop clientId. */
-  desktopSessions: Map<string, DesktopSession>;
-  /** Monotonic generation counters survive heartbeat pruning for each desktop token. */
-  desktopGenerationCounters: Map<string, number>;
-  /** One-time owner grants awaiting an HTTP claim by a desktop client. */
-  pendingOwnerGrants: Map<string, string>;
 };
-type DesktopSession = { generation: number; lastSeen: number };
 type HandoffTicket = {
   roomId: string;
   issuedByClientId: string;
-  target: "mpv" | "desktop";
+  target: "mpv";
   expiresAt: number;
 };
 type PinFailures = { count: number; expiresAt: number };
@@ -115,7 +108,6 @@ export class RoomRegistry {
     this.rooms.set(roomId, room);
 
     const clientType = options.clientType ?? "browser";
-    const generation = clientType === "desktop" ? 1 : undefined;
     const access: RoomAccess = {
       accessTokens: new Map([
         [
@@ -130,18 +122,7 @@ export class RoomRegistry {
       ownerTokenHash: hashToken(ownerToken),
       ownerClientId: options.clientId,
       mpvLastSeen: new Map(),
-      desktopSessions: new Map(),
-      desktopGenerationCounters: new Map(),
-      pendingOwnerGrants: new Map(),
     };
-    if (generation !== undefined) {
-      access.desktopGenerationCounters.set(options.clientId, generation);
-      access.desktopSessions.set(options.clientId, {
-        generation,
-        lastSeen: this.now(),
-      });
-      room.join(options.clientId, options.nickname.trim(), "desktop");
-    }
     if (options.pin) {
       const salt = randomBytes(16);
       access.pinSalt = salt;
@@ -189,14 +170,12 @@ export class RoomRegistry {
   }
 
   /**
-   * Issue a one-time handoff ticket for launching a native client into the room.
-   * Only browser tokens may issue tickets. The target is bound into the ticket
-   * so an MPV ticket cannot be redeemed through the desktop endpoint.
+   * Issue a one-time handoff ticket for launching MPV from a browser room.
+   * Only browser tokens may issue tickets.
    */
   issueHandoffTicket(
     roomId: string,
     accessToken: string,
-    target: "mpv" | "desktop" = "mpv",
   ): { ticket: string; expiresAt: number } | undefined {
     const access = this.accessByRoom.get(roomId);
     const record = access?.accessTokens.get(hashToken(accessToken));
@@ -206,34 +185,30 @@ export class RoomRegistry {
     this.handoffTickets.set(hashToken(ticket), {
       roomId,
       issuedByClientId: record.clientId,
-      target,
+      target: "mpv",
       expiresAt,
     });
     return { ticket, expiresAt };
   }
 
   /**
-   * Redeem a handoff ticket: consume it once and mint an independent native
-   * identity. Desktop redemptions also start generation 1 for stale-session
-   * protection. Returns undefined when the ticket is invalid for this target.
+   * Redeem a handoff ticket once and mint an independent MPV identity.
    */
   redeemHandoffTicket(
     ticket: string,
-    target: "mpv" | "desktop" = "mpv",
   ):
     | {
         roomId: string;
         accessToken: string;
         clientId: string;
         nickname: string;
-        clientType: "mpv" | "desktop";
-        sessionGeneration?: number;
+        clientType: "mpv";
       }
     | undefined {
     if (typeof ticket !== "string" || !ticket) return undefined;
     const key = hashToken(ticket);
     const record = this.handoffTickets.get(key);
-    if (!record || record.target !== target || record.expiresAt <= this.now()) {
+    if (!record || record.expiresAt <= this.now()) {
       return undefined;
     }
     this.handoffTickets.delete(key);
@@ -241,49 +216,28 @@ export class RoomRegistry {
     if (!access) return undefined;
     const clientId = randomUUID();
     const token = randomToken();
-    const nickname = target === "desktop" ? "Desktop" : "MPV";
-    const sessionGeneration = target === "desktop" ? 1 : undefined;
+    const nickname = "MPV";
     access.accessTokens.set(hashToken(token), {
       clientId,
       nickname,
-      clientType: target,
+      clientType: "mpv",
     });
-    if (sessionGeneration !== undefined) {
-      access.desktopGenerationCounters.set(clientId, sessionGeneration);
-      access.desktopSessions.set(clientId, {
-        generation: sessionGeneration,
-        lastSeen: this.now(),
-      });
-    }
     return {
       roomId: record.roomId,
       accessToken: token,
       clientId,
       nickname,
-      clientType: target,
-      ...(sessionGeneration !== undefined ? { sessionGeneration } : {}),
+      clientType: "mpv",
     };
   }
 
-  /** Token lookup restricted to the requested native client type. */
-  authenticateNativeToken(
-    roomId: string,
-    token: unknown,
-    clientType: "mpv" | "desktop",
-  ): AuthenticatedAccess | undefined {
+  /** Token lookup restricted to MPV-issued access tokens. */
+  authenticateMpvToken(roomId: string, token: unknown): AuthenticatedAccess | undefined {
     if (typeof token !== "string") return undefined;
     const record = this.accessByRoom
       .get(roomId)
       ?.accessTokens.get(hashToken(token));
-    return record?.clientType === clientType ? record : undefined;
-  }
-
-  /** Backward-compatible MPV-only token lookup for existing callers. */
-  authenticateMpvToken(
-    roomId: string,
-    token: unknown,
-  ): AuthenticatedAccess | undefined {
-    return this.authenticateNativeToken(roomId, token, "mpv");
+    return record?.clientType === "mpv" ? record : undefined;
   }
 
   /** Record a heartbeat from an MPV client so stale members can be pruned. */
@@ -296,62 +250,6 @@ export class RoomRegistry {
     );
     if (!record) return false;
     access.mpvLastSeen.set(clientId, this.now());
-    return true;
-  }
-
-  /** Return the active desktop session generation for a client. */
-  desktopSessionGeneration(
-    roomId: string,
-    clientId: string,
-  ): number | undefined {
-    return this.accessByRoom.get(roomId)?.desktopSessions.get(clientId)
-      ?.generation;
-  }
-
-  /** Claim a new generation so delayed requests from an older desktop session become stale. */
-  claimDesktopSession(
-    roomId: string,
-    accessToken: string,
-  ): { clientId: string; nickname: string; generation: number } | undefined {
-    const access = this.accessByRoom.get(roomId);
-    const record = access?.accessTokens.get(hashToken(accessToken));
-    if (!access || !record || record.clientType !== "desktop") return undefined;
-    const generation =
-      (access.desktopGenerationCounters.get(record.clientId) ?? 0) + 1;
-    access.desktopGenerationCounters.set(record.clientId, generation);
-    access.desktopSessions.set(record.clientId, {
-      generation,
-      lastSeen: this.now(),
-    });
-    this.rooms.get(roomId)?.join(record.clientId, record.nickname, "desktop");
-    return { clientId: record.clientId, nickname: record.nickname, generation };
-  }
-
-  /** Touch a desktop session only when its generation is still current. */
-  touchDesktopClient(
-    roomId: string,
-    clientId: string,
-    generation: number,
-  ): boolean {
-    const session = this.accessByRoom
-      .get(roomId)
-      ?.desktopSessions.get(clientId);
-    if (!session || session.generation !== generation) return false;
-    session.lastSeen = this.now();
-    return true;
-  }
-
-  /** Remove a desktop member only if the caller owns the current generation. */
-  leaveDesktopClient(
-    roomId: string,
-    clientId: string,
-    generation: number,
-  ): boolean {
-    const access = this.accessByRoom.get(roomId);
-    const session = access?.desktopSessions.get(clientId);
-    if (!access || !session || session.generation !== generation) return false;
-    access.desktopSessions.delete(clientId);
-    this.rooms.get(roomId)?.leave(clientId);
     return true;
   }
 
@@ -406,9 +304,7 @@ export class RoomRegistry {
     }
     if (
       !room.isOnline(targetClientId) ||
-      !['browser', 'desktop'].includes(
-        room.memberClientType(targetClientId) ?? "",
-      )
+      room.memberClientType(targetClientId) !== "browser"
     )
       return { ok: false, code: "OWNER_TARGET_OFFLINE" };
     const newOwnerToken = randomToken();
@@ -416,22 +312,6 @@ export class RoomRegistry {
     access.ownerClientId = targetClientId;
     room.setOwner(targetClientId);
     return { ok: true, ownerToken: newOwnerToken };
-  }
-
-  /** Queue a one-time owner token for a desktop client to claim over HTTP. */
-  queueOwnerGrant(roomId: string, clientId: string, ownerToken: string): void {
-    this.accessByRoom.get(roomId)?.pendingOwnerGrants.set(clientId, ownerToken);
-  }
-
-  /**
-   * Take the pending owner grant for this client, if any. The grant is deleted
-   * on read so a captured response can never be replayed.
-   */
-  claimOwnerGrant(roomId: string, clientId: string): string | undefined {
-    const grants = this.accessByRoom.get(roomId)?.pendingOwnerGrants;
-    const token = grants?.get(clientId);
-    grants?.delete(clientId);
-    return token;
   }
 
   pruneIdle(): string[] {
@@ -470,11 +350,6 @@ export class RoomRegistry {
     for (const [clientId, lastSeen] of access.mpvLastSeen) {
       if (lastSeen > cutoff) continue;
       access.mpvLastSeen.delete(clientId);
-      room.leave(clientId);
-    }
-    for (const [clientId, session] of access.desktopSessions) {
-      if (session.lastSeen > cutoff) continue;
-      access.desktopSessions.delete(clientId);
       room.leave(clientId);
     }
   }

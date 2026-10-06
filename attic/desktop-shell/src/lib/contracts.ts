@@ -1,0 +1,157 @@
+export type ConnectionState = "connecting" | "ready" | "backoff" | "expired" | "failed"
+export type ClientType = "browser" | "mpv" | "desktop"
+
+/** 连接状态 → 界面文案（P3 合并：外壳会话条与设置·后端与网络此前各抄一份）。 */
+export function connectionLabel(connection?: ConnectionState): string {
+  switch (connection) {
+    case "connecting": return "正在连接"
+    case "ready": return "已连接"
+    case "backoff": return "网络重试中"
+    case "expired": return "会话已过期"
+    case "failed": return "连接失败"
+    default: return "等待加入"
+  }
+}
+
+export type MediaSource =
+  | { kind: "openlist"; mediaId: string; title: string; container: string; displayPath?: string | null }
+  | { kind: "http" | "hls"; url: string; title?: string | null }
+  | { kind: "youtube"; videoId: string; title?: string | null }
+
+export interface PlaylistItem {
+  id: string
+  media: MediaSource
+  addedByClientId: string
+  addedAtMs: number
+}
+
+export interface RoomSnapshot {
+  revision: number
+  source: MediaSource | null
+  currentPlaylistItemId?: string | null
+  positionSeconds: number
+  serverTimeMs: number
+  paused: boolean
+  playbackRate: number
+  loop: boolean
+  locked: boolean
+  ownerClientId: string
+  playlist: PlaylistItem[]
+}
+
+export interface RoomMember {
+  clientId: string
+  name: string
+  isOwner: boolean
+  clientType: ClientType
+}
+
+export interface Track {
+  id: number
+  label: string
+  kind: string
+  language?: string | null
+  codec?: string | null
+  selected: boolean
+}
+
+export interface PlayerState {
+  time: number
+  duration: number
+  buffering: boolean
+  loaded: boolean
+  paused: boolean
+  rate: number
+  volume: number
+  audioTracks: Track[]
+  subtitleTracks: Track[]
+}
+
+export interface NativeCapabilityReport {
+  libmpvReady: boolean
+  vo?: string | null
+  hwdecConfigured?: string | null
+  hwdec?: string | null
+  videoCodec?: string | null
+  videoProfile?: string | null
+  audioCodec?: string | null
+  pixelFormat?: string | null
+  width?: number | null
+  height?: number | null
+  hdr?: boolean | null
+}
+
+export interface UiError {
+  code: string
+  message: string
+}
+
+export interface DesktopUiState {
+  connection: ConnectionState
+  /** The room the native session actually joined; the single source of truth for the UI. */
+  roomId?: string | null
+  room: RoomSnapshot | null
+  members: RoomMember[]
+  /** Legacy aggregate; command permissions are derived from isOwner. */
+  canControlSharedPlayback: boolean
+  /** Whether this client owns the room. */
+  isOwner?: boolean
+  /** This client's own room member id, for rename and transfer targeting. */
+  clientId?: string | null
+  player: PlayerState
+  playerWindowVisible: boolean
+  capability: NativeCapabilityReport
+  error: UiError | null
+}
+
+export type DesktopCommand =
+  | { type: "play" | "pause" | "resync" }
+  | { type: "seek"; positionSeconds: number }
+  | { type: "rate"; rate: number }
+  | { type: "loop"; loop: boolean }
+  | { type: "volume"; volume: number }
+  | { type: "selectAudioTrack"; trackId: number }
+  | { type: "selectSubtitleTrack"; trackId: number | null }
+  | { type: "playerVisibility"; visible: boolean }
+  | { type: "fullscreen"; enabled: boolean }
+  | { type: "playlistPlay"; itemId: string }
+  | { type: "playlistNext"; expectedCurrentPlaylistItemId: string | null }
+  | { type: "playlistAutoNext"; expectedCurrentPlaylistItemId: string | null }
+  | { type: "lock"; locked: boolean }
+  | { type: "name"; name: string }
+  | { type: "transferOwner"; targetClientId: string }
+  | { type: "mediaSet"; media: MediaSource }
+  | { type: "playlistAdd"; media: MediaSource }
+  | { type: "playlistRemove"; itemId: string }
+  | { type: "playlistMove"; itemId: string; targetIndex: number }
+
+export interface CommandAck {
+  ok: boolean
+  revision: number
+  error?: UiError | null
+}
+
+export interface MediaCompatibility {
+  browser?: string | null
+  desktop?: string | null
+  browserReason?: string | null
+  desktopReason?: string | null
+}
+
+export interface MediaDirectoryItem {
+  id: string
+  name: string
+  type: "file" | "dir"
+  size?: number | null
+  extension?: string | null
+  compatibility: MediaCompatibility
+  displayPath?: string | null
+}
+
+export interface MediaDirectoryPage {
+  currentPath: string
+  breadcrumbs: string[]
+  hasMore: boolean
+  nextCursor?: string | null
+  items: MediaDirectoryItem[]
+}

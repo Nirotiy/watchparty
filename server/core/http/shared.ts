@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import type { RoomRegistry } from "../room/registry.ts";
 import { ERROR_MESSAGES } from "../protocol.ts";
 
 /** Send the standard error envelope used by every WatchParty HTTP endpoint. */
@@ -14,6 +15,29 @@ export function sendError(
       ? `${ERROR_MESSAGES[code]}: ${detail}`
       : ERROR_MESSAGES[code],
   });
+}
+
+/** Media reads carry the room ID and access token in separate headers. */
+export function requireRoomAccess(
+  req: Request,
+  res: Response,
+  registry: RoomRegistry,
+): boolean {
+  const header = req.headers["x-watchparty-room"];
+  const roomId = typeof header === "string" && !header.includes(",") ? header.trim() : "";
+  if (!roomId) {
+    sendError(res, 401, "ACCESS_TOKEN_INVALID");
+    return false;
+  }
+  if (!registry.get(roomId)) {
+    sendError(res, 404, "ROOM_NOT_FOUND");
+    return false;
+  }
+  if (!registry.authenticateToken(roomId, bearerToken(req))) {
+    sendError(res, 401, "ACCESS_TOKEN_INVALID");
+    return false;
+  }
+  return true;
 }
 
 export function requestIp(req: Request): string {

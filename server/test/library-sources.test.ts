@@ -79,6 +79,7 @@ async function boot(options: {
     serveStatic: false,
     config: options.cfg ?? config(),
     libraryClientFactory: (source) => fakeClient(source, options.factoryBehavior),
+    bangumi: { async search() { return []; } },
     ...(options.trustLoopback === undefined ? {} : { trustLibraryAdminLoopback: options.trustLoopback }),
     ...(options.adminToken ? { libraryAdminToken: options.adminToken } : {}),
   });
@@ -108,10 +109,12 @@ const secondBody = {
 test("seeded libraries stay free of secrets and absolute browse paths", async () => {
   const backend = await boot();
   const base = origin(backend);
+  const room = await createRoom(backend);
+  const roomHeaders = { "x-watchparty-room": room.roomId, "x-watchparty-token": room.accessToken };
   const capabilities = await (await fetch(`${base}/api/media/capabilities`)).json() as { libraries: boolean; artwork: boolean; catalog: boolean; mediaAdmin: boolean; catalogApproval: string };
   // catalogApproval 如实报边界强度：没配第二把密钥就是 loopback-admin（软边界）。
   assert.deepEqual(capabilities, { libraries: true, artwork: true, catalog: true, mediaAdmin: true, catalogApproval: "loopback-admin" });
-  const listed = await (await fetch(`${base}/api/media/libraries`)).json() as { libraries: Array<{ id: string; name: string; kind: string; sourceId: string; health: string }> };
+  const listed = await (await fetch(`${base}/api/media/libraries`, { headers: roomHeaders })).json() as { libraries: Array<{ id: string; name: string; kind: string; sourceId: string; health: string }> };
   assert.deepEqual(listed.libraries.map((library) => [library.id, library.name, library.kind, library.sourceId, library.health]), [
     ["lib_anime", "Anime", "anime", "src_default", "ok"],
     ["lib_film", "Film", "movie", "src_default", "ok"],
@@ -124,7 +127,7 @@ test("seeded libraries stay free of secrets and absolute browse paths", async ()
   assert.equal(admin.sources[0]?.id, "src_default");
   assert.equal(admin.sources[0]?.passwordSet, true);
   assert.equal(JSON.stringify(admin).includes("seed-secret"), false);
-  const page = await (await fetch(`${base}/api/media/list?libraryId=lib_film`)).json() as { libraryId: string; items: Array<{ name: string; id: string; relativePath: string; isDirectory: boolean }> };
+  const page = await (await fetch(`${base}/api/media/list?libraryId=lib_film`, { headers: roomHeaders })).json() as { libraryId: string; items: Array<{ name: string; id: string; relativePath: string; isDirectory: boolean }> };
   const video = page.items.find((item) => item.name === "Same.mp4");
   assert.ok(video);
   assert.equal(video.relativePath, "/Same.mp4");
@@ -149,8 +152,9 @@ test("two sources with the same path mint different ids and resolve to their own
   const secondLibrary = source.libraries[0]?.id;
   assert.ok(secondLibrary);
   const room = await createRoom(backend);
-  const primary = await (await fetch(`${base}/api/media/list?libraryId=lib_film`)).json() as { items: Array<{ name: string; id: string }> };
-  const secondary = await (await fetch(`${base}/api/media/list?libraryId=${secondLibrary}`)).json() as { items: Array<{ name: string; id: string }> };
+  const roomHeaders = { "x-watchparty-room": room.roomId, "x-watchparty-token": room.accessToken };
+  const primary = await (await fetch(`${base}/api/media/list?libraryId=lib_film`, { headers: roomHeaders })).json() as { items: Array<{ name: string; id: string }> };
+  const secondary = await (await fetch(`${base}/api/media/list?libraryId=${secondLibrary}`, { headers: roomHeaders })).json() as { items: Array<{ name: string; id: string }> };
   const primaryId = primary.items.find((item) => item.name === "Same.mp4")?.id;
   const secondaryId = secondary.items.find((item) => item.name === "Same.mp4")?.id;
   assert.ok(primaryId && secondaryId);
@@ -259,4 +263,101 @@ test("admin routes reject non-loopback callers unless the admin token matches", 
     body: JSON.stringify(secondBody),
   });
   assert.equal(response.status, 201);
+});
+
+test("loopback proxies do not grant remote clients admin access or trust spoofed client IPs", async () => {
+  const backend = await boot({ adminToken: "adm-token" });
+  const base = origin(backend);
+  const route = "/api/admin/media-sources";
+  assert.equal((await fetch(`${base}${route}`)).status, 200);
+  for (const forwarded of ["203.0.113.7", "127.0.0.1, 203.0.113.7", "127.0.0.1, 203.0.113.7, ::1"]) {
+    const headers = { "x-forwarded-for": forwarded };
+    const blocked = await fetch(`${base}${route}`, { headers });
+    assert.equal(blocked.status, 403, forwarded);
+    const capabilities = await (await fetch(`${base}/api/media/capabilities`, { headers })).json();
+    assert.equal(capabilities.mediaAdmin, false, forwarded);
+    const write = await fetch(`${base}/api/media/catalog/missing/confirm`, { method: "POST", headers });
+    assert.equal(write.status, 403, forwarded);
+    const allowed = await fetch(`${base}${route}`, { headers: { ...headers, "x-watchparty-admin": "adm-token" } });
+    assert.equal(allowed.status, 200, forwarded);
+  }
+});
+
+test("media reads reject anonymous and mismatched identities, including legacy roots and images", async () => {
+  const backend = await boot();
+  const base = origin(backend);
+  const room = await createRoom(backend);
+  const otherRoom = await createRoom(backend);
+  const guestResponse = await fetch(`${base}/api/rooms/${room.roomId}/access`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ clientId: randomUUID(), nickname: "Guest" }),
+  });
+  assert.equal(guestResponse.status, 200);
+  const guest = await guestResponse.json() as { accessToken: string };
+  const headers = { "x-watchparty-room": room.roomId, "x-watchparty-token": guest.accessToken };
+  const paths = [
+    "/api/media/roots", "/api/media/libraries",
+    "/api/media/list?root=Anime", "/api/media/search?q=show&root=Anime",
+    "/api/media/list?libraryId=lib_film", "/api/media/search?q=show&libraryId=lib_film",
+    "/api/media/catalog?libraryId=lib_film", "/api/media/catalog/missing",
+    "/api/media/artwork/missing", "/api/media/posters/missing", "/api/media/bangumi/search?q=Medalist",
+  ];
+  for (const pathname of paths) {
+    const anonymous = await fetch(`${base}${pathname}`, { signal: AbortSignal.timeout(2000) });
+    assert.equal(anonymous.status, 401, pathname);
+    const mismatch = await fetch(`${base}${pathname}`, {
+      headers: { ...headers, "x-watchparty-room": otherRoom.roomId },
+    });
+    assert.equal(mismatch.status, 401, pathname);
+  }
+  for (const pathname of ["/api/media/roots", "/api/media/libraries", "/api/media/list?libraryId=lib_film", "/api/media/search?q=show&libraryId=lib_film", "/api/media/catalog?libraryId=lib_film", "/api/media/bangumi/search?q=Medalist"]) {
+    assert.equal((await fetch(`${base}${pathname}`, { headers })).status, 200, pathname);
+  }
+  for (const invalid of [
+    { ...headers, "x-watchparty-room": "" },
+    { ...headers, "x-watchparty-room": `${room.roomId}, ${otherRoom.roomId}` },
+    { ...headers, "x-watchparty-token": "", authorization: `Bearer ${guest.accessToken}` },
+  ]) {
+    assert.equal((await fetch(`${base}/api/media/libraries`, { headers: invalid })).status, 401);
+  }
+  const legacy = await fetch(`${base}/api/media/libraries`, {
+    headers: { "x-watchparty-room": room.roomId, authorization: `Bearer ${guest.accessToken}` },
+  });
+  assert.equal(legacy.status, 200);
+});
+
+test("catalog edits require admin even for room members; admin tools do not require a room", async () => {
+  const backend = await boot({ trustLoopback: false, adminToken: "adm-token" });
+  const base = origin(backend);
+  const room = await createRoom(backend);
+  const roomHeaders = { "x-watchparty-room": room.roomId, "x-watchparty-token": room.accessToken };
+  const writes = [
+    "/api/media/catalog/missing/confirm", "/api/media/catalog/missing/reject",
+    "/api/media/catalog/missing/unconfirm", "/api/media/catalog/missing/rebind",
+    "/api/media/catalog/merge", "/api/media/catalog/missing/split",
+    "/api/admin/media-libraries/lib_film/scan", "/api/admin/media-libraries/lib_film/scrape",
+    "/api/admin/media-libraries/lib_film/classify", "/api/admin/media-libraries/lib_film/judge",
+    "/api/admin/media-libraries/lib_film/prepare", "/api/admin/media-libraries/lib_film/draft/edit",
+    "/api/admin/media-libraries/lib_film/import/export", "/api/admin/media-libraries/lib_film/approval",
+    "/api/admin/media-libraries/lib_film/apply", "/api/admin/media-libraries/lib_film/apply-approved",
+    "/api/admin/media-libraries/lib_film/rollback",
+  ];
+  const identities: Record<string, string>[] = [{}, roomHeaders, { "x-watchparty-admin": "wrong-token" }];
+  for (const pathname of writes) {
+    for (const headers of identities) {
+      const response = await fetch(`${base}${pathname}`, { method: "POST", headers });
+      assert.equal(response.status, 403, pathname);
+      assert.equal((await response.json() as { code: string }).code, "ADMIN_FORBIDDEN");
+    }
+  }
+  assert.equal((await fetch(`${base}/api/admin/media-catalog?libraryId=lib_film`, { headers: roomHeaders })).status, 403);
+  const admin = { "x-watchparty-admin": "adm-token" };
+  assert.equal((await fetch(`${base}/api/admin/media-catalog?libraryId=lib_film`, { headers: admin })).status, 200);
+  assert.equal((await fetch(`${base}/api/admin/media-catalog/missing`, { headers: admin })).status, 404);
+  assert.equal((await fetch(`${base}/api/media/catalog?libraryId=lib_film`, { headers: admin })).status, 401);
+  const invalidWrite = await fetch(`${base}/api/media/catalog/missing/unconfirm`, { method: "POST", headers: admin });
+  assert.equal(invalidWrite.status, 404);
+  const loopback = await boot();
+  assert.equal((await fetch(`${origin(loopback)}/api/admin/media-catalog?libraryId=lib_film`)).status, 200);
 });

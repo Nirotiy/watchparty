@@ -1,0 +1,729 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WatchParty 桌面客户端 · Fluent 形态探索（A / B / C）</title>
+<style>
+  /* ============ 文档层 ============ */
+  :root { color-scheme: dark;
+    --accent: #4cc2ff; --accent-fg: #001b2e;
+    --fg: #ffffff; --fg2: rgba(255,255,255,.74); --fg3: rgba(255,255,255,.46);
+    --good: #6ccb5f; --bad: #ff99a4; --warn: #f8de7f; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #000; color: var(--fg);
+    font: 14px/1.65 "Segoe UI Variable Text","Segoe UI",system-ui,"Microsoft YaHei",sans-serif;
+    padding: 36px 24px 90px; }
+  .doc { max-width: 1240px; margin: 0 auto; }
+  h1 { font-size: 23px; font-weight: 600; letter-spacing: -.01em; }
+  h2 { font-size: 17px; font-weight: 600; margin: 48px 0 6px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,.1); }
+  h2 small { font-weight: 400; color: var(--fg3); font-size: 12px; margin-left: 10px; }
+  h3 { font-size: 13px; font-weight: 600; color: var(--fg2); margin: 22px 0 8px; }
+  .intro { color: var(--fg2); font-size: 13px; margin: 8px 0 14px; max-width: 88ch; }
+  .intro b { color: var(--fg); font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 6px; font-size: 12.5px; }
+  th, td { border: 1px solid rgba(255,255,255,.1); padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { color: var(--fg2); font-weight: 600; background: rgba(255,255,255,.04); white-space: nowrap; }
+  td { color: var(--fg2); }
+  .note { font-size: 11.5px; color: var(--fg3); margin: 2px 0 6px; }
+  .note b { color: var(--fg2); font-weight: 600; }
+
+  /* ============ 通用 app 窗口骨架 ============ */
+  .win { border: 1px solid rgba(255,255,255,.1); border-radius: 10px; overflow: hidden; margin-bottom: 10px;
+    background: #0b0c0f;
+    background-image:
+      radial-gradient(1100px 520px at 18% -6%, rgba(76,194,255,.055), transparent 62%),
+      radial-gradient(900px 480px at 96% 108%, rgba(150,120,255,.045), transparent 58%);
+    /* Mica 模拟：基色 + 顶部冷色 / 底部暖紫色两块静态渐变 */
+    color: var(--fg); }
+  .tbar { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 0 0 14px;
+    border-bottom: 1px solid rgba(255,255,255,.07); background: rgba(255,255,255,.028); }
+  .tbar .logo { width: 16px; height: 16px; border-radius: 4px; background: linear-gradient(135deg,#4cc2ff,#2a7cc7); flex: none; }
+  .tbar .ttl { font-size: 12px; color: var(--fg2); }
+  .cap { margin-left: auto; display: flex; height: 100%; }
+  .cap i { width: 46px; height: 100%; display: grid; place-items: center; color: var(--fg3); font-style: normal; font-size: 10px; }
+  .cap i.close:hover { background: #c42b1c; color: #fff; }
+
+  /* ============ 侧栏（A / C：常驻 232px） ============ */
+  .sb { width: 232px; flex: none; display: flex; flex-direction: column; padding: 10px 8px 12px;
+    background: rgba(255,255,255,.035); border-right: 1px solid rgba(255,255,255,.06);
+    /* Acrylic 模拟：半透明白 +（正式实现 backdrop-filter: blur(30px) saturate(1.2)） */ }
+  .sb .brand { font-size: 14px; font-weight: 600; padding: 4px 12px 12px; }
+  .sb .brand span { color: var(--accent); }
+  .sfield { height: 32px; border-radius: 6px; border: 1px solid rgba(255,255,255,.13); border-bottom-color: rgba(255,255,255,.35);
+    background: rgba(255,255,255,.045); display: flex; align-items: center; gap: 8px; padding: 0 10px; margin: 0 4px 12px; }
+  .sfield svg { width: 14px; height: 14px; fill: var(--fg3); flex: none; }
+  .sfield i { font-style: normal; font-size: 12px; color: var(--fg3); }
+  .sn { display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 12px; border-radius: 6px;
+    font-size: 13px; color: var(--fg2); position: relative; margin-bottom: 2px; }
+  .sn svg { width: 17px; height: 17px; fill: currentColor; flex: none; }
+  .sn:hover { background: rgba(255,255,255,.055); }
+  .sn.on { background: rgba(255,255,255,.07); color: var(--fg); }
+  .sn.on::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 2px; background: var(--accent); }
+  .sn.dis { color: rgba(255,255,255,.28); }
+  .sb .gap { flex: 1; }
+  .sb .conn { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--fg3); padding: 0 12px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); flex: none; }
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .page { flex: 1; min-height: 520px; padding: 22px 26px; display: flex; flex-direction: column; }
+
+  /* ============ 控件（Fluent） ============ */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 32px; padding: 0 16px;
+    border-radius: 6px; border: 1px solid transparent; background: rgba(255,255,255,.06); color: var(--fg);
+    font: 500 13px/1 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif; cursor: pointer; white-space: nowrap; }
+  .btn:hover { background: rgba(255,255,255,.085); }
+  .btn.acc { background: var(--accent); color: var(--accent-fg); }
+  .btn.acc:hover { background: #65ccff; }
+  .btn.subtle { background: transparent; color: var(--fg2); }
+  .btn.subtle:hover { background: rgba(255,255,255,.06); color: var(--fg); }
+  .btn svg { width: 15px; height: 15px; fill: currentColor; }
+  .field { height: 32px; border-radius: 6px; border: 1px solid rgba(255,255,255,.13); border-bottom-color: rgba(255,255,255,.35);
+    background: rgba(255,255,255,.045); padding: 0 12px; font: 13px/1 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif; color: #fff; outline: none; width: 100%; }
+  .field::placeholder { color: var(--fg3); }
+  .field:focus { border-bottom-color: var(--accent); box-shadow: inset 0 -2px 0 0 var(--accent); }
+  .pill { font-size: 11px; color: var(--fg2); border: 1px solid rgba(255,255,255,.14); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+  .pill.on { background: rgba(76,194,255,.14); border-color: rgba(76,194,255,.5); color: var(--accent); }
+  .mono { font-family: ui-monospace, Consolas, monospace; }
+  .card { border: 1px solid rgba(255,255,255,.08); border-radius: 8px; background: rgba(255,255,255,.04); }
+  .sec-t { font-size: 14px; font-weight: 600; margin: 0 0 10px; }
+  .sec-t small { font-weight: 400; color: var(--fg3); font-size: 11.5px; margin-left: 8px; }
+
+  /* ============ 媒体卡 ============ */
+  .thumbs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .th-card { border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,.07); background: rgba(255,255,255,.03); cursor: pointer; }
+  .th-card:hover { border-color: rgba(255,255,255,.22); }
+  .thv { aspect-ratio: 16/9; background: linear-gradient(135deg, rgba(255,255,255,.07), rgba(255,255,255,.02)); position: relative; }
+  .thv .dur { position: absolute; right: 6px; bottom: 6px; font-size: 10px; font-family: ui-monospace, Consolas, monospace; color: rgba(255,255,255,.85); background: rgba(0,0,0,.55); border-radius: 4px; padding: 1px 5px; }
+  .prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,.16); }
+  .prog i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: 0 2px 2px 0; }
+  .th-t { font-size: 12px; padding: 8px 10px 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .th-m { font-size: 10.5px; color: var(--fg3); padding: 0 10px 9px; }
+
+  /* ============ 播放页（全出血） ============ */
+  .pfull { position: relative; height: 560px; background: #000; }
+  .pcanvas { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(255,255,255,.3); font-size: 12px; }
+  .ov { position: absolute; left: 0; right: 0; z-index: 3; display: flex; align-items: center; gap: 10px; padding: 12px 18px; }
+  .ov.top { top: 0; background: linear-gradient(to bottom, rgba(0,0,0,.75), transparent); }
+  .ov.bot { bottom: 0; flex-direction: column; align-items: stretch; gap: 6px; padding-bottom: 14px; background: linear-gradient(to top, rgba(0,0,0,.8), transparent); }
+  .chip { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; border-radius: 6px;
+    border: 1px solid rgba(255,255,255,.14); background: rgba(30,32,36,.62); color: var(--fg2); font-size: 12px; cursor: pointer; }
+  .chip:hover { background: rgba(255,255,255,.1); color: #fff; }
+  .chip.on { border-color: rgba(76,194,255,.55); color: var(--accent); background: rgba(76,194,255,.1); }
+  .chip svg { width: 15px; height: 15px; fill: currentColor; }
+  .ib { width: 32px; height: 32px; border-radius: 6px; display: inline-grid; place-items: center; background: transparent; border: none; color: rgba(255,255,255,.78); cursor: pointer; }
+  .ib:hover { background: rgba(255,255,255,.1); color: #fff; }
+  .ib svg { width: 19px; height: 19px; fill: currentColor; }
+  .bar { flex: 1; height: 3.5px; border-radius: 2px; background: rgba(255,255,255,.18); position: relative; }
+  .bar i { position: absolute; left: 0; top: 0; bottom: 0; width: 38%; background: var(--accent); border-radius: 2px; }
+  .bar b { position: absolute; left: 38%; top: 50%; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); transform: translate(-50%,-50%); border: 3px solid #0b0c0f; }
+  .tc { font: 11px/1 ui-monospace, Consolas, monospace; color: rgba(255,255,255,.75); }
+  input[type=range] { accent-color: var(--accent); }
+
+  /* ============ 抽屉 / 常驻面板 ============ */
+  .drawer { position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; width: 340px;
+    background: rgba(24,26,30,.86); backdrop-filter: blur(24px); border-left: 1px solid rgba(255,255,255,.1); padding: 14px 12px; overflow: auto; }
+  .phead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .phead b { font-size: 13px; }
+  .qrow { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; font-size: 12px; }
+  .qrow:hover { background: rgba(255,255,255,.05); }
+  .qrow.cur { background: rgba(76,194,255,.09); color: var(--accent); }
+  .qrow .ix { font: 10px ui-monospace, Consolas, monospace; color: var(--fg3); width: 18px; }
+  .qrow .m { font-size: 10.5px; color: var(--fg3); }
+
+  /* ============ B：窄轨 ============ */
+  .rail { width: 56px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0;
+    background: rgba(255,255,255,.035); border-right: 1px solid rgba(255,255,255,.06); }
+  .rail .ri { width: 40px; height: 40px; border-radius: 8px; display: grid; place-items: center; color: var(--fg2); cursor: pointer; position: relative; }
+  .rail .ri svg { width: 19px; height: 19px; fill: currentColor; }
+  .rail .ri:hover { background: rgba(255,255,255,.06); }
+  .rail .ri.on { background: rgba(76,194,255,.12); color: var(--accent); }
+  .rail .ri.on::before { content: ""; position: absolute; left: -8px; top: 10px; bottom: 10px; width: 3px; border-radius: 2px; background: var(--accent); }
+  .rail .gap { flex: 1; }
+
+  /* ============ 悬浮控制条（B 播放页） ============ */
+  .floatbar { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 4;
+    display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 12px; min-width: 640px;
+    background: rgba(28,30,34,.82); backdrop-filter: blur(22px) saturate(1.25);
+    border: 1px solid rgba(255,255,255,.11); box-shadow: 0 10px 32px rgba(0,0,0,.5); }
+
+  /* ============ C：explorer 双栏 / 常驻右栏 ============ */
+  .tree { width: 190px; flex: none; border-right: 1px solid rgba(255,255,255,.06); padding: 12px 8px; }
+  .tree .ti { display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 10px; border-radius: 6px; font-size: 12.5px; color: var(--fg2); cursor: pointer; }
+  .tree .ti:hover { background: rgba(255,255,255,.05); }
+  .tree .ti.on { background: rgba(255,255,255,.07); color: var(--fg); }
+  .tree .ti svg { width: 15px; height: 15px; fill: currentColor; }
+  .persist { width: 300px; flex: none; border-left: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.028); display: flex; flex-direction: column; }
+  .tabbar { display: flex; gap: 4px; padding: 10px 10px 0; }
+  .tab { flex: 1; text-align: center; font-size: 12px; color: var(--fg2); padding: 7px 0; border-bottom: 2px solid transparent; cursor: pointer; }
+  .tab.on { color: var(--fg); border-bottom-color: var(--accent); }
+
+  /* ============ 设置 ============ */
+  .set2 { display: grid; grid-template-columns: 190px 1fr; }
+  .setlist { border-right: 1px solid rgba(255,255,255,.06); padding: 14px 8px; }
+  .rowline { display: flex; align-items: center; gap: 12px; padding: 12px 2px; border-bottom: 1px solid rgba(255,255,255,.055); font-size: 13px; }
+  .rowline .m { font-size: 11.5px; color: var(--fg3); margin-top: 2px; }
+  .rowline > svg { width: 17px; height: 17px; fill: var(--fg2); flex: none; }
+  .toggle { margin-left: auto; width: 40px; height: 20px; border-radius: 10px; background: var(--accent); position: relative; flex: none; }
+  .toggle::after { content: ""; position: absolute; right: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: #000; }
+  .toggle.off { background: rgba(255,255,255,.14); }
+  .toggle.off::after { right: auto; left: 2px; background: rgba(255,255,255,.85); }
+</style>
+</head>
+<body>
+<div class="doc">
+  <h1>WatchParty 桌面客户端 · Fluent 形态探索</h1>
+  <p class="intro">三套<b>侧栏导航 + Mica/Acrylic</b> 的桌面应用形态，覆盖首页 / 播放页 / 媒体库 / 设置全流程。Mica 以基色 + 两块静态渐变模拟，Acrylic 以半透明层 + 模糊标注模拟（均无持续重绘动画）。播放页交互契约沿用方案 C′（全出血、2.4s 自动隐藏、抽屉常显）。<b style="color:var(--accent);">状态：混合基线 AB 已确认定稿（2026-09-04），实施交接见 dev/desktop-baseline-ab.html；A / B / C 保留作备选参考。</b></p>
+  <table>
+    <tr><th>方案</th><th>导航</th><th>首页重心</th><th>播放页控制</th><th>媒体库</th><th>一句话定位</th></tr>
+    <tr><td><b>A</b></td><td>232px 常驻侧栏（Win11 设置风）</td><td>智能输入 + 继续观看</td><td>全出血 + 上下 overlay + 右抽屉</td><td>工具栏 + 5 列网格</td><td>最正统的 Win11 应用骨架，信息密度均衡</td></tr>
+    <tr><td><b>B</b></td><td>56px 图标窄轨，Hover 展开</td><td>海报墙 + 大横幅</td><td>底部悬浮 Acrylic 控制条</td><td>窄轨 + 网格</td><td>内容优先，最接近爆米花 / Netflix 观感</td></tr>
+    <tr><td><b>C</b></td><td>240px Acrylic 侧栏</td><td>控制台：左列表 + 右房间动态</td><td>右栏常驻队列 / 成员</td><td>资源管理器双栏（树 + 网格）</td><td>工具台取向，播放时信息始终可见</td></tr>
+  </table>
+
+  <!-- ================= 混合基线 AB ================= -->
+  <h2>混合基线 AB <small>A 首页/设置 + B 播放器 · 控件集对齐现有实现</small></h2>
+  <p class="note"><b>定位：</b>首页与设置采用方案 A 骨架（常驻侧栏 + Mica）。播放页控件<b>严格对照现有实现</b>（web <code>Controls.tsx</code> + desktop <code>room-view.tsx</code> + brief 命令表），不做 mpv OSC 的照搬：<b>顶部中央</b>只留房号 / 同步延迟 / 队列 / 成员；<b>其余控件全部沉入底部两行</b>——贴底全宽 seekbar（时间码压两角、含缓冲区间与悬停时间戳）+ 其上方的裸图标行（无卡片边框，Acrylic 渐变衬底）。房间级控制（播放暂停 / 下一项 / seek / 倍速）仅房主可用，沿用 SharedControl 禁用 + 锁因提示；同步以引擎<b>自动追帧</b>为主，第二行的「重新同步」按钮仅作<b>手动兜底</b>（实现上就是一条 seek 到房主位置，无需新命令；不设独立 Sync 按钮，循环开关因桌面命令表无 loop 命令而移除）；本地控制（音量 / 音轨 / 字幕 / 挂起 / 全屏 / 添加媒体）人人可用。mpv 截图特有的截图 / 流信息 / 书签 / A-B 循环 / 上一项<b>不入列</b>。</p>
+
+  <style>
+    .mpv-center { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 3; display: flex; align-items: center; gap: 6px; }
+    .btmbar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
+      background: linear-gradient(to top, rgba(0,0,0,.66) 30%, rgba(0,0,0,0)); }
+    .ctlrow { display: flex; align-items: center; gap: 3px; padding: 6px 12px 4px; }
+    .ctlrow .spacer { flex: 1; }
+    .ctlrow .sep { width: 1px; height: 18px; background: rgba(255,255,255,.14); margin: 0 7px; flex: none; }
+    .ratechip { font: 600 11.5px ui-monospace,Consolas,monospace; color: rgba(255,255,255,.85); background: rgba(255,255,255,.1);
+      height: 24px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 5px; cursor: pointer; margin-left: 4px; }
+    .seekrow { display: flex; align-items: center; gap: 12px; padding: 0 14px 7px; }
+    .seekrow .bar { height: 4px; }
+    .seekrow .bar u { position: absolute; top: 0; bottom: 0; left: 55%; width: 18%; background: rgba(255,255,255,.28); border-radius: 2px; }
+    .voltoast { position: absolute; bottom: 72px; left: 50%; transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: 8px;
+      background: rgba(22,22,22,.78); backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,.1);
+      border-radius: 4px; padding: 5px 12px; font: 600 12px "Segoe UI",sans-serif; color: #fff; }
+    .voltoast .mini { width: 90px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.2); position: relative; }
+    .voltoast .mini i { position: absolute; left: 0; top: 0; bottom: 0; width: 85%; background: #fff; border-radius: 2px; }
+  </style>
+
+  <h3>AB1 · 播放页（顶部房间信息 + 底部两行控制，控件集 = 现有实现）</h3>
+  <div class="win">
+    <div class="pfull">
+      <div class="pcanvas">libmpv 画幅 · 雾都夜行 EP07</div>
+
+      <div class="mpv-center">
+        <span class="mono" style="font-size:11px;color:rgba(255,255,255,.65);">/room-74bcde5d</span>
+        <span class="dot"></span>
+        <span style="font-size:11px;color:rgba(255,255,255,.65);">同步 38ms</span>
+        <span class="chip on" style="height:26px;"><svg viewBox="0 0 24 24"><path d="M4 6h12v2H4zm0 5h12v2H4zm0 5h8v2H4zm14-4v4h-2v-4h-4v-2h4V6h2v4h4v2z"/></svg>队列 12</span>
+        <span class="chip" style="height:26px;"><svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>成员 3</span>
+      </div>
+
+      <div class="btmbar">
+        <div class="ctlrow">
+          <span class="ib" style="width:36px;height:36px;" title="播放/暂停（房间级 · 仅房主）"><svg style="width:22px;height:22px;" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></span>
+          <span class="ib" title="下一项（房间级 · 仅房主）"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6zM16 6h2v12h-2z"/></svg></span>
+          <div class="seekrow" style="position:static;flex:1;padding:0;">
+            <span class="tc" style="font-size:13px;color:rgba(255,255,255,.92);">18:24</span>
+            <div class="bar" style="height:4px;"><i style="width:76%;"></i><u title="缓冲区间"></u><b style="left:76%;"></b></div>
+            <span class="tc" style="font-size:13px;color:rgba(255,255,255,.92);">24:02</span>
+          </div>
+        </div>
+        <div class="ctlrow" style="padding-top:0;">
+          <span class="ib" title="静音"><svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.5 4.5 0 0 0 16.5 12z"/></svg></span>
+          <input type="range" style="width:76px;" min="0" max="100" value="85" aria-label="音量">
+          <span class="sep"></span>
+          <span class="ib" title="字幕选择（本地）"><svg viewBox="0 0 24 24"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2M4 12h4v2H4zm16 6H4v-2h10zm0-4h-4v-2h4zm0-4H10v-2h10z"/></svg></span>
+          <span class="ib" title="音轨选择（本地）"><svg viewBox="0 0 24 24"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg></span>
+          <span class="ib" title="重新同步（手动兜底）：seek 到房主位置；自动追帧为主，偏差过大时使用"><svg viewBox="0 0 24 24"><path d="M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8A5.87 5.87 0 0 1 6 12c0-3.31 2.69-6 6-6zm6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26z"/></svg></span>
+          <span class="ratechip" title="倍速（房间级 · 仅房主）：0.25–3.0，桌面预设 0.5 / 0.75 / 1 / 1.25 / 1.5 / 2">1.00x</span>
+          <span class="spacer"></span>
+          <span class="ib" title="隐藏播放器（本地挂起，保留房间会话）"><svg viewBox="0 0 24 24"><path d="M12 6a9.77 9.77 0 0 1 8.94 5.5 9.77 9.77 0 0 1-2.44 3.13l1.42 1.42A11.8 11.8 0 0 0 23 11.5 11.8 11.8 0 0 0 12 4a11.9 11.9 0 0 0-3.23.44l1.66 1.66A9 9 0 0 1 12 6M3.7 6.3l1.42 1.42A11.8 11.8 0 0 0 1 11.5 11.8 11.8 0 0 0 12 19a11.8 11.8 0 0 0 4.23-.82l2.27 2.27 1.42-1.42L5.1 4.9zm3.32 3.32 1.62 1.62a3 3 0 0 0 3.94 3.94l1.62 1.62a5 5 0 0 1-7.18-7.18z"/></svg></span>
+          <span class="ib" title="全屏"><svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7zm0-4h2V7h3V5H7zm10 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z"/></svg></span>
+          <span class="ib" title="添加媒体"><svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="note">控件对照：第一行 = 播放暂停 / 下一项 + 时间码 + 全宽 seekbar（进度 76%、浅色段为缓冲区间，悬停出时间戳气泡，点击即 roomSeek）；第二行 = 音量（图标+滑杆，本地）｜字幕 / 音轨（本地下拉）｜<b>重新同步</b>（手动兜底：seek 到房主位置，人人可用；自动追帧为主，偏差过大或追帧失败时手动触发，无需新命令）｜倍速（房间级，读数 chip 下拉）→ 右端：挂起（visibility_off，对应 playerVisibility）/ 全屏 / 添加媒体。顶部仅房号 / 延迟 / 队列 / 成员四个只读+抽屉入口。非房主时房间级控件按 SharedControl 置灰并提示锁因。相比上一版移除：独立 Sync 按钮（自动追帧为主，兜底并入重新同步）、循环开关（桌面命令表无 loop 命令）、mpv 专属项（截图、流信息、书签/章节、A-B 循环、上一项）。</p>
+
+  <h3>AB1b · 画幅滚轮调音量的临时 toast（可选增强，对齐 mpv 肌肉记忆）</h3>
+  <div class="win" style="height:140px;position:relative;background:#000;">
+    <div class="pcanvas" style="position:absolute;">画幅</div>
+    <div class="voltoast"><svg style="width:16px;height:16px;fill:#fff;" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.5 4.5 0 0 0 16.5 12z"/></svg><div class="mini"><i style="width:85%;"></i></div>85%</div>
+  </div>
+
+  <h3>AB2 · 播放页 · 队列抽屉打开（底部控制与顶中信息整体让位）</h3>
+  <div class="win">
+    <div class="pfull">
+      <div class="pcanvas">libmpv 画幅 · 雾都夜行 EP07</div>
+
+      <div class="mpv-center" style="right:min(340px,42%);left:auto;transform:none;justify-content:flex-end;padding-right:12px;">
+        <span class="mono" style="font-size:11px;color:rgba(255,255,255,.65);">/room-74bcde5d</span>
+        <span class="dot"></span>
+        <span class="chip on" style="height:26px;"><svg viewBox="0 0 24 24"><path d="M4 6h12v2H4zm0 5h12v2H4zm0 5h8v2H4zm14-4v4h-2v-4h-4v-2h4V6h2v4h4v2z"/></svg>队列 12</span>
+      </div>
+
+      <div class="btmbar" style="right:min(340px,42%);">
+        <div class="ctlrow">
+          <span class="ib" style="width:36px;height:36px;"><svg style="width:22px;height:22px;" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></span>
+          <span class="ib"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6zM16 6h2v12h-2z"/></svg></span>
+          <div class="seekrow" style="position:static;flex:1;padding:0;">
+            <span class="tc" style="font-size:13px;color:rgba(255,255,255,.92);">18:24</span>
+            <div class="bar" style="height:4px;"><i style="width:76%;"></i><u></u><b style="left:76%;"></b></div>
+            <span class="tc" style="font-size:13px;color:rgba(255,255,255,.92);">24:02</span>
+          </div>
+        </div>
+        <div class="ctlrow" style="padding-top:0;">
+          <span class="ib"><svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.5 4.5 0 0 0 16.5 12z"/></svg></span>
+          <input type="range" style="width:76px;" min="0" max="100" value="85" aria-label="音量">
+          <span class="sep"></span>
+          <span class="ib"><svg viewBox="0 0 24 24"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2M4 12h4v2H4zm16 6H4v-2h10zm0-4h-4v-2h4zm0-4H10v-2h10z"/></svg></span>
+          <span class="ib"><svg viewBox="0 0 24 24"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg></span>
+          <span class="ib"><svg viewBox="0 0 24 24"><path d="M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8A5.87 5.87 0 0 1 6 12c0-3.31 2.69-6 6-6zm6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26z"/></svg></span>
+          <span class="ratechip">1.00x</span>
+          <span class="spacer"></span>
+          <span class="ib"><svg viewBox="0 0 24 24"><path d="M12 6a9.77 9.77 0 0 1 8.94 5.5 9.77 9.77 0 0 1-2.44 3.13l1.42 1.42A11.8 11.8 0 0 0 23 11.5 11.8 11.8 0 0 0 12 4a11.9 11.9 0 0 0-3.23.44l1.66 1.66A9 9 0 0 1 12 6M3.7 6.3l1.42 1.42A11.8 11.8 0 0 0 1 11.5 11.8 11.8 0 0 0 12 19a11.8 11.8 0 0 0 4.23-.82l2.27 2.27 1.42-1.42L5.1 4.9zm3.32 3.32 1.62 1.62a3 3 0 0 0 3.94 3.94l1.62 1.62a5 5 0 0 1-7.18-7.18z"/></svg></span>
+          <span class="ib"><svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7zm0-4h2V7h3V5H7zm10 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z"/></svg></span>
+          <span class="ib"><svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></span>
+        </div>
+      </div>
+
+      <aside class="drawer" style="width:min(340px,42%);">
+        <div class="phead"><b>播放队列 <span style="color:var(--fg3);font-weight:400;">12 项</span></b><span class="btn subtle" style="height:26px;padding:0 10px;font-size:11px;">添加媒体</span></div>
+        <div class="qrow cur"><span class="ix">07</span><div style="flex:1;"><div>雾都夜行 EP07</div><div class="m">正在播放 · 18:24</div></div></div>
+        <div class="qrow"><span class="ix">08</span><div style="flex:1;"><div>雾都夜行 EP08</div><div class="m">24:02 · Alice 添加</div></div></div>
+        <div class="qrow"><span class="ix">09</span><div style="flex:1;"><div>雾都夜行 EP09</div><div class="m">24:10 · Alice 添加</div></div></div>
+        <div class="qrow"><span class="ix">—</span><div style="flex:1;"><div>银翼残响 剧场版</div><div class="m">2:11:36 · Bob 添加</div></div></div>
+      </aside>
+    </div>
+  </div>
+  <p class="note">抽屉打开时顶中信息退到剩余区域右缘、底部两行整体压缩，overlay 常显，交互契约同 C′（2.4s 自动隐藏 / 悬停保持）。首页、媒体库、设置沿用方案 A1 / A4 / A5，不再重复绘制。</p>
+
+  <!-- ================= 方案 A ================= -->
+  <h2>方案 A <small>Win11 设置风 · 常驻侧栏 + Mica 分层</small></h2>
+  <p class="note"><b>定位：</b>最正统的 Fluent 骨架。侧栏内含搜索框与连接状态；活动项用左侧 accent 指示条；内容区 24px 圆角卡片分组。播放页沿用 C′ 全出血契约。</p>
+
+  <h3>A1 · 首页（智能入口 + 继续观看）</h3>
+  <div class="win">
+    <div class="tbar"><span class="logo"></span><span class="ttl">WatchParty</span><div class="cap"><i>─</i><i>▢</i><i class="close">✕</i></div></div>
+    <div style="display:flex;">
+      <aside class="sb">
+        <div class="brand">Watch<span>Party</span></div>
+        <div class="sfield"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><i>搜索或输入房号…</i></div>
+        <div class="sn on"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-9h3L12 3 2 11h3v9z"/></svg>首页</div>
+        <div class="sn"><svg viewBox="0 0 24 24"><path d="M21 3H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7v2H7v2h10v-2h-3v-2h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 14H3V5h18z"/></svg>房间</div>
+        <div class="sn dis"><svg viewBox="0 0 24 24"><path d="M4 6h12v2H4zm0 5h12v2H4zm0 5h8v2H4zm14-4v4h-2v-4h-4v-2h4V6h2v4h4v2z"/></svg>队列</div>
+        <div class="sn dis"><svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>成员</div>
+        <div class="gap"></div>
+        <div class="sn"><svg viewBox="0 0 24 24"><path d="M4 4h2v16H4zm4 0h2v16H8zm5 1.06 1.94 15.44 1.93-.52L14.93 4.5z"/></svg>媒体库</div>
+        <div class="sn"><svg viewBox="0 0 24 24"><path d="M19.14 12.94a7 7 0 0 0 .06-.94 7 7 0 0 0-.06-.94l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.63-.94l-.38-2.65A.5.5 0 0 0 13.66 2h-4a.5.5 0 0 0-.49.42l-.38 2.65a7.3 7.3 0 0 0-1.63.94l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65a7 7 0 0 0 0 1.88l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1a7.3 7.3 0 0 0 1.63.94l.38 2.65a.5.5 0 0 0 .49.42h4a.5.5 0 0 0 .49-.42l.38-2.65a7.3 7.3 0 0 0 1.63-.94l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64zM11.5 15.5a3.5 3.5 0 1 1 3.5-3.5 3.5 3.5 0 0 1-3.5 3.5z"/></svg>设置</div>
+        <div style="height:10px;"></div>
+        <div class="conn"><span class="dot"></span>后端 127.0.0.1:8080 已连接</div>
+      </aside>
+      <div class="main"><div class="page">
+        <p class="sec-t">继续观看 <small>上次会话 · 房间仍存活</small></p>
+        <div class="card" style="display:flex;align-items:center;gap:12px;padding:12px 16px;margin-bottom:20px;">
+          <span class="dot"></span>
+          <span style="font-size:12.5px;color:var(--fg2);">room-74bcde5d · 雾都夜行 EP07 · <span class="mono">18:24 / 24:02</span></span>
+          <span class="btn acc" style="margin-left:auto;">返回房间</span>
+        </div>
+        <div style="display:flex;gap:10px;max-width:640px;">
+          <input class="field" style="height:38px;font-size:13.5px;" placeholder="房号 / watchparty:// 链接 / 媒体直链 / YouTube…">
+          <span class="btn acc" style="height:38px;padding:0 20px;">加入或开播</span>
+        </div>
+        <p class="note" style="margin-top:8px;">识别房号 → 加入；识别媒体直链 → 创建房间并自动开播（你为房主）。</p>
+        <p class="sec-t" style="margin-top:26px;">最近播放 <small>站点凭据已配置 · 元数据同步于 3 分钟前</small></p>
+        <div class="thumbs">
+          <div class="th-card"><div class="thv"><span class="dur">18:24</span><span class="prog"><i style="width:76%;"></i></span></div><div class="th-t">雾都夜行 EP07</div><div class="th-m">room-74bcde5d · 2 小时前</div></div>
+          <div class="th-card"><div class="thv"><span class="dur">41:10</span><span class="prog"><i style="width:32%;"></i></span></div><div class="th-t">银翼残响 剧场版</div><div class="th-m">4K HDR · 昨天</div></div>
+          <div class="th-card"><div class="thv"></div><div class="th-t">星屑航线 OV</div><div class="th-m">3 集 · 已看完</div></div>
+          <div class="th-card"><div class="thv"></div><div class="th-t">潮汐信号</div><div class="th-m">2:04:11 · 3 天前</div></div>
+          <div class="th-card"><div class="thv"></div><div class="th-t">夜航西坞</div><div class="th-m">1:52:38 · 上周</div></div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+
+  <h3>A2 · 播放页（全出血 · overlay 自动隐藏）</h3>
+  <div class="win">
+    <div class="pfull">
+      <div class="pcanvas">libmpv 画幅 · 雾都夜行 EP07</div>
+      <div class="ov top">
+        <span class="mono" style="font-size:11px;color:rgba(255,255,255,.65);">/room-74bcde5d</span>
+        <span class="dot"></span>
+        <span style="font-size:11px;color:rgba(255,255,255,.65);">同步 38ms · 已连接</span>
+        <span style="flex:1;"></span>
+        <span class="chip on"><svg viewBox="0 0 24 24"><path d="M4 6h12v2H4zm0 5h12v2H4zm0 5h8v2H4zm14-4v4h-2v-4h-4v-2h4V6h2v4h4v2z"/></svg>队列 12</span>
+        <span class="chip"><svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>成员 3</span>
+        <span class="chip"><svg viewBox="0 0 24 24"><path d="M4 4h2v16H4zm4 0h2v16H8zm5 1.06 1.94 15.44 1.93-.52L14.93 4.5z"/></svg>媒体库</span>
+        <span class="chip"><svg viewBox="0 0 24 24"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 18l5-5zM4 5h8V3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8v-2H4z"/></svg>离开</span>
+      </div>
+      <div class="ov bot">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span class="ib"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm11.5 0L9 12l8.5 6z"/></svg></span>
+          <span class="ib" style="width:38px;height:38px;"><svg style="width:24px;height:24px;" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></span>
+          <span class="ib"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6zM16 6h2v12h-2z"/></svg></span>
+          <div class="bar"><i></i><b></b></div>
+          <span class="tc">18:24 / 24:02</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="ib"><svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.5 4.5 0 0 0 16.5 12z"/></svg></span>
+          <input type="range" style="width:88px;" min="0" max="100" value="85" aria-label="音量">
+          <span class="ib"><svg viewBox="0 0 24 24"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2M4 12h4v2H4zm16 6H4v-2h10zm0-4h-4v-2h4zm0-4H10V8h10z"/></svg></span>
+          <span class="tc" style="font-family:'Segoe UI',sans-serif;font-weight:600;">1.00x</span>
+          <span style="flex:1;"></span>
+          <span class="ib"><svg viewBox="0 0 24 24"><path d="M21 3H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7v2H7v2h10v-2h-3v-2h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></svg></span>
+          <span class="ib"><svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7zm0-4h2V7h3V5H7zm10 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z"/></svg></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h3>A3 · 播放页 · 队列抽屉（Acrylic，打开时 overlay 常显）</h3>
+  <div class="win">
+    <div class="pfull">
+      <div class="pcanvas">libmpv 画幅 · 雾都夜行 EP07</div>
+      <div class="ov top">
+        <span class="mono" style="font-size:11px;color:rgba(255,255,255,.65);">/room-74bcde5d</span>
+        <span class="dot"></span>
+        <span class="chip on" style="margin-left:auto;"><svg viewBox="0 0 24 24"><path d="M4 6h12v2H4zm0 5h12v2H4zm0 5h8v2H4zm14-4v4h-2v-4h-4v-2h4V6h2v4h4v2z"/></svg>队列 12</span>
+      </div>
+      <aside class="drawer">
+        <div class="phead"><b>播放队列 <span style="color:var(--fg3);font-weight:400;">12 项</span></b><span class="btn subtle" style="height:26px;padding:0 10px;font-size:11px;">添加媒体</span></div>
+        <div class="qrow cur"><span class="ix">01</span><div style="flex:1;min-width:0;"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">雾都夜行 EP07</div><div class="m">正在播放 · 18:24</div></div></div>
+        <div class="qrow"><span class="ix">08</span><div style="flex:1;min-width:0;"><div>雾都夜行 EP08</div><div class="m">24:02 · Alice 添加</div></div></div>
+        <div class="qrow"><span class="ix">09</span><div style="flex:1;min-width:0;"><div>雾都夜行 EP09</div><div class="m">24:10 · Alice 添加</div></div></div>
+        <div class="qrow"><span class="ix">—</span><div style="flex:1;min-width:0;"><div>银翼残响 剧场版</div><div class="m">2:11:36 · Bob 添加</div></div></div>
+      </aside>
+    </div>
+  </div>
+
+  <h3>A4 · 媒体库（工具栏 + 网格）</h3>
+  <div class="win">
+    <div style="display:flex;">
+      <aside class="sb">
+        <div class="brand">Watch<span>Party</span></div>
+        <div class="sn"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-9h3L12 3 2 11h3v9z"/></svg>首页</div>
+        <div class="sn dis"><svg viewBox="0 0 24 24"><path d="M21 3H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7v2H7v2h10v-2h-3v-2h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></svg>房间</div>
+        <div class="gap"></div>
+        <div class="sn on"><svg viewBox="0 0 24 24"><path d="M4 4h2v16H4zm4 0h2v16H8zm5 1.06 1.94 15.44 1.93-.52L14.93 4.5z"/></svg>媒体库</div>
+        <div class="sn"><svg viewBox="0 0 24 24"><path d="M19.14 12.94a7 7 0 0 0 .06-.94 7 7 0 0 0-.06-.94l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.63-.94l-.38-2.65A.5.5 0 0 0 13.66 2h-4a.5.5 0 0 0-.49.42l-.38 2.65a7.3 7.3 0 0 0-1.63.94l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65a7 7 0 0 0 0 1.88l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1a7.3 7.3 0 0 0 1.63.94l.38 2.65a.5.5 0 0 0 .49.42h4a.5.5 0 0 0 .49-.42l.38-2.65a7.3 7.3 0 0 0 1.63-.94l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64zM11.5 15.5a3.5 3.5 0 1 1 3.5-3.5 3.5 3.5 0 0 1-3.5 3.5z"/></svg>设置</div>
+        <div style="height:10px;"></div>
+        <div class="conn"><span class="dot"></span>站点凭据已配置</div>
+      </aside>
+      <div class="main"><div class="page">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+          <p class="sec-t" style="margin:0;">媒体库 <small>OpenList · 已挂载 3 个站点</small></p>
+          <span style="flex:1;"></span>
+          <span class="pill on">全部</span><span class="pill">Anime</span><span class="pill">Film</span><span class="pill">TV Shows</span>
+          <input class="field" style="width:220px;" placeholder="搜索标题…">
+        </div>
+        <div class="thumbs">
+          <div class="th-card"><div class="thv"><span class="dur">24 集</span></div><div class="th-t">雾都夜行 第2季</div><div class="th-m">1080p · 动画</div></div>
+          <div class="th-card"><div class="thv"><span class="dur">2:11:36</span></div><div class="th-t">银翼残响 剧场版</div><div class="th-m">4K HDR · 电影</div></div>
+          <div class="th-card"><div class="thv"><span class="dur">3 集</span></div><div class="th-t">星屑航线 OV</div><div class="th-m">1080p · 动画</div></div>
+          <div class="th-card"><div class="thv"><span class="dur">2:04:11</span></div><div class="th-t">潮汐信号</div><div class="th-m">1080p · 电影</div></div>
+          <div class="th-card"><div class="thv"><span class="dur">1:52:38</span></div><div class="th-t">夜航西坞</div><div class="th-m">2160p · 电影</div></div>
+        </div>
+        <p class="note" style="margin-top:14px;">底部状态行：217 项 · 排序：最近添加 · 海报由 Rust 侧抓取转 base64（一期无海报降级为文字网格）。</p>
+      </div></div>
+    </div>
+  </div>
+
+  <h3>A5 · 设置（二级列表 + 表单）</h3>
+  <div class="win">
+    <div style="display:flex;">
+      <aside class="sb">
+        <div class="brand">Watch<span>Party</span></div>
+        <div class="sn"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-9h3L12 3 2 11h3v9z"/></svg>首页</div>
+        <div class="gap"></div>
+        <div class="sn on"><svg viewBox="0 0 24 24"><path d="M19.14 12.94a7 7 0 0 0 .06-.94 7 7 0 0 0-.06-.94l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.63-.94l-.38-2.65A.5.5 0 0 0 13.66 2h-4a.5.5 0 0 0-.49.42l-.38 2.65a7.3 7.3 0 0 0-1.63.94l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65a7 7 0 0 0 0 1.88l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1a7.3 7.3 0 0 0 1.63.94l.38 2.65a.5.5 0 0 0 .49.42h4a.5.5 0 0 0 .49-.42l.38-2.65a7.3 7.3 0 0 0 1.63-.94l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64zM11.5 15.5a3.5 3.5 0 1 1 3.5-3.5 3.5 3.5 0 0 1-3.5 3.5z"/></svg>设置</div>
+      </aside>
+      <div class="main">
+        <div class="set2" style="flex:1;">
+          <div class="setlist">
+            <div class="sn on">通用</div><div class="sn">播放</div><div class="sn">站点凭据</div><div class="sn">后端与网络</div>
+          </div>
+          <div class="page" style="max-width:560px;">
+            <p class="sec-t">站点凭据</p>
+            <div class="rowline"><svg viewBox="0 0 24 24"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11z"/></svg><div style="flex:1;"><div>站点用户名</div><div class="m">Caddy Basic Auth，随请求由 Rust 侧注入</div></div><input class="field" style="width:160px;" value="alice"></div>
+            <div class="rowline"><svg viewBox="0 0 24 24"><path d="M18 8h-1V6a5 5 0 0 0-10 0v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zM9 6a3 3 0 0 1 6 0v2H9zm3 11a2 2 0 1 1 2-2 2 2 0 0 1-2 2z"/></svg><div style="flex:1;"><div>站点密码</div><div class="m">写入系统凭据库，WebView 不持有</div></div><input class="field" style="width:160px;" type="password" value="............"></div>
+            <div class="rowline" style="border-bottom:none;"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 0 1-4.4 2.26 5.4 5.4 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg><div style="flex:1;"><div>主题</div><div class="m">跟随系统 / 深色 / 浅色</div></div><span class="toggle"></span></div>
+            <div style="display:flex;gap:10px;margin-top:18px;">
+              <span class="btn acc">保存到系统凭据库</span><span class="btn">清除</span>
+            </div>
+            <p class="note" style="margin-top:12px;">后端地址：https://watch.example.test · 连接测试通过（127ms）</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 方案 B ================= -->
+  <h2>方案 B <small>海报墙 · 窄轨 + 悬浮控制条（最接近爆米花）</small></h2>
+  <p class="note"><b>定位：</b>内容优先。侧栏默认 56px 图标轨（Hover 展开 216px），首页以大横幅 + 海报行主导；播放页控制条为底部悬浮 Acrylic 胶囊，不遮挡画幅两侧。</p>
+
+  <h3>B1 · 首页（大横幅 + 海报行，窄轨已展开态）</h3>
+  <div class="win">
+    <div class="tbar"><span class="logo"></span><span class="ttl">WatchParty</span><div class="cap"><i>─</i><i>▢</i><i class="close">✕</i></div></div>
+    <div style="display:flex;">
+      <aside class="rail" style="width:216px;align-items:stretch;padding:12px 8px;">
+        <div style="display:flex;align-items:center;gap:10px;padding:2px 10px 12px;font-size:14px;font-weight:600;">Watch<span style="color:var(--accent);">Party</span></div>
+        <div class="ri on" style="justify-content:flex-start;padding:0 12px;gap:12px;"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-9h3L12 3 2 11h3v9z"/></svg>首页</div>
+        <div class="ri" style="justify-content:flex-start;padding:0 12px;gap:12px;"><svg viewBox="0 0 24 24"><path d="M21 3H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7v2H7v2h10v-2h-3v-2h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></svg>房间</div>
+        <div class="ri" style="justify-content:flex-start;padding:0 12px;gap:12px;"><svg viewBox="0 0 24 24"><path d="M4 4h2v16H4zm4 0h2v16H8zm5 1.06 1.94 15.44 1.93-.52L14.93 4.5z"/></svg>媒体库</div>
+        <div class="ri" style="justify-content:flex-start;padding:0 12px;gap:12px;"><svg viewBox="0 0 24 24"><path d="M19.14 12.94a7 7 0 0 0 .06-.94 7 7 0 0 0-.06-.94l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.63-.94l-.38-2.65A.5.5 0 0 0 13.66 2h-4a.5.5 0 0 0-.49.42l-.38 2.65a7.3 7.3 0 0 0-1.63.94l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65a7 7 0 0 0 0 1.88l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1a7.3 7.3 0 0 0 1.63.94l.38 2.65a.5.5 0 0 0 .49.42h4a.5.5 0 0 0 .49-.42l.38-2.65a7.3 7.3 0 0 0 1.63-.94l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64zM11.5 15.5a3.5 3.5 0 1 1 3.5-3.5 3.5 3.5 0 0 1-3.5 3.5z"/></svg>设置</div>
+        <div class="gap"></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:0 12px;font-size:11px;color:var(--fg3);"><span class="dot"></span>已连接</div>
+      </aside>
+      <div class="main"><div class="page" style="padding:0;">
+        <div style="margin:18px 26px 0;display:flex;gap:10px;max-width:620px;">
+          <input class="field" style="height:36px;border-radius:999px;" placeholder="房号 / 直链 / YouTube…">
+          <span class="btn acc" style="height:36px;border-radius:999px;padding:0 18px;">加入或开播</span>
+        </div>
+        <div style="margin:18px 26px;border-radius:10px;overflow:hidden;position:relative;aspect-ratio:21/8;border:1px solid rgba(255,255,255,.08);
+          background:linear-gradient(105deg,rgba(76,194,255,.16),rgba(0,0,0,.2) 55%),linear-gradient(135deg,rgba(255,255,255,.08),rgba(255,255,255,.02));">
+          <div style="position:absolute;left:22px;bottom:20px;">
+            <p style="font-size:19px;font-weight:600;">雾都夜行 第2季</p>
+            <p style="font-size:12px;color:var(--fg2);margin:4px 0 12px;">看到 EP07 · 18:24 · 房间 room-74bcde5d 仍存活</p>
+            <span class="btn acc"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>继续播放</span>
+            <span class="btn" style="margin-left:8px;">在新房间一起看</span>
+          </div>
+        </div>
+        <p class="sec-t" style="margin:0 26px 10px;">继续观看</p>
+        <div style="display:flex;gap:10px;padding:0 26px 18px;overflow:hidden;">
+          <div class="th-card" style="width:172px;flex:none;"><div class="thv"><span class="prog"><i style="width:76%;"></i></span></div><div class="th-t">雾都夜行 EP07</div><div class="th-m">还剩 5:38</div></div>
+          <div class="th-card" style="width:172px;flex:none;"><div class="thv"><span class="prog"><i style="width:32%;"></i></span></div><div class="th-t">银翼残响</div><div class="th-m">还剩 1:24:18</div></div>
+          <div class="th-card" style="width:172px;flex:none;"><div class="thv"></div><div class="th-t">潮汐信号</div><div class="th-m">未开始</div></div>
+          <div class="th-card" style="width:172px;flex:none;"><div class="thv"></div><div class="th-t">夜航西坞</div><div class="th-m">未开始</div></div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+
+  <h3>B2 · 播放页（悬浮 Acrylic 控制条）</h3>
+  <div class="win">
+    <div class="pfull">
+      <div class="pcanvas">libmpv 画幅 · 雾都夜行 EP07</div>
+      <div class="ov top">
+        <span class="chip"><svg viewBox="0 0 24 24"><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" transform="rotate(180 12 12)"/></svg>返回首页</span>
+        <span style="font-size:12px;color:rgba(255,255,255,.75);margin-left:4px;">雾都夜行 EP07</span>
+        <span class="mono" style="font-size:11px;color:rgba(255,255,255,.5);">room-74bcde5d · 同步 38ms</span>
+        <span style="flex:1;"></span>
+        <span class="chip on"><svg viewBox="0 0 24 24"><path d="M4 6h12v2H4zm0 5h12v2H4zm0 5h8v2H4zm14-4v4h-2v-4h-4v-2h4V6h2v4h4v2z"/></svg>12</span>
+        <span class="chip"><svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>3</span>
+        <span class="chip"><svg viewBox="0 0 24 24"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 18l5-5zM4 5h8V3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8v-2H4z"/></svg></span>
+      </div>
+      <div class="floatbar">
+        <span class="ib"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm11.5 0L9 12l8.5 6z"/></svg></span>
+        <span class="ib" style="width:36px;height:36px;"><svg style="width:22px;height:22px;" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></span>
+        <span class="ib"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6zM16 6h2v12h-2z"/></svg></span>
+        <span class="tc" style="margin-left:6px;">18:24</span>
+        <div class="bar"><i></i><b></b></div>
+        <span class="tc">24:02</span>
+        <span class="ib"><svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.5 4.5 0 0 0 16.5 12z"/></svg></span>
+        <input type="range" style="width:72px;" min="0" max="100" value="85" aria-label="音量">
+        <span class="ib"><svg viewBox="0 0 24 24"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2M4 12h4v2H4zm16 6H4v-2h10zm0-4h-4v-2h4zm0-4H10v-2h10z"/></svg></span>
+        <span class="ib"><svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7zm0-4h2V7h3V5H7zm10 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z"/></svg></span>
+      </div>
+    </div>
+  </div>
+
+  <h3>B3 · 播放页 · 队列面板（从右缘滑出，Acrylic）</h3>
+  <div class="win">
+    <div class="pfull">
+      <div class="pcanvas">libmpv 画幅</div>
+      <aside class="drawer" style="width:min(340px,42%);">
+        <div class="phead"><b>播放队列</b><span class="btn subtle" style="height:26px;padding:0 10px;font-size:11px;">添加</span></div>
+        <div class="qrow cur"><span class="ix">07</span><div style="flex:1;"><div>雾都夜行 EP07</div><div class="m">正在播放</div></div></div>
+        <div class="qrow"><span class="ix">08</span><div style="flex:1;"><div>雾都夜行 EP08</div><div class="m">24:02</div></div></div>
+        <div class="qrow"><span class="ix">09</span><div style="flex:1;"><div>雾都夜行 EP09</div><div class="m">24:10</div></div></div>
+        <div class="qrow"><span class="ix">—</span><div style="flex:1;"><div>银翼残响 剧场版</div><div class="m">2:11:36</div></div></div>
+      </aside>
+      <div class="floatbar" style="right:min(340px,42%);left:auto;transform:none;min-width:480px;">
+        <span class="ib"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></span>
+        <div class="bar"><i></i></div>
+        <span class="tc">18:24 / 24:02</span>
+        <span class="ib"><svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7zm0-4h2V7h3V5H7zm10 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z"/></svg></span>
+      </div>
+    </div>
+  </div>
+
+  <h3>B4 · 媒体库（窄轨收起态 + 网格）</h3>
+  <div class="win">
+    <div style="display:flex;">
+      <aside class="rail">
+        <div class="ri on"><svg viewBox="0 0 24 24"><path d="M4 4h2v16H4zm4 0h2v16H8zm5 1.06 1.94 15.44 1.93-.52L14.93 4.5z"/></svg></div>
+        <div class="ri"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-9h3L12 3 2 11h3v9z"/></svg></div>
+        <div class="gap"></div>
+        <div class="ri"><svg viewBox="0 0 24 24"><path d="M19.14 12.94a7 7 0 0 0 .06-.94 7 7 0 0 0-.06-.94l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.63-.94l-.38-2.65A.5.5 0 0 0 13.66 2h-4a.5.5 0 0 0-.49.42l-.38 2.65a7.3 7.3 0 0 0-1.63.94l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65a7 7 0 0 0 0 1.88l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1a7.3 7.3 0 0 0 1.63.94l.38 2.65a.5.5 0 0 0 .49.42h4a.5.5 0 0 0 .49-.42l.38-2.65a7.3 7.3 0 0 0 1.63-.94l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64zM11.5 15.5a3.5 3.5 0 1 1 3.5-3.5 3.5 3.5 0 0 1-3.5 3.5z"/></svg></div>
+      </aside>
+      <div class="main"><div class="page">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+          <p class="sec-t" style="margin:0;">媒体库</p>
+          <span class="pill on">Anime</span><span class="pill">Film</span><span class="pill">TV</span>
+          <span style="flex:1;"></span>
+          <input class="field" style="width:200px;border-radius:999px;" placeholder="搜索 217 项…">
+        </div>
+        <div class="thumbs" style="grid-template-columns:repeat(6,1fr);">
+          <div class="th-card"><div class="thv"><span class="dur">24 集</span></div><div class="th-t">雾都夜行 S2</div></div>
+          <div class="th-card"><div class="thv"><span class="dur">4K</span></div><div class="th-t">银翼残响</div></div>
+          <div class="th-card"><div class="thv"><span class="dur">3 集</span></div><div class="th-t">星屑航线</div></div>
+          <div class="th-card"><div class="thv"><span class="dur">2:04</span></div><div class="th-t">潮汐信号</div></div>
+          <div class="th-card"><div class="thv"><span class="dur">1:52</span></div><div class="th-t">夜航西坞</div></div>
+          <div class="th-card"><div class="thv"><span class="dur">12 集</span></div><div class="th-t">环形车站</div></div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- ================= 方案 C ================= -->
+  <h2>方案 C <small>沉浸控制台 · 常驻信息右栏</small></h2>
+  <p class="note"><b>定位：</b>播放为中心的工具台。播放页右侧常驻队列 / 成员面板（非 overlay），播放时信息始终可见；媒体库用资源管理器双栏（类型树 + 网格）；首页是「继续观看列表 + 房间动态」双栏控制台。</p>
+
+  <h3>C1 · 首页（控制台双栏）</h3>
+  <div class="win">
+    <div class="tbar"><span class="logo"></span><span class="ttl">WatchParty</span><div class="cap"><i>─</i><i>▢</i><i class="close">✕</i></div></div>
+    <div style="display:flex;">
+      <aside class="sb" style="width:240px;">
+        <div class="brand">Watch<span>Party</span></div>
+        <div class="sn on"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-9h3L12 3 2 11h3v9z"/></svg>首页</div>
+        <div class="sn"><svg viewBox="0 0 24 24"><path d="M21 3H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7v2H7v2h10v-2h-3v-2h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></svg>房间</div>
+        <div class="sn dis"><svg viewBox="0 0 24 24"><path d="M4 6h12v2H4zm0 5h12v2H4zm0 5h8v2H4zm14-4v4h-2v-4h-4v-2h4V6h2v4h4v2z"/></svg>队列</div>
+        <div class="gap"></div>
+        <div class="sn"><svg viewBox="0 0 24 24"><path d="M4 4h2v16H4zm4 0h2v16H8zm5 1.06 1.94 15.44 1.93-.52L14.93 4.5z"/></svg>媒体库</div>
+        <div class="sn"><svg viewBox="0 0 24 24"><path d="M19.14 12.94a7 7 0 0 0 .06-.94 7 7 0 0 0-.06-.94l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.63-.94l-.38-2.65A.5.5 0 0 0 13.66 2h-4a.5.5 0 0 0-.49.42l-.38 2.65a7.3 7.3 0 0 0-1.63.94l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65a7 7 0 0 0 0 1.88l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1a7.3 7.3 0 0 0 1.63.94l.38 2.65a.5.5 0 0 0 .49.42h4a.5.5 0 0 0 .49-.42l.38-2.65a7.3 7.3 0 0 0 1.63-.94l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64zM11.5 15.5a3.5 3.5 0 1 1 3.5-3.5 3.5 3.5 0 0 1-3.5 3.5z"/></svg>设置</div>
+        <div style="height:10px;"></div>
+        <div class="conn"><span class="dot"></span>后端已连接 · 凭据已配置</div>
+      </aside>
+      <div class="main"><div class="page" style="flex-direction:row;gap:22px;padding:20px 24px;">
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+          <div style="display:flex;gap:10px;margin-bottom:18px;">
+            <input class="field" style="height:36px;" placeholder="房号 / watchparty:// / 媒体直链…">
+            <span class="btn acc" style="height:36px;">加入或开播</span>
+          </div>
+          <p class="sec-t">继续观看 <small>按最后播放排序</small></p>
+          <div class="card">
+            <div class="rowline" style="margin:0 14px;"><div style="flex:1;"><div>雾都夜行 EP07</div><div class="m">room-74bcde5d · 18:24 / 24:02 · 2 小时前</div></div><span class="btn acc" style="height:26px;padding:0 12px;font-size:11.5px;">续播</span></div>
+            <div class="rowline" style="margin:0 14px;"><div style="flex:1;"><div>银翼残响 剧场版</div><div class="m">41:12 / 2:11:36 · 昨天</div></div><span class="btn" style="height:26px;padding:0 12px;font-size:11.5px;">续播</span></div>
+            <div class="rowline" style="margin:0 14px;border-bottom:none;"><div style="flex:1;"><div>潮汐信号</div><div class="m">未开始 · 3 天前添加</div></div><span class="btn" style="height:26px;padding:0 12px;font-size:11.5px;">播放</span></div>
+          </div>
+          <p class="note" style="margin-top:auto;">恢复条逻辑沿用 C′：上次房间仍存活时置顶，否则整条隐藏。</p>
+        </div>
+        <div style="width:264px;flex:none;border-left:1px solid rgba(255,255,255,.06);padding-left:20px;">
+          <p class="sec-t">房间动态</p>
+          <div class="qrow cur" style="border:1px solid rgba(76,194,255,.25);"><span class="dot"></span><div style="flex:1;"><div>room-74bcde5d</div><div class="m">存活 · 3 人在看</div></div></div>
+          <div class="qrow" style="color:var(--fg3);"><span style="width:7px;"></span><div style="flex:1;"><div>room-9a2f10</div><div class="m">已结束 · 昨天</div></div></div>
+          <p class="sec-t" style="margin-top:18px;">在线成员 <small>room-74bcde5d</small></p>
+          <div class="qrow"><span style="width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.08);display:grid;place-items:center;font-size:10px;">AL</span><div style="flex:1;"><div>Alice</div><div class="m">房主 · 桌面端</div></div></div>
+          <div class="qrow"><span style="width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.08);display:grid;place-items:center;font-size:10px;">BO</span><div style="flex:1;"><div>Bob</div><div class="m">浏览器</div></div></div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+
+  <h3>C2 · 播放页（右栏常驻队列 / 成员 Tab）</h3>
+  <div class="win">
+    <div style="display:flex;height:560px;">
+      <div class="pfull" style="flex:1;height:auto;">
+        <div class="pcanvas">libmpv 画幅 · 雾都夜行 EP07</div>
+        <div class="ov top">
+          <span class="mono" style="font-size:11px;color:rgba(255,255,255,.65);">/room-74bcde5d</span>
+          <span class="dot"></span><span style="font-size:11px;color:rgba(255,255,255,.65);">同步 38ms</span>
+          <span style="flex:1;"></span>
+          <span class="ib"><svg viewBox="0 0 24 24"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 18l5-5zM4 5h8V3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8v-2H4z"/></svg></span>
+        </div>
+        <div class="ov bot">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span class="ib"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm11.5 0L9 12l8.5 6z"/></svg></span>
+            <span class="ib" style="width:36px;height:36px;"><svg style="width:21px;height:21px;" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></span>
+            <span class="ib"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6zM16 6h2v12h-2z"/></svg></span>
+            <div class="bar"><i></i><b></b></div>
+            <span class="tc">18:24 / 24:02</span>
+            <span class="ib"><svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05A4.5 4.5 0 0 0 16.5 12z"/></svg></span>
+            <span class="ib"><svg viewBox="0 0 24 24"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2M4 12h4v2H4zm16 6H4v-2h10zm0-4h-4v-2h4zm0-4H10v-2h10z"/></svg></span>
+            <span class="ib"><svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7zm0-4h2V7h3V5H7zm10 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z"/></svg></span>
+          </div>
+        </div>
+      </div>
+      <aside class="persist">
+        <div class="tabbar"><span class="tab on">队列 12</span><span class="tab">成员 3</span></div>
+        <div style="padding:10px 12px;">
+          <div class="qrow cur"><span class="ix">07</span><div style="flex:1;"><div>雾都夜行 EP07</div><div class="m">正在播放</div></div></div>
+          <div class="qrow"><span class="ix">08</span><div style="flex:1;"><div>雾都夜行 EP08</div><div class="m">24:02 · Alice</div></div></div>
+          <div class="qrow"><span class="ix">09</span><div style="flex:1;"><div>雾都夜行 EP09</div><div class="m">24:10 · Alice</div></div></div>
+          <div class="qrow"><span class="ix">—</span><div style="flex:1;"><div>银翼残响 剧场版</div><div class="m">2:11:36 · Bob</div></div></div>
+        </div>
+        <div style="margin-top:auto;padding:12px 14px;border-top:1px solid rgba(255,255,255,.07);display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--fg3);">
+          <span class="btn subtle" style="height:28px;font-size:11.5px;"><svg viewBox="0 0 24 24"><path d="M4 4h2v16H4zm4 0h2v16H8zm5 1.06 1.94 15.44 1.93-.52L14.93 4.5z"/></svg>从媒体库添加</span>
+          <span style="flex:1;"></span><span class="dot"></span>已同步
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <h3>C3 · 媒体库（资源管理器双栏）</h3>
+  <div class="win">
+    <div style="display:flex;">
+      <aside class="sb" style="width:200px;">
+        <div class="brand">Watch<span>Party</span></div>
+        <div class="sn"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-9h3L12 3 2 11h3v9z"/></svg>首页</div>
+        <div class="gap"></div>
+        <div class="sn on"><svg viewBox="0 0 24 24"><path d="M4 4h2v16H4zm4 0h2v16H8zm5 1.06 1.94 15.44 1.93-.52L14.93 4.5z"/></svg>媒体库</div>
+      </aside>
+      <div class="main" style="flex-direction:row;">
+        <div class="tree">
+          <div class="ti on"><svg viewBox="0 0 24 24"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8z"/></svg>全部 · 217</div>
+          <div class="ti"><svg viewBox="0 0 24 24"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8z"/></svg>Anime · 96</div>
+          <div class="ti"><svg viewBox="0 0 24 24"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8z"/></svg>Film · 58</div>
+          <div class="ti"><svg viewBox="0 0 24 24"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8z"/></svg>TV Shows · 63</div>
+        </div>
+        <div style="flex:1;min-width:0;padding:18px 22px;">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+            <span class="mono" style="font-size:11px;color:var(--fg3);">OpenList / Anime /</span>
+            <span style="flex:1;"></span>
+            <input class="field" style="width:200px;" placeholder="搜索…">
+          </div>
+          <div class="thumbs" style="grid-template-columns:repeat(4,1fr);">
+            <div class="th-card"><div class="thv"><span class="dur">24 集</span></div><div class="th-t">雾都夜行 第2季</div><div class="th-m">1080p</div></div>
+            <div class="th-card"><div class="thv"><span class="dur">3 集</span></div><div class="th-t">星屑航线 OV</div><div class="th-m">1080p</div></div>
+            <div class="th-card"><div class="thv"><span class="dur">12 集</span></div><div class="th-t">环形车站</div><div class="th-m">2160p</div></div>
+            <div class="th-card"><div class="thv"><span class="dur">1 集</span></div><div class="th-t">夏空信标</div><div class="th-m">1080p</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h3>C4 · 设置（单页卡片滚动）</h3>
+  <div class="win">
+    <div style="display:flex;">
+      <aside class="sb" style="width:200px;">
+        <div class="brand">Watch<span>Party</span></div>
+        <div class="sn"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-9h3L12 3 2 11h3v9z"/></svg>首页</div>
+        <div class="gap"></div>
+        <div class="sn on"><svg viewBox="0 0 24 24"><path d="M19.14 12.94a7 7 0 0 0 .06-.94 7 7 0 0 0-.06-.94l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.63-.94l-.38-2.65A.5.5 0 0 0 13.66 2h-4a.5.5 0 0 0-.49.42l-.38 2.65a7.3 7.3 0 0 0-1.63.94l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65a7 7 0 0 0 0 1.88l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1a7.3 7.3 0 0 0 1.63.94l.38 2.65a.5.5 0 0 0 .49.42h4a.5.5 0 0 0 .49-.42l.38-2.65a7.3 7.3 0 0 0 1.63-.94l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64zM11.5 15.5a3.5 3.5 0 1 1 3.5-3.5 3.5 3.5 0 0 1-3.5 3.5z"/></svg>设置</div>
+      </aside>
+      <div class="main"><div class="page" style="max-width:600px;">
+        <p class="sec-t">后端与凭据</p>
+        <div class="card" style="padding:16px;display:grid;gap:12px;">
+          <div><div class="note" style="margin-bottom:5px;">后端地址</div><input class="field" value="https://watch.example.test"></div>
+          <div style="display:flex;gap:12px;">
+            <div style="flex:1;"><div class="note" style="margin-bottom:5px;">站点用户名</div><input class="field" value="alice"></div>
+            <div style="flex:1;"><div class="note" style="margin-bottom:5px;">站点密码</div><input class="field" type="password" value="............"></div>
+          </div>
+          <div style="display:flex;gap:10px;"><span class="btn acc">保存到系统凭据库</span><span class="btn">清除</span><span style="flex:1;"></span><span style="font-size:11.5px;color:var(--fg3);align-self:center;">连接测试通过 · 127ms</span></div>
+        </div>
+        <p class="sec-t" style="margin-top:24px;">外观与行为</p>
+        <div class="card" style="padding:4px 16px;">
+          <div class="rowline"><div style="flex:1;"><div>跟随系统主题</div><div class="m">关闭后手动选择深色 / 浅色</div></div><span class="toggle"></span></div>
+          <div class="rowline" style="border-bottom:none;"><div style="flex:1;"><div>关闭窗口时最小化到托盘</div><div class="m">后台保持 libmpv 会话</div></div><span class="toggle off"></span></div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="doc" style="margin-top:30px;">
+    <p class="note"><b>实现提示：</b>accent #4cc2ff 对应现有 token <span class="mono">--primary: oklch(0.76 0.13 230)</span>，Mica/Acrylic 在 Tauri WebView 中以纯色 + 静态渐变实现即可；正式 Acrylic 用 <span class="mono">backdrop-filter: blur(30px) saturate(1.2)</span>，注意播放页性能豁免（画幅之上不用大面积模糊）。选定方案后再出交互级细化稿并落 desktop-shell。</p>
+  </div>
+</div>
+</body>
+</html>

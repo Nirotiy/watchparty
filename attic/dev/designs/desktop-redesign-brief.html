@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WatchParty 桌面客户端 · 实现级设计 Brief（一期）</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #000; color: #e6ebf2; font: 14px/1.7 ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; padding: 40px 24px 90px; }
+  .doc { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
+  h2 { font-size: 17px; font-weight: 600; margin: 44px 0 10px; padding-top: 18px; border-top: 1px solid #1f242b; }
+  h3 { font-size: 13.5px; font-weight: 600; color: #9aa3af; margin: 22px 0 6px; }
+  p, li { color: #c9d1da; font-size: 13.5px; }
+  .lede { color: #9aa3af; margin: 10px 0 4px; max-width: 82ch; }
+  .lede strong { color: #e6ebf2; font-weight: 500; }
+  code { font: 12px ui-monospace, Consolas, monospace; color: #7dd3fc; background: #0d0f13; padding: 1px 5px; border-radius: 4px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12.5px; }
+  th, td { border: 1px solid #1f242b; padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { color: #9aa3af; font-weight: 500; background: #0d0f13; white-space: nowrap; }
+  td { color: #c9d1da; }
+  td code { white-space: nowrap; }
+  .verdict { border-left: 2px solid #38bdf8; padding: 2px 0 2px 14px; margin: 10px 0; }
+  .verdict b { color: #7dd3fc; font-weight: 600; }
+  .gap { border-left: 2px solid #fbbf24; padding: 2px 0 2px 14px; margin: 10px 0; }
+  .gap b { color: #fbbf24; font-weight: 600; }
+  .ok { color: #34d399; }
+  ul { padding-left: 20px; }
+  li { margin: 4px 0; }
+  .meta { color: #5d6570; font-size: 12px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="doc">
+  <h1>WatchParty 桌面客户端 · 实现级设计 Brief（一期）</h1>
+  <p class="lede">方案 <strong>C′「工具台 · 悬浮抽屉」</strong>已确认（dev/desktop-redesign-mockups.html）。本文回答 desktop 侧交接的六个问题，全部基于当前 <code>src-tauri</code> 契约与 <code>desktop-shell</code> 现状（601 行 vanilla）核实，不引入猜测。<span class="meta">适用分支：feat/tauri-desktop-gate0-3 及后续。</span></p>
+
+  <h2>一、技术栈：保持 vanilla，不迁 React + shadcn/ui</h2>
+  <div class="verdict"><b>一期决定：现有纯 HTML/CSS/JS（ES modules），零构建、零新依赖。</b></div>
+  <ul>
+    <li>现状 <code>desktop-shell/</code> 共 601 行（html 103 / css 245 / js 253），<code>frontendDist: "../desktop-shell"</code> 直出原始文件，CSP <code>script-src 'self'</code> 允许本地多文件脚本。</li>
+    <li>一期界面规模 = 4 屏 × 双主题，复杂度集中在<b>状态渲染</b>而非组件数量；React + shadcn/ui 需要引入 vite 构建链、node_modules 依赖树、Tauri 构建配置改动——收益不抵扰动，尤其 desktop 会话正在活跃开发 Rust 侧。</li>
+    <li>组织方式：单文件拆为 <code>js/state.js（状态归约）/ ipc.js（invoke 封装）/ views/*.js（每屏一个渲染函数）</code>，沿用 <code>window.__TAURI__.event.listen</code>。DOM 渲染用模板字符串 + 顶层 <code>render(state)</code> 纯函数（现状 renderState 已是这个形态，扩展即可）。</li>
+  </ul>
+  <div class="verdict"><b>二期迁移触发条件</b>（满足其一再议）：出现复杂表单校验/聊天流；需要与 web 端共享组件；界面超过 8 屏。迁移预留：CSS 只用自定义属性 token（见五）、语义 class、无框架耦合的 DOM 结构。</div>
+
+  <h2>二、desktop://state 各状态的展示映射</h2>
+  <p>渲染层监听的是 <code>DesktopEvent::State { state: DesktopUiState }</code>（Tauri event，非 URL scheme）。<code>DesktopUiState = { connection, room, members, player, capability, error }</code>，<code>connection ∈ Connecting | Ready | Backoff | Expired | Failed</code>。映射：</p>
+  <table>
+    <tr><th>connection</th><th>主区展示</th><th>顶部状态条</th><th>控件可用性</th></tr>
+    <tr><td><code>Connecting</code></td><td>骨架占位（静态色块，禁 pulse）</td><td>「正在连接后端…」中性</td><td>全部禁用</td></tr>
+    <tr><td><code>Ready</code> 且无 <code>room.source</code></td><td>空态 CTA：「房间内还没有媒体，打开媒体库点播」→ 跳媒体库页</td><td>「已连接，等待房间媒体」</td><td>播放类禁用；媒体库/设置可用</td></tr>
+    <tr><td><code>Ready</code> 有源</td><td>正常三栏（画幅/抽屉/轨）</td><td>「已连接 · 同步偏差 Nms」</td><td>按角色启用</td></tr>
+    <tr><td><code>Backoff</code></td><td>画面冻结在最后快照，不加遮罩</td><td>琥珀色「网络暂时不可用，正在重试」</td><td>播放控制保留（本地可用项），写操作禁用</td></tr>
+    <tr><td><code>Expired</code></td><td><b>全屏覆盖卡</b>：「桌面会话已过期」+ 加入表单（重开 <code>startDesktopSession</code>）</td><td>错误红</td><td>仅表单可用</td></tr>
+    <tr><td><code>Failed</code></td><td>全屏覆盖卡：脱敏错误码（<code>DESKTOP_REQUEST_FAILED</code> 等）+ 重试按钮</td><td>错误红</td><td>仅重试可用</td></tr>
+  </table>
+  <p>另有 <code>Ready</code> 下的子状态：<code>player.loaded === false</code> → 画幅区「等待媒体加载」占位（带 resolve 重试说明）；<code>error.message</code> 非空（如已切 fallback）→ 画幅上沿一次性提示条「直连失败，已切换服务器中转」，10s 自动消失（纯 CSS，无 JS 定时重绘）。</p>
+  <div class="gap"><b>一期缺口-1</b>：倒计时展示需要 Rust 侧在 <code>DesktopUiState</code> 增加 <code>retryAt</code> 字段（session.rs 已有 <code>retry_at</code> 内部值，只差序列化）。不加则一期显示静态文案。</div>
+
+  <h2>三、三个 IPC 入口的控件映射</h2>
+  <table>
+    <tr><th>invoke 命令</th><th>签名（现状）</th><th>调用控件</th></tr>
+    <tr><td><code>startDesktopSession</code></td><td><code>(ticket)</code></td><td>首页「加入/恢复」按钮（ticket 交接流）、PIN 门禁提交后、<code>watchparty://</code> deep-link 自动启动、Expired 覆盖卡的重新加入</td></tr>
+    <tr><td><code>executeRoomCommand</code></td><td><code>(DesktopCommand)</code></td><td>播放/暂停 <code>Play|Pause</code>；时间轴 <code>Seek</code>；倍速 <code>Rate</code>；音量 <code>Volume</code>（本地）；音轨 <code>SelectAudioTrack</code>（本地）；字幕 <code>SelectSubtitleTrack</code>（本地）；显示/隐藏播放器 <code>PlayerVisibility</code>；全屏 <code>Fullscreen</code>（后四者由 <code>tauri_api.rs</code> 拦截本地处理，不进房间传输）</td></tr>
+    <tr><td><code>stopDesktopSession</code></td><td><code>()</code></td><td>「离开房间」按钮、Expired 卡的退出、窗口关闭钩子</td></tr>
+  </table>
+  <div class="gap"><b>一期缺口-2（IPC 扩展清单，需 desktop 会话新增）</b>：A1「全功能」超出当前 3 命令的部分——
+    <ul style="margin:6px 0 0;">
+      <li><code>joinRoom(roomId, pin, nickname)</code>：房号+PIN 直加入（现在只有 ticket 入口；Rust 侧 transport 已有 HTTP client，补 REST <code>/access</code> 调用即可）</li>
+      <li><code>createRoom(...)</code>、<code>listMedia(root, path, cursor)</code>、<code>searchMedia(q)</code>：房间创建与媒体库浏览（复用现有 REST）</li>
+      <li><code>fetchThumbnail(mediaId) → data URL</code>：海报图。CSP <code>img-src 'self' data:</code> 禁止远程图，必须由 Rust 抓取转 base64（含本地缓存）。一期降级方案：媒体库先用无海报网格（文字+元数据，设计稿已按此绘制）</li>
+      <li><code>setSiteCredentials(u,p)</code> / <code>clearSiteCredentials()</code>：写系统凭据库并接通 <code>SiteBasicAuth</code>（native 侧已存在，缺录入 UI 的 IPC）</li>
+      <li><code>queue</code> 类房间命令（playlistAdd/Play/Next 等）当前是否在 <code>DesktopCommand</code> 白名单内需 desktop 会话确认；缺则补</li>
+    </ul>
+  </div>
+
+  <h2>四、状态设计补充（含文案）</h2>
+  <ul>
+    <li><b>加载</b>：一律静态占位 + 文案（「正在生成交接码…」「正在连接…」「正在解析媒体…」），禁止 spin/pulse（spec 禁令）。首次进入每屏允许一次性 fade-in（150ms，<code>prefers-reduced-motion</code> 关闭）。</li>
+    <li><b>backoff</b>：不做倒计时（依赖缺口-1）；文案「网络暂时不可用，正在自动重试」。连续 backoff 超过 2 分钟追加「检查后端地址与网络」。</li>
+    <li><b>expired</b>：覆盖卡三要素——原因（票据/会话过期）、动作（粘贴新交接码或房号加入）、退出入口。不自动重试（防循环）。</li>
+    <li><b>无媒体</b>：空态 CTA 一个动作入口（打开媒体库），不堆说明文字。</li>
+    <li><b>播放失败</b>：Rust 侧已实现「resolve 重试一次 → 切 fallback」；UI 只呈现结果态（「已切换服务器中转」提示条），失败终态复用 Failed 覆盖卡。UI 不重复发起 resolve（避免与 native 重试叠加）。</li>
+  </ul>
+
+  <h2>五、播放控件最终行为</h2>
+  <table>
+    <tr><th>控件</th><th>行为</th><th>通道</th></tr>
+    <tr><td>播放/暂停</td><td>切换 <code>Play|Pause</code>；按钮文案跟随 <code>room.paused</code></td><td>房间命令（同步）</td></tr>
+    <tr><td>时间轴</td><td>点击/拖拽 → <code>Seek(positionSeconds)</code>；<code>player.loaded=false</code> 或时长≤0 时禁用；时间码 <code>mm:ss / mm:ss</code> 等宽字体</td><td>房间命令</td></tr>
+    <tr><td>倍速</td><td>下拉 0.5–2.0，值跟随 <code>room.playbackRate</code>，非法值回 1</td><td>房间命令</td></tr>
+    <tr><td>音量</td><td>滑杆 0–100，仅影响本地 libmpv</td><td><code>Volume</code>（本地拦截）</td></tr>
+    <tr><td>音轨</td><td>下拉列出 <code>player.audioTracks</code>；切换即 <code>SelectAudioTrack(trackId)</code></td><td>本地</td></tr>
+    <tr><td>字幕</td><td>下拉列出 <code>player.subtitleTracks</code> + 「关闭」（<code>None</code>）</td><td>本地</td></tr>
+    <tr><td>全屏</td><td><code>Fullscreen{enabled}</code>：player 窗口 <code>set_fullscreen + show + focus</code>；Esc 触发 <code>enabled:false</code> 退出</td><td>本地窗口</td></tr>
+    <tr><td>隐藏/显示播放器</td><td><code>PlayerVisibility{visible}</code>：隐藏时 <code>set_local_suspended(true)</code> 挂起解码；main 窗口控制条提供两个互斥按钮</td><td>本地窗口</td></tr>
+  </table>
+  <div class="gap"><b>一期不做</b>：字幕时间偏移（±0.2s）——<code>libmpv.rs</code> 尚无 <code>sub-delay</code> 通道，二期随播放器深模块补。</div>
+
+  <h2>六、图标、字体、静态资源</h2>
+  <ul>
+    <li><b>图标</b>：<b>Material Symbols Outlined，与浏览器端前端完全同源同字形</b>（web 已引入 material-symbols 包）。桌面端把用到的字形打包为本地 sprite 或子集字体放进 <code>desktop-shell/</code>（CSP <code>img-src 'self'</code> / <code>style-src 'self'</code> 允许），禁止 lucide 与 material 混用、禁止运行时 CDN。播放页字形清单：skip_previous / play_arrow / pause / skip_next / volume_up / subtitles / speed / fullscreen / fullscreen_exit / add / monitor（显示播放器）/ visibility_off（隐藏播放器）/ queue / group / library / logout。</li>
+    <li><b>字体</b>：一期 <code>system-ui</code> 栈（中文回退 微软雅黑/苹方），零资产零加载，与设计稿渲染一致；品牌字体（如 Söhne 类）二期以子集化 woff2 打入 <code>desktop-shell/fonts/</code>（CSP <code>style-src 'self'</code> 允许 @font-face 本地文件）。</li>
+    <li><b>token 表</b>：深浅两套自定义属性随 <code>&lt;html data-theme="dark|light"&gt;</code> 切换（用户偏好持久化需 desktop 会话开 Tauri store 或落 localStorage——CSP 未禁，但沙箱策略需 desktop 确认；一期可默认深色 + 手动切换不持久）。数值沿用设计稿：深 bg #000 / card #0d0f13 / line #1f242b，浅 bg #fff / card #f6f7f9 / line #e4e7eb，强调深色 sky-400 #38bdf8、浅色 sky-600 #0284c7，圆角 6/8/10px，密度 4px 基。</li>
+    <li><b>无其他静态资源</b>：无图片素材（媒体库海报见缺口-2）、无音频、无视频资产。</li>
+  </ul>
+
+  <h2>一期执行顺序建议（交 desktop 会话）</h2>
+  <ol style="padding-left:20px;color:#c9d1da;font-size:13.5px;">
+    <li>重绘 <code>desktop-shell</code> 骨架：token CSS + 折叠轨 + 四屏路由（hash 路由即可），先深色</li>
+    <li>接 <code>DesktopEvent::State</code> 状态映射（第二节表格）</li>
+    <li>房间视图控件接 <code>executeRoomCommand</code>（第五节行为表）</li>
+    <li>浅色模式 + <code>data-theme</code> 切换</li>
+    <li>IPC 扩展清单（缺口-2）逐项补 Rust 命令，媒体库从无海报版升级</li>
+    <li>Expired/Failed/Backoff 覆盖层与文案打磨</li>
+  </ol>
+  <p class="meta">设计稿参照：dev/desktop-redesign-mockups.html（方案 C′）；token 与本文一致。Rust 侧契约变化（retryAt、queue 命令白名单、IPC 扩展）由 desktop 会话评审后实施。</p>
+</div>
+</body>
+</html>

@@ -210,6 +210,18 @@ function bindCommands(
   socket.on("CMD:playlistNext", (payload, ack) =>
     run(payload, { type: "playlistNext" }, ack),
   );
+  socket.on("CMD:playlistAutoNext", (payload, ack) =>
+    run(
+      payload,
+      {
+        type: "playlistAutoNext",
+        ...(isRecord(payload) && typeof payload.expectedCurrentPlaylistItemId === "string"
+          ? { expectedCurrentPlaylistItemId: payload.expectedCurrentPlaylistItemId }
+          : {}),
+      },
+      ack,
+    ),
+  );
   socket.on("CMD:transferOwner", (payload, ack) => {
     if (!isRecord(payload) || typeof payload.targetClientId !== "string")
       return ack(errorResult("INVALID_REQUEST"));
@@ -226,17 +238,12 @@ function bindCommands(
       payload.targetClientId,
     );
     if (!result.ok) return ack(errorResult(result.code));
-    // Desktop targets have no socket: the token is claimed over HTTP once.
-    if (room.memberClientType(payload.targetClientId) === "desktop") {
-      registry.queueOwnerGrant(room.id, payload.targetClientId, result.ownerToken);
-    } else {
-      const targetSocketId = findSocketId(io, room.id, payload.targetClientId);
-      if (targetSocketId) {
-        const targetSocket = io.sockets.sockets.get(targetSocketId);
-        if (targetSocket)
-          targetSocket.data.ownerToken = result.ownerToken;
-        io.to(targetSocketId).emit("REC:ownerToken", result.ownerToken);
-      }
+    const targetSocketId = findSocketId(io, room.id, payload.targetClientId);
+    if (targetSocketId) {
+      const targetSocket = io.sockets.sockets.get(targetSocketId);
+      if (targetSocket)
+        targetSocket.data.ownerToken = result.ownerToken;
+      io.to(targetSocketId).emit("REC:ownerToken", result.ownerToken);
     }
     socket.data.ownerToken = undefined;
     ack({ ok: true, revision: room.snapshot().revision });

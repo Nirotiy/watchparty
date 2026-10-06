@@ -1,15 +1,15 @@
 import {
   registerHandoffHttp,
-  registerNativeClientHttp,
-  registerNativeHandoffHttp,
+  registerMpvClientHttp,
+  registerMpvHandoffHttp,
   requireMpvContext,
   runMpvCommand,
 } from "./native-routes.ts";
 
 export {
   registerHandoffHttp,
-  registerNativeClientHttp,
-  registerNativeHandoffHttp,
+  registerMpvClientHttp,
+  registerMpvHandoffHttp,
   requireMpvContext,
   runMpvCommand,
 };
@@ -26,6 +26,6 @@ export function registerMpvHttp(
   media: WatchpartyMedia,
 ): void {
   registerHandoffHttp(app, registry);
-  registerNativeHandoffHttp(app, registry, "mpv");
-  registerNativeClientHttp(app, registry, media, "mpv");
+  registerMpvHandoffHttp(app, registry);
+  registerMpvClientHttp(app, registry, media);
 }

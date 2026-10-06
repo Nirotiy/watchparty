@@ -48,23 +48,48 @@ test("shared playback advances from the server clock", () => {
   assert.equal(room.snapshot().positionSeconds, 2);
 });
 
-test("locked guests are rejected and stale revisions conflict", () => {
+test("guests can use shared controls while owner-only commands stay protected", () => {
   const { room } = createRoom();
   room.join(owner, "Owner");
   room.join(guest, "Guest");
-  assert.deepEqual(room.execute(guest, { type: "play" }, 0, false), {
-    ok: false,
-    error: {
-      code: "FORBIDDEN",
-      message: "当前房间锁定，只有房主可以执行此操作",
-    },
-  });
-  assert.equal(
-    room.execute(owner, { type: "lock", locked: false }, 0, true).ok,
-    true,
-  );
-  assert.equal(room.execute(guest, { type: "play" }, 0, false).ok, false);
-  assert.equal(room.execute(guest, { type: "play" }, 1, false).ok, true);
+  assert.equal(room.execute(guest, { type: "play" }, 0, false).ok, true);
+  assert.equal(room.execute(guest, { type: "pause" }, 1, false).ok, true);
+  assert.equal(room.execute(guest, { type: "playlistAdd", media }, 2, false).ok, true);
+  const item = room.snapshot().playlist[0];
+  assert.ok(item);
+  assert.equal(room.execute(guest, { type: "playlistMove", itemId: item.id, targetIndex: 0 }, 3, false).ok, true);
+  assert.equal(room.execute(guest, { type: "playlistRemove", itemId: item.id }, 4, false).ok, true);
+  const forbidden = [
+    { type: "mediaSet", media },
+    { type: "seek", positionSeconds: 1 },
+    { type: "rate", rate: 1.25 },
+    { type: "loop", loop: true },
+    { type: "playlistNext" },
+    { type: "playlistAutoNext" },
+  ] as const;
+  for (const command of forbidden) {
+    const result = room.execute(guest, command, 5, false);
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "FORBIDDEN");
+  }
+});
+
+test("automatic playlist advancement is owner-only and guards stale entries", () => {
+  const { room } = createRoom();
+  room.join(owner, "Owner");
+  room.execute(owner, { type: "playlistAdd", media }, 0, true);
+  room.execute(owner, { type: "playlistAdd", media }, 1, true);
+  const [first, second] = room.snapshot().playlist;
+  room.execute(owner, { type: "playlistPlay", itemId: first.id }, 2, true);
+  const manual = room.execute(guest, { type: "playlistNext", expectedCurrentPlaylistItemId: first.id }, 3, false);
+  assert.equal(manual.ok, false);
+  assert.equal(manual.error?.code, "FORBIDDEN");
+  const automaticByGuest = room.execute(guest, { type: "playlistAutoNext", expectedCurrentPlaylistItemId: first.id }, 3, false);
+  assert.equal(automaticByGuest.ok, false);
+  assert.equal(automaticByGuest.error?.code, "FORBIDDEN");
+  const automatic = room.execute(owner, { type: "playlistAutoNext", expectedCurrentPlaylistItemId: first.id }, 3, true);
+  assert.equal(automatic.ok, true);
+  assert.equal(room.snapshot().currentPlaylistItemId, second.id);
 });
 
 test("playlist entries have stable ids and a hard limit", () => {

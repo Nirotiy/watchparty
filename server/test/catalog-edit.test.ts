@@ -5,6 +5,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { createBackend, type Backend } from "../app.ts";
+import { roomFetch } from "./room-fetch.ts";
 import { loadConfig } from "../config.ts";
 import { episodeSubtitle, groupScanFiles, type CatalogGroup } from "../media/catalog-names.ts";
 import { diffSnapshots, openCatalogStore, structuralChanges, structuralCount, type CatalogDetail } from "../media/catalog-store.ts";
@@ -331,9 +332,9 @@ test("排除路由与 worker/classify 两入口一致，旧 scrape 不绕批准�
   const post = (suffix: string, body = {}) => fetch(`${url}/${suffix}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   try {
     assert.equal((await post("scrape")).status, 200);
-    const cards = (await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`))).body as { items: Array<{ id: string }> };
+    const cards = (await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=lib_anime`))).body as { items: Array<{ id: string }> };
     const id = cards.items[0].id;
-    const formal = (await json(await fetch(`${base(backend)}/api/media/catalog/${id}`))).body as CatalogDetail;
+    const formal = (await json(await roomFetch(backend, `${base(backend)}/api/media/catalog/${id}`))).body as CatalogDetail;
     const paths = formal.children.map(child => `${child.relDir}/${child.name}`);
     assert.equal((await post("draft/exclude", { paths: ["missing"] })).status, 404);
     assert.equal((await post("draft/exclude", { paths: [] })).status, 400);
@@ -342,7 +343,7 @@ test("排除路由与 worker/classify 两入口一致，旧 scrape 不绕批准�
     assert.equal((await json(await fetch(`${url}/classify`))).body.files, 1);
     assert.equal((await post("scrape")).status, 200);
     assert.equal((await json(await fetch(`${url}/classify`))).body.files, 1);
-    assert.equal((await json(await fetch(`${base(backend)}/api/media/catalog/${id}`))).body.children.length, 2);
+    assert.equal((await json(await roomFetch(backend, `${base(backend)}/api/media/catalog/${id}`))).body.children.length, 2);
     assert.equal((await post("apply", {})).status, 409);
     assert.equal((await post("draft/exclude", { paths: [paths[0]] })).status, 200);
     const required = await json(await post("apply"));
@@ -351,12 +352,12 @@ test("排除路由与 worker/classify 两入口一致，旧 scrape 不绕批准�
     const approved = await json(await post("approval", { approvedBy: "test" }));
     assert.equal(approved.status, 200);
     assert.equal((await post("apply-approved", { approvalToken: approved.body.approvalToken })).status, 200);
-    assert.equal((await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`))).body.items.length, 0);
+    assert.equal((await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=lib_anime`))).body.items.length, 0);
     assert.equal((await post("draft/unexclude", { paths })).status, 200);
     const rescrape = await json(await post("scrape"));
     assert.equal(rescrape.status, 200);
     assert.equal(rescrape.body.reviewRequired, true);
-    assert.equal((await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`))).body.items.length, 0, "clearing all marks must not let legacy scrape recreate formal cards");
+    assert.equal((await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=lib_anime`))).body.items.length, 0, "clearing all marks must not let legacy scrape recreate formal cards");
     assert.equal((await post("classify")).status, 200);
     assert.equal((await json(await fetch(`${url}/classify`))).body.files, 2);
     const exclusions = await json(await fetch(`${url}/exclusions`));
@@ -516,7 +517,7 @@ test("the editing endpoints answer, and the snapshot reports what enumeration st
   try {
     const scrape = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/scrape`, { method: "POST" }));
     assert.equal(scrape.status, 200);
-    const cards = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`));
+    const cards = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=lib_anime`));
     const cardId = (cards.body as { items: Array<{ id: string; status: string }> }).items[0].id;
 
     const scan = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/scan`));
@@ -524,12 +525,12 @@ test("the editing endpoints answer, and the snapshot reports what enumeration st
     assert.equal((scan.body as { files: number }).files, 2, "both files of the tree are snapshotted");
     assert.ok((scan.body as { enumeratedAt: string | null }).enumeratedAt);
 
-    const searched = await json(await fetch(`${base(backend)}/api/media/bangumi/search?q=Medalist`));
+    const searched = await json(await roomFetch(backend, `${base(backend)}/api/media/bangumi/search?q=Medalist`));
     assert.equal(searched.status, 200);
     assert.equal((searched.body as { items: Array<{ title: string }> }).items[0]?.title, "Medalist");
 
     const rebound = await json(
-      await fetch(`${base(backend)}/api/media/catalog/${cardId}/rebind`, {
+      await roomFetch(backend, `${base(backend)}/api/media/catalog/${cardId}/rebind`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ externalDb: "bangumi", externalId: "500001", title: "金牌得主" }),
@@ -539,15 +540,15 @@ test("the editing endpoints answer, and the snapshot reports what enumeration st
     assert.equal((rebound.body as { title: string; status: string }).title, "金牌得主");
     assert.equal((rebound.body as { status: string }).status, "confirmed");
 
-    const unconfirmed = await json(await fetch(`${base(backend)}/api/media/catalog/${cardId}/unconfirm`, { method: "POST" }));
+    const unconfirmed = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog/${cardId}/unconfirm`, { method: "POST" }));
     assert.equal(unconfirmed.status, 200);
     assert.equal((unconfirmed.body as { status: string }).status, "unmatched");
     assert.equal((unconfirmed.body as { externalId?: string }).externalId ?? null, null);
 
-    const detail = await json(await fetch(`${base(backend)}/api/media/catalog/${cardId}`));
+    const detail = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog/${cardId}`));
     const mediaIds = (detail.body as { children: Array<{ mediaId: string }> }).children.map((child) => child.mediaId);
     const split = await json(
-      await fetch(`${base(backend)}/api/media/catalog/${cardId}/split`, {
+      await roomFetch(backend, `${base(backend)}/api/media/catalog/${cardId}/split`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ groups: [[mediaIds[0]], [mediaIds[1]]] }),
@@ -556,7 +557,7 @@ test("the editing endpoints answer, and the snapshot reports what enumeration st
     assert.equal(split.status, 200);
     assert.equal((split.body as unknown[]).length, 2);
     const mergedBack = await json(
-      await fetch(`${base(backend)}/api/media/catalog/merge`, {
+      await roomFetch(backend, `${base(backend)}/api/media/catalog/merge`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ keepId: cardId, dropIds: [(split.body as Array<{ id: string }>)[1].id] }),
@@ -574,11 +575,11 @@ test("the editing endpoints refuse malformed input without touching the card", a
   try {
     const scrape = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/scrape`, { method: "POST" }));
     assert.equal(scrape.status, 200);
-    const cards = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`));
+    const cards = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=lib_anime`));
     const card = (cards.body as { items: Array<{ id: string; title: string }> }).items[0];
 
     const badId = await json(
-      await fetch(`${base(backend)}/api/media/catalog/${card.id}/rebind`, {
+      await roomFetch(backend, `${base(backend)}/api/media/catalog/${card.id}/rebind`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ externalDb: "bangumi", externalId: "../../etc/passwd", title: "x" }),
@@ -587,7 +588,7 @@ test("the editing endpoints refuse malformed input without touching the card", a
     assert.equal(badId.status, 400);
 
     const badVendor = await json(
-      await fetch(`${base(backend)}/api/media/catalog/${card.id}/rebind`, {
+      await roomFetch(backend, `${base(backend)}/api/media/catalog/${card.id}/rebind`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ externalDb: "douban", externalId: "1", title: "x" }),
@@ -595,11 +596,11 @@ test("the editing endpoints refuse malformed input without touching the card", a
     );
     assert.equal(badVendor.status, 400);
 
-    const shortQuery = await json(await fetch(`${base(backend)}/api/media/bangumi/search?q=a`));
+    const shortQuery = await json(await roomFetch(backend, `${base(backend)}/api/media/bangumi/search?q=a`));
     assert.equal(shortQuery.status, 400);
 
     const emptyMerge = await json(
-      await fetch(`${base(backend)}/api/media/catalog/merge`, {
+      await roomFetch(backend, `${base(backend)}/api/media/catalog/merge`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ keepId: card.id, dropIds: [] }),
@@ -608,7 +609,7 @@ test("the editing endpoints refuse malformed input without touching the card", a
     assert.equal(emptyMerge.status, 400);
 
     const badSplit = await json(
-      await fetch(`${base(backend)}/api/media/catalog/${card.id}/split`, {
+      await roomFetch(backend, `${base(backend)}/api/media/catalog/${card.id}/split`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ groups: [["v2.1"]] }),
@@ -616,7 +617,7 @@ test("the editing endpoints refuse malformed input without touching the card", a
     );
     assert.equal(badSplit.status, 400);
 
-    const after = await json(await fetch(`${base(backend)}/api/media/catalog/${card.id}`));
+    const after = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog/${card.id}`));
     assert.equal((after.body as { title: string }).title, card.title, "rejected writes must leave the card alone");
   } finally {
     await backend.close();
@@ -949,7 +950,7 @@ test("classify 端点只产生草稿与差异，卡片要等 scrape", async () =
     assert.equal((classified.body as { cards: number }).cards, 1);
     assert.equal((classified.body as { diff: { added: unknown[] } }).diff.added.length, 1);
 
-    const empty = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`));
+    const empty = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=lib_anime`));
     assert.deepEqual((empty.body as { items: unknown[] }).items, [], "分类不建卡");
 
     const draft = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/classify`));
@@ -994,11 +995,11 @@ test("judge 只写草稿：候选与自动确认都留在草稿里，正式表�
     assert.ok(((expanded.body as { candidates: unknown[] }).candidates ?? []).length >= 1, "展开时才给候选");
     assert.equal(((expanded.body as { children: unknown[] }).children ?? []).length, 2);
 
-    const cards = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`));
+    const cards = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=lib_anime`));
     assert.deepEqual((cards.body as { items: unknown[] }).items, []);
     const scraped = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/scrape`, { method: "POST" }));
     assert.equal(scraped.status, 200, "旧扫描路径照旧可用");
-    const afterScrape = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`));
+    const afterScrape = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=lib_anime`));
     assert.ok((afterScrape.body as { items: unknown[] }).items.length >= 1, "卡是 scrape 建的，不是 judge 建的");
 
     const bad = await json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/judge?max=abc`, { method: "POST" }));
@@ -1042,18 +1043,18 @@ test("apply 把草稿变成已确认的卡，再跑一遍不多一张", async ()
   const backend = await started({});
   try {
     const id = await draftToCards(backend);
-    const first = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=${id}`));
+    const first = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=${id}`));
     const items = (first.body as { items: Array<{ id: string; status: string; title: string }> }).items;
     assert.equal(items.length, 1);
     assert.equal(items[0].status, "confirmed", "草稿里已经判定过，应用后直接是确认态");
-    const detail = await json(await fetch(`${base(backend)}/api/media/catalog/${items[0].id}`));
+    const detail = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog/${items[0].id}`));
     assert.equal((detail.body as { externalId: string }).externalId, "430699");
     assert.equal((detail.body as { confirmedBy: string }).confirmedBy, "auto");
     assert.equal((detail.body as { children: unknown[] }).children.length, 2);
 
     const again = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply`, { method: "POST" }));
     assert.equal((again.body as { created: number }).created, 0, "同一份草稿重复应用不建重卡");
-    const second = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=${id}`));
+    const second = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=${id}`));
     assert.equal((second.body as { items: unknown[] }).items.length, 1);
     assert.equal((again.body as { diff: { added: unknown[] } }).diff.added.length, 0, "应用后差异收敛");
   } finally {
@@ -1072,7 +1073,7 @@ test("apply 拒绝过期草稿，也不碰刮削作业行", async () => {
     const stale = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply`, { method: "POST" }));
     assert.equal(stale.status, 409);
     assert.equal((stale.body as { code: string }).code, "CATALOG_STALE_SCAN");
-    const cards = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=${id}`));
+    const cards = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=${id}`));
     assert.equal((cards.body as { items: unknown[] }).items.length, 1, "被拒绝的应用什么都没改");
 
     // 重新分类到当前修订后就能应用了。
@@ -1089,9 +1090,9 @@ test("apply 不动人已确认的绑定", async () => {
   const backend = await started({});
   try {
     const id = await draftToCards(backend);
-    const cards = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=${id}`));
+    const cards = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=${id}`));
     const cardId = (cards.body as { items: Array<{ id: string }> }).items[0].id;
-    await fetch(`${base(backend)}/api/media/catalog/${cardId}/rebind`, {
+    await roomFetch(backend, `${base(backend)}/api/media/catalog/${cardId}/rebind`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ externalDb: "bangumi", externalId: "777777", title: "人工挑的条目" }),
@@ -1101,7 +1102,7 @@ test("apply 不动人已确认的绑定", async () => {
     await fetch(`${base(backend)}/api/admin/media-libraries/${id}/judge`, { method: "POST" });
     const applied = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply`, { method: "POST" }));
     assert.equal((applied.body as { skipped: number }).skipped, 1);
-    const detail = await json(await fetch(`${base(backend)}/api/media/catalog/${cardId}`));
+    const detail = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog/${cardId}`));
     assert.equal((detail.body as { externalId: string }).externalId, "777777", "机器重新确认也不能盖掉人的选择");
     assert.equal((detail.body as { confirmedBy: string }).confirmedBy, "rebind");
   } finally {
@@ -1151,7 +1152,7 @@ test("没判定过的草稿不许把已确认的卡打回未匹配（分批跑�
   const backend = await started({});
   try {
     const id = await draftToCards(backend);
-    const before = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=${id}`));
+    const before = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=${id}`));
     const cardId = (before.body as { items: Array<{ id: string }> }).items[0].id;
 
     // 只重新分类（草稿全部回到 pending），不判定，然后应用：绑定必须原样保留。
@@ -1162,7 +1163,7 @@ test("没判定过的草稿不许把已确认的卡打回未匹配（分批跑�
     const applied = await json(await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply?force=1`, { method: "POST" }));
     assert.equal((applied.body as { deferred: number }).deferred, 1);
     assert.equal((applied.body as { updated: number }).updated, 0);
-    const detail = await json(await fetch(`${base(backend)}/api/media/catalog/${cardId}`));
+    const detail = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog/${cardId}`));
     assert.equal((detail.body as { status: string }).status, "confirmed");
     assert.equal((detail.body as { externalId: string }).externalId, "430699");
   } finally {
@@ -1632,7 +1633,7 @@ test("collection sidecar 闭环：导出可读回，元数据写草稿，结构�
     assert.notEqual(moved, "/Medalist");
     assert.equal((await card(moved)).body.card.title, "第二部");
     assert.equal((await card(moved)).body.card.files, 1);
-    const formal = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`));
+    const formal = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=lib_anime`));
     assert.equal(formal.body.items.length, 0, "结构只到草稿：正式卡要等 apply");
   } finally {
     await backend.close();
@@ -1680,7 +1681,7 @@ test("结构 apply 的人工凭证：没批准不动结构，用过即废，内�
     assert.equal(blocked.status, 409);
     assert.equal((blocked.body as { code: string }).code, "CATALOG_APPROVAL_REQUIRED");
     assert.deepEqual((blocked.body as { structural: { added: string[] } }).structural.added, ["/Medalist"]);
-    assert.equal((await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=${id}`))).body.items.length, 0, "被拒绝的应用什么都没写");
+    assert.equal((await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=${id}`))).body.items.length, 0, "被拒绝的应用什么都没写");
 
     const first = await post("approval");
     assert.equal(first.status, 200);
@@ -1714,7 +1715,7 @@ test("结构 apply 的人工凭证：没批准不动结构，用过即废，内�
     );
     assert.equal(applied.status, 200, JSON.stringify(applied.body));
     assert.equal((applied.body as { created: number }).created, 2, "拆开的一张卡跟着建出来");
-    assert.equal((await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=${id}`))).body.items.length, 2);
+    assert.equal((await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=${id}`))).body.items.length, 2);
     const replay = await json(
       await fetch(`${base(backend)}/api/admin/media-libraries/${id}/apply-approved`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ approvalToken: third.body.approvalToken, force: 1 }) }),
     );
@@ -1756,7 +1757,7 @@ test("批准密钥：只有出示第二把密钥的那一方能批，凭证照�
   const call = async (route: string, body?: unknown, headers?: Record<string, string>) =>
     json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/${route}`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body ?? {}) }));
   try {
-    const caps = await json(await fetch(`${base(backend)}/api/media/capabilities`));
+    const caps = await json(await roomFetch(backend, `${base(backend)}/api/media/capabilities`));
     assert.equal((caps.body as { catalogApproval: string }).catalogApproval, "secret", "能力位要如实报这是硬边界还是软边界");
     await call("classify");
     await call("judge");
@@ -1779,7 +1780,7 @@ async function appliedWithApproval() {
   const backend = await started({});
   const api = async (route: string, body?: unknown) =>
     json(await fetch(`${base(backend)}/api/admin/media-libraries/lib_anime/${route}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) }));
-  const wall = async () => (await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`))).body.items as Array<{ id: string; title: string }>;
+  const wall = async () => (await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=lib_anime`))).body.items as Array<{ id: string; title: string }>;
   await api("classify");
   await api("judge");
   const granted = await api("approval");
@@ -1817,7 +1818,7 @@ test("回滚前先核对现值：人在 apply 之后动过的卡，整批不动�
   try {
     assert.equal(status, 200);
     const card = (await wall())[0];
-    await fetch(`${base(backend)}/api/media/catalog/${card.id}/rebind`, {
+    await roomFetch(backend, `${base(backend)}/api/media/catalog/${card.id}/rebind`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ externalDb: "bangumi", externalId: "999001", title: "人后来改的名字" }),
@@ -1829,7 +1830,7 @@ test("回滚前先核对现值：人在 apply 之后动过的卡，整批不动�
     assert.deepEqual((blocked.body as { keys: string[] }).keys, ["/Medalist"]);
     const still = await wall();
     assert.equal(still.length, 1, "冲突时一张都不动");
-    assert.equal((await json(await fetch(`${base(backend)}/api/media/catalog/${card.id}`))).body.confirmedBy, "rebind", "人的后改不被回滚抹掉");
+    assert.equal((await json(await roomFetch(backend, `${base(backend)}/api/media/catalog/${card.id}`))).body.confirmedBy, "rebind", "人的后改不被回滚抹掉");
   } finally {
     await backend.close();
   }
@@ -1940,7 +1941,7 @@ test("已定语义：凭证只管结构失效，元数据后改照样落卡", as
     assert.equal((await api("draft/edit", { itemKey: "/Medalist", title: "批准之后人改的名字" })).status, 200);
     const outcome = await api("apply-approved", { approvalToken: token, force: 1 });
     assert.equal(outcome.status, 200, "已定：元数据改动不会让凭证失效");
-    const wall = await json(await fetch(`${base(backend)}/api/media/catalog?libraryId=lib_anime`));
+    const wall = await json(await roomFetch(backend, `${base(backend)}/api/media/catalog?libraryId=lib_anime`));
     assert.equal((wall.body as { items: unknown[] }).items.length, 2);
     // 列表投影不带 itemKey（那是 CatalogDetail 上的），所以按标题找。
     const titles = (wall.body as { items: Array<{ title: string }> }).items.map((card) => card.title);
