@@ -1,0 +1,19 @@
+{
+ "label": "avsync-short-fix3",
+ "browser": "chrome",
+ "mode": "file",
+ "fullscreen": true,
+ "stallSpec": null,
+ "captureFile": "D:\\NRT-GIT\\watchparty\\dev\\browser-mkv-poc\\verify\\results\\avsync-short-fix3-capture.mkv",
+ "devices": {
+  "video": "ddagrab output_idx=0 @30fps scaled 640x360",
+  "audio0": "Microphone (High Definition Audio Device)",
+  "audio1": "Loopback 1/2 (2- E1x2 OTG)"
+ },
+ "captureStartEpochMs": 1791358563317,
+ "captureEndEpochMs": 1791358602067,
+ "captureSecondsPlanned": 60,
+ "harnessExit": 0,
+ "captureExit": 0,
+ "file": "D:\\NRT-GIT\\watchparty\\dev\\browser-mkv-poc\\fixtures\\av-sync-marks-400s.mkv"
+}

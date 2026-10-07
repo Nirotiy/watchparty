@@ -1,0 +1,12 @@
+# Local replica of the deployment-side exposure fix (方案 A) for POC verification.
+# Native caddy.exe variant: fronts the local OpenList Desktop (127.0.0.1:5349).
+# Container variant would use host.docker.internal:5349 and :8080 instead.
+{
+	admin off
+}
+
+http://127.0.0.1:5397 {
+	reverse_proxy 127.0.0.1:5349 {
+		header_down Access-Control-Expose-Headers "Content-Range, Accept-Ranges, ETag, Content-Length"
+	}
+}

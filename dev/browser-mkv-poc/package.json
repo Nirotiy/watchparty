@@ -4,12 +4,17 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "prepare:libav": "node scripts/copy-libav-assets.mjs",
+    "predev": "npm run prepare:libav",
     "dev": "vite --host 0.0.0.0",
+    "prebuild": "npm run prepare:libav",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
-    "mediabunny": "1.61.3"
+    "@libav.js/variant-webcodecs": "6.10.9",
+    "jassub": "^2.5.18",
+    "libavjs-webcodecs-bridge": "0.3.2"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

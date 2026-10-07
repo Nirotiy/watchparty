@@ -1,0 +1,393 @@
+{
+ "label": "avsync-underrun-r2",
+ "captureFile": "D:\\NRT-GIT\\watchparty\\dev\\browser-mkv-poc\\verify\\results\\avsync-underrun-r2-capture.mkv",
+ "captureSeconds": "79.2",
+ "devices": {
+  "video": "ddagrab output_idx=0 @30fps scaled 640x360",
+  "audio0": "Microphone (High Definition Audio Device)",
+  "audio1": "Loopback 1/2 (2- E1x2 OTG)"
+ },
+ "video": {
+  "frames": 2353,
+  "ptsCount": 2353,
+  "lastPts": 78.867,
+  "nominalFps": 30,
+  "onsets": [
+   0.867,
+   5.5,
+   10.333,
+   15.333,
+   20.367,
+   25.333,
+   30.367,
+   35.333,
+   40.367,
+   45.333,
+   50.333,
+   55.333,
+   60.367,
+   65.367,
+   70.333,
+   75.333,
+   77.733
+  ]
+ },
+ "audio": {
+  "onsetCount": 18,
+  "noiseFloor": 0.0008796461156449061,
+  "peakEnv": 1.1609706986788222,
+  "onsets": [
+   5.155,
+   10.045,
+   15.045,
+   20.045,
+   25.045,
+   30.045,
+   35.045,
+   40.045,
+   45.045,
+   50.045,
+   55.045,
+   60.045,
+   65.045,
+   70.045,
+   73.975,
+   74.315,
+   74.665,
+   75.045
+  ]
+ },
+ "e1x2Control": {
+  "medianEnv": 0.000014487072317130327,
+  "maxEnv": 0.00001619427508229681
+ },
+ "pairs": [
+  {
+   "tVideo": 5.5,
+   "tAudio": 5.155,
+   "rawOffsetMs": 345,
+   "offsetMs": 17
+  },
+  {
+   "tVideo": 10.333,
+   "tAudio": 10.045,
+   "rawOffsetMs": 288,
+   "offsetMs": -40
+  },
+  {
+   "tVideo": 15.333,
+   "tAudio": 15.045,
+   "rawOffsetMs": 288,
+   "offsetMs": -40
+  },
+  {
+   "tVideo": 20.367,
+   "tAudio": 20.045,
+   "rawOffsetMs": 322,
+   "offsetMs": -6
+  },
+  {
+   "tVideo": 25.333,
+   "tAudio": 25.045,
+   "rawOffsetMs": 288,
+   "offsetMs": -40
+  },
+  {
+   "tVideo": 30.367,
+   "tAudio": 30.045,
+   "rawOffsetMs": 322,
+   "offsetMs": -6
+  },
+  {
+   "tVideo": 35.333,
+   "tAudio": 35.045,
+   "rawOffsetMs": 288,
+   "offsetMs": -40
+  },
+  {
+   "tVideo": 40.367,
+   "tAudio": 40.045,
+   "rawOffsetMs": 322,
+   "offsetMs": -6
+  },
+  {
+   "tVideo": 45.333,
+   "tAudio": 45.045,
+   "rawOffsetMs": 288,
+   "offsetMs": -40
+  },
+  {
+   "tVideo": 50.333,
+   "tAudio": 50.045,
+   "rawOffsetMs": 288,
+   "offsetMs": -40
+  },
+  {
+   "tVideo": 55.333,
+   "tAudio": 55.045,
+   "rawOffsetMs": 288,
+   "offsetMs": -40
+  },
+  {
+   "tVideo": 60.367,
+   "tAudio": 60.045,
+   "rawOffsetMs": 322,
+   "offsetMs": -6
+  },
+  {
+   "tVideo": 65.367,
+   "tAudio": 65.045,
+   "rawOffsetMs": 322,
+   "offsetMs": -6
+  },
+  {
+   "tVideo": 70.333,
+   "tAudio": 70.045,
+   "rawOffsetMs": 288,
+   "offsetMs": -40
+  },
+  {
+   "tVideo": 75.333,
+   "tAudio": 75.045,
+   "rawOffsetMs": 288,
+   "offsetMs": -40
+  }
+ ],
+ "captureStarts": {
+  "micStartUptime": 27748.594,
+  "bridge": 1791336375.3660002,
+  "micBaseEpoch": 1791364123.96,
+  "ddBaseEpoch": 1791364123.632,
+  "calibrationWallEpochSec": 1791364124.499,
+  "deltaMs": 328
+ },
+ "segmentStats": [
+  {
+   "rank": 0,
+   "firstT": 5.5,
+   "lastT": 5.5,
+   "stats": {
+    "n": 1,
+    "meanMs": 17,
+    "stdMs": 0,
+    "medianMs": 17,
+    "minMs": 17,
+    "maxMs": 17,
+    "p95AbsMs": 17
+   }
+  },
+  {
+   "rank": 1,
+   "firstT": 10.3,
+   "lastT": 10.3,
+   "stats": {
+    "n": 1,
+    "meanMs": -40,
+    "stdMs": 0,
+    "medianMs": -40,
+    "minMs": -40,
+    "maxMs": -40,
+    "p95AbsMs": -40
+   }
+  },
+  {
+   "rank": 2,
+   "firstT": 15.3,
+   "lastT": 15.3,
+   "stats": {
+    "n": 1,
+    "meanMs": -40,
+    "stdMs": 0,
+    "medianMs": -40,
+    "minMs": -40,
+    "maxMs": -40,
+    "p95AbsMs": -40
+   }
+  },
+  {
+   "rank": 3,
+   "firstT": 20.4,
+   "lastT": 20.4,
+   "stats": {
+    "n": 1,
+    "meanMs": -6,
+    "stdMs": 0,
+    "medianMs": -6,
+    "minMs": -6,
+    "maxMs": -6,
+    "p95AbsMs": -6
+   }
+  },
+  {
+   "rank": 4,
+   "firstT": 25.3,
+   "lastT": 25.3,
+   "stats": {
+    "n": 1,
+    "meanMs": -40,
+    "stdMs": 0,
+    "medianMs": -40,
+    "minMs": -40,
+    "maxMs": -40,
+    "p95AbsMs": -40
+   }
+  },
+  {
+   "rank": 5,
+   "firstT": 30.4,
+   "lastT": 30.4,
+   "stats": {
+    "n": 1,
+    "meanMs": -6,
+    "stdMs": 0,
+    "medianMs": -6,
+    "minMs": -6,
+    "maxMs": -6,
+    "p95AbsMs": -6
+   }
+  },
+  {
+   "rank": 6,
+   "firstT": 35.3,
+   "lastT": 35.3,
+   "stats": {
+    "n": 1,
+    "meanMs": -40,
+    "stdMs": 0,
+    "medianMs": -40,
+    "minMs": -40,
+    "maxMs": -40,
+    "p95AbsMs": -40
+   }
+  },
+  {
+   "rank": 7,
+   "firstT": 40.4,
+   "lastT": 40.4,
+   "stats": {
+    "n": 1,
+    "meanMs": -6,
+    "stdMs": 0,
+    "medianMs": -6,
+    "minMs": -6,
+    "maxMs": -6,
+    "p95AbsMs": -6
+   }
+  },
+  {
+   "rank": 8,
+   "firstT": 45.3,
+   "lastT": 45.3,
+   "stats": {
+    "n": 1,
+    "meanMs": -40,
+    "stdMs": 0,
+    "medianMs": -40,
+    "minMs": -40,
+    "maxMs": -40,
+    "p95AbsMs": -40
+   }
+  },
+  {
+   "rank": 9,
+   "firstT": 50.3,
+   "lastT": 50.3,
+   "stats": {
+    "n": 1,
+    "meanMs": -40,
+    "stdMs": 0,
+    "medianMs": -40,
+    "minMs": -40,
+    "maxMs": -40,
+    "p95AbsMs": -40
+   }
+  },
+  {
+   "rank": 10,
+   "firstT": 55.3,
+   "lastT": 55.3,
+   "stats": {
+    "n": 1,
+    "meanMs": -40,
+    "stdMs": 0,
+    "medianMs": -40,
+    "minMs": -40,
+    "maxMs": -40,
+    "p95AbsMs": -40
+   }
+  },
+  {
+   "rank": 11,
+   "firstT": 60.4,
+   "lastT": 60.4,
+   "stats": {
+    "n": 1,
+    "meanMs": -6,
+    "stdMs": 0,
+    "medianMs": -6,
+    "minMs": -6,
+    "maxMs": -6,
+    "p95AbsMs": -6
+   }
+  },
+  {
+   "rank": 12,
+   "firstT": 65.4,
+   "lastT": 65.4,
+   "stats": {
+    "n": 1,
+    "meanMs": -6,
+    "stdMs": 0,
+    "medianMs": -6,
+    "minMs": -6,
+    "maxMs": -6,
+    "p95AbsMs": -6
+   }
+  },
+  {
+   "rank": 13,
+   "firstT": 70.3,
+   "lastT": 70.3,
+   "stats": {
+    "n": 1,
+    "meanMs": -40,
+    "stdMs": 0,
+    "medianMs": -40,
+    "minMs": -40,
+    "maxMs": -40,
+    "p95AbsMs": -40
+   }
+  },
+  {
+   "rank": 14,
+   "firstT": 75.3,
+   "lastT": 75.3,
+   "stats": {
+    "n": 1,
+    "meanMs": -40,
+    "stdMs": 0,
+    "medianMs": -40,
+    "minMs": -40,
+    "maxMs": -40,
+    "p95AbsMs": -40
+   }
+  }
+ ],
+ "overallStats": {
+  "n": 15,
+  "meanMs": -24.9,
+  "stdMs": 19.3,
+  "medianMs": -40,
+  "minMs": -40,
+  "maxMs": 17,
+  "p95AbsMs": 17
+ },
+ "drift": {
+  "slopeMsPerMin": -12.66
+ },
+ "uncertainty": {
+  "videoFrameMs": 33.3,
+  "audioEnvelopeMs": 5,
+  "note": "Absolute offset additionally carries a constant capture-side skew between ddagrab and dshow start latencies; per-mark variance and drift are skew-independent."
+ }
+}

@@ -1,0 +1,233 @@
+{
+  "label": "edge-openlist-43-readahead",
+  "browser": "edge",
+  "executable": "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+  "mode": "url",
+  "pageUrl": "http://localhost:5188/?mute=1",
+  "startedAt": "2026-10-06T13:18:06.038Z",
+  "steps": [
+    {
+      "step": "select-source",
+      "at": 1791292690088
+    }
+  ],
+  "devtoolsPort": 1887,
+  "initial": {
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0",
+    "isolation": "COOP / COEP 已生效",
+    "browserLabel": "Chrome 154 · Win32",
+    "sharedArrayBuffer": "function",
+    "crossOriginIsolated": true,
+    "range": "等待",
+    "demux": "等待",
+    "codecState": "等待",
+    "decode": "等待媒体源",
+    "tracks": "检查媒体后显示轨道及原生能力。",
+    "subtitleNote": "",
+    "metrics": {
+      "requests": "0",
+      "bytes": "0 B",
+      "size": "--",
+      "full": "未发生",
+      "seek": "--"
+    },
+    "seekTime": "00:00 / --:--",
+    "limitations": "连续视频包测试已接入；音频输出、A/V sync 與 20 分鐘基準尚未驗收。",
+    "events": "21:18:08 SharedArrayBuffer 可用，跨源隔离成立。"
+  },
+  "afterLoad": {
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0",
+    "isolation": "COOP / COEP 已生效",
+    "browserLabel": "Chrome 154 · Win32",
+    "sharedArrayBuffer": "function",
+    "crossOriginIsolated": true,
+    "range": "206 / Range OK",
+    "demux": "Tracks 已解析 · FFmpeg",
+    "codecState": "Video API 可用",
+    "decode": "能力回报可用，待实际解码",
+    "tracks": "VIDEO\nh264 / avc1.4d0028\n1920 × 1080 · WebCodecs 可解 · eng\n本地\nAUDIO\naac / mp4a.40.2\n2 ch · 44100 Hz · WebCodecs 可解 · eng\n本地",
+    "subtitleNote": "此媒体未发现内嵌字幕轨。",
+    "metrics": {
+      "requests": "5",
+      "bytes": "3.84 MB",
+      "size": "1591.93 MB",
+      "full": "Range 覆盖 0%",
+      "seek": "--"
+    },
+    "seekTime": "00:00 / 48:06",
+    "limitations": "连续视频包测试已接入；音频输出、A/V sync 與 20 分鐘基準尚未驗收。",
+    "events": "21:18:12 libav.js Matroska tracks 已解析：2 轨；时长 48:06。\n21:18:12 WebCodecs audio aac: config supported.\n21:18:12 WebCodecs video h264: config supported.\n21:18:10 Range 首段检查成功，状态 206，271 ms。\n21:18:10 媒体源已载入内存，本次运行不会写入浏览器存储。\n21:18:08 SharedArrayBuffer 可用，跨源隔离成立。"
+  },
+  "playSamples": [
+    {
+      "wallSeconds": 5,
+      "mediaTime": "00:05 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "7",
+      "bytes": "5.84 MB",
+      "coverage": "Range 覆盖 0%"
+    },
+    {
+      "wallSeconds": 10,
+      "mediaTime": "00:11 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "12",
+      "bytes": "10.84 MB",
+      "coverage": "Range 覆盖 1%"
+    },
+    {
+      "wallSeconds": 15,
+      "mediaTime": "00:16 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "15",
+      "bytes": "13.84 MB",
+      "coverage": "Range 覆盖 1%"
+    },
+    {
+      "wallSeconds": 20,
+      "mediaTime": "00:20 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "18",
+      "bytes": "16.84 MB",
+      "coverage": "Range 覆盖 1%"
+    },
+    {
+      "wallSeconds": 25,
+      "mediaTime": "00:26 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "21",
+      "bytes": "19.84 MB",
+      "coverage": "Range 覆盖 1%"
+    },
+    {
+      "wallSeconds": 30.1,
+      "mediaTime": "00:30 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "23",
+      "bytes": "21.84 MB",
+      "coverage": "Range 覆盖 1%"
+    }
+  ],
+  "afterPause": {
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0",
+    "isolation": "COOP / COEP 已生效",
+    "browserLabel": "Chrome 154 · Win32",
+    "sharedArrayBuffer": "function",
+    "crossOriginIsolated": true,
+    "range": "206 / Range OK",
+    "demux": "Tracks 已解析 · FFmpeg",
+    "codecState": "Video API 可用",
+    "decode": "播放片段已停止",
+    "tracks": "VIDEO\nh264 / avc1.4d0028\n1920 × 1080 · WebCodecs 可解 · eng\n本地\nAUDIO\naac / mp4a.40.2\n2 ch · 44100 Hz · WebCodecs 可解 · eng\n本地",
+    "subtitleNote": "此媒体未发现内嵌字幕轨。",
+    "metrics": {
+      "requests": "24",
+      "bytes": "22.84 MB",
+      "size": "1591.93 MB",
+      "full": "Range 覆盖 1%",
+      "seek": "--"
+    },
+    "seekTime": "00:30 / 48:06",
+    "limitations": "播放片段已停止：928 解码帧 · 29.4 fps · Canvas 绘制 680 帧 · 覆盖 248",
+    "events": "21:18:45 播放片段已停止：解码输出 928 帧 (29.4 fps)，回调延迟 P95 599.2 ms、输出间隔中位数/P95 30.2/37.2 ms；视频包按 demux 解码顺序提交，提交间隔中位数/P95 30.2/37.2 ms，包序中的 PTS 回退 0 次；libav 取包耗时 P95/最大 611.9/636.2 ms；Canvas drawImage 路径耗时 P95/最大 0.2/0.7 ms；Canvas RAF 观察到 680 次更新，更新间隔 P95 38.9 ms，绘制前被覆盖 248 帧；Canvas 更新 PTS 中位间隔 33.3 ms。解码队列回压 20 次、累计 202.3 ms。主线程 Long Task 1 次、累计 68.0 ms、最大 68.0 ms；旧 42 ms 回调阈值命中 927/928 (99.89%)；解码 PTS 中位间隔 33.3 ms、最大 33.3 ms，大于 1.5x 中位数的间隔 0。RAF 是 Canvas 呈现代理，不是物理扫描输出证据。\n21:18:13 静音播放已启用：音频仍解码，但输出增益为 0。\n21:18:13 开始 libav.js 分批 demux / WebCodecs，起点 00:00，每批上限 512.0 KB。\n21:18:12 libav.js Matroska tracks 已解析：2 轨；时长 48:06。\n21:18:12 WebCodecs audio aac: config supported.\n21:18:12 WebCodecs video h264: config supported.\n21:18:10 Range 首段检查成功，状态 206，271 ms。\n21:18:10 媒体源已载入内存，本次运行不会写入浏览器存储。\n21:18:08 SharedArrayBuffer 可用，跨源隔离成立。"
+  },
+  "seeks": [
+    {
+      "targetSeconds": 120,
+      "event": "21:18:46 libav seek 02:00，恢复首帧用时 523 ms。",
+      "metricSeek": "523 ms",
+      "decode": "seek 后首帧解码成功",
+      "seekTime": "02:00 / 48:06",
+      "requests": "25",
+      "bytes": "23.84 MB"
+    },
+    {
+      "targetSeconds": 300,
+      "event": "21:18:47 libav seek 05:00，恢复首帧用时 532 ms。",
+      "metricSeek": "532 ms",
+      "decode": "seek 后首帧解码成功",
+      "seekTime": "05:00 / 48:06",
+      "requests": "26",
+      "bytes": "24.84 MB"
+    }
+  ],
+  "postSeekResume": {
+    "decode": "A/V demux 与解码中",
+    "seekTime": "05:04 / 48:06",
+    "requests": "28"
+  },
+  "final": {
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0",
+    "isolation": "COOP / COEP 已生效",
+    "browserLabel": "Chrome 154 · Win32",
+    "sharedArrayBuffer": "function",
+    "crossOriginIsolated": true,
+    "range": "206 / Range OK",
+    "demux": "Tracks 已解析 · FFmpeg",
+    "codecState": "Video API 可用",
+    "decode": "播放片段已停止",
+    "tracks": "VIDEO\nh264 / avc1.4d0028\n1920 × 1080 · WebCodecs 可解 · eng\n本地\nAUDIO\naac / mp4a.40.2\n2 ch · 44100 Hz · WebCodecs 可解 · eng\n本地",
+    "subtitleNote": "此媒体未发现内嵌字幕轨。",
+    "metrics": {
+      "requests": "29",
+      "bytes": "27.84 MB",
+      "size": "1591.93 MB",
+      "full": "Range 覆盖 2%",
+      "seek": "532 ms"
+    },
+    "seekTime": "05:04 / 48:06",
+    "limitations": "播放片段已停止：133 解码帧 · 26.5 fps · Canvas 绘制 108 帧 · 覆盖 25",
+    "events": "21:18:53 播放片段已停止：解码输出 133 帧 (26.5 fps)，回调延迟 P95 523.7 ms、输出间隔中位数/P95 33.2/37.7 ms；视频包按 demux 解码顺序提交，提交间隔中位数/P95 33.2/37.7 ms，包序中的 PTS 回退 0 次；libav 取包耗时 P95/最大 520.4/554.5 ms；Canvas drawImage 路径耗时 P95/最大 0.2/0.3 ms；Canvas RAF 观察到 108 次更新，更新间隔 P95 38.9 ms，绘制前被覆盖 25 帧；Canvas 更新 PTS 中位间隔 33.3 ms。解码队列回压 2 次、累计 13.8 ms。主线程 Long Task 0 次、累计 0.0 ms、最大 0.0 ms；旧 42 ms 回调阈值命中 133/133 (100.00%)；解码 PTS 中位间隔 33.3 ms、最大 33.3 ms，大于 1.5x 中位数的间隔 0。RAF 是 Canvas 呈现代理，不是物理扫描输出证据。\n21:18:48 静音播放已启用：音频仍解码，但输出增益为 0。\n21:18:48 开始 libav.js 分批 demux / WebCodecs，起点 05:00，每批上限 512.0 KB。\n21:18:47 seek 期间最近 Range: 10341376+1048576, 11364817+1048576, 12384615+1048576, 13419263+1048576, 14442905+1048576, 15476139+1048576, 16500923+1048576, 17549499+1048576, 18571131+1048576, 19619707+1048576, 67961345+1048576, 172406975+1048576。\n21:18:47 libav seek 05:00，恢复首帧用时 532 ms。\n21:18:46 seek 期间最近 Range: 9302081+1048576, 10341376+1048576, 11364817+1048576, 12384615+1048576, 13419263+1048576, 14442905+1048576, 15476139+1048576, 16500923+1048576, 17549499+1048576, 18571131+1048576, 19619707+1048576, 67961345+1048576。\n21:18:46 libav seek 02:00，恢复首帧用时 523 ms。\n21:18:45 播放片段已停止：解码输出 928 帧 (29.4 fps)，回调延迟 P95 599.2 ms、输出间隔中位数/P95 30.2/37.2 ms；视频包按 demux 解码顺序提交，提交间隔中位数/P95 30.2/37.2 ms，包序中的 PTS 回退 0 次；libav 取包耗时 P95/最大 611.9/636.2 ms；Canvas drawImage 路径耗时 P95/最大 0.2/0.7 ms；Canvas RAF 观察到 680 次更新，更新间隔 P95 38.9 ms，绘制前被覆盖 248 帧；Canvas 更新 PTS 中位间隔 33.3 ms。解码队列回压 20 次、累计 202.3 ms。主线程 Long Task 1 次、累计 68.0 ms、最大 68.0 ms；旧 42 ms 回调阈值命中 927/928 (99.89%)；解码 PTS 中位间隔 33.3 ms、最大 33.3 ms，大于 1.5x 中位数的间隔 0。RAF 是 Canvas 呈现代理，不是物理扫描输出证据。\n21:18:13 静音播放已启用：音频仍解码，但输出增益为 0。\n21:18:13 开始 libav.js 分批 demux / WebCodecs，起点 00:00，每批上限 512.0 KB。\n21:18:12 libav.js Matroska tracks 已解析：2 轨；时长 48:06。\n21:18:12 WebCodecs audio aac: config supported.\n21:18:12 WebCodecs video h264: config supported.\n21:18:10 Range 首段检查成功，状态 206，271 ms。\n21:18:10 媒体源已载入内存，本次运行不会写入浏览器存储。\n21:18:08 SharedArrayBuffer 可用，跨源隔离成立。"
+  },
+  "endedAt": "2026-10-06T13:18:54.098Z",
+  "network": {
+    "statuses": {
+      "200": 11,
+      "204": 28,
+      "206": 29,
+      "404": 1
+    },
+    "mediaStatuses": {
+      "204": 28,
+      "206": 29
+    },
+    "encodedBytesByHost": {
+      "localhost:5188": 2785637,
+      "127.0.0.1:5397": 29219488
+    },
+    "mediaResponses": [
+      {
+        "status": 206,
+        "fromDiskCache": false,
+        "contentRange": "bytes 0-65535/1669264524",
+        "acceptRanges": "bytes",
+        "exposeHeaders": "Content-Range, Accept-Ranges, ETag, Content-Length",
+        "allowOrigin": "*"
+      },
+      {
+        "status": 204,
+        "fromDiskCache": false,
+        "contentRange": null,
+        "acceptRanges": null,
+        "exposeHeaders": "Content-Range, Accept-Ranges, ETag, Content-Length",
+        "allowOrigin": "*"
+      },
+      {
+        "status": 206,
+        "fromDiskCache": false,
+        "contentRange": "bytes 0-1048575/1669264524",
+        "acceptRanges": "bytes",
+        "exposeHeaders": "Content-Range, Accept-Ranges, ETag, Content-Length",
+        "allowOrigin": "*"
+      }
+    ],
+    "failed": []
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "at": 1791292689112
+    }
+  ]
+}

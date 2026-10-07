@@ -6,19 +6,32 @@ export type RangeMetrics = {
   fullBodyRejected: boolean;
 };
 
+export type RangeRequest = { pos: number; length: number };
+
 type ProbeResult = { ok: true; status: number; size: number; reason: string } | { ok: false; status: number; size: number; reason: string };
 
 /** Fetches exact byte ranges for the Matroska parser without retaining a file URL. */
 export class RangeFile {
   readonly metrics: RangeMetrics = { requests: 0, bytes: 0, coveredBytes: 0, size: 0, fullBodyRejected: false };
-  private readonly url: string;
+  private url: string;
   private readonly report: (metrics: RangeMetrics) => void;
   private etag: string | null = null;
   private readonly ranges: Array<[number, number]> = [];
+  readonly requests: RangeRequest[] = [];
+  private refreshSignedUrl?: () => Promise<string>;
 
-  constructor(url: string, report: (metrics: RangeMetrics) => void) {
+  constructor(url: string, report: (metrics: RangeMetrics) => void, refreshSignedUrl?: () => Promise<string>) {
     this.url = url;
     this.report = report;
+    this.refreshSignedUrl = refreshSignedUrl;
+  }
+
+  setRefreshSignedUrl(refresh: () => Promise<string>) {
+    this.refreshSignedUrl = refresh;
+  }
+
+  refreshUrl(url: string) {
+    this.url = url;
   }
 
   get size() {
@@ -26,13 +39,22 @@ export class RangeFile {
   }
 
   async probe(): Promise<ProbeResult> {
-    let response: Response;
+    let response: Response | undefined;
     try {
-      response = await fetch(this.url, { headers: { Range: "bytes=0-65535" }, cache: "no-store", referrerPolicy: "no-referrer" });
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        response = await fetch(this.url, { headers: { Range: "bytes=0-65535" }, cache: "no-store", referrerPolicy: "no-referrer" });
+        this.metrics.requests += 1;
+        if (response.status === 403 && attempt === 0 && this.refreshSignedUrl) {
+          await response.body?.cancel();
+          this.url = await this.refreshSignedUrl();
+          continue;
+        }
+        break;
+      }
     } catch (error) {
       return { ok: false, status: 0, size: 0, reason: error instanceof Error ? `CORS / 網路錯誤：${error.message}` : "CORS / 網路錯誤" };
     }
-    this.metrics.requests += 1;
+    if (!response) return { ok: false, status: 0, size: 0, reason: "Range probe did not return a response" };
     this.etag = response.headers.get("ETag");
     const size = parseSize(response.headers.get("Content-Range"));
     this.metrics.size = size;
@@ -70,26 +92,35 @@ export class RangeFile {
   async read(start: number, end: number) {
     const from = Math.max(0, Math.floor(start));
     const to = Math.max(from, Math.floor(end) - 1);
-    const headers = new Headers({ Range: `bytes=${from}-${to}` });
-    if (this.etag) headers.set("If-Range", this.etag);
-    const response = await fetch(this.url, { headers, cache: "no-store", referrerPolicy: "no-referrer" });
-    this.metrics.requests += 1;
-    if (response.status !== 206) {
-      this.metrics.fullBodyRejected = response.status === 200;
-      await response.body?.cancel();
+    this.requests.push({ pos: from, length: to - from + 1 });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const headers = new Headers({ Range: `bytes=${from}-${to}` });
+      if (this.etag) headers.set("If-Range", this.etag);
+      const response = await fetch(this.url, { headers, cache: "no-store", referrerPolicy: "no-referrer" });
+      this.metrics.requests += 1;
+      if (response.status === 403 && attempt === 0 && this.refreshSignedUrl) {
+        await response.body?.cancel();
+        this.url = await this.refreshSignedUrl();
+        continue;
+      }
+      if (response.status !== 206) {
+        this.metrics.fullBodyRejected = response.status === 200;
+        await response.body?.cancel();
+        this.report(this.metrics);
+        throw new Error(response.status === 200 ? "seek 時源站忽略 Range，完整回應已取消" : `seek Range 回應 ${response.status}`);
+      }
+      const contentRange = response.headers.get("Content-Range");
+      if (!contentRange || !rangeMatches(contentRange, from, to)) {
+        await response.body?.cancel();
+        throw new Error(`seek Content-Range 不匹配 bytes=${from}-${to}`);
+      }
+      const body = await response.arrayBuffer();
+      this.metrics.bytes += body.byteLength;
+      this.addCoverage(from, from + body.byteLength);
       this.report(this.metrics);
-      throw new Error(response.status === 200 ? "seek 時源站忽略 Range，完整回應已取消" : `seek Range 回應 ${response.status}`);
+      return body;
     }
-    const contentRange = response.headers.get("Content-Range");
-    if (!contentRange || !rangeMatches(contentRange, from, to)) {
-      await response.body?.cancel();
-      throw new Error(`seek Content-Range 不匹配 bytes=${from}-${to}`);
-    }
-    const body = await response.arrayBuffer();
-    this.metrics.bytes += body.byteLength;
-    this.addCoverage(from, from + body.byteLength);
-    this.report(this.metrics);
-    return body;
+    throw new Error("签名 URL 刷新后 Range 请求仍失败");
   }
 
   private addCoverage(start: number, end: number) {

@@ -1,0 +1,18 @@
+{
+ "label": "avsync-marks-run1",
+ "browser": "chrome",
+ "mode": "file",
+ "fullscreen": true,
+ "captureFile": "D:\\NRT-GIT\\watchparty\\dev\\browser-mkv-poc\\verify\\results\\avsync-marks-run1-capture.mkv",
+ "devices": {
+  "video": "ddagrab output_idx=0 @30fps scaled 640x360",
+  "audio0": "Microphone (High Definition Audio Device)",
+  "audio1": "Loopback 1/2 (2- E1x2 OTG)"
+ },
+ "captureStartEpochMs": 1791357424037,
+ "captureEndEpochMs": 1791357739720,
+ "captureSecondsPlanned": 400,
+ "harnessExit": 0,
+ "captureExit": 0,
+ "file": "D:\\NRT-GIT\\watchparty\\dev\\browser-mkv-poc\\fixtures\\av-sync-marks-400s.mkv"
+}

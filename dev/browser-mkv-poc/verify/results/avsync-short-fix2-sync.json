@@ -1,0 +1,43 @@
+{
+ "label": "avsync-short-fix2",
+ "captureFile": "D:\\NRT-GIT\\watchparty\\dev\\browser-mkv-poc\\verify\\results\\avsync-short-fix2-capture.mkv",
+ "captureSeconds": "38.3",
+ "devices": {
+  "video": "ddagrab output_idx=0 @30fps scaled 640x360",
+  "audio0": "Microphone (High Definition Audio Device)",
+  "audio1": "Loopback 1/2 (2- E1x2 OTG)"
+ },
+ "video": {
+  "frames": 1078,
+  "lastPts": 35.9,
+  "nominalFps": 30,
+  "onsets": [
+   2.367,
+   7.233,
+   12.233,
+   17.233,
+   25.2,
+   27.267,
+   32.267,
+   34.533
+  ]
+ },
+ "audio": {
+  "onsetCount": 0,
+  "noiseFloor": 0,
+  "peakEnv": 0,
+  "onsets": []
+ },
+ "e1x2Control": {
+  "maxEnv": 0
+ },
+ "pairs": [],
+ "segmentStats": [],
+ "overallStats": null,
+ "drift": null,
+ "uncertainty": {
+  "videoFrameMs": 33.3,
+  "audioEnvelopeMs": 5,
+  "note": "Absolute offset additionally carries a constant capture-side skew between ddagrab and dshow start latencies; per-mark variance and drift are skew-independent."
+ }
+}

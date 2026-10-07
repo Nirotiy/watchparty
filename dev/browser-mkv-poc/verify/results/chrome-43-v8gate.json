@@ -1,0 +1,2081 @@
+{
+  "label": "chrome-43-v8gate",
+  "browser": "chrome",
+  "executable": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+  "mode": "url",
+  "pageUrl": "http://localhost:5188/?mute=1",
+  "startedAt": "2026-10-06T17:47:07.474Z",
+  "steps": [
+    {
+      "step": "select-source",
+      "at": 1791308829116
+    }
+  ],
+  "devtoolsPort": 4920,
+  "initial": {
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "isolation": "COOP / COEP 已生效",
+    "browserLabel": "Chrome 154 · Win32",
+    "sharedArrayBuffer": "function",
+    "crossOriginIsolated": true,
+    "range": "等待",
+    "demux": "等待",
+    "codecState": "等待",
+    "decode": "等待媒体源",
+    "tracks": "检查媒体后显示轨道及原生能力。",
+    "subtitleNote": "",
+    "metrics": {
+      "requests": "0",
+      "bytes": "0 B",
+      "size": "--",
+      "full": "未发生",
+      "seek": "--"
+    },
+    "seekTime": "00:00 / --:--",
+    "limitations": "连续视频包测试已接入；音频输出、A/V sync 與 20 分鐘基準尚未驗收。",
+    "events": "01:47:08 SharedArrayBuffer 可用，跨源隔离成立。"
+  },
+  "afterLoad": {
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "isolation": "COOP / COEP 已生效",
+    "browserLabel": "Chrome 154 · Win32",
+    "sharedArrayBuffer": "function",
+    "crossOriginIsolated": true,
+    "range": "206 / Range OK",
+    "demux": "Tracks 已解析 · FFmpeg",
+    "codecState": "Video API 可用",
+    "decode": "能力回报可用，待实际解码",
+    "tracks": "VIDEO\nh264 / avc1.4d0028\n1920 × 1080 · WebCodecs 可解 · eng\n本地\nAUDIO\naac / mp4a.40.2\n2 ch · 44100 Hz · WebCodecs 可解 · eng\n本地",
+    "subtitleNote": "此媒体未发现内嵌字幕轨。",
+    "metrics": {
+      "requests": "6",
+      "bytes": "14.39 MB",
+      "size": "1591.93 MB",
+      "full": "Range 覆盖 1%",
+      "seek": "--"
+    },
+    "seekTime": "00:00 / 48:06",
+    "limitations": "连续视频包测试已接入；音频输出、A/V sync 與 20 分鐘基準尚未驗收。",
+    "events": "01:47:12 libav.js Matroska tracks 已解析：2 轨；时长 48:06。\n01:47:12 WebCodecs audio aac: config supported.\n01:47:12 WebCodecs video h264: config supported.\n01:47:10 Range 首段检查成功，状态 206，1289 ms。\n01:47:09 媒体源已载入内存，本次运行不会写入浏览器存储。\n01:47:08 SharedArrayBuffer 可用，跨源隔离成立。"
+  },
+  "playSamples": [
+    {
+      "wallSeconds": 5,
+      "mediaTime": "00:06 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "9",
+      "bytes": "30.39 MB",
+      "coverage": "Range 覆盖 2%"
+    },
+    {
+      "wallSeconds": 10,
+      "mediaTime": "00:11 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "10",
+      "bytes": "34.39 MB",
+      "coverage": "Range 覆盖 2%"
+    },
+    {
+      "wallSeconds": 15,
+      "mediaTime": "00:16 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "11",
+      "bytes": "38.39 MB",
+      "coverage": "Range 覆盖 2%"
+    },
+    {
+      "wallSeconds": 20,
+      "mediaTime": "00:21 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "12",
+      "bytes": "42.39 MB",
+      "coverage": "Range 覆盖 3%"
+    },
+    {
+      "wallSeconds": 25.1,
+      "mediaTime": "00:26 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "13",
+      "bytes": "46.39 MB",
+      "coverage": "Range 覆盖 3%"
+    },
+    {
+      "wallSeconds": 30.1,
+      "mediaTime": "00:31 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "13",
+      "bytes": "46.39 MB",
+      "coverage": "Range 覆盖 3%"
+    },
+    {
+      "wallSeconds": 35.1,
+      "mediaTime": "00:36 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "14",
+      "bytes": "50.39 MB",
+      "coverage": "Range 覆盖 3%"
+    },
+    {
+      "wallSeconds": 40.1,
+      "mediaTime": "00:41 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "15",
+      "bytes": "54.39 MB",
+      "coverage": "Range 覆盖 3%"
+    },
+    {
+      "wallSeconds": 45.1,
+      "mediaTime": "00:46 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "15",
+      "bytes": "54.39 MB",
+      "coverage": "Range 覆盖 3%"
+    },
+    {
+      "wallSeconds": 50.1,
+      "mediaTime": "00:51 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "16",
+      "bytes": "58.39 MB",
+      "coverage": "Range 覆盖 4%"
+    },
+    {
+      "wallSeconds": 55.1,
+      "mediaTime": "00:56 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "17",
+      "bytes": "62.39 MB",
+      "coverage": "Range 覆盖 4%"
+    },
+    {
+      "wallSeconds": 60.1,
+      "mediaTime": "01:01 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "17",
+      "bytes": "62.39 MB",
+      "coverage": "Range 覆盖 4%"
+    },
+    {
+      "wallSeconds": 65.1,
+      "mediaTime": "01:06 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "18",
+      "bytes": "66.39 MB",
+      "coverage": "Range 覆盖 4%"
+    },
+    {
+      "wallSeconds": 70.1,
+      "mediaTime": "01:11 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "19",
+      "bytes": "70.39 MB",
+      "coverage": "Range 覆盖 4%"
+    },
+    {
+      "wallSeconds": 75.2,
+      "mediaTime": "01:16 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "19",
+      "bytes": "70.39 MB",
+      "coverage": "Range 覆盖 4%"
+    },
+    {
+      "wallSeconds": 80.2,
+      "mediaTime": "01:21 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "20",
+      "bytes": "74.39 MB",
+      "coverage": "Range 覆盖 5%"
+    },
+    {
+      "wallSeconds": 85.2,
+      "mediaTime": "01:26 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "21",
+      "bytes": "78.39 MB",
+      "coverage": "Range 覆盖 5%"
+    },
+    {
+      "wallSeconds": 90.2,
+      "mediaTime": "01:31 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "22",
+      "bytes": "82.39 MB",
+      "coverage": "Range 覆盖 5%"
+    },
+    {
+      "wallSeconds": 95.2,
+      "mediaTime": "01:36 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "22",
+      "bytes": "82.39 MB",
+      "coverage": "Range 覆盖 5%"
+    },
+    {
+      "wallSeconds": 100.2,
+      "mediaTime": "01:41 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "23",
+      "bytes": "86.39 MB",
+      "coverage": "Range 覆盖 5%"
+    },
+    {
+      "wallSeconds": 105.2,
+      "mediaTime": "01:46 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "23",
+      "bytes": "86.39 MB",
+      "coverage": "Range 覆盖 5%"
+    },
+    {
+      "wallSeconds": 110.2,
+      "mediaTime": "01:51 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "24",
+      "bytes": "90.39 MB",
+      "coverage": "Range 覆盖 6%"
+    },
+    {
+      "wallSeconds": 115.2,
+      "mediaTime": "01:56 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "25",
+      "bytes": "94.39 MB",
+      "coverage": "Range 覆盖 6%"
+    },
+    {
+      "wallSeconds": 120.3,
+      "mediaTime": "02:01 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "26",
+      "bytes": "98.39 MB",
+      "coverage": "Range 覆盖 6%"
+    },
+    {
+      "wallSeconds": 125.3,
+      "mediaTime": "02:06 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "27",
+      "bytes": "102.39 MB",
+      "coverage": "Range 覆盖 6%"
+    },
+    {
+      "wallSeconds": 130.3,
+      "mediaTime": "02:11 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "27",
+      "bytes": "102.39 MB",
+      "coverage": "Range 覆盖 6%"
+    },
+    {
+      "wallSeconds": 135.3,
+      "mediaTime": "02:16 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "28",
+      "bytes": "106.39 MB",
+      "coverage": "Range 覆盖 7%"
+    },
+    {
+      "wallSeconds": 140.3,
+      "mediaTime": "02:21 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "29",
+      "bytes": "110.39 MB",
+      "coverage": "Range 覆盖 7%"
+    },
+    {
+      "wallSeconds": 145.3,
+      "mediaTime": "02:26 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "29",
+      "bytes": "110.39 MB",
+      "coverage": "Range 覆盖 7%"
+    },
+    {
+      "wallSeconds": 150.3,
+      "mediaTime": "02:31 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "30",
+      "bytes": "114.39 MB",
+      "coverage": "Range 覆盖 7%"
+    },
+    {
+      "wallSeconds": 155.3,
+      "mediaTime": "02:36 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "30",
+      "bytes": "114.39 MB",
+      "coverage": "Range 覆盖 7%"
+    },
+    {
+      "wallSeconds": 160.4,
+      "mediaTime": "02:41 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "31",
+      "bytes": "118.39 MB",
+      "coverage": "Range 覆盖 7%"
+    },
+    {
+      "wallSeconds": 165.4,
+      "mediaTime": "02:46 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "31",
+      "bytes": "118.39 MB",
+      "coverage": "Range 覆盖 7%"
+    },
+    {
+      "wallSeconds": 170.4,
+      "mediaTime": "02:51 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "32",
+      "bytes": "122.39 MB",
+      "coverage": "Range 覆盖 8%"
+    },
+    {
+      "wallSeconds": 175.4,
+      "mediaTime": "02:56 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "33",
+      "bytes": "126.39 MB",
+      "coverage": "Range 覆盖 8%"
+    },
+    {
+      "wallSeconds": 180.4,
+      "mediaTime": "03:01 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "33",
+      "bytes": "126.39 MB",
+      "coverage": "Range 覆盖 8%"
+    },
+    {
+      "wallSeconds": 185.4,
+      "mediaTime": "03:06 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "34",
+      "bytes": "130.39 MB",
+      "coverage": "Range 覆盖 8%"
+    },
+    {
+      "wallSeconds": 190.4,
+      "mediaTime": "03:11 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "35",
+      "bytes": "134.39 MB",
+      "coverage": "Range 覆盖 8%"
+    },
+    {
+      "wallSeconds": 195.4,
+      "mediaTime": "03:16 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "36",
+      "bytes": "138.39 MB",
+      "coverage": "Range 覆盖 9%"
+    },
+    {
+      "wallSeconds": 200.4,
+      "mediaTime": "03:21 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "37",
+      "bytes": "142.39 MB",
+      "coverage": "Range 覆盖 9%"
+    },
+    {
+      "wallSeconds": 205.4,
+      "mediaTime": "03:26 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "37",
+      "bytes": "142.39 MB",
+      "coverage": "Range 覆盖 9%"
+    },
+    {
+      "wallSeconds": 210.5,
+      "mediaTime": "03:31 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "38",
+      "bytes": "146.39 MB",
+      "coverage": "Range 覆盖 9%"
+    },
+    {
+      "wallSeconds": 215.5,
+      "mediaTime": "03:36 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "39",
+      "bytes": "146.39 MB",
+      "coverage": "Range 覆盖 9%"
+    },
+    {
+      "wallSeconds": 220.5,
+      "mediaTime": "03:41 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "39",
+      "bytes": "150.39 MB",
+      "coverage": "Range 覆盖 9%"
+    },
+    {
+      "wallSeconds": 225.5,
+      "mediaTime": "03:46 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "40",
+      "bytes": "154.39 MB",
+      "coverage": "Range 覆盖 10%"
+    },
+    {
+      "wallSeconds": 230.5,
+      "mediaTime": "03:51 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "41",
+      "bytes": "158.39 MB",
+      "coverage": "Range 覆盖 10%"
+    },
+    {
+      "wallSeconds": 235.5,
+      "mediaTime": "03:56 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "41",
+      "bytes": "158.39 MB",
+      "coverage": "Range 覆盖 10%"
+    },
+    {
+      "wallSeconds": 240.5,
+      "mediaTime": "04:01 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "42",
+      "bytes": "162.39 MB",
+      "coverage": "Range 覆盖 10%"
+    },
+    {
+      "wallSeconds": 245.5,
+      "mediaTime": "04:06 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "43",
+      "bytes": "166.39 MB",
+      "coverage": "Range 覆盖 10%"
+    },
+    {
+      "wallSeconds": 250.5,
+      "mediaTime": "04:11 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "43",
+      "bytes": "166.39 MB",
+      "coverage": "Range 覆盖 10%"
+    },
+    {
+      "wallSeconds": 255.5,
+      "mediaTime": "04:16 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "44",
+      "bytes": "170.39 MB",
+      "coverage": "Range 覆盖 11%"
+    },
+    {
+      "wallSeconds": 260.5,
+      "mediaTime": "04:21 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "45",
+      "bytes": "174.39 MB",
+      "coverage": "Range 覆盖 11%"
+    },
+    {
+      "wallSeconds": 265.6,
+      "mediaTime": "04:26 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "45",
+      "bytes": "174.39 MB",
+      "coverage": "Range 覆盖 11%"
+    },
+    {
+      "wallSeconds": 270.6,
+      "mediaTime": "04:31 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "46",
+      "bytes": "178.39 MB",
+      "coverage": "Range 覆盖 11%"
+    },
+    {
+      "wallSeconds": 275.6,
+      "mediaTime": "04:36 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "47",
+      "bytes": "182.39 MB",
+      "coverage": "Range 覆盖 11%"
+    },
+    {
+      "wallSeconds": 280.6,
+      "mediaTime": "04:41 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "48",
+      "bytes": "186.39 MB",
+      "coverage": "Range 覆盖 12%"
+    },
+    {
+      "wallSeconds": 285.6,
+      "mediaTime": "04:46 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "48",
+      "bytes": "186.39 MB",
+      "coverage": "Range 覆盖 12%"
+    },
+    {
+      "wallSeconds": 290.6,
+      "mediaTime": "04:51 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "49",
+      "bytes": "190.39 MB",
+      "coverage": "Range 覆盖 12%"
+    },
+    {
+      "wallSeconds": 295.6,
+      "mediaTime": "04:57 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "49",
+      "bytes": "190.39 MB",
+      "coverage": "Range 覆盖 12%"
+    },
+    {
+      "wallSeconds": 300.6,
+      "mediaTime": "05:02 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "50",
+      "bytes": "194.39 MB",
+      "coverage": "Range 覆盖 12%"
+    },
+    {
+      "wallSeconds": 305.6,
+      "mediaTime": "05:07 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "51",
+      "bytes": "198.39 MB",
+      "coverage": "Range 覆盖 12%"
+    },
+    {
+      "wallSeconds": 310.6,
+      "mediaTime": "05:12 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "51",
+      "bytes": "198.39 MB",
+      "coverage": "Range 覆盖 12%"
+    },
+    {
+      "wallSeconds": 315.7,
+      "mediaTime": "05:17 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "52",
+      "bytes": "202.39 MB",
+      "coverage": "Range 覆盖 13%"
+    },
+    {
+      "wallSeconds": 320.7,
+      "mediaTime": "05:22 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "53",
+      "bytes": "206.39 MB",
+      "coverage": "Range 覆盖 13%"
+    },
+    {
+      "wallSeconds": 325.7,
+      "mediaTime": "05:27 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "53",
+      "bytes": "206.39 MB",
+      "coverage": "Range 覆盖 13%"
+    },
+    {
+      "wallSeconds": 330.7,
+      "mediaTime": "05:32 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "54",
+      "bytes": "210.39 MB",
+      "coverage": "Range 覆盖 13%"
+    },
+    {
+      "wallSeconds": 335.7,
+      "mediaTime": "05:37 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "55",
+      "bytes": "214.39 MB",
+      "coverage": "Range 覆盖 13%"
+    },
+    {
+      "wallSeconds": 340.7,
+      "mediaTime": "05:42 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "55",
+      "bytes": "214.39 MB",
+      "coverage": "Range 覆盖 13%"
+    },
+    {
+      "wallSeconds": 345.7,
+      "mediaTime": "05:47 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "56",
+      "bytes": "218.39 MB",
+      "coverage": "Range 覆盖 14%"
+    },
+    {
+      "wallSeconds": 350.7,
+      "mediaTime": "05:52 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "57",
+      "bytes": "222.39 MB",
+      "coverage": "Range 覆盖 14%"
+    },
+    {
+      "wallSeconds": 355.7,
+      "mediaTime": "05:57 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "57",
+      "bytes": "222.39 MB",
+      "coverage": "Range 覆盖 14%"
+    },
+    {
+      "wallSeconds": 360.8,
+      "mediaTime": "06:02 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "58",
+      "bytes": "226.39 MB",
+      "coverage": "Range 覆盖 14%"
+    },
+    {
+      "wallSeconds": 365.8,
+      "mediaTime": "06:07 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "59",
+      "bytes": "230.39 MB",
+      "coverage": "Range 覆盖 14%"
+    },
+    {
+      "wallSeconds": 370.8,
+      "mediaTime": "06:12 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "59",
+      "bytes": "230.39 MB",
+      "coverage": "Range 覆盖 14%"
+    },
+    {
+      "wallSeconds": 375.8,
+      "mediaTime": "06:17 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "60",
+      "bytes": "234.39 MB",
+      "coverage": "Range 覆盖 15%"
+    },
+    {
+      "wallSeconds": 380.8,
+      "mediaTime": "06:22 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "60",
+      "bytes": "234.39 MB",
+      "coverage": "Range 覆盖 15%"
+    },
+    {
+      "wallSeconds": 385.8,
+      "mediaTime": "06:27 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "60",
+      "bytes": "234.39 MB",
+      "coverage": "Range 覆盖 15%"
+    },
+    {
+      "wallSeconds": 390.8,
+      "mediaTime": "06:32 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "61",
+      "bytes": "238.39 MB",
+      "coverage": "Range 覆盖 15%"
+    },
+    {
+      "wallSeconds": 395.8,
+      "mediaTime": "06:37 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "62",
+      "bytes": "242.39 MB",
+      "coverage": "Range 覆盖 15%"
+    },
+    {
+      "wallSeconds": 400.8,
+      "mediaTime": "06:42 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "63",
+      "bytes": "246.39 MB",
+      "coverage": "Range 覆盖 15%"
+    },
+    {
+      "wallSeconds": 405.8,
+      "mediaTime": "06:47 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "64",
+      "bytes": "250.39 MB",
+      "coverage": "Range 覆盖 16%"
+    },
+    {
+      "wallSeconds": 410.9,
+      "mediaTime": "06:52 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "65",
+      "bytes": "254.39 MB",
+      "coverage": "Range 覆盖 16%"
+    },
+    {
+      "wallSeconds": 415.9,
+      "mediaTime": "06:57 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "66",
+      "bytes": "258.39 MB",
+      "coverage": "Range 覆盖 16%"
+    },
+    {
+      "wallSeconds": 420.9,
+      "mediaTime": "07:02 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "67",
+      "bytes": "262.39 MB",
+      "coverage": "Range 覆盖 16%"
+    },
+    {
+      "wallSeconds": 425.9,
+      "mediaTime": "07:07 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "67",
+      "bytes": "262.39 MB",
+      "coverage": "Range 覆盖 16%"
+    },
+    {
+      "wallSeconds": 430.9,
+      "mediaTime": "07:12 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "68",
+      "bytes": "266.39 MB",
+      "coverage": "Range 覆盖 17%"
+    },
+    {
+      "wallSeconds": 435.9,
+      "mediaTime": "07:17 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "69",
+      "bytes": "270.39 MB",
+      "coverage": "Range 覆盖 17%"
+    },
+    {
+      "wallSeconds": 440.9,
+      "mediaTime": "07:22 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "69",
+      "bytes": "270.39 MB",
+      "coverage": "Range 覆盖 17%"
+    },
+    {
+      "wallSeconds": 445.9,
+      "mediaTime": "07:27 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "70",
+      "bytes": "274.39 MB",
+      "coverage": "Range 覆盖 17%"
+    },
+    {
+      "wallSeconds": 450.9,
+      "mediaTime": "07:32 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "71",
+      "bytes": "278.39 MB",
+      "coverage": "Range 覆盖 17%"
+    },
+    {
+      "wallSeconds": 455.9,
+      "mediaTime": "07:37 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "72",
+      "bytes": "282.39 MB",
+      "coverage": "Range 覆盖 18%"
+    },
+    {
+      "wallSeconds": 461,
+      "mediaTime": "07:42 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "72",
+      "bytes": "282.39 MB",
+      "coverage": "Range 覆盖 18%"
+    },
+    {
+      "wallSeconds": 466,
+      "mediaTime": "07:47 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "73",
+      "bytes": "286.39 MB",
+      "coverage": "Range 覆盖 18%"
+    },
+    {
+      "wallSeconds": 471,
+      "mediaTime": "07:52 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "74",
+      "bytes": "290.39 MB",
+      "coverage": "Range 覆盖 18%"
+    },
+    {
+      "wallSeconds": 476,
+      "mediaTime": "07:57 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "75",
+      "bytes": "294.39 MB",
+      "coverage": "Range 覆盖 18%"
+    },
+    {
+      "wallSeconds": 481,
+      "mediaTime": "08:02 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "75",
+      "bytes": "294.39 MB",
+      "coverage": "Range 覆盖 18%"
+    },
+    {
+      "wallSeconds": 486,
+      "mediaTime": "08:07 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "76",
+      "bytes": "298.39 MB",
+      "coverage": "Range 覆盖 19%"
+    },
+    {
+      "wallSeconds": 491,
+      "mediaTime": "08:12 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "78",
+      "bytes": "306.39 MB",
+      "coverage": "Range 覆盖 19%"
+    },
+    {
+      "wallSeconds": 496,
+      "mediaTime": "08:17 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "78",
+      "bytes": "306.39 MB",
+      "coverage": "Range 覆盖 19%"
+    },
+    {
+      "wallSeconds": 501,
+      "mediaTime": "08:22 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "79",
+      "bytes": "310.39 MB",
+      "coverage": "Range 覆盖 19%"
+    },
+    {
+      "wallSeconds": 506,
+      "mediaTime": "08:27 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "79",
+      "bytes": "310.39 MB",
+      "coverage": "Range 覆盖 19%"
+    },
+    {
+      "wallSeconds": 511,
+      "mediaTime": "08:32 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "80",
+      "bytes": "314.39 MB",
+      "coverage": "Range 覆盖 20%"
+    },
+    {
+      "wallSeconds": 516.1,
+      "mediaTime": "08:37 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "81",
+      "bytes": "314.39 MB",
+      "coverage": "Range 覆盖 20%"
+    },
+    {
+      "wallSeconds": 521.1,
+      "mediaTime": "08:42 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "82",
+      "bytes": "322.39 MB",
+      "coverage": "Range 覆盖 20%"
+    },
+    {
+      "wallSeconds": 526.1,
+      "mediaTime": "08:47 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "82",
+      "bytes": "322.39 MB",
+      "coverage": "Range 覆盖 20%"
+    },
+    {
+      "wallSeconds": 531.1,
+      "mediaTime": "08:52 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "83",
+      "bytes": "326.39 MB",
+      "coverage": "Range 覆盖 20%"
+    },
+    {
+      "wallSeconds": 536.1,
+      "mediaTime": "08:57 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "84",
+      "bytes": "330.39 MB",
+      "coverage": "Range 覆盖 21%"
+    },
+    {
+      "wallSeconds": 541.1,
+      "mediaTime": "09:02 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "85",
+      "bytes": "334.39 MB",
+      "coverage": "Range 覆盖 21%"
+    },
+    {
+      "wallSeconds": 546.1,
+      "mediaTime": "09:07 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "85",
+      "bytes": "334.39 MB",
+      "coverage": "Range 覆盖 21%"
+    },
+    {
+      "wallSeconds": 551.1,
+      "mediaTime": "09:12 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "86",
+      "bytes": "338.39 MB",
+      "coverage": "Range 覆盖 21%"
+    },
+    {
+      "wallSeconds": 556.1,
+      "mediaTime": "09:17 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "87",
+      "bytes": "342.39 MB",
+      "coverage": "Range 覆盖 22%"
+    },
+    {
+      "wallSeconds": 561.2,
+      "mediaTime": "09:22 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "87",
+      "bytes": "342.39 MB",
+      "coverage": "Range 覆盖 22%"
+    },
+    {
+      "wallSeconds": 566.2,
+      "mediaTime": "09:27 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "88",
+      "bytes": "346.39 MB",
+      "coverage": "Range 覆盖 22%"
+    },
+    {
+      "wallSeconds": 571.2,
+      "mediaTime": "09:32 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "89",
+      "bytes": "350.39 MB",
+      "coverage": "Range 覆盖 22%"
+    },
+    {
+      "wallSeconds": 576.2,
+      "mediaTime": "09:37 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "89",
+      "bytes": "350.39 MB",
+      "coverage": "Range 覆盖 22%"
+    },
+    {
+      "wallSeconds": 581.2,
+      "mediaTime": "09:42 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "90",
+      "bytes": "354.39 MB",
+      "coverage": "Range 覆盖 22%"
+    },
+    {
+      "wallSeconds": 586.2,
+      "mediaTime": "09:47 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "91",
+      "bytes": "358.39 MB",
+      "coverage": "Range 覆盖 23%"
+    },
+    {
+      "wallSeconds": 591.2,
+      "mediaTime": "09:52 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "92",
+      "bytes": "362.39 MB",
+      "coverage": "Range 覆盖 23%"
+    },
+    {
+      "wallSeconds": 596.2,
+      "mediaTime": "09:57 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "92",
+      "bytes": "362.39 MB",
+      "coverage": "Range 覆盖 23%"
+    },
+    {
+      "wallSeconds": 601.2,
+      "mediaTime": "10:02 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "93",
+      "bytes": "366.39 MB",
+      "coverage": "Range 覆盖 23%"
+    },
+    {
+      "wallSeconds": 606.3,
+      "mediaTime": "10:07 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "93",
+      "bytes": "366.39 MB",
+      "coverage": "Range 覆盖 23%"
+    },
+    {
+      "wallSeconds": 611.3,
+      "mediaTime": "10:12 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "94",
+      "bytes": "370.39 MB",
+      "coverage": "Range 覆盖 23%"
+    },
+    {
+      "wallSeconds": 616.3,
+      "mediaTime": "10:17 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "95",
+      "bytes": "374.39 MB",
+      "coverage": "Range 覆盖 24%"
+    },
+    {
+      "wallSeconds": 621.3,
+      "mediaTime": "10:22 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "95",
+      "bytes": "374.39 MB",
+      "coverage": "Range 覆盖 24%"
+    },
+    {
+      "wallSeconds": 626.3,
+      "mediaTime": "10:27 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "96",
+      "bytes": "378.39 MB",
+      "coverage": "Range 覆盖 24%"
+    },
+    {
+      "wallSeconds": 631.3,
+      "mediaTime": "10:32 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "97",
+      "bytes": "382.39 MB",
+      "coverage": "Range 覆盖 24%"
+    },
+    {
+      "wallSeconds": 636.3,
+      "mediaTime": "10:37 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "97",
+      "bytes": "382.39 MB",
+      "coverage": "Range 覆盖 24%"
+    },
+    {
+      "wallSeconds": 641.3,
+      "mediaTime": "10:42 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "98",
+      "bytes": "386.39 MB",
+      "coverage": "Range 覆盖 24%"
+    },
+    {
+      "wallSeconds": 646.3,
+      "mediaTime": "10:47 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "98",
+      "bytes": "386.39 MB",
+      "coverage": "Range 覆盖 24%"
+    },
+    {
+      "wallSeconds": 651.3,
+      "mediaTime": "10:52 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "99",
+      "bytes": "390.39 MB",
+      "coverage": "Range 覆盖 25%"
+    },
+    {
+      "wallSeconds": 656.4,
+      "mediaTime": "10:57 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "100",
+      "bytes": "394.39 MB",
+      "coverage": "Range 覆盖 25%"
+    },
+    {
+      "wallSeconds": 661.4,
+      "mediaTime": "11:02 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "100",
+      "bytes": "394.39 MB",
+      "coverage": "Range 覆盖 25%"
+    },
+    {
+      "wallSeconds": 666.4,
+      "mediaTime": "11:07 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "101",
+      "bytes": "398.39 MB",
+      "coverage": "Range 覆盖 25%"
+    },
+    {
+      "wallSeconds": 671.4,
+      "mediaTime": "11:12 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "102",
+      "bytes": "402.39 MB",
+      "coverage": "Range 覆盖 25%"
+    },
+    {
+      "wallSeconds": 676.4,
+      "mediaTime": "11:17 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "102",
+      "bytes": "402.39 MB",
+      "coverage": "Range 覆盖 25%"
+    },
+    {
+      "wallSeconds": 681.4,
+      "mediaTime": "11:22 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "103",
+      "bytes": "406.39 MB",
+      "coverage": "Range 覆盖 26%"
+    },
+    {
+      "wallSeconds": 686.4,
+      "mediaTime": "11:27 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "103",
+      "bytes": "406.39 MB",
+      "coverage": "Range 覆盖 26%"
+    },
+    {
+      "wallSeconds": 691.4,
+      "mediaTime": "11:32 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "105",
+      "bytes": "414.39 MB",
+      "coverage": "Range 覆盖 26%"
+    },
+    {
+      "wallSeconds": 696.4,
+      "mediaTime": "11:37 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "106",
+      "bytes": "418.39 MB",
+      "coverage": "Range 覆盖 26%"
+    },
+    {
+      "wallSeconds": 701.4,
+      "mediaTime": "11:42 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "106",
+      "bytes": "418.39 MB",
+      "coverage": "Range 覆盖 26%"
+    },
+    {
+      "wallSeconds": 706.4,
+      "mediaTime": "11:47 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "107",
+      "bytes": "422.39 MB",
+      "coverage": "Range 覆盖 27%"
+    },
+    {
+      "wallSeconds": 711.4,
+      "mediaTime": "11:52 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "108",
+      "bytes": "426.39 MB",
+      "coverage": "Range 覆盖 27%"
+    },
+    {
+      "wallSeconds": 716.5,
+      "mediaTime": "11:57 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "108",
+      "bytes": "426.39 MB",
+      "coverage": "Range 覆盖 27%"
+    },
+    {
+      "wallSeconds": 721.5,
+      "mediaTime": "12:02 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "109",
+      "bytes": "430.39 MB",
+      "coverage": "Range 覆盖 27%"
+    },
+    {
+      "wallSeconds": 726.5,
+      "mediaTime": "12:07 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "110",
+      "bytes": "434.39 MB",
+      "coverage": "Range 覆盖 27%"
+    },
+    {
+      "wallSeconds": 731.5,
+      "mediaTime": "12:12 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "111",
+      "bytes": "438.39 MB",
+      "coverage": "Range 覆盖 28%"
+    },
+    {
+      "wallSeconds": 736.5,
+      "mediaTime": "12:17 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "111",
+      "bytes": "438.39 MB",
+      "coverage": "Range 覆盖 28%"
+    },
+    {
+      "wallSeconds": 741.5,
+      "mediaTime": "12:22 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "112",
+      "bytes": "442.39 MB",
+      "coverage": "Range 覆盖 28%"
+    },
+    {
+      "wallSeconds": 746.5,
+      "mediaTime": "12:27 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "112",
+      "bytes": "442.39 MB",
+      "coverage": "Range 覆盖 28%"
+    },
+    {
+      "wallSeconds": 751.5,
+      "mediaTime": "12:32 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "113",
+      "bytes": "446.39 MB",
+      "coverage": "Range 覆盖 28%"
+    },
+    {
+      "wallSeconds": 756.5,
+      "mediaTime": "12:37 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "113",
+      "bytes": "446.39 MB",
+      "coverage": "Range 覆盖 28%"
+    },
+    {
+      "wallSeconds": 761.6,
+      "mediaTime": "12:42 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "114",
+      "bytes": "450.39 MB",
+      "coverage": "Range 覆盖 28%"
+    },
+    {
+      "wallSeconds": 766.6,
+      "mediaTime": "12:47 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "114",
+      "bytes": "450.39 MB",
+      "coverage": "Range 覆盖 28%"
+    },
+    {
+      "wallSeconds": 771.6,
+      "mediaTime": "12:52 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "115",
+      "bytes": "454.39 MB",
+      "coverage": "Range 覆盖 29%"
+    },
+    {
+      "wallSeconds": 776.6,
+      "mediaTime": "12:57 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "116",
+      "bytes": "458.39 MB",
+      "coverage": "Range 覆盖 29%"
+    },
+    {
+      "wallSeconds": 781.6,
+      "mediaTime": "13:02 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "116",
+      "bytes": "458.39 MB",
+      "coverage": "Range 覆盖 29%"
+    },
+    {
+      "wallSeconds": 786.6,
+      "mediaTime": "13:07 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "117",
+      "bytes": "462.39 MB",
+      "coverage": "Range 覆盖 29%"
+    },
+    {
+      "wallSeconds": 791.6,
+      "mediaTime": "13:13 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "118",
+      "bytes": "466.39 MB",
+      "coverage": "Range 覆盖 29%"
+    },
+    {
+      "wallSeconds": 796.6,
+      "mediaTime": "13:18 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "119",
+      "bytes": "470.39 MB",
+      "coverage": "Range 覆盖 30%"
+    },
+    {
+      "wallSeconds": 801.6,
+      "mediaTime": "13:23 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "119",
+      "bytes": "470.39 MB",
+      "coverage": "Range 覆盖 30%"
+    },
+    {
+      "wallSeconds": 806.6,
+      "mediaTime": "13:28 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "120",
+      "bytes": "474.39 MB",
+      "coverage": "Range 覆盖 30%"
+    },
+    {
+      "wallSeconds": 811.6,
+      "mediaTime": "13:33 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "121",
+      "bytes": "478.39 MB",
+      "coverage": "Range 覆盖 30%"
+    },
+    {
+      "wallSeconds": 816.7,
+      "mediaTime": "13:38 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "122",
+      "bytes": "482.39 MB",
+      "coverage": "Range 覆盖 30%"
+    },
+    {
+      "wallSeconds": 821.7,
+      "mediaTime": "13:43 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "122",
+      "bytes": "482.39 MB",
+      "coverage": "Range 覆盖 30%"
+    },
+    {
+      "wallSeconds": 826.7,
+      "mediaTime": "13:48 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "123",
+      "bytes": "486.39 MB",
+      "coverage": "Range 覆盖 31%"
+    },
+    {
+      "wallSeconds": 831.7,
+      "mediaTime": "13:53 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "124",
+      "bytes": "490.39 MB",
+      "coverage": "Range 覆盖 31%"
+    },
+    {
+      "wallSeconds": 836.7,
+      "mediaTime": "13:58 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "124",
+      "bytes": "490.39 MB",
+      "coverage": "Range 覆盖 31%"
+    },
+    {
+      "wallSeconds": 841.7,
+      "mediaTime": "14:03 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "125",
+      "bytes": "494.39 MB",
+      "coverage": "Range 覆盖 31%"
+    },
+    {
+      "wallSeconds": 846.7,
+      "mediaTime": "14:08 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "126",
+      "bytes": "498.39 MB",
+      "coverage": "Range 覆盖 31%"
+    },
+    {
+      "wallSeconds": 851.7,
+      "mediaTime": "14:13 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "127",
+      "bytes": "502.39 MB",
+      "coverage": "Range 覆盖 32%"
+    },
+    {
+      "wallSeconds": 856.7,
+      "mediaTime": "14:18 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "127",
+      "bytes": "502.39 MB",
+      "coverage": "Range 覆盖 32%"
+    },
+    {
+      "wallSeconds": 861.7,
+      "mediaTime": "14:23 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "128",
+      "bytes": "506.39 MB",
+      "coverage": "Range 覆盖 32%"
+    },
+    {
+      "wallSeconds": 866.8,
+      "mediaTime": "14:28 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "129",
+      "bytes": "510.39 MB",
+      "coverage": "Range 覆盖 32%"
+    },
+    {
+      "wallSeconds": 871.8,
+      "mediaTime": "14:33 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "130",
+      "bytes": "514.39 MB",
+      "coverage": "Range 覆盖 32%"
+    },
+    {
+      "wallSeconds": 876.8,
+      "mediaTime": "14:38 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "130",
+      "bytes": "514.39 MB",
+      "coverage": "Range 覆盖 32%"
+    },
+    {
+      "wallSeconds": 881.8,
+      "mediaTime": "14:43 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "131",
+      "bytes": "518.39 MB",
+      "coverage": "Range 覆盖 33%"
+    },
+    {
+      "wallSeconds": 886.8,
+      "mediaTime": "14:48 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "132",
+      "bytes": "522.39 MB",
+      "coverage": "Range 覆盖 33%"
+    },
+    {
+      "wallSeconds": 891.8,
+      "mediaTime": "14:53 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "133",
+      "bytes": "526.39 MB",
+      "coverage": "Range 覆盖 33%"
+    },
+    {
+      "wallSeconds": 896.8,
+      "mediaTime": "14:58 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "133",
+      "bytes": "526.39 MB",
+      "coverage": "Range 覆盖 33%"
+    },
+    {
+      "wallSeconds": 901.8,
+      "mediaTime": "15:03 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "134",
+      "bytes": "530.39 MB",
+      "coverage": "Range 覆盖 33%"
+    },
+    {
+      "wallSeconds": 906.8,
+      "mediaTime": "15:08 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "135",
+      "bytes": "534.39 MB",
+      "coverage": "Range 覆盖 34%"
+    },
+    {
+      "wallSeconds": 911.8,
+      "mediaTime": "15:13 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "136",
+      "bytes": "538.39 MB",
+      "coverage": "Range 覆盖 34%"
+    },
+    {
+      "wallSeconds": 916.8,
+      "mediaTime": "15:18 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "136",
+      "bytes": "538.39 MB",
+      "coverage": "Range 覆盖 34%"
+    },
+    {
+      "wallSeconds": 921.8,
+      "mediaTime": "15:23 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "137",
+      "bytes": "542.39 MB",
+      "coverage": "Range 覆盖 34%"
+    },
+    {
+      "wallSeconds": 926.9,
+      "mediaTime": "15:28 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "138",
+      "bytes": "546.39 MB",
+      "coverage": "Range 覆盖 34%"
+    },
+    {
+      "wallSeconds": 931.9,
+      "mediaTime": "15:33 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "139",
+      "bytes": "550.39 MB",
+      "coverage": "Range 覆盖 35%"
+    },
+    {
+      "wallSeconds": 936.9,
+      "mediaTime": "15:38 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "139",
+      "bytes": "550.39 MB",
+      "coverage": "Range 覆盖 35%"
+    },
+    {
+      "wallSeconds": 941.9,
+      "mediaTime": "15:43 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "140",
+      "bytes": "554.39 MB",
+      "coverage": "Range 覆盖 35%"
+    },
+    {
+      "wallSeconds": 946.9,
+      "mediaTime": "15:48 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "140",
+      "bytes": "554.39 MB",
+      "coverage": "Range 覆盖 35%"
+    },
+    {
+      "wallSeconds": 951.9,
+      "mediaTime": "15:53 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "141",
+      "bytes": "558.39 MB",
+      "coverage": "Range 覆盖 35%"
+    },
+    {
+      "wallSeconds": 956.9,
+      "mediaTime": "15:58 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "141",
+      "bytes": "558.39 MB",
+      "coverage": "Range 覆盖 35%"
+    },
+    {
+      "wallSeconds": 961.9,
+      "mediaTime": "16:03 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "142",
+      "bytes": "562.39 MB",
+      "coverage": "Range 覆盖 35%"
+    },
+    {
+      "wallSeconds": 967,
+      "mediaTime": "16:08 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "143",
+      "bytes": "566.39 MB",
+      "coverage": "Range 覆盖 36%"
+    },
+    {
+      "wallSeconds": 972,
+      "mediaTime": "16:13 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "143",
+      "bytes": "566.39 MB",
+      "coverage": "Range 覆盖 36%"
+    },
+    {
+      "wallSeconds": 977,
+      "mediaTime": "16:18 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "144",
+      "bytes": "570.39 MB",
+      "coverage": "Range 覆盖 36%"
+    },
+    {
+      "wallSeconds": 982,
+      "mediaTime": "16:23 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "145",
+      "bytes": "574.39 MB",
+      "coverage": "Range 覆盖 36%"
+    },
+    {
+      "wallSeconds": 987,
+      "mediaTime": "16:28 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "146",
+      "bytes": "578.39 MB",
+      "coverage": "Range 覆盖 36%"
+    },
+    {
+      "wallSeconds": 992,
+      "mediaTime": "16:33 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "147",
+      "bytes": "582.39 MB",
+      "coverage": "Range 覆盖 37%"
+    },
+    {
+      "wallSeconds": 997,
+      "mediaTime": "16:38 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "147",
+      "bytes": "582.39 MB",
+      "coverage": "Range 覆盖 37%"
+    },
+    {
+      "wallSeconds": 1002,
+      "mediaTime": "16:43 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "148",
+      "bytes": "586.39 MB",
+      "coverage": "Range 覆盖 37%"
+    },
+    {
+      "wallSeconds": 1007,
+      "mediaTime": "16:48 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "149",
+      "bytes": "590.39 MB",
+      "coverage": "Range 覆盖 37%"
+    },
+    {
+      "wallSeconds": 1012,
+      "mediaTime": "16:53 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "149",
+      "bytes": "590.39 MB",
+      "coverage": "Range 覆盖 37%"
+    },
+    {
+      "wallSeconds": 1017.1,
+      "mediaTime": "16:58 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "150",
+      "bytes": "594.39 MB",
+      "coverage": "Range 覆盖 37%"
+    },
+    {
+      "wallSeconds": 1022.1,
+      "mediaTime": "17:03 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "151",
+      "bytes": "594.39 MB",
+      "coverage": "Range 覆盖 37%"
+    },
+    {
+      "wallSeconds": 1027.1,
+      "mediaTime": "17:08 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "151",
+      "bytes": "598.39 MB",
+      "coverage": "Range 覆盖 38%"
+    },
+    {
+      "wallSeconds": 1032.1,
+      "mediaTime": "17:13 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "152",
+      "bytes": "602.39 MB",
+      "coverage": "Range 覆盖 38%"
+    },
+    {
+      "wallSeconds": 1037.1,
+      "mediaTime": "17:18 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "153",
+      "bytes": "606.39 MB",
+      "coverage": "Range 覆盖 38%"
+    },
+    {
+      "wallSeconds": 1042.1,
+      "mediaTime": "17:23 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "154",
+      "bytes": "610.39 MB",
+      "coverage": "Range 覆盖 38%"
+    },
+    {
+      "wallSeconds": 1047.1,
+      "mediaTime": "17:28 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "154",
+      "bytes": "610.39 MB",
+      "coverage": "Range 覆盖 38%"
+    },
+    {
+      "wallSeconds": 1052.1,
+      "mediaTime": "17:33 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "155",
+      "bytes": "614.39 MB",
+      "coverage": "Range 覆盖 39%"
+    },
+    {
+      "wallSeconds": 1057.1,
+      "mediaTime": "17:38 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "156",
+      "bytes": "618.39 MB",
+      "coverage": "Range 覆盖 39%"
+    },
+    {
+      "wallSeconds": 1062.1,
+      "mediaTime": "17:43 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "157",
+      "bytes": "618.39 MB",
+      "coverage": "Range 覆盖 39%"
+    },
+    {
+      "wallSeconds": 1067.1,
+      "mediaTime": "17:48 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "157",
+      "bytes": "622.39 MB",
+      "coverage": "Range 覆盖 39%"
+    },
+    {
+      "wallSeconds": 1072.2,
+      "mediaTime": "17:53 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "158",
+      "bytes": "626.39 MB",
+      "coverage": "Range 覆盖 39%"
+    },
+    {
+      "wallSeconds": 1077.2,
+      "mediaTime": "17:58 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "159",
+      "bytes": "630.39 MB",
+      "coverage": "Range 覆盖 40%"
+    },
+    {
+      "wallSeconds": 1082.2,
+      "mediaTime": "18:03 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "160",
+      "bytes": "634.39 MB",
+      "coverage": "Range 覆盖 40%"
+    },
+    {
+      "wallSeconds": 1087.2,
+      "mediaTime": "18:08 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "160",
+      "bytes": "634.39 MB",
+      "coverage": "Range 覆盖 40%"
+    },
+    {
+      "wallSeconds": 1092.2,
+      "mediaTime": "18:13 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "161",
+      "bytes": "638.39 MB",
+      "coverage": "Range 覆盖 40%"
+    },
+    {
+      "wallSeconds": 1097.2,
+      "mediaTime": "18:18 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "162",
+      "bytes": "642.39 MB",
+      "coverage": "Range 覆盖 40%"
+    },
+    {
+      "wallSeconds": 1102.2,
+      "mediaTime": "18:23 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "162",
+      "bytes": "642.39 MB",
+      "coverage": "Range 覆盖 40%"
+    },
+    {
+      "wallSeconds": 1107.2,
+      "mediaTime": "18:28 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "163",
+      "bytes": "646.39 MB",
+      "coverage": "Range 覆盖 41%"
+    },
+    {
+      "wallSeconds": 1112.2,
+      "mediaTime": "18:33 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "163",
+      "bytes": "646.39 MB",
+      "coverage": "Range 覆盖 41%"
+    },
+    {
+      "wallSeconds": 1117.3,
+      "mediaTime": "18:38 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "164",
+      "bytes": "650.39 MB",
+      "coverage": "Range 覆盖 41%"
+    },
+    {
+      "wallSeconds": 1122.3,
+      "mediaTime": "18:43 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "165",
+      "bytes": "654.39 MB",
+      "coverage": "Range 覆盖 41%"
+    },
+    {
+      "wallSeconds": 1127.3,
+      "mediaTime": "18:48 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "166",
+      "bytes": "654.39 MB",
+      "coverage": "Range 覆盖 41%"
+    },
+    {
+      "wallSeconds": 1132.3,
+      "mediaTime": "18:53 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "166",
+      "bytes": "658.39 MB",
+      "coverage": "Range 覆盖 41%"
+    },
+    {
+      "wallSeconds": 1137.3,
+      "mediaTime": "18:58 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "167",
+      "bytes": "662.39 MB",
+      "coverage": "Range 覆盖 42%"
+    },
+    {
+      "wallSeconds": 1142.3,
+      "mediaTime": "19:03 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "168",
+      "bytes": "666.39 MB",
+      "coverage": "Range 覆盖 42%"
+    },
+    {
+      "wallSeconds": 1147.3,
+      "mediaTime": "19:08 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "169",
+      "bytes": "670.39 MB",
+      "coverage": "Range 覆盖 42%"
+    },
+    {
+      "wallSeconds": 1152.3,
+      "mediaTime": "19:13 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "170",
+      "bytes": "674.39 MB",
+      "coverage": "Range 覆盖 42%"
+    },
+    {
+      "wallSeconds": 1157.4,
+      "mediaTime": "19:18 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "171",
+      "bytes": "678.39 MB",
+      "coverage": "Range 覆盖 43%"
+    },
+    {
+      "wallSeconds": 1162.4,
+      "mediaTime": "19:23 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "172",
+      "bytes": "682.39 MB",
+      "coverage": "Range 覆盖 43%"
+    },
+    {
+      "wallSeconds": 1167.4,
+      "mediaTime": "19:28 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "173",
+      "bytes": "686.39 MB",
+      "coverage": "Range 覆盖 43%"
+    },
+    {
+      "wallSeconds": 1172.4,
+      "mediaTime": "19:33 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "173",
+      "bytes": "686.39 MB",
+      "coverage": "Range 覆盖 43%"
+    },
+    {
+      "wallSeconds": 1177.4,
+      "mediaTime": "19:38 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "174",
+      "bytes": "690.39 MB",
+      "coverage": "Range 覆盖 43%"
+    },
+    {
+      "wallSeconds": 1182.4,
+      "mediaTime": "19:43 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "174",
+      "bytes": "690.39 MB",
+      "coverage": "Range 覆盖 43%"
+    },
+    {
+      "wallSeconds": 1187.4,
+      "mediaTime": "19:48 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "175",
+      "bytes": "694.39 MB",
+      "coverage": "Range 覆盖 44%"
+    },
+    {
+      "wallSeconds": 1192.4,
+      "mediaTime": "19:53 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "176",
+      "bytes": "698.39 MB",
+      "coverage": "Range 覆盖 44%"
+    },
+    {
+      "wallSeconds": 1197.4,
+      "mediaTime": "19:58 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "177",
+      "bytes": "702.39 MB",
+      "coverage": "Range 覆盖 44%"
+    },
+    {
+      "wallSeconds": 1202.4,
+      "mediaTime": "20:03 / 48:06",
+      "decode": "A/V demux 与解码中",
+      "requests": "178",
+      "bytes": "706.39 MB",
+      "coverage": "Range 覆盖 44%"
+    }
+  ],
+  "afterPause": {
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "isolation": "COOP / COEP 已生效",
+    "browserLabel": "Chrome 154 · Win32",
+    "sharedArrayBuffer": "function",
+    "crossOriginIsolated": true,
+    "range": "206 / Range OK",
+    "demux": "Tracks 已解析 · FFmpeg",
+    "codecState": "Video API 可用",
+    "decode": "播放片段已停止",
+    "tracks": "VIDEO\nh264 / avc1.4d0028\n1920 × 1080 · WebCodecs 可解 · eng\n本地\nAUDIO\naac / mp4a.40.2\n2 ch · 44100 Hz · WebCodecs 可解 · eng\n本地",
+    "subtitleNote": "此媒体未发现内嵌字幕轨。",
+    "metrics": {
+      "requests": "178",
+      "bytes": "706.39 MB",
+      "size": "1591.93 MB",
+      "full": "Range 覆盖 44%",
+      "seek": "--"
+    },
+    "seekTime": "20:03 / 48:06",
+    "limitations": "播放片段已停止：36118 解码帧 · 30.0 fps · Canvas 绘制 36107 帧 · 覆盖 5",
+    "events": "02:07:17 播放片段已停止：解码输出 36118 帧 (30.0 fps)，回调延迟 P95 -203.3 ms、输出间隔中位数/P95 33.3/34.7 ms；视频包按 demux 解码顺序提交，提交间隔中位数/P95 33.4/37.6 ms，包序中的 PTS 回退 0 次；libav 取包耗时 P95/最大 37.5/56.0 ms；Canvas drawImage 路径耗时 P95/最大 0.4/15.6 ms；Canvas RAF 观察到 36107 次更新，更新间隔 P95 33.5 ms，绘制前被覆盖 5 帧；Canvas 更新 PTS 中位间隔 33.3 ms。解码队列回压 0 次、累计 0.0 ms。主线程 Long Task 1 次、累计 61.0 ms、最大 61.0 ms；旧 42 ms 回调阈值命中 3/36118 (0.01%)；解码 PTS 中位间隔 33.3 ms、最大 33.3 ms，大于 1.5x 中位数的间隔 0。RAF 是 Canvas 呈现代理，不是物理扫描输出证据。\n01:47:13 静音播放已启用：音频仍解码，但输出增益为 0。\n01:47:13 开始 libav.js 分批 demux / WebCodecs，起点 00:00，每批上限 512.0 KB。\n01:47:12 libav.js Matroska tracks 已解析：2 轨；时长 48:06。\n01:47:12 WebCodecs audio aac: config supported.\n01:47:12 WebCodecs video h264: config supported.\n01:47:10 Range 首段检查成功，状态 206，1289 ms。\n01:47:09 媒体源已载入内存，本次运行不会写入浏览器存储。\n01:47:08 SharedArrayBuffer 可用，跨源隔离成立。"
+  },
+  "seeks": [],
+  "final": {
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "isolation": "COOP / COEP 已生效",
+    "browserLabel": "Chrome 154 · Win32",
+    "sharedArrayBuffer": "function",
+    "crossOriginIsolated": true,
+    "range": "206 / Range OK",
+    "demux": "Tracks 已解析 · FFmpeg",
+    "codecState": "Video API 可用",
+    "decode": "播放片段已停止",
+    "tracks": "VIDEO\nh264 / avc1.4d0028\n1920 × 1080 · WebCodecs 可解 · eng\n本地\nAUDIO\naac / mp4a.40.2\n2 ch · 44100 Hz · WebCodecs 可解 · eng\n本地",
+    "subtitleNote": "此媒体未发现内嵌字幕轨。",
+    "metrics": {
+      "requests": "178",
+      "bytes": "706.39 MB",
+      "size": "1591.93 MB",
+      "full": "Range 覆盖 44%",
+      "seek": "--"
+    },
+    "seekTime": "20:03 / 48:06",
+    "limitations": "播放片段已停止：36118 解码帧 · 30.0 fps · Canvas 绘制 36107 帧 · 覆盖 5",
+    "events": "02:07:17 播放片段已停止：解码输出 36118 帧 (30.0 fps)，回调延迟 P95 -203.3 ms、输出间隔中位数/P95 33.3/34.7 ms；视频包按 demux 解码顺序提交，提交间隔中位数/P95 33.4/37.6 ms，包序中的 PTS 回退 0 次；libav 取包耗时 P95/最大 37.5/56.0 ms；Canvas drawImage 路径耗时 P95/最大 0.4/15.6 ms；Canvas RAF 观察到 36107 次更新，更新间隔 P95 33.5 ms，绘制前被覆盖 5 帧；Canvas 更新 PTS 中位间隔 33.3 ms。解码队列回压 0 次、累计 0.0 ms。主线程 Long Task 1 次、累计 61.0 ms、最大 61.0 ms；旧 42 ms 回调阈值命中 3/36118 (0.01%)；解码 PTS 中位间隔 33.3 ms、最大 33.3 ms，大于 1.5x 中位数的间隔 0。RAF 是 Canvas 呈现代理，不是物理扫描输出证据。\n01:47:13 静音播放已启用：音频仍解码，但输出增益为 0。\n01:47:13 开始 libav.js 分批 demux / WebCodecs，起点 00:00，每批上限 512.0 KB。\n01:47:12 libav.js Matroska tracks 已解析：2 轨；时长 48:06。\n01:47:12 WebCodecs audio aac: config supported.\n01:47:12 WebCodecs video h264: config supported.\n01:47:10 Range 首段检查成功，状态 206，1289 ms。\n01:47:09 媒体源已载入内存，本次运行不会写入浏览器存储。\n01:47:08 SharedArrayBuffer 可用，跨源隔离成立。"
+  },
+  "endedAt": "2026-10-06T18:07:18.017Z",
+  "network": {
+    "statuses": {
+      "200": 11,
+      "204": 177,
+      "206": 178,
+      "404": 1
+    },
+    "mediaStatuses": {
+      "204": 177,
+      "206": 178
+    },
+    "encodedBytesByHost": {
+      "localhost:5188": 2802530,
+      "127.0.0.1:5397": 740856732
+    },
+    "mediaResponses": [
+      {
+        "status": 206,
+        "fromDiskCache": false,
+        "contentRange": "bytes 0-65535/1669264524",
+        "acceptRanges": "bytes",
+        "exposeHeaders": "Content-Range, Accept-Ranges, ETag, Content-Length",
+        "allowOrigin": "*"
+      },
+      {
+        "status": 204,
+        "fromDiskCache": false,
+        "contentRange": null,
+        "acceptRanges": null,
+        "exposeHeaders": "Content-Range, Accept-Ranges, ETag, Content-Length",
+        "allowOrigin": "*"
+      },
+      {
+        "status": 206,
+        "fromDiskCache": false,
+        "contentRange": "bytes 0-4194303/1669264524",
+        "acceptRanges": "bytes",
+        "exposeHeaders": "Content-Range, Accept-Ranges, ETag, Content-Length",
+        "allowOrigin": "*"
+      }
+    ],
+    "failed": []
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "at": 1791308828169
+    }
+  ]
+}

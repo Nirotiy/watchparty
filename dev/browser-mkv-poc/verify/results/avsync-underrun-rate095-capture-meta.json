@@ -1,0 +1,21 @@
+{
+ "label": "avsync-underrun-rate095",
+ "browser": "chrome",
+ "mode": "url",
+ "fullscreen": true,
+ "stallSpec": null,
+ "captureFile": "D:\\NRT-GIT\\watchparty\\dev\\browser-mkv-poc\\verify\\results\\avsync-underrun-rate095-capture.mkv",
+ "devices": {
+  "video": "ddagrab output_idx=0 @30fps scaled 640x360",
+  "audio0": "Microphone (High Definition Audio Device)",
+  "audio1": "Loopback 1/2 (2- E1x2 OTG)"
+ },
+ "bridgeEpochMinusUptime": 1791336375.358,
+ "calibrationWallEpochSec": 1791367681.889,
+ "captureStartEpochMs": 1791367680842,
+ "captureEndEpochMs": 1791367781738,
+ "captureSecondsPlanned": 170,
+ "harnessExit": 0,
+ "captureExit": 0,
+ "file": null
+}

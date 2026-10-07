@@ -1,0 +1,28 @@
+[01:39:21] phase1: sweep recheck of 3,4,7,8,10,12,13,15,20,34
+sweep start: 10 samples at 2026-10-06T17:39:21.783Z
+[3/50] done
+[4/50] done
+[7/50] done
+[8/50] done
+[10/50] done
+[12/50] done
+[13/50] done
+[15/50] done
+[20/50] done
+[34/50] done
+SWEEP COMPLETE at 2026-10-06T17:47:05.678Z
+[01:47:05] phase1 done (exit 0)
+[recheck] 3 ok=true | 60s->01:00/46 ms  180s->03:00/444 ms
+[recheck] 4 ok=true | 60s->01:00/31 ms  180s->03:00/615 ms
+[recheck] 7 ok=true | 60s->01:00/39 ms  180s->03:00/365 ms
+[recheck] 8 ok=true | 60s->01:00/710 ms  180s->03:00/997 ms
+[recheck] 10 ok=true | 60s->01:00/656 ms  180s->03:00/758 ms
+[recheck] 12 ok=true | 60s->01:00/46 ms  180s->03:00/1053 ms
+[recheck] 13 ok=true | 60s->01:00/29 ms  180s->03:00/477 ms
+[recheck] 15 ok=true | 60s->01:00/34 ms  180s->03:00/789 ms
+[recheck] 20 ok=true | 60s->01:00/27 ms  180s->03:00/553 ms
+[recheck] 34 ok=true | 60s->01:00/40 ms  180s->03:00/885 ms
+[01:47:05] phase1 recheck written
+[01:47:06] phase2: sampler + 20-min gate on sample 43
+[02:07:18] phase2 done (exit 0)
+[02:07:18] all done; shutdown in 120s (cancel with: shutdown /a)

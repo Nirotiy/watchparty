@@ -1,0 +1,78 @@
+{
+  "label": "edge-av-43-unmute-5m",
+  "browser": "edge",
+  "executable": "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+  "mode": "url",
+  "pageUrl": "http://localhost:5188/?mute=0",
+  "startedAt": "2026-10-07T03:50:07.617Z",
+  "steps": [
+    {
+      "step": "select-source",
+      "at": 1791345009158
+    }
+  ],
+  "devtoolsPort": 53521,
+  "initial": {
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0",
+    "isolation": "COOP / COEP 已生效",
+    "browserLabel": "Chrome 154 · Win32",
+    "sharedArrayBuffer": "function",
+    "crossOriginIsolated": true,
+    "range": "等待",
+    "demux": "等待",
+    "codecState": "等待",
+    "decode": "等待媒体源",
+    "tracks": "检查媒体后显示轨道及原生能力。",
+    "subtitleNote": "",
+    "metrics": {
+      "requests": "0",
+      "bytes": "0 B",
+      "size": "--",
+      "full": "未发生",
+      "seek": "--"
+    },
+    "seekTime": "00:00 / --:--",
+    "limitations": "连续视频包测试已接入；音频输出、A/V sync 與 20 分鐘基準尚未驗收。",
+    "events": "11:50:08 SharedArrayBuffer 可用，跨源隔离成立。"
+  },
+  "error": "Error: POC demux failed: 11:50:09 Content-Range 缺失或格式不可讀；請檢查 CORS expose headers\n11:50:09 媒体源已载入内存，本次运行不会写入浏览器存储。\n11:50:08 SharedArrayBuffer 可用，跨源隔离成立。\n    at file:///D:/NRT-GIT/watchparty/dev/browser-mkv-poc/verify/harness.mjs:230:37\n    at async waitFor (file:///D:/NRT-GIT/watchparty/dev/browser-mkv-poc/verify/harness.mjs:165:21)\n    at async file:///D:/NRT-GIT/watchparty/dev/browser-mkv-poc/verify/harness.mjs:228:3",
+  "partialFinal": null,
+  "endedAt": "2026-10-07T03:50:09.982Z",
+  "network": {
+    "statuses": {
+      "200": 10,
+      "206": 1,
+      "404": 1
+    },
+    "mediaStatuses": {
+      "206": 1
+    },
+    "encodedBytesByHost": {
+      "localhost:5188": 456855
+    },
+    "mediaResponses": [
+      {
+        "status": 206,
+        "fromDiskCache": false,
+        "contentRange": "bytes 0-65535/1669264524",
+        "acceptRanges": "bytes",
+        "exposeHeaders": null,
+        "allowOrigin": "*"
+      }
+    ],
+    "failed": [
+      {
+        "error": "net::ERR_ABORTED",
+        "blocked": null,
+        "host": "127.0.0.1:5349"
+      }
+    ]
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "at": 1791345008187
+    }
+  ]
+}

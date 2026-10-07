@@ -1,0 +1,45 @@
+[aist#0:0/pcm_s16le @ 0000023446d0ea80] Guessed Channel Layout: stereo
+Input #0, dshow, from 'audio=Microphone (High Definition Audio Device)':
+  Duration: N/A, start: 20818.322000, bitrate: 1411 kb/s
+  Stream #0:0: Audio: pcm_s16le, 44100 Hz, stereo, s16, 1411 kb/s, start 20818.322000
+[aist#1:0/pcm_s16le @ 0000023446b337c0] Guessed Channel Layout: stereo
+Input #1, dshow, from 'audio=Loopback 1/2 (2- E1x2 OTG)':
+  Duration: N/A, start: 20819.255000, bitrate: 1411 kb/s
+  Stream #1:0: Audio: pcm_s16le, 44100 Hz, stereo, s16, 1411 kb/s, start 20819.255000
+Stream mapping:
+  scale:default -> Stream #0:0 (libx264)
+  Stream #0:0 -> #0:1 (pcm_s16le (native) -> flac (native))
+  Stream #1:0 -> #0:2 (pcm_s16le (native) -> flac (native))
+Press [q] to stop, [?] for help
+[libx264 @ 0000023446bda3c0] using SAR=1/1
+[libx264 @ 0000023446bda3c0] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0000023446bda3c0] profile Constrained Baseline, level 3.0, 4:2:0, 8-bit
+[libx264 @ 0000023446bda3c0] 264 - core 165 r3223 0480cb0 - H.264/MPEG-4 AVC codec - Copyleft 2003-2025 - http://www.videolan.org/x264.html - options: cabac=0 ref=1 deblock=0:0:0 analyse=0:0 me=dia subme=0 psy=1 psy_rd=1.00:0.00 mixed_ref=0 me_range=16 chroma_me=1 trellis=0 8x8dct=0 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=0 threads=11 lookahead_threads=1 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=0 weightp=0 keyint=250 keyint_min=25 scenecut=0 intra_refresh=0 rc=crf mbtree=0 crf=20.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 ip_ratio=1.40 aq=0
+Output #0, matroska, to 'D:\NRT-GIT\watchparty\dev\browser-mkv-poc\verify\results\dryrun-20s-capture.mkv':
+  Metadata:
+    encoder         : Lavf62.12.102
+  Stream #0:0: Video: h264 (H264 / 0x34363248), yuv420p(tv, unknown/bt709/iec61966-2-1, progressive), 640x360 [SAR 1:1 DAR 16:9], q=2-31, 30 fps, 1k tbn
+    Metadata:
+      encoder         : Lavc62.28.102 libx264
+    Side data:
+      CPB properties: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+  Stream #0:1: Audio: flac ([172][241][0][0] / 0xF1AC), 44100 Hz, stereo, s16, 128 kb/s (default)
+    Metadata:
+      encoder         : Lavc62.28.102 flac
+  Stream #0:2: Audio: flac ([172][241][0][0] / 0xF1AC), 44100 Hz, stereo, s16, 128 kb/s
+    Metadata:
+      encoder         : Lavc62.28.102 flac
+frame=    0 fps=0.0 q=0.0 size=       1KiB time=N/A bitrate=N/A speed=N/A elapsed=0:00:00.51    frame=   13 fps= 13 q=18.0 size=       1KiB time=00:00:00.43 bitrate=  18.4kbits/s speed=0.421x elapsed=0:00:01.02    frame=   29 fps= 19 q=17.0 size=       1KiB time=00:00:00.96 bitrate=   8.2kbits/s speed=0.626x elapsed=0:00:01.54    frame=   44 fps= 21 q=20.0 size=       1KiB time=00:00:01.46 bitrate=   5.4kbits/s speed=0.712x elapsed=0:00:02.05    frame=   59 fps= 23 q=18.0 size=       1KiB time=00:00:01.96 bitrate=   4.0kbits/s speed=0.764x elapsed=0:00:02.57    frame=   75 fps= 24 q=21.0 size=       1KiB time=00:00:02.50 bitrate=   3.2kbits/s speed=0.809x elapsed=0:00:03.09    frame=   90 fps= 25 q=19.0 size=       1KiB time=00:00:03.00 bitrate=   2.7kbits/s speed=0.832x elapsed=0:00:03.60    frame=  106 fps= 26 q=17.0 size=       1KiB time=00:00:03.53 bitrate=   2.3kbits/s speed=0.857x elapsed=0:00:04.12    frame=  121 fps= 26 q=21.0 size=       1KiB time=00:00:04.03 bitrate=   2.0kbits/s speed=0.87x elapsed=0:00:04.63    frame=  137 fps= 27 q=20.0 size=       1KiB time=00:00:04.56 bitrate=   1.7kbits/s speed=0.886x elapsed=0:00:05.15    frame=  152 fps= 27 q=20.0 size=       1KiB time=00:00:05.06 bitrate=   1.6kbits/s speed=0.894x elapsed=0:00:05.66    frame=  168 fps= 27 q=17.0 size=    1024KiB time=00:00:05.60 bitrate=1498.0kbits/s speed=0.905x elapsed=0:00:06.18    frame=  183 fps= 27 q=16.0 size=    1024KiB time=00:00:06.10 bitrate=1375.2kbits/s speed=0.911x elapsed=0:00:06.69    frame=  199 fps= 28 q=17.0 size=    1024KiB time=00:00:06.63 bitrate=1264.6kbits/s speed=0.919x elapsed=0:00:07.21    frame=  214 fps= 28 q=18.0 size=    1024KiB time=00:00:07.13 bitrate=1176.0kbits/s speed=0.923x elapsed=0:00:07.73    frame=  230 fps= 28 q=17.0 size=    1024KiB time=00:00:07.66 bitrate=1094.2kbits/s speed=0.93x elapsed=0:00:08.24    frame=  245 fps= 28 q=22.0 size=    1024KiB time=00:00:08.16 bitrate=1027.2kbits/s speed=0.932x elapsed=0:00:08.76    frame=  261 fps= 28 q=21.0 size=    1792KiB time=00:00:08.70 bitrate=1687.4kbits/s speed=0.938x elapsed=0:00:09.27    frame=  276 fps= 28 q=17.0 size=    1792KiB time=00:00:09.20 bitrate=1595.7kbits/s speed=0.939x elapsed=0:00:09.79    frame=  291 fps= 28 q=20.0 size=    1792KiB time=00:00:09.70 bitrate=1513.4kbits/s speed=0.941x elapsed=0:00:10.30    frame=  307 fps= 28 q=19.0 size=    1792KiB time=00:00:10.23 bitrate=1434.5kbits/s speed=0.945x elapsed=0:00:10.82    frame=  322 fps= 28 q=20.0 size=    1792KiB time=00:00:10.73 bitrate=1367.7kbits/s speed=0.946x elapsed=0:00:11.34    frame=  338 fps= 29 q=22.0 size=    1792KiB time=00:00:11.26 bitrate=1303.0kbits/s speed=0.95x elapsed=0:00:11.85    frame=  353 fps= 29 q=19.0 size=    1792KiB time=00:00:11.76 bitrate=1247.6kbits/s speed=0.951x elapsed=0:00:12.37    frame=  369 fps= 29 q=22.0 size=    1792KiB time=00:00:12.30 bitrate=1193.5kbits/s speed=0.954x elapsed=0:00:12.88    frame=  384 fps= 29 q=17.0 size=    1792KiB time=00:00:12.80 bitrate=1146.9kbits/s speed=0.955x elapsed=0:00:13.40    frame=  400 fps= 29 q=15.0 size=    1792KiB time=00:00:13.33 bitrate=1101.0kbits/s speed=0.958x elapsed=0:00:13.91    frame=  415 fps= 29 q=17.0 size=    3072KiB time=00:00:13.83 bitrate=1819.2kbits/s speed=0.958x elapsed=0:00:14.43    frame=  430 fps= 29 q=17.0 size=    3072KiB time=00:00:14.33 bitrate=1755.8kbits/s speed=0.959x elapsed=0:00:14.95    frame=  446 fps= 29 q=17.0 size=    3072KiB time=00:00:14.86 bitrate=1692.8kbits/s speed=0.961x elapsed=0:00:15.46    frame=  462 fps= 29 q=18.0 size=    3072KiB time=00:00:15.40 bitrate=1634.1kbits/s speed=0.964x elapsed=0:00:15.98    frame=  477 fps= 29 q=19.0 size=    3072KiB time=00:00:15.90 bitrate=1582.8kbits/s speed=0.964x elapsed=0:00:16.49    frame=  492 fps= 29 q=23.0 size=    3072KiB time=00:00:16.40 bitrate=1534.5kbits/s speed=0.964x elapsed=0:00:17.01    frame=  508 fps= 29 q=20.0 size=    3840KiB time=00:00:16.93 bitrate=1857.7kbits/s speed=0.966x elapsed=0:00:17.52    frame=  523 fps= 29 q=19.0 size=    3840KiB time=00:00:17.43 bitrate=1804.4kbits/s speed=0.966x elapsed=0:00:18.04    frame=  539 fps= 29 q=18.0 size=    3840KiB time=00:00:17.96 bitrate=1750.9kbits/s speed=0.968x elapsed=0:00:18.55    frame=  554 fps= 29 q=19.0 size=    3840KiB time=00:00:18.46 bitrate=1703.5kbits/s speed=0.968x elapsed=0:00:19.07    frame=  570 fps= 29 q=17.0 size=    3840KiB time=00:00:19.00 bitrate=1655.6kbits/s speed=0.97x elapsed=0:00:19.59    frame=  585 fps= 29 q=18.0 size=    3840KiB time=00:00:19.50 bitrate=1613.2kbits/s speed=0.97x elapsed=0:00:20.10    frame=  601 fps= 29 q=17.0 size=    3840KiB time=00:00:20.03 bitrate=1570.2kbits/s speed=0.971x elapsed=0:00:20.62    frame=  616 fps= 29 q=18.0 size=    3840KiB time=00:00:20.53 bitrate=1532.0kbits/s speed=0.971x elapsed=0:00:21.13    frame=  632 fps= 29 q=18.0 size=    3840KiB time=00:00:21.06 bitrate=1493.2kbits/s speed=0.973x elapsed=0:00:21.65    frame=  647 fps= 29 q=18.0 size=    3840KiB time=00:00:21.56 bitrate=1458.6kbits/s speed=0.973x elapsed=0:00:22.16    frame=  662 fps= 29 q=16.0 size=    5120KiB time=00:00:22.06 bitrate=1900.7kbits/s speed=0.973x elapsed=0:00:22.68    frame=  678 fps= 29 q=16.0 size=    5120KiB time=00:00:22.60 bitrate=1855.9kbits/s speed=0.974x elapsed=0:00:23.20    frame=  693 fps= 29 q=18.0 size=    5120KiB time=00:00:23.10 bitrate=1815.7kbits/s speed=0.974x elapsed=0:00:23.71    frame=  709 fps= 29 q=19.0 size=    5120KiB time=00:00:23.63 bitrate=1774.7kbits/s speed=0.975x elapsed=0:00:24.23    frame=  724 fps= 29 q=20.0 size=    5120KiB time=00:00:24.13 bitrate=1738.0kbits/s speed=0.975x elapsed=0:00:24.74    frame=  740 fps= 29 q=19.0 size=    5120KiB time=00:00:24.66 bitrate=1700.4kbits/s speed=0.976x elapsed=0:00:25.26    
+
+[q] command received. Exiting.
+
+[out#0/matroska @ 00000234464d1040] video:5026KiB audio:1227KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.158314%
+frame=  768 fps= 29 q=-1.0 Lsize=    6263KiB time=00:00:25.60 bitrate=2004.1kbits/s speed=0.983x elapsed=0:00:26.04    
+[libx264 @ 0000023446bda3c0] frame I:4     Avg QP:15.75  size: 58650
+[libx264 @ 0000023446bda3c0] frame P:764   Avg QP:18.35  size:  6429
+[libx264 @ 0000023446bda3c0] mb I  I16..4: 100.0%  0.0%  0.0%
+[libx264 @ 0000023446bda3c0] mb P  I16..4:  1.8%  0.0%  0.0%  P16..4: 19.2%  0.0%  0.0%  0.0%  0.0%    skip:79.0%
+[libx264 @ 0000023446bda3c0] coded y,uvDC,uvAC intra: 70.8% 65.2% 54.4% inter: 14.0% 11.6% 5.5%
+[libx264 @ 0000023446bda3c0] i16 v,h,dc,p: 55% 33%  6%  6%
+[libx264 @ 0000023446bda3c0] i8c dc,h,v,p: 32% 25% 37%  5%
+[libx264 @ 0000023446bda3c0] kb/s:1608.16

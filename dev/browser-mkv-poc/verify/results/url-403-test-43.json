@@ -1,0 +1,53 @@
+{
+ "label": "url-403-test-43",
+ "sample": 43,
+ "scenarios": {
+  "A": {
+   "saw403Prompt": true,
+   "promptsDelta": 1,
+   "demux": "Tracks 已解析 · FFmpeg",
+   "ok": true
+  },
+  "B": {
+   "saw403Prompt": true,
+   "promptsDelta": 1,
+   "before": "00:03 / 48:06",
+   "after": "00:06 / 48:06",
+   "ok": true
+  },
+  "C": {
+   "saw403Prompt": true,
+   "promptsDelta": 1,
+   "failureLine": "17:05:03 Range 回應狀態 403，需要 206",
+   "noThirdRetry": true,
+   "ok": true
+  }
+ },
+ "consoleLeak": {
+  "markerChecked": true,
+  "hits": 0,
+  "samples": []
+ },
+ "injectorStats": {
+  "total": 24,
+  "probe": 4,
+  "range": 10,
+  "injected403": 4,
+  "passthrough": 20,
+  "upstreamErrors": 0,
+  "fullBody200": 0,
+  "firstRequestAt": 1791363894810
+ },
+ "injectorLogTail": [
+  "[inject] http://127.0.0.1:5398 -> 127.0.0.1:5397",
+  "[inject] probe403=1 range403=0",
+  "[inject] 403 injected for probe (1 total)",
+  "[inject] probe403=0 range403=1",
+  "[inject] 403 injected for range bytes=29360128-33554431 (2 total)",
+  "[inject] probe403=2 range403=0",
+  "[inject] 403 injected for probe (3 total)",
+  "[inject] 403 injected for probe (4 total)",
+  ""
+ ],
+ "ok": true
+}

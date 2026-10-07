@@ -47,12 +47,15 @@ header p { margin: 0; color: #a2acb0; font-size: 12px; }
 .workspace { display: grid; grid-template-columns: minmax(450px, 1.12fr) minmax(420px, .88fr); gap: 25px; padding-top: 19px; }
 .left-column, .right-column { min-width: 0; }
 .video-panel { padding-bottom: 17px; border-bottom: 1px solid var(--line); }
+.frame-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #06090b; }
 .panel-top { display: flex; justify-content: space-between; align-items: center; padding: 0 0 8px; color: var(--muted); }
 .state { font: 10px/1.3 Consolas, "Cascadia Code", monospace; color: #899398; white-space: nowrap; }
 .state.ok { color: var(--green); }
 .state.warn { color: var(--amber); }
 .state.error { color: var(--red); }
-.video-panel canvas { display: block; width: 100%; aspect-ratio: 16 / 9; background: #06090b; border: 1px solid #23292d; }
+.frame-stage canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.frame-stage #frame-canvas { background: #06090b; border: 1px solid #23292d; }
+.frame-stage #subtitle-canvas { pointer-events: none; }
 .player-controls { display: grid; grid-template-columns: 38px 42px minmax(100px, 1fr) 42px auto; align-items: center; gap: 8px; padding-top: 10px; }
 .player-controls .icon-button { height: 27px; min-width: 38px; font-size: 10px; }
 .player-controls input[type="range"] { width: 100%; accent-color: var(--teal); }

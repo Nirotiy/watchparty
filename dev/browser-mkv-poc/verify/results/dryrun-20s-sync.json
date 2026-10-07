@@ -1,0 +1,103 @@
+{
+ "label": "dryrun-20s",
+ "captureFile": "D:\\NRT-GIT\\watchparty\\dev\\browser-mkv-poc\\verify\\results\\dryrun-20s-capture.mkv",
+ "captureSeconds": "28.2",
+ "devices": {
+  "video": "ddagrab output_idx=0 @30fps scaled 640x360",
+  "audio0": "Microphone (High Definition Audio Device)",
+  "audio1": "Loopback 1/2 (2- E1x2 OTG)"
+ },
+ "video": {
+  "frames": 768,
+  "lastPts": 25.567,
+  "nominalFps": 30,
+  "onsets": [
+   2.367,
+   4,
+   7.2,
+   12.233,
+   12.6,
+   16.233,
+   17.233,
+   19.4,
+   20.667,
+   22.233,
+   23.8,
+   24.4,
+   24.6
+  ]
+ },
+ "audio": {
+  "onsetCount": 5,
+  "noiseFloor": 0.004915522858922403,
+  "peakEnv": 1.154703959184081,
+  "onsets": [
+   4.07,
+   8.925,
+   13.925,
+   18.925,
+   23.925
+  ]
+ },
+ "e1x2Control": {
+  "medianEnv": 0.000014484706801281523,
+  "maxEnv": 0.000016187314761742975
+ },
+ "pairs": [
+  {
+   "tVideo": 4,
+   "tAudio": 4.07,
+   "offsetMs": -70
+  },
+  {
+   "tVideo": 23.8,
+   "tAudio": 23.925,
+   "offsetMs": -125
+  }
+ ],
+ "segmentStats": [
+  {
+   "rank": 0,
+   "firstT": 4,
+   "lastT": 4,
+   "stats": {
+    "n": 1,
+    "meanMs": -70,
+    "stdMs": 0,
+    "medianMs": -70,
+    "minMs": -70,
+    "maxMs": -70,
+    "p95AbsMs": -70
+   }
+  },
+  {
+   "rank": 1,
+   "firstT": 23.8,
+   "lastT": 23.8,
+   "stats": {
+    "n": 1,
+    "meanMs": -125,
+    "stdMs": 0,
+    "medianMs": -125,
+    "minMs": -125,
+    "maxMs": -125,
+    "p95AbsMs": -125
+   }
+  }
+ ],
+ "overallStats": {
+  "n": 2,
+  "meanMs": -97.5,
+  "stdMs": 27.5,
+  "medianMs": -70,
+  "minMs": -125,
+  "maxMs": -70,
+  "p95AbsMs": -70
+ },
+ "drift": null,
+ "uncertainty": {
+  "videoFrameMs": 33.3,
+  "audioEnvelopeMs": 5,
+  "note": "Absolute offset additionally carries a constant capture-side skew between ddagrab and dshow start latencies; per-mark variance and drift are skew-independent."
+ }
+}

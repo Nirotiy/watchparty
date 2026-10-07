@@ -1,0 +1,216 @@
+{
+ "label": "avsync-underrun-rate095-r4",
+ "captureFile": "D:\\NRT-GIT\\watchparty\\dev\\browser-mkv-poc\\verify\\results\\avsync-underrun-rate095-r4-capture.mkv",
+ "captureSeconds": "100.3",
+ "devices": {
+  "video": "ddagrab output_idx=1 @30fps scaled 640x360",
+  "audio0": "Microphone (High Definition Audio Device)",
+  "audio1": "Loopback 1/2 (2- E1x2 OTG)"
+ },
+ "video": {
+  "frames": 2986,
+  "ptsCount": 2986,
+  "lastPts": 99.967,
+  "nominalFps": 30,
+  "onsets": [
+   0.867,
+   62.167,
+   64.067,
+   69.367,
+   74.633,
+   79.867,
+   85.133,
+   90.4,
+   95.667,
+   98.9
+  ]
+ },
+ "audio": {
+  "onsetCount": 8,
+  "noiseFloor": 0.0001500244955990193,
+  "peakEnv": 1.1067214799968552,
+  "onsets": [
+   16.53,
+   63.81,
+   69.065,
+   74.33,
+   79.59,
+   84.855,
+   90.115,
+   95.38
+  ]
+ },
+ "e1x2Control": {
+  "medianEnv": 0.000014486487865907662,
+  "maxEnv": 0.00001619427508229681
+ },
+ "pairs": [
+  {
+   "tVideo": 64.067,
+   "tAudio": 63.81,
+   "rawOffsetMs": 257,
+   "offsetMs": -44
+  },
+  {
+   "tVideo": 69.367,
+   "tAudio": 69.065,
+   "rawOffsetMs": 302,
+   "offsetMs": 1
+  },
+  {
+   "tVideo": 74.633,
+   "tAudio": 74.33,
+   "rawOffsetMs": 303,
+   "offsetMs": 2
+  },
+  {
+   "tVideo": 79.867,
+   "tAudio": 79.59,
+   "rawOffsetMs": 277,
+   "offsetMs": -24
+  },
+  {
+   "tVideo": 85.133,
+   "tAudio": 84.855,
+   "rawOffsetMs": 278,
+   "offsetMs": -23
+  },
+  {
+   "tVideo": 90.4,
+   "tAudio": 90.115,
+   "rawOffsetMs": 285,
+   "offsetMs": -16
+  },
+  {
+   "tVideo": 95.667,
+   "tAudio": 95.38,
+   "rawOffsetMs": 287,
+   "offsetMs": -14
+  }
+ ],
+ "captureStarts": {
+  "micStartUptime": 32683.46,
+  "bridge": 1791336375.3609998,
+  "micBaseEpoch": 1791369058.821,
+  "ddBaseEpoch": 1791369058.52,
+  "calibrationWallEpochSec": 1791369059.387,
+  "deltaMs": 301
+ },
+ "segmentStats": [
+  {
+   "rank": 0,
+   "firstT": 64.1,
+   "lastT": 64.1,
+   "stats": {
+    "n": 1,
+    "meanMs": -44,
+    "stdMs": 0,
+    "medianMs": -44,
+    "minMs": -44,
+    "maxMs": -44,
+    "p95AbsMs": -44
+   }
+  },
+  {
+   "rank": 1,
+   "firstT": 69.4,
+   "lastT": 69.4,
+   "stats": {
+    "n": 1,
+    "meanMs": 1,
+    "stdMs": 0,
+    "medianMs": 1,
+    "minMs": 1,
+    "maxMs": 1,
+    "p95AbsMs": 1
+   }
+  },
+  {
+   "rank": 2,
+   "firstT": 74.6,
+   "lastT": 74.6,
+   "stats": {
+    "n": 1,
+    "meanMs": 2,
+    "stdMs": 0,
+    "medianMs": 2,
+    "minMs": 2,
+    "maxMs": 2,
+    "p95AbsMs": 2
+   }
+  },
+  {
+   "rank": 3,
+   "firstT": 79.9,
+   "lastT": 79.9,
+   "stats": {
+    "n": 1,
+    "meanMs": -24,
+    "stdMs": 0,
+    "medianMs": -24,
+    "minMs": -24,
+    "maxMs": -24,
+    "p95AbsMs": -24
+   }
+  },
+  {
+   "rank": 4,
+   "firstT": 85.1,
+   "lastT": 85.1,
+   "stats": {
+    "n": 1,
+    "meanMs": -23,
+    "stdMs": 0,
+    "medianMs": -23,
+    "minMs": -23,
+    "maxMs": -23,
+    "p95AbsMs": -23
+   }
+  },
+  {
+   "rank": 5,
+   "firstT": 90.4,
+   "lastT": 90.4,
+   "stats": {
+    "n": 1,
+    "meanMs": -16,
+    "stdMs": 0,
+    "medianMs": -16,
+    "minMs": -16,
+    "maxMs": -16,
+    "p95AbsMs": -16
+   }
+  },
+  {
+   "rank": 6,
+   "firstT": 95.7,
+   "lastT": 95.7,
+   "stats": {
+    "n": 1,
+    "meanMs": -14,
+    "stdMs": 0,
+    "medianMs": -14,
+    "minMs": -14,
+    "maxMs": -14,
+    "p95AbsMs": -14
+   }
+  }
+ ],
+ "overallStats": {
+  "n": 7,
+  "meanMs": -16.9,
+  "stdMs": 14.7,
+  "medianMs": -16,
+  "minMs": -44,
+  "maxMs": 2,
+  "p95AbsMs": 2
+ },
+ "drift": {
+  "slopeMsPerMin": 12.72
+ },
+ "uncertainty": {
+  "videoFrameMs": 33.3,
+  "audioEnvelopeMs": 5,
+  "note": "Absolute offset additionally carries a constant capture-side skew between ddagrab and dshow start latencies; per-mark variance and drift are skew-independent."
+ }
+}

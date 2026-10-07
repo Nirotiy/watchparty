@@ -1,0 +1,145 @@
+{
+ "label": "avsync-short-fix5",
+ "captureFile": "D:\\NRT-GIT\\watchparty\\dev\\browser-mkv-poc\\verify\\results\\avsync-short-fix5-capture.mkv",
+ "captureSeconds": "38.7",
+ "devices": {
+  "video": "gdigrab desktop @30fps scaled 640x360",
+  "audio0": "Microphone (High Definition Audio Device)",
+  "audio1": "Loopback 1/2 (2- E1x2 OTG)"
+ },
+ "video": {
+  "frames": 1145,
+  "lastPts": 38.133,
+  "nominalFps": 30,
+  "onsets": [
+   14.533,
+   24.467,
+   34.533,
+   37.1
+  ]
+ },
+ "audio": {
+  "onsetCount": 7,
+  "noiseFloor": 0.000014535600025566121,
+  "peakEnv": 1.1470767451547914,
+  "onsets": [
+   3.99,
+   8.865,
+   13.865,
+   18.865,
+   23.865,
+   28.865,
+   33.865
+  ]
+ },
+ "e1x2Control": {
+  "medianEnv": 0.000014487072317130327,
+  "maxEnv": 0.00001619427508229681
+ },
+ "pairs": [
+  {
+   "tVideo": 14.533,
+   "tAudio": 13.865,
+   "rawOffsetMs": 668.3,
+   "offsetMs": 40.3
+  },
+  {
+   "tVideo": 24.467,
+   "tAudio": 23.865,
+   "rawOffsetMs": 601.7,
+   "offsetMs": -26.3
+  },
+  {
+   "tVideo": 34.533,
+   "tAudio": 33.865,
+   "rawOffsetMs": 668.3,
+   "offsetMs": 40.3
+  }
+ ],
+ "captureStarts": {
+  "videoStartEpoch": 1791358938.624981,
+  "micStartUptime": 22563.896,
+  "bridge": 1791336375.357,
+  "micBaseEpoch": 1791358939.253,
+  "deltaMs": 628,
+  "inputs": [
+   {
+    "index": 0,
+    "format": "gdigrab",
+    "source": "desktop",
+    "start": 1791358938.624981
+   },
+   {
+    "index": 1,
+    "format": "dshow",
+    "source": "audio=Microphone (High Definition Audio Device)",
+    "start": 22563.896
+   },
+   {
+    "index": 2,
+    "format": "dshow",
+    "source": "audio=Loopback 1/2 (2- E1x2 OTG)",
+    "start": 22564.814
+   }
+  ]
+ },
+ "segmentStats": [
+  {
+   "rank": 0,
+   "firstT": 14.5,
+   "lastT": 14.5,
+   "stats": {
+    "n": 1,
+    "meanMs": 40.3,
+    "stdMs": 0,
+    "medianMs": 40.3,
+    "minMs": 40.3,
+    "maxMs": 40.3,
+    "p95AbsMs": 40.3
+   }
+  },
+  {
+   "rank": 1,
+   "firstT": 24.5,
+   "lastT": 24.5,
+   "stats": {
+    "n": 1,
+    "meanMs": -26.3,
+    "stdMs": 0,
+    "medianMs": -26.3,
+    "minMs": -26.3,
+    "maxMs": -26.3,
+    "p95AbsMs": -26.3
+   }
+  },
+  {
+   "rank": 2,
+   "firstT": 34.5,
+   "lastT": 34.5,
+   "stats": {
+    "n": 1,
+    "meanMs": 40.3,
+    "stdMs": 0,
+    "medianMs": 40.3,
+    "minMs": 40.3,
+    "maxMs": 40.3,
+    "p95AbsMs": 40.3
+   }
+  }
+ ],
+ "overallStats": {
+  "n": 3,
+  "meanMs": 18.1,
+  "stdMs": 31.4,
+  "medianMs": 40.3,
+  "minMs": -26.3,
+  "maxMs": 40.3,
+  "p95AbsMs": 40.3
+ },
+ "drift": null,
+ "uncertainty": {
+  "videoFrameMs": 33.3,
+  "audioEnvelopeMs": 5,
+  "note": "Absolute offset additionally carries a constant capture-side skew between ddagrab and dshow start latencies; per-mark variance and drift are skew-independent."
+ }
+}
