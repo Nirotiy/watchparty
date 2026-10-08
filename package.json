@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "start": "node server/main.ts",
-    "ui": "vite --host",
     "web": "npm run dev --prefix web",
     "web:build": "npm run build --prefix web",
     "web:start": "npm run start --prefix web",
@@ -13,20 +12,18 @@
     "desktop:dev": "npx --prefix desktop-shell tauri dev --config src-tauri/tauri.conf.json",
     "desktop:tauri-build": "npx --prefix desktop-shell tauri build --config src-tauri/tauri.conf.json",
     "dev": "node --watch-path server --watch-path words server/main.ts",
-    "build": "npm run buildReact && npm run typecheckServer",
-    "buildReact": "vite build && npm run typecheck",
+    "build": "npm run typecheckServer",
     "pm2": "pm2 start server/main.ts",
     "deploy": "git fetch && git reset --hard origin/release && pm2 flush && pm2 delete all && pm2 start server/ecosystem.config.js",
     "prettier": "npx prettier --write .",
-    "test": "node --test --test-timeout=15000 server/config.test.ts server/core/http/shared.test.ts server/media/watchparty-media.test.ts server/core/room/Room.test.ts server/core/room/registry.test.ts server/test/backend.integration.test.ts server/test/mpv-handoff.test.ts server/test/desktop-handoff.test.ts server/test/desktop-owner.test.ts server/test/desktop-probe.test.ts server/test/readiness.test.ts server/test/library-sources.test.ts server/test/library-artwork.test.ts server/test/catalog.test.ts server/test/catalog-edit.test.ts server/test/catalog-ranking.test.ts server/test/strm.test.ts server/test/catalog-sidecar.test.ts server/test/collection-sidecar.test.ts server/test/catalog-mcp.test.ts server/test/catalog-duplicates.test.ts",
+    "test": "node --test --test-timeout=15000 server/config.test.ts server/core/http/shared.test.ts server/media/watchparty-media.test.ts server/core/room/Room.test.ts server/core/room/registry.test.ts server/test/backend.integration.test.ts server/test/guest-read.test.ts server/test/subtitle-upload.test.ts server/test/mpv-handoff.test.ts server/test/desktop-handoff.test.ts server/test/desktop-owner.test.ts server/test/desktop-probe.test.ts server/test/readiness.test.ts server/test/library-sources.test.ts server/test/library-artwork.test.ts server/test/catalog.test.ts server/test/catalog-edit.test.ts server/test/catalog-ranking.test.ts server/test/strm.test.ts server/test/catalog-sidecar.test.ts server/test/collection-sidecar.test.ts server/test/catalog-mcp.test.ts server/test/catalog-duplicates.test.ts server/test/catalog-offline.test.ts server/test/catalog-extra-review.test.ts",
     "test:desktop-http": "node --experimental-strip-types src-tauri/tests/run-http-integration.ts",
     "test:desktop-vertical": "node --experimental-strip-types src-tauri/tests/run-vertical-integration.ts",
     "test:desktop-window": "cargo run --manifest-path src-tauri/Cargo.toml --bin desktop-window-smoke",
     "test:gate3-sidecar": "node dev/gate3-sidecar/probe.mjs",
+    "test:catalog-offline": "node --test server/test/catalog-offline.test.ts",
     "typecheckServer": "tsc --project server/tsconfig.json",
-    "typecheck": "tsc --project src/tsconfig.json --noEmit",
-    "ncu": "ncu --semverLevel major -u",
-    "analyze": "npx source-map-explorer 'build/assets/*.js' --html result.html --no-border-checks"
+    "ncu": "ncu --semverLevel major -u"
   },
   "dependencies": {
     "@googleapis/youtube": "^8.0.2",
@@ -36,53 +33,10 @@
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
-    "@emoji-mart/data": "^1.2.1",
-    "@emoji-mart/react": "^1.1.1",
-    "@mantine/core": "^8.3.10",
-    "@tabler/icons-react": "^3.35.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^25.0.1",
-    "@types/react": "^18.3.27",
-    "@types/react-dom": "^18.3.7",
-    "@types/react-onclickoutside": "^6.7.10",
-    "@types/react-router-dom": "^5.3.3",
-    "@types/react-transition-group": "^4.4.12",
-    "@types/webtorrent": "^0.110.1",
-    "@types/youtube": "^0.1.2",
-    "can-autoplay": "^3.0.2",
-    "dashjs": "^5.1.0",
-    "eventemitter3": "^4.0.7",
-    "firebase": "^9.23.0",
-    "hls.js": "^1.6.15",
-    "mediasoup-client": "^3.18.1",
-    "react": "^18.3.1",
-    "react-colorful": "^5.6.1",
-    "react-countup": "^6.5.3",
-    "react-dom": "^18.3.1",
-    "react-linkify": "^1.0.0-alpha",
-    "react-onclickoutside": "^6.13.2",
-    "react-router-dom": "^5.3.4",
-    "react-secure-link": "^3.2.0",
-    "react-transition-group": "^4.4.5",
-    "recharts": "^2.15.4",
     "socket.io-client": "^4.8.1",
-    "srt-webvtt": "^2.0.0",
-    "twitch-m3u8": "^1.1.5",
-    "typescript": "^5.9.3",
-    "vite": "^7.2.7",
-    "webtorrent": "^2.8.5"
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
+    "typescript": "^5.9.3"
   }
 }

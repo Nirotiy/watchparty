@@ -12,10 +12,10 @@
 # testing
 /coverage
 
-
 # production
 /build
 /web/.next
+/web/.next-mkv-*
 /web/out
 /web/node_modules
 /web/public/vendor

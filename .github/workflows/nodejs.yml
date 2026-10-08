@@ -25,17 +25,11 @@ jobs:
       - name: Install backend dependencies
         run: npm ci
 
-      - name: Check backend types
-        run: npm run typecheckServer
-
       - name: Test backend
         run: npm test
 
-      - name: Build legacy bundle while it remains in the repository
+      - name: Check backend build
         run: npm run build
-        env:
-          CI: true
-          NODE_ENV: production
 
       - name: Install Next.js dependencies
         working-directory: web

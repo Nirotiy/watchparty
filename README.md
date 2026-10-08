@@ -1,56 +1,33 @@
 # WatchParty
 
-![screenshot](https://github.com/howardchung/watchparty/raw/master/public/screenshot_full.png)
+WatchParty is a self-hosted synchronized media room service. The deployed browser client is the Next.js application in `web/`. The backend provides room state, Socket.IO synchronization, media library access, and playback handoff APIs.
 
-A website for watching videos together.
+## Local development
 
-## Description
+Install backend dependencies and start the API:
 
-- Synchronizes the video being watched with the current room
-- Plays, pauses, and seeks are synced to all watchers
-- Supports:
-  - Video files on the Internet (anything accessible via HTTP)
-  - YouTube videos
-  - Magnet links (via WebTorrent)
-  - .m3u8 streams (HLS)
-- Create separate rooms for users on demand
-- Text chat with replies and reactions
+```sh
+npm ci
+npm run dev
+```
 
-The self-hosted Node server deliberately has no login, billing, database, virtual
-browser, or WebRTC signaling. Rooms live in memory and disappear when the server
-restarts.
+In another terminal, start the browser client:
 
-## Quick Start
+```sh
+npm ci --prefix web
+npm run dev --prefix web
+```
 
-- Clone this repo via `git clone git@github.com:howardchung/watchparty.git`
-- Install npm dependencies for the project via `npm install`
-- Start the server via `npm run dev`
-  - Defaults to port 8080, customize with `PORT` env var
-  - Set `SSL_KEY_FILE` and `SSL_CRT_FILE` for HTTPS.
-- Start the React application in a separate shell and port via `npm run ui`
-  - Point to server using `VITE_SERVER_HOST` env var if you customized it above
-- Duplicate the `.env.example` file
-- Rename it to `.env`
-- Add a YouTube API key only if you want server-side search
+Open `http://localhost:3000`. The Next.js client rewrites HTTP API calls to the backend on port 8080. Socket.IO connects to port 8080 directly in development.
 
-## Advanced Setup (optional)
+## Self-hosted containers
 
-All of these are optional and the application should work without them. Some functionality may be missing.
+The local Compose file builds the backend and Next.js frontend separately:
 
-### YouTube API (video search)
+```sh
+docker compose -f docker-compose.local.yml up --build
+```
 
-This project uses the YouTube API for video search, which requires an API key. You can get one from Google [here](https://console.developers.google.com).
+For VPS deployment, use the files under `deploy/` and the pinned backend/frontend images. See [web/README.md](web/README.md) for frontend verification and routing details.
 
-Without an API key you won't be able to search for videos via the searchbox.
-
-After creating a **YouTube Data API V3** access, you can create an API key which you can add to your environment variables by copying the `.env.example`, renaming it to `.env` and adding the key to the YOUTUBE_API_KEY variable.
-
-After that restart your server to enable the YouTube API access on your server.
-
-## Tech
-
-- React
-- TypeScript
-- Node.js
-- Express
-- Socket.io
+The backend keeps room state in memory. OpenList, media signing, and production secrets require the environment settings documented by the deployment configuration.
