@@ -20,6 +20,10 @@ watch.example.test {
   handle /p/* {
     reverse_proxy 127.0.0.1:5244 {
       header_up -Authorization
+      # Browser range playback (POC): expose Content-Range/Accept-Ranges/ETag so cross-origin
+      # fetch can read the validated 206 intervals. If short-lived signed URLs are served on a
+      # different host/path (e.g. /d/*), add the same header_down there.
+      header_down Access-Control-Expose-Headers "Content-Range, Accept-Ranges, ETag, Content-Length"
     }
   }
 

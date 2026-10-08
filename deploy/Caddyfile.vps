@@ -19,6 +19,9 @@
   handle /p/* {
     reverse_proxy 127.0.0.1:5244 {
       header_up -Authorization
+      # Browser MKV POC: expose range metadata so cross-origin fetch can validate 206 intervals.
+      # If the short-lived signed URL is served on another host/path (e.g. /d/*), apply the same line there.
+      header_down Access-Control-Expose-Headers "Content-Range, Accept-Ranges, ETag, Content-Length"
     }
   }
   handle /api/* {
