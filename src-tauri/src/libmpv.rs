@@ -56,7 +56,10 @@ pub fn immediate_property_writes(prefs: &PlayerPreferences) -> Vec<(&'static str
         }
         .into(),
     ));
-    writes.push(("audio-device", prefs.audio_device.as_deref().unwrap_or("auto").to_owned()));
+    writes.push((
+        "audio-device",
+        prefs.audio_device.as_deref().unwrap_or("auto").to_owned(),
+    ));
     let font = prefs.subtitle_font.trim();
     if !font.is_empty() {
         writes.push(("sub-font", font.to_owned()));
@@ -266,30 +269,61 @@ union MpvNodeValue {
     list: *mut MpvNodeList,
 }
 #[repr(C)]
-struct MpvNode { value: MpvNodeValue, format: c_int }
+struct MpvNode {
+    value: MpvNodeValue,
+    format: c_int,
+}
 #[repr(C)]
-struct MpvNodeList { count: c_int, values: *mut MpvNode, keys: *mut *mut c_char }
+struct MpvNodeList {
+    count: c_int,
+    values: *mut MpvNode,
+    keys: *mut *mut c_char,
+}
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AudioOutputDevice { pub id: String, pub name: String }
+pub struct AudioOutputDevice {
+    pub id: String,
+    pub name: String,
+}
 
 /// A short-lived, media-free client enumerates outputs without changing the active player.
-pub fn list_audio_output_devices(config: &LibMpvConfig) -> Result<Vec<AudioOutputDevice>, LibMpvError> {
+pub fn list_audio_output_devices(
+    config: &LibMpvConfig,
+) -> Result<Vec<AudioOutputDevice>, LibMpvError> {
     let library = NativeLibrary::load(&config.dll_path)?;
     let api = library.api;
     let handle = unsafe { (api.create)() };
-    if handle.is_null() { return Err(LibMpvError::initialization()); }
+    if handle.is_null() {
+        return Err(LibMpvError::initialization());
+    }
     let result = (|| {
-        for (key, value) in [("config", "no"), ("terminal", "no"), ("vo", "null"), ("vid", "no")] {
+        for (key, value) in [
+            ("config", "no"),
+            ("terminal", "no"),
+            ("vo", "null"),
+            ("vid", "no"),
+        ] {
             let key = CString::new(key).unwrap();
             let value = CString::new(value).unwrap();
-            if unsafe { (api.set_option_string)(handle, key.as_ptr(), value.as_ptr()) } < 0 { return Err(LibMpvError::initialization()); }
+            if unsafe { (api.set_option_string)(handle, key.as_ptr(), value.as_ptr()) } < 0 {
+                return Err(LibMpvError::initialization());
+            }
         }
-        if unsafe { (api.initialize)(handle) } < 0 { return Err(LibMpvError::initialization()); }
-        let mut node = MpvNode { value: MpvNodeValue { int64: 0 }, format: 0 };
+        if unsafe { (api.initialize)(handle) } < 0 {
+            return Err(LibMpvError::initialization());
+        }
+        let mut node = MpvNode {
+            value: MpvNodeValue { int64: 0 },
+            format: 0,
+        };
         let key = CString::new("audio-device-list").unwrap();
-        if unsafe { (api.get_property)(handle, key.as_ptr(), 6, &mut node as *mut _ as *mut c_void) } < 0 { return Err(LibMpvError::command()); }
+        if unsafe {
+            (api.get_property)(handle, key.as_ptr(), 6, &mut node as *mut _ as *mut c_void)
+        } < 0
+        {
+            return Err(LibMpvError::command());
+        }
         let devices = unsafe { read_audio_devices(&node) };
         unsafe { (api.free_node_contents)(&mut node) };
         devices
@@ -300,27 +334,51 @@ pub fn list_audio_output_devices(config: &LibMpvConfig) -> Result<Vec<AudioOutpu
 
 // Only traverse the documented array/map/string shape while libmpv owns the nodes.
 unsafe fn read_audio_devices(node: &MpvNode) -> Result<Vec<AudioOutputDevice>, LibMpvError> {
-    if node.format != 7 || node.value.list.is_null() { return Err(LibMpvError::command()); }
+    if node.format != 7 || node.value.list.is_null() {
+        return Err(LibMpvError::command());
+    }
     let list = &*node.value.list;
-    if !(0..=4096).contains(&list.count) || (list.count > 0 && list.values.is_null()) { return Err(LibMpvError::command()); }
+    if !(0..=4096).contains(&list.count) || (list.count > 0 && list.values.is_null()) {
+        return Err(LibMpvError::command());
+    }
     let mut devices = Vec::new();
     for index in 0..list.count as usize {
         let item = &*list.values.add(index);
-        if item.format != 8 || item.value.list.is_null() { continue; }
+        if item.format != 8 || item.value.list.is_null() {
+            continue;
+        }
         let fields = &*item.value.list;
-        if !(0..=64).contains(&fields.count) || fields.values.is_null() || fields.keys.is_null() { continue; }
+        if !(0..=64).contains(&fields.count) || fields.values.is_null() || fields.keys.is_null() {
+            continue;
+        }
         let mut id = None;
         let mut name = None;
         for field in 0..fields.count as usize {
             let key = *fields.keys.add(field);
             let value = &*fields.values.add(field);
-            if key.is_null() || value.format != 1 || value.value.string.is_null() { continue; }
-            let text = CStr::from_ptr(value.value.string).to_string_lossy().into_owned();
-            match CStr::from_ptr(key).to_bytes() { b"name" => id = Some(text), b"description" => name = Some(text), _ => {} }
+            if key.is_null() || value.format != 1 || value.value.string.is_null() {
+                continue;
+            }
+            let text = CStr::from_ptr(value.value.string)
+                .to_string_lossy()
+                .into_owned();
+            match CStr::from_ptr(key).to_bytes() {
+                b"name" => id = Some(text),
+                b"description" => name = Some(text),
+                _ => {}
+            }
         }
         if let Some(id) = id.filter(|id| !id.is_empty() && id != "auto") {
-            if !devices.iter().any(|device: &AudioOutputDevice| device.id == id) {
-                devices.push(AudioOutputDevice { name: name.filter(|name| !name.is_empty()).unwrap_or_else(|| id.clone()), id });
+            if !devices
+                .iter()
+                .any(|device: &AudioOutputDevice| device.id == id)
+            {
+                devices.push(AudioOutputDevice {
+                    name: name
+                        .filter(|name| !name.is_empty())
+                        .unwrap_or_else(|| id.clone()),
+                    id,
+                });
             }
         }
     }
@@ -503,7 +561,9 @@ impl LibMpvPlayer {
         if let Some(path) = &config.tls_ca_file {
             player.set_option("tls-ca-file", path.to_string_lossy().as_ref())?;
         }
-        if config.audio_only { player.set_option("vid", "no")?; }
+        if config.audio_only {
+            player.set_option("vid", "no")?;
+        }
         // Preference-driven creation options: hardware decoding and cache profile.
         for (name, value) in open_options(&config.preferences) {
             player.set_option(name, &value)?;
@@ -920,7 +980,10 @@ impl PlayerEngine for LibMpvPlayer {
         self.state.buffering = true;
 
         let _ = self.set_property_string("user-agent", request.user_agent);
-        let tls_ca_file = request.tls_ca_file.map(|path| path.to_string_lossy().into_owned()).unwrap_or_default();
+        let tls_ca_file = request
+            .tls_ca_file
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let _ = self.set_property_string("tls-ca-file", &tls_ca_file);
         let header = request.basic_auth.map(|(username, password)| {
             format!(
@@ -1140,20 +1203,49 @@ mod tests {
         let description = CString::new("扬声器 USB").unwrap();
         let name_key = CString::new("name").unwrap();
         let description_key = CString::new("description").unwrap();
-        let mut keys = [name_key.as_ptr() as *mut c_char, description_key.as_ptr() as *mut c_char];
-        let mut values = [
-            MpvNode { value: MpvNodeValue { string: id.as_ptr() as *mut c_char }, format: 1 },
-            MpvNode { value: MpvNodeValue { string: description.as_ptr() as *mut c_char }, format: 1 },
+        let mut keys = [
+            name_key.as_ptr() as *mut c_char,
+            description_key.as_ptr() as *mut c_char,
         ];
-        let mut fields = MpvNodeList { count: 2, values: values.as_mut_ptr(), keys: keys.as_mut_ptr() };
-        let mut item = MpvNode { value: MpvNodeValue { list: &mut fields }, format: 8 };
-        let mut list = MpvNodeList { count: 1, values: &mut item, keys: ptr::null_mut() };
-        let node = MpvNode { value: MpvNodeValue { list: &mut list }, format: 7 };
+        let mut values = [
+            MpvNode {
+                value: MpvNodeValue {
+                    string: id.as_ptr() as *mut c_char,
+                },
+                format: 1,
+            },
+            MpvNode {
+                value: MpvNodeValue {
+                    string: description.as_ptr() as *mut c_char,
+                },
+                format: 1,
+            },
+        ];
+        let mut fields = MpvNodeList {
+            count: 2,
+            values: values.as_mut_ptr(),
+            keys: keys.as_mut_ptr(),
+        };
+        let mut item = MpvNode {
+            value: MpvNodeValue { list: &mut fields },
+            format: 8,
+        };
+        let mut list = MpvNodeList {
+            count: 1,
+            values: &mut item,
+            keys: ptr::null_mut(),
+        };
+        let node = MpvNode {
+            value: MpvNodeValue { list: &mut list },
+            format: 7,
+        };
         let result = unsafe { read_audio_devices(&node) }.unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, "wasapi/{test-device}");
         assert_eq!(result[0].name, "扬声器 USB");
-        unsafe { (*list.values).format = 0; }
+        unsafe {
+            (*list.values).format = 0;
+        }
         assert!(unsafe { read_audio_devices(&node) }.unwrap().is_empty());
     }
 
@@ -1176,8 +1268,14 @@ mod tests {
         let config = LibMpvConfig::new(PathBuf::from(r"C:\libmpv-2.dll"), 1)
             .unwrap()
             .with_tls_ca_file(Some(PathBuf::from(r"C:\app-data\tls-trust\origin-a.pem")));
-        assert_eq!(config.tls_ca_file.as_deref(), Some(Path::new(r"C:\app-data\tls-trust\origin-a.pem")));
-        assert!(LibMpvConfig::new(PathBuf::from(r"C:\libmpv-2.dll"), 1).unwrap().tls_ca_file.is_none());
+        assert_eq!(
+            config.tls_ca_file.as_deref(),
+            Some(Path::new(r"C:\app-data\tls-trust\origin-a.pem"))
+        );
+        assert!(LibMpvConfig::new(PathBuf::from(r"C:\libmpv-2.dll"), 1)
+            .unwrap()
+            .tls_ca_file
+            .is_none());
     }
 
     #[test]

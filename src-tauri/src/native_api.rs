@@ -12,11 +12,11 @@ use crate::{
     transport::{DesktopProbeReport, DesktopReadinessReport, RoomTransport},
 };
 use serde::Deserialize;
+use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
-use std::path::PathBuf;
 
 pub trait DesktopHost: Send + Sync {
     fn data_dir(&self) -> Result<PathBuf, RuntimeError>;
@@ -28,10 +28,14 @@ pub trait DesktopHost: Send + Sync {
 /// Keeps the native libmpv surface visible behind a transparent desktop renderer.
 #[cfg(windows)]
 pub fn configure_native_surface(handle: isize) -> Result<(), RuntimeError> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, SetWindowLongPtrW, GWL_STYLE, WS_CLIPCHILDREN};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, GWL_STYLE, WS_CLIPCHILDREN,
+    };
     let hwnd = handle as windows_sys::Win32::Foundation::HWND;
     let style = unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) };
-    unsafe { SetWindowLongPtrW(hwnd, GWL_STYLE, style & !(WS_CLIPCHILDREN as isize)); }
+    unsafe {
+        SetWindowLongPtrW(hwnd, GWL_STYLE, style & !(WS_CLIPCHILDREN as isize));
+    }
     if unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) } & (WS_CLIPCHILDREN as isize) != 0 {
         return Err(RuntimeError::runtime_unavailable());
     }
@@ -39,7 +43,9 @@ pub fn configure_native_surface(handle: isize) -> Result<(), RuntimeError> {
 }
 
 #[cfg(not(windows))]
-pub fn configure_native_surface(_handle: isize) -> Result<(), RuntimeError> { Ok(()) }
+pub fn configure_native_surface(_handle: isize) -> Result<(), RuntimeError> {
+    Ok(())
+}
 
 #[derive(Clone)]
 pub struct Host(pub Arc<dyn DesktopHost>);
@@ -51,28 +57,64 @@ impl Host {
 }
 
 #[allow(non_snake_case)]
-pub fn listOriginTrust(state: &NativeDesktopState) -> Result<Vec<crate::config::OriginTrustRecord>, String> {
-    crate::config::OriginTrustStore::new(state.app_handle.0.data_dir().map_err(|_|"Trust storage unavailable")?).list().map_err(|_|"Trust storage unavailable".into())
+pub fn listOriginTrust(
+    state: &NativeDesktopState,
+) -> Result<Vec<crate::config::OriginTrustRecord>, String> {
+    crate::config::OriginTrustStore::new(
+        state
+            .app_handle
+            .0
+            .data_dir()
+            .map_err(|_| "Trust storage unavailable")?,
+    )
+    .list()
+    .map_err(|_| "Trust storage unavailable".into())
 }
 #[allow(non_snake_case)]
-pub fn importOriginTrust(state: &NativeDesktopState, origin: String, pem: String) -> Result<crate::config::OriginTrustRecord, String> {
-    let record = crate::config::OriginTrustStore::new(state.app_handle.0.data_dir().map_err(|_|"Trust storage unavailable")?)
-        .import(&origin, &pem).map_err(|_|"Certificate trust could not be saved")?;
+pub fn importOriginTrust(
+    state: &NativeDesktopState,
+    origin: String,
+    pem: String,
+) -> Result<crate::config::OriginTrustRecord, String> {
+    let record = crate::config::OriginTrustStore::new(
+        state
+            .app_handle
+            .0
+            .data_dir()
+            .map_err(|_| "Trust storage unavailable")?,
+    )
+    .import(&origin, &pem)
+    .map_err(|_| "Certificate trust could not be saved")?;
     refresh_origin_trust(state, &origin)?;
     Ok(record)
 }
 #[allow(non_snake_case)]
 pub fn deleteOriginTrust(state: &NativeDesktopState, origin: String) -> Result<(), String> {
-    crate::config::OriginTrustStore::new(state.app_handle.0.data_dir().map_err(|_|"Trust storage unavailable")?)
-        .delete(&origin).map_err(|_|"Certificate trust could not be deleted")?;
+    crate::config::OriginTrustStore::new(
+        state
+            .app_handle
+            .0
+            .data_dir()
+            .map_err(|_| "Trust storage unavailable")?,
+    )
+    .delete(&origin)
+    .map_err(|_| "Certificate trust could not be deleted")?;
     refresh_origin_trust(state, &origin)
 }
 
 fn refresh_origin_trust(state: &NativeDesktopState, origin: &str) -> Result<(), String> {
-    let _change = state.configuration_change.lock().map_err(|_| "Configuration unavailable")?;
-    let settings = state.config_store.load().map_err(|_| "Configuration unavailable")?;
+    let _change = state
+        .configuration_change
+        .lock()
+        .map_err(|_| "Configuration unavailable")?;
+    let settings = state
+        .config_store
+        .load()
+        .map_err(|_| "Configuration unavailable")?;
     if settings.backend_origin.as_deref() == Some(origin) {
-        state.rebuild_runtime(&settings).map_err(|_| "Certificate trust saved; reconnect required")?;
+        state
+            .rebuild_runtime(&settings)
+            .map_err(|_| "Certificate trust saved; reconnect required")?;
     }
     Ok(())
 }
@@ -99,8 +141,18 @@ impl NativeDesktopState {
     /// Initializes either shell from the same settings and credential stores.
     pub fn initialize(host: Host, player: LibMpvConfig) -> Result<Self, RuntimeError> {
         let store = DesktopConfigStore::new(host.0.data_dir()?);
-        let settings = store.load().map_err(|_| RuntimeError::configuration_error())?;
-        let state = Self::new(None, false, store, SiteCredentialStore, RoomSessionStore, host, player);
+        let settings = store
+            .load()
+            .map_err(|_| RuntimeError::configuration_error())?;
+        let state = Self::new(
+            None,
+            false,
+            store,
+            SiteCredentialStore,
+            RoomSessionStore,
+            host,
+            player,
+        );
         state.rebuild_runtime(&settings)?;
         Ok(state)
     }
@@ -158,16 +210,24 @@ impl NativeDesktopState {
         let credentials = settings
             .backend_origin
             .as_deref()
-            .map(|origin| self.credential_store.read_with_policy(origin, settings.allow_remote_http))
+            .map(|origin| {
+                self.credential_store
+                    .read_with_policy(origin, settings.allow_remote_http)
+            })
             .transpose()
             .map_err(|_| RuntimeError::credential_error())?
             .flatten()
             .map(NativeSiteCredentials::from_stored)
             .transpose()?;
         let trust_store = crate::config::OriginTrustStore::new(
-            self.app_handle.0.data_dir().map_err(|_| RuntimeError::configuration_error())?,
+            self.app_handle
+                .0
+                .data_dir()
+                .map_err(|_| RuntimeError::configuration_error())?,
         );
-        let tls_ca_file = trust_store.ca_file_for(&origin).map_err(|_| RuntimeError::configuration_error())?;
+        let tls_ca_file = trust_store
+            .ca_file_for(&origin)
+            .map_err(|_| RuntimeError::configuration_error())?;
         let config = NativeRuntimeConfig::with_player_with_policy(
             origin,
             credentials,
@@ -233,7 +293,10 @@ impl NativeDesktopState {
         let credentials_configured = settings
             .backend_origin
             .as_deref()
-            .map(|origin| self.credential_store.has_with_policy(origin, settings.allow_remote_http))
+            .map(|origin| {
+                self.credential_store
+                    .has_with_policy(origin, settings.allow_remote_http)
+            })
             .transpose()
             .map_err(|_| RuntimeError::credential_error())?
             .unwrap_or(false);
@@ -314,19 +377,28 @@ fn transport_for_settings(
         .backend_origin
         .clone()
         .ok_or_else(RuntimeError::not_configured)?;
-    let transport = match state.credential_store.read_with_policy(&origin, settings.allow_remote_http) {
+    let transport = match state
+        .credential_store
+        .read_with_policy(&origin, settings.allow_remote_http)
+    {
         Ok(Some(credentials)) => {
             let (username, password) = credentials.into_parts();
-            DesktopHttpTransport::with_site_basic_auth_with_policy(origin, username, password, settings.allow_remote_http)
-                .map_err(|_| RuntimeError::configuration_error())
+            DesktopHttpTransport::with_site_basic_auth_with_policy(
+                origin,
+                username,
+                password,
+                settings.allow_remote_http,
+            )
+            .map_err(|_| RuntimeError::configuration_error())
         }
-        Ok(None) => {
-            DesktopHttpTransport::new_with_policy(origin, settings.allow_remote_http).map_err(|_| RuntimeError::configuration_error())
-        }
+        Ok(None) => DesktopHttpTransport::new_with_policy(origin, settings.allow_remote_http)
+            .map_err(|_| RuntimeError::configuration_error()),
         Err(_) => Err(RuntimeError::credential_error()),
     }?;
     let store = crate::config::OriginTrustStore::new(state.app_handle.0.data_dir()?);
-    transport.with_origin_trust(&store).map_err(|_| RuntimeError::configuration_error())
+    transport
+        .with_origin_trust(&store)
+        .map_err(|_| RuntimeError::configuration_error())
 }
 
 fn settings_for_state(
@@ -417,7 +489,6 @@ pub fn create_desktop_room(
         let _ = origin;
         persist_and_start(state, &settings, session)
     })
-
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -459,7 +530,6 @@ pub fn access_desktop_room(
             .map_err(|_| RuntimeError::configuration_error())?;
         persist_and_start(state, &settings, session)
     })
-
 }
 
 pub fn restore_desktop_session(state: &NativeDesktopState) -> Result<bool, RuntimeError> {
@@ -468,7 +538,10 @@ pub fn restore_desktop_session(state: &NativeDesktopState) -> Result<bool, Runti
         let Some(origin) = settings.backend_origin.as_deref() else {
             return Ok(false);
         };
-        let session = match state.room_store.read_with_policy(origin, settings.allow_remote_http) {
+        let session = match state
+            .room_store
+            .read_with_policy(origin, settings.allow_remote_http)
+        {
             Ok(session) => session,
             Err(_) => {
                 let _ = state.room_store.clear(origin);
@@ -487,7 +560,6 @@ pub fn restore_desktop_session(state: &NativeDesktopState) -> Result<bool, Runti
         )?;
         Ok(true)
     })
-
 }
 
 /// Replays the latest deep-link launch. The renderer calls this right after
@@ -519,7 +591,11 @@ fn set_player_visibility(runtime: Arc<DesktopRuntime>, visible: bool) -> Result<
     runtime.set_local_suspended(!visible)
 }
 
-fn set_player_fullscreen(app: &Host, runtime: Arc<DesktopRuntime>, enabled: bool) -> Result<(), RuntimeError> {
+fn set_player_fullscreen(
+    app: &Host,
+    runtime: Arc<DesktopRuntime>,
+    enabled: bool,
+) -> Result<(), RuntimeError> {
     runtime.set_local_suspended(false)?;
     app.0.set_fullscreen(enabled)
 }
@@ -533,17 +609,32 @@ fn local_ack() -> CommandAck {
 }
 
 #[derive(serde::Serialize)]
-pub struct DesktopSessionCheckpoint { pub id: String }
+pub struct DesktopSessionCheckpoint {
+    pub id: String,
+}
 
 /// Credentials stay native; only one bounded, opaque recovery handle is retained.
-pub fn checkpoint_desktop_session(state: &NativeDesktopState) -> Result<Option<DesktopSessionCheckpoint>, RuntimeError> {
+pub fn checkpoint_desktop_session(
+    state: &NativeDesktopState,
+) -> Result<Option<DesktopSessionCheckpoint>, RuntimeError> {
     configuration_task(state, |state| {
         let settings = settings_for_state(state)?;
-        let Some(origin) = settings.backend_origin else { return Ok(None) };
-        let session = state.room_store.read_with_policy(&origin, settings.allow_remote_http).map_err(|_| RuntimeError::credential_error())?;
-        let Some(session) = session else { return Ok(None) };
+        let Some(origin) = settings.backend_origin else {
+            return Ok(None);
+        };
+        let session = state
+            .room_store
+            .read_with_policy(&origin, settings.allow_remote_http)
+            .map_err(|_| RuntimeError::credential_error())?;
+        let Some(session) = session else {
+            return Ok(None);
+        };
         let id = uuid::Uuid::new_v4().to_string();
-        *state.checkpoint.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((id.clone(), origin, session));
+        *state
+            .checkpoint
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((id.clone(), origin, session));
         Ok(Some(DesktopSessionCheckpoint { id }))
     })
 }
@@ -552,30 +643,59 @@ pub fn suspend_desktop_session(state: &NativeDesktopState) -> Result<(), Runtime
     configuration_task(state, |state| state.runtime()?.stop_session())
 }
 
-pub fn rollback_desktop_session(state: &NativeDesktopState, id: String) -> Result<(), RuntimeError> {
+pub fn rollback_desktop_session(
+    state: &NativeDesktopState,
+    id: String,
+) -> Result<(), RuntimeError> {
     configuration_task(state, |state| {
         let settings = settings_for_state(state)?;
-        let mut checkpoint = state.checkpoint.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some((stored_id, origin, session)) = checkpoint.as_ref() else { return Err(RuntimeError::configuration_error()) };
-        if stored_id != &id || settings.backend_origin.as_ref() != Some(origin) { return Err(RuntimeError::configuration_error()) }
+        let mut checkpoint = state
+            .checkpoint
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some((stored_id, origin, session)) = checkpoint.as_ref() else {
+            return Err(RuntimeError::configuration_error());
+        };
+        if stored_id != &id || settings.backend_origin.as_ref() != Some(origin) {
+            return Err(RuntimeError::configuration_error());
+        }
         let (room_id, client_id, token, owner_token, _) = session.parts();
         let runtime = state.runtime()?;
         runtime.stop_session()?;
-        state.room_store.write_with_policy(origin, session, settings.allow_remote_http).map_err(|_| RuntimeError::credential_error())?;
-        runtime.start_persisted(room_id.to_owned(), client_id.to_owned(), token.to_owned(), owner_token.map(str::to_owned))?;
+        state
+            .room_store
+            .write_with_policy(origin, session, settings.allow_remote_http)
+            .map_err(|_| RuntimeError::credential_error())?;
+        runtime.start_persisted(
+            room_id.to_owned(),
+            client_id.to_owned(),
+            token.to_owned(),
+            owner_token.map(str::to_owned),
+        )?;
         *checkpoint = None;
         Ok(())
     })
 }
 
-pub fn discard_desktop_session_checkpoint(state: &NativeDesktopState, id: String) -> Result<(), RuntimeError> {
-    let mut checkpoint = state.checkpoint.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if checkpoint.as_ref().is_some_and(|entry| entry.0 == id) { *checkpoint = None; }
+pub fn discard_desktop_session_checkpoint(
+    state: &NativeDesktopState,
+    id: String,
+) -> Result<(), RuntimeError> {
+    let mut checkpoint = state
+        .checkpoint
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if checkpoint.as_ref().is_some_and(|entry| entry.0 == id) {
+        *checkpoint = None;
+    }
     Ok(())
 }
 
 pub fn stop_desktop_session(state: &NativeDesktopState) -> Result<(), RuntimeError> {
-    *state.checkpoint.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    *state
+        .checkpoint
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     let runtime = state.runtime()?;
     let result = runtime.stop_session();
     if result.is_ok() {
@@ -588,17 +708,28 @@ pub fn stop_desktop_session(state: &NativeDesktopState) -> Result<(), RuntimeErr
     result
 }
 
-pub fn get_desktop_settings(state: &NativeDesktopState) -> Result<DesktopSettingsStatus, RuntimeError> {
+pub fn get_desktop_settings(
+    state: &NativeDesktopState,
+) -> Result<DesktopSettingsStatus, RuntimeError> {
     configuration_task(state, |state| state.settings_status())
 }
 
-pub fn list_audio_output_devices(state: &NativeDesktopState) -> Result<Vec<crate::libmpv::AudioOutputDevice>, String> {
-    crate::libmpv::list_audio_output_devices(&state.player).map_err(|error| error.message.to_owned())
+pub fn list_audio_output_devices(
+    state: &NativeDesktopState,
+) -> Result<Vec<crate::libmpv::AudioOutputDevice>, String> {
+    crate::libmpv::list_audio_output_devices(&state.player)
+        .map_err(|error| error.message.to_owned())
 }
 
 /// Serializes settings and credential changes across shell request workers.
-fn configuration_task<T>(state: &NativeDesktopState, action: impl FnOnce(&NativeDesktopState) -> Result<T, RuntimeError>) -> Result<T, RuntimeError> {
-    let _guard = state.configuration_change.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+fn configuration_task<T>(
+    state: &NativeDesktopState,
+    action: impl FnOnce(&NativeDesktopState) -> Result<T, RuntimeError>,
+) -> Result<T, RuntimeError> {
+    let _guard = state
+        .configuration_change
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     action(state)
 }
 
@@ -662,10 +793,11 @@ pub fn update_desktop_settings(
         let _ = state.app_handle.emit("desktop://settings", &result);
         Ok(result)
     })
-
 }
 
-pub fn clear_site_credentials(state: &NativeDesktopState) -> Result<DesktopSettingsStatus, RuntimeError> {
+pub fn clear_site_credentials(
+    state: &NativeDesktopState,
+) -> Result<DesktopSettingsStatus, RuntimeError> {
     configuration_task(state, |state| {
         let settings = state
             .config_store
@@ -681,7 +813,6 @@ pub fn clear_site_credentials(state: &NativeDesktopState) -> Result<DesktopSetti
         state.rebuild_runtime(&settings)?;
         state.settings_status()
     })
-
 }
 
 pub fn prompt_site_credentials(
@@ -708,9 +839,7 @@ pub fn prompt_site_credentials(
         state.rebuild_runtime(&settings)?;
         state.settings_status().map(Some)
     })
-
 }
-
 
 /// Applies credentials supplied by a trusted package bootstrapper. Renderer
 /// policy does not expose this command; normal users use the native prompt.
@@ -749,19 +878,28 @@ impl NativeDesktopState {
             .backend_origin
             .as_deref()
             .ok_or_else(RuntimeError::not_configured)?;
-        let transport = match self.credential_store.read_with_policy(origin, settings.allow_remote_http) {
+        let transport = match self
+            .credential_store
+            .read_with_policy(origin, settings.allow_remote_http)
+        {
             Ok(Some(credentials)) => {
                 let (username, password) = credentials.into_parts();
-                DesktopHttpTransport::with_site_basic_auth_with_policy(origin, username, password, settings.allow_remote_http)
-                    .map_err(|_| RuntimeError::configuration_error())
+                DesktopHttpTransport::with_site_basic_auth_with_policy(
+                    origin,
+                    username,
+                    password,
+                    settings.allow_remote_http,
+                )
+                .map_err(|_| RuntimeError::configuration_error())
             }
-            Ok(None) => {
-                DesktopHttpTransport::new_with_policy(origin, settings.allow_remote_http).map_err(|_| RuntimeError::configuration_error())
-            }
+            Ok(None) => DesktopHttpTransport::new_with_policy(origin, settings.allow_remote_http)
+                .map_err(|_| RuntimeError::configuration_error()),
             Err(_) => return Err(RuntimeError::credential_error()),
         };
         let store = crate::config::OriginTrustStore::new(self.app_handle.0.data_dir()?);
-        transport?.with_origin_trust(&store).map_err(|_| RuntimeError::configuration_error())
+        transport?
+            .with_origin_trust(&store)
+            .map_err(|_| RuntimeError::configuration_error())
     }
 
     fn current_room_session(
@@ -954,8 +1092,7 @@ pub fn media_image(
 }
 
 fn base64_encode(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let b = [
@@ -991,10 +1128,11 @@ pub fn verify_backend(state: &NativeDesktopState) -> Result<(), RuntimeError> {
             .verify_backend()
             .map_err(|error| RuntimeError::from_transport(&error))
     })
-
 }
 
-pub fn probe_desktop_backend(state: &NativeDesktopState) -> Result<DesktopProbeReport, RuntimeError> {
+pub fn probe_desktop_backend(
+    state: &NativeDesktopState,
+) -> Result<DesktopProbeReport, RuntimeError> {
     configuration_task(state, |state| {
         let _ = state.runtime()?;
         state
@@ -1166,15 +1304,15 @@ mod tests {
             assert!(media_id_ok(id), "{id}");
         }
         for id in [
-            "",            // empty
-            ".",           // current directory
-            "..",          // parent
-            "v2.a b",      // space
-            "v2.a/b",      // separator
-            "v2.a\\b",     // windows separator
-            "v2.a?x=1",    // query smuggling
-            "v2.a#frag",   // fragment smuggling
-            "v2.a%2Fb",    // percent-encoded separator
+            "",          // empty
+            ".",         // current directory
+            "..",        // parent
+            "v2.a b",    // space
+            "v2.a/b",    // separator
+            "v2.a\\b",   // windows separator
+            "v2.a?x=1",  // query smuggling
+            "v2.a#frag", // fragment smuggling
+            "v2.a%2Fb",  // percent-encoded separator
         ] {
             assert!(!media_id_ok(id), "{id:?}");
         }

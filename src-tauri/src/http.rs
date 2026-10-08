@@ -48,11 +48,19 @@ fn classify_probe_network_error(error: reqwest::Error) -> TransportError {
 
 fn classify_probe_network_message(message: &str) -> TransportError {
     let lower = message.to_ascii_lowercase();
-    if lower.contains("dns") || lower.contains("name or service not known") || lower.contains("no such host") || lower.contains("host not found") {
+    if lower.contains("dns")
+        || lower.contains("name or service not known")
+        || lower.contains("no such host")
+        || lower.contains("host not found")
+    {
         TransportError::DnsFailed
     } else if lower.contains("refused") {
         TransportError::ConnectionRefused
-    } else if lower.contains("certificate") || lower.contains("certificat") || lower.contains("tls") || lower.contains("unknownissuer") {
+    } else if lower.contains("certificate")
+        || lower.contains("certificat")
+        || lower.contains("tls")
+        || lower.contains("unknownissuer")
+    {
         TransportError::TlsTrustRequired
     } else {
         TransportError::Network(message.to_owned())
@@ -79,7 +87,12 @@ fn probe_http_error(
 fn unauthorized_error(body: String) -> TransportError {
     let code = serde_json::from_str::<serde_json::Value>(&body)
         .ok()
-        .and_then(|value| value.get("code").and_then(serde_json::Value::as_str).map(str::to_owned));
+        .and_then(|value| {
+            value
+                .get("code")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        });
     match code {
         Some(code) if code == "ROOM_PIN_REQUIRED" || code == "ROOM_PIN_REJECTED" => {
             TransportError::Http(reqwest::StatusCode::UNAUTHORIZED.as_u16(), body)
@@ -97,7 +110,11 @@ pub struct MusicPartySession {
 
 impl MusicPartySession {
     pub fn new(session: impl Into<String>, csrf: impl Into<String>) -> Self {
-        Self { session: session.into(), csrf: csrf.into(), room_access: None }
+        Self {
+            session: session.into(),
+            csrf: csrf.into(),
+            room_access: None,
+        }
     }
 
     pub fn with_room_access(mut self, value: impl Into<String>) -> Self {
@@ -105,15 +122,24 @@ impl MusicPartySession {
         self
     }
 
-    pub fn apply(&self, request: RequestBuilder, state_changing: bool) -> Result<RequestBuilder, TransportError> {
+    pub fn apply(
+        &self,
+        request: RequestBuilder,
+        state_changing: bool,
+    ) -> Result<RequestBuilder, TransportError> {
         let mut cookie_value = format!("MP_SESSION={}; MP_CSRF={}", self.session, self.csrf);
-        if let Some(room_access) = &self.room_access { cookie_value.push_str("; MP_ROOM_ACCESS="); cookie_value.push_str(room_access); }
+        if let Some(room_access) = &self.room_access {
+            cookie_value.push_str("; MP_ROOM_ACCESS=");
+            cookie_value.push_str(room_access);
+        }
         let cookie = zeroize::Zeroizing::new(cookie_value);
         let mut cookie_header = HeaderValue::from_bytes(cookie.as_bytes())
             .map_err(|_| TransportError::Protocol("invalid MusicParty cookie".into()))?;
         cookie_header.set_sensitive(true);
         let request = request.header(reqwest::header::COOKIE, cookie_header);
-        if !state_changing { return Ok(request); }
+        if !state_changing {
+            return Ok(request);
+        }
         let mut csrf = HeaderValue::from_bytes(self.csrf.as_bytes())
             .map_err(|_| TransportError::Protocol("invalid MusicParty CSRF token".into()))?;
         csrf.set_sensitive(true);
@@ -122,7 +148,13 @@ impl MusicPartySession {
 }
 
 impl Drop for MusicPartySession {
-    fn drop(&mut self) { self.session.zeroize(); self.csrf.zeroize(); if let Some(value) = &mut self.room_access { value.zeroize(); } }
+    fn drop(&mut self) {
+        self.session.zeroize();
+        self.csrf.zeroize();
+        if let Some(value) = &mut self.room_access {
+            value.zeroize();
+        }
+    }
 }
 
 fn room_token_header(token: &str) -> Result<HeaderValue, TransportError> {
@@ -186,7 +218,10 @@ impl DesktopHttpTransport {
         Self::new_with_policy(base_url, false)
     }
 
-    pub fn new_with_policy(base_url: impl Into<String>, allow_remote_http: bool) -> Result<Self, TransportError> {
+    pub fn new_with_policy(
+        base_url: impl Into<String>,
+        allow_remote_http: bool,
+    ) -> Result<Self, TransportError> {
         Self::with_auth(base_url, None, allow_remote_http)
     }
 
@@ -204,7 +239,11 @@ impl DesktopHttpTransport {
         password: impl Into<String>,
         allow_remote_http: bool,
     ) -> Result<Self, TransportError> {
-        Self::with_auth(base_url, Some(SiteBasicAuth::new(username, password)), allow_remote_http)
+        Self::with_auth(
+            base_url,
+            Some(SiteBasicAuth::new(username, password)),
+            allow_remote_http,
+        )
     }
 
     fn with_auth(
@@ -225,7 +264,11 @@ impl DesktopHttpTransport {
         })
     }
 
-    fn build_client(base_url: &str, extra_pem: Option<&str>, no_redirect: bool) -> Result<Client, TransportError> {
+    fn build_client(
+        base_url: &str,
+        extra_pem: Option<&str>,
+        no_redirect: bool,
+    ) -> Result<Client, TransportError> {
         let mut builder = Client::builder()
             .cookie_store(true)
             .connect_timeout(Duration::from_secs(5))
@@ -236,25 +279,42 @@ impl DesktopHttpTransport {
             if certificates.is_empty() {
                 return Err(TransportError::Protocol("empty origin certificate".into()));
             }
-            for certificate in certificates { builder = builder.add_root_certificate(certificate); }
+            for certificate in certificates {
+                builder = builder.add_root_certificate(certificate);
+            }
             let origin = reqwest::Url::parse(base_url)
-                .map_err(|_| TransportError::Protocol("invalid backend origin".into()))?.origin();
+                .map_err(|_| TransportError::Protocol("invalid backend origin".into()))?
+                .origin();
             // A private root is trusted only for this origin, including redirects.
             builder = builder.redirect(reqwest::redirect::Policy::custom(move |attempt| {
-                if attempt.url().origin() != origin { attempt.stop() }
-                else if attempt.previous().len() >= 10 { attempt.error("too many redirects") }
-                else { attempt.follow() }
+                if attempt.url().origin() != origin {
+                    attempt.stop()
+                } else if attempt.previous().len() >= 10 {
+                    attempt.error("too many redirects")
+                } else {
+                    attempt.follow()
+                }
             }));
         }
-        if no_redirect { builder = builder.redirect(reqwest::redirect::Policy::none()); }
-        builder.build().map_err(|error| TransportError::Network(error.to_string()))
+        if no_redirect {
+            builder = builder.redirect(reqwest::redirect::Policy::none());
+        }
+        builder
+            .build()
+            .map_err(|error| TransportError::Network(error.to_string()))
     }
 
-    pub fn with_origin_trust(mut self, store: &crate::config::OriginTrustStore) -> Result<Self, TransportError> {
+    pub fn with_origin_trust(
+        mut self,
+        store: &crate::config::OriginTrustStore,
+    ) -> Result<Self, TransportError> {
         let pem = if self.base_url.starts_with("https://") {
-            store.pem_for(&self.base_url)
+            store
+                .pem_for(&self.base_url)
                 .map_err(|_| TransportError::Protocol("origin trust unavailable".into()))?
-        } else { None };
+        } else {
+            None
+        };
         self.client = Self::build_client(&self.base_url, pem.as_deref(), false)?;
         self.approval_client = Self::build_client(&self.base_url, pem.as_deref(), true)?;
         Ok(self)
@@ -327,7 +387,9 @@ impl DesktopHttpTransport {
         if capabilities.protocol_version != WATCHPARTY_PROTOCOL_VERSION {
             return Err(TransportError::ProtocolVersionMismatch);
         }
-        if capabilities.service_version.is_empty() || capabilities.service_version != health.service_version {
+        if capabilities.service_version.is_empty()
+            || capabilities.service_version != health.service_version
+        {
             return Err(TransportError::Protocol(
                 "desktop health and capabilities service versions differ".into(),
             ));
@@ -1071,7 +1133,9 @@ mod tests {
         let server = thread::spawn(move || {
             for (expected_path, body) in expected {
                 let (mut stream, _) = listener.accept().unwrap();
-                stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
                 let mut request = Vec::new();
                 let mut byte = [0];
                 while !request.ends_with(b"\r\n\r\n") {
@@ -1111,10 +1175,19 @@ mod tests {
     #[test]
     fn desktop_probe_parses_health_and_capabilities() {
         let (origin, server) = serve_probe(&[
-            ("/api/desktop/health", r#"{"status":"ok","protocolVersion":2,"serviceVersion":"0.1.0"}"#),
-            ("/api/desktop/capabilities", r#"{"protocolVersion":2,"serviceVersion":"0.1.0","capabilities":{"createRoom":true,"joinRoom":true,"restoreSession":true,"mediaSearch":true,"mediaQueue":true,"handoffCode":true}}"#),
+            (
+                "/api/desktop/health",
+                r#"{"status":"ok","protocolVersion":2,"serviceVersion":"0.1.0"}"#,
+            ),
+            (
+                "/api/desktop/capabilities",
+                r#"{"protocolVersion":2,"serviceVersion":"0.1.0","capabilities":{"createRoom":true,"joinRoom":true,"restoreSession":true,"mediaSearch":true,"mediaQueue":true,"handoffCode":true}}"#,
+            ),
         ]);
-        let report = DesktopHttpTransport::new(origin).unwrap().probe_desktop_backend().unwrap();
+        let report = DesktopHttpTransport::new(origin)
+            .unwrap()
+            .probe_desktop_backend()
+            .unwrap();
         assert_eq!(report.status, "ok");
         assert_eq!(report.protocol_version, 2);
         assert_eq!(report.service_version, "0.1.0");
@@ -1233,38 +1306,86 @@ mod tests {
 
     #[test]
     fn approval_header_is_request_scoped_on_the_wire() {
-        use std::{io::{BufRead, BufReader, Write}, net::TcpListener};
+        use std::{
+            io::{BufRead, BufReader, Write},
+            net::TcpListener,
+        };
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let server = std::thread::spawn(move || {
             let mut present = Vec::new();
             for _ in 0..3 {
                 let (mut stream, _) = listener.accept().unwrap();
-                stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
                 let mut reader = BufReader::new(&stream);
                 let mut has_approval = false;
                 loop {
                     let mut line = String::new();
                     reader.read_line(&mut line).unwrap();
-                    if line == "\r\n" || line.is_empty() { break; }
-                    if line.to_ascii_lowercase().starts_with("x-watchparty-approval:") { has_approval = true; }
+                    if line == "\r\n" || line.is_empty() {
+                        break;
+                    }
+                    if line
+                        .to_ascii_lowercase()
+                        .starts_with("x-watchparty-approval:")
+                    {
+                        has_approval = true;
+                    }
                 }
                 present.push(has_approval);
-                stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").unwrap();
+                stream
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                    )
+                    .unwrap();
             }
             present
         });
         let transport = DesktopHttpTransport::new(origin).unwrap();
-        transport.media_request_with_approval("POST", "/api/admin/media-libraries/lib_x/approval", None, None, Some("test-only-key"), None, None).unwrap();
-        transport.media_request("POST", "/api/admin/media-libraries/lib_x/apply-approved", None, None).unwrap();
-        transport.media_request("GET", "/api/media/capabilities", None, None).unwrap();
-        assert!(transport.media_request_with_approval("POST", "/api/admin/media-libraries/lib_x/approval/revoke", None, None, Some("test-only-key"), None, None).is_err());
+        transport
+            .media_request_with_approval(
+                "POST",
+                "/api/admin/media-libraries/lib_x/approval",
+                None,
+                None,
+                Some("test-only-key"),
+                None,
+                None,
+            )
+            .unwrap();
+        transport
+            .media_request(
+                "POST",
+                "/api/admin/media-libraries/lib_x/apply-approved",
+                None,
+                None,
+            )
+            .unwrap();
+        transport
+            .media_request("GET", "/api/media/capabilities", None, None)
+            .unwrap();
+        assert!(transport
+            .media_request_with_approval(
+                "POST",
+                "/api/admin/media-libraries/lib_x/approval/revoke",
+                None,
+                None,
+                Some("test-only-key"),
+                None,
+                None,
+            )
+            .is_err());
         assert_eq!(server.join().unwrap(), vec![true, false, false]);
     }
 
     #[test]
     fn approval_request_does_not_follow_redirects() {
-        use std::{io::{BufRead, BufReader, Write}, net::TcpListener};
+        use std::{
+            io::{BufRead, BufReader, Write},
+            net::TcpListener,
+        };
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let server = std::thread::spawn(move || {
@@ -1273,32 +1394,57 @@ mod tests {
             loop {
                 let mut line = String::new();
                 reader.read_line(&mut line).unwrap();
-                if line == "\r\n" || line.is_empty() { break; }
+                if line == "\r\n" || line.is_empty() {
+                    break;
+                }
             }
             stream.write_all(b"HTTP/1.1 302 Found\r\nLocation: /api/admin/media-libraries/lib_x/scan\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
         });
         let transport = DesktopHttpTransport::new(origin).unwrap();
-        let (status, _) = transport.media_request_with_approval("POST", "/api/admin/media-libraries/lib_x/approval", None, None, Some("test-only-key"), None, None).unwrap();
+        let (status, _) = transport
+            .media_request_with_approval(
+                "POST",
+                "/api/admin/media-libraries/lib_x/approval",
+                None,
+                None,
+                Some("test-only-key"),
+                None,
+                None,
+            )
+            .unwrap();
         assert_eq!(status, 302);
         server.join().unwrap();
     }
 
     #[test]
     fn desktop_probe_classifies_protocol_and_capability_failures() {
-        let (origin, server) = serve_probe(&[
-            ("/api/desktop/health", r#"{"status":"ok","protocolVersion":3,"serviceVersion":"0.1.0"}"#),
-        ]);
+        let (origin, server) = serve_probe(&[(
+            "/api/desktop/health",
+            r#"{"status":"ok","protocolVersion":3,"serviceVersion":"0.1.0"}"#,
+        )]);
         assert_eq!(
-            DesktopHttpTransport::new(origin).unwrap().probe_desktop_backend().unwrap_err(),
+            DesktopHttpTransport::new(origin)
+                .unwrap()
+                .probe_desktop_backend()
+                .unwrap_err(),
             crate::transport::TransportError::ProtocolVersionMismatch,
         );
         server.join().unwrap();
 
         let (origin, server) = serve_probe(&[
-            ("/api/desktop/health", r#"{"status":"ok","protocolVersion":2,"serviceVersion":"0.1.0"}"#),
-            ("/api/desktop/capabilities", r#"{"protocolVersion":2,"serviceVersion":"0.1.0","capabilities":{"createRoom":false,"joinRoom":true,"restoreSession":true,"mediaSearch":true,"mediaQueue":true,"handoffCode":true}}"#),
+            (
+                "/api/desktop/health",
+                r#"{"status":"ok","protocolVersion":2,"serviceVersion":"0.1.0"}"#,
+            ),
+            (
+                "/api/desktop/capabilities",
+                r#"{"protocolVersion":2,"serviceVersion":"0.1.0","capabilities":{"createRoom":false,"joinRoom":true,"restoreSession":true,"mediaSearch":true,"mediaQueue":true,"handoffCode":true}}"#,
+            ),
         ]);
-        let report = DesktopHttpTransport::new(origin).unwrap().probe_desktop_backend().unwrap();
+        let report = DesktopHttpTransport::new(origin)
+            .unwrap()
+            .probe_desktop_backend()
+            .unwrap();
         assert!(!report.capabilities.create_room);
         assert!(report.capabilities.join_room);
         server.join().unwrap();
@@ -1306,17 +1452,30 @@ mod tests {
 
     #[test]
     fn desktop_probe_classifies_auth_and_network_errors() {
-        let (origin, server) = serve_probe(&[
-            ("/api/desktop/health", "401 Unauthorized\n{\"code\":\"AUTH_REQUIRED\"}"),
-        ]);
+        let (origin, server) = serve_probe(&[(
+            "/api/desktop/health",
+            "401 Unauthorized\n{\"code\":\"AUTH_REQUIRED\"}",
+        )]);
         assert_eq!(
-            DesktopHttpTransport::new(origin).unwrap().probe_desktop_backend().unwrap_err(),
+            DesktopHttpTransport::new(origin)
+                .unwrap()
+                .probe_desktop_backend()
+                .unwrap_err(),
             crate::transport::TransportError::AuthRequired,
         );
         server.join().unwrap();
-        assert_eq!(super::classify_probe_network_message("dns error: no such host"), crate::transport::TransportError::DnsFailed);
-        assert_eq!(super::classify_probe_network_message("tcp connect error: connection refused"), crate::transport::TransportError::ConnectionRefused);
-        assert_eq!(super::classify_probe_network_message("invalid peer certificate: UnknownIssuer"), crate::transport::TransportError::TlsTrustRequired);
+        assert_eq!(
+            super::classify_probe_network_message("dns error: no such host"),
+            crate::transport::TransportError::DnsFailed
+        );
+        assert_eq!(
+            super::classify_probe_network_message("tcp connect error: connection refused"),
+            crate::transport::TransportError::ConnectionRefused
+        );
+        assert_eq!(
+            super::classify_probe_network_message("invalid peer certificate: UnknownIssuer"),
+            crate::transport::TransportError::TlsTrustRequired
+        );
     }
 
     // The classification is a pure mapping, so it is tested as one. Keeping it off the socket is
@@ -1326,17 +1485,26 @@ mod tests {
         for (body, expected) in [
             (
                 r#"{"code":"ROOM_PIN_REQUIRED","message":"PIN required"}"#,
-                crate::transport::TransportError::Http(401, r#"{"code":"ROOM_PIN_REQUIRED","message":"PIN required"}"#.into()),
+                crate::transport::TransportError::Http(
+                    401,
+                    r#"{"code":"ROOM_PIN_REQUIRED","message":"PIN required"}"#.into(),
+                ),
             ),
             (
                 r#"{"code":"ROOM_PIN_REJECTED","message":"Wrong PIN"}"#,
-                crate::transport::TransportError::Http(401, r#"{"code":"ROOM_PIN_REJECTED","message":"Wrong PIN"}"#.into()),
+                crate::transport::TransportError::Http(
+                    401,
+                    r#"{"code":"ROOM_PIN_REJECTED","message":"Wrong PIN"}"#.into(),
+                ),
             ),
             (
                 r#"{"code":"ACCESS_TOKEN_INVALID","message":"secret"}"#,
                 crate::transport::TransportError::Unauthorized,
             ),
-            ("not json at all", crate::transport::TransportError::Unauthorized),
+            (
+                "not json at all",
+                crate::transport::TransportError::Unauthorized,
+            ),
             ("", crate::transport::TransportError::Unauthorized),
         ] {
             assert_eq!(
@@ -1350,16 +1518,30 @@ mod tests {
     #[test]
     fn desktop_access_preserves_pin_errors_without_exposing_other_unauthorized_bodies() {
         for (body, expected) in [
-            (r#"{"code":"ROOM_PIN_REQUIRED","message":"PIN required"}"#, Some("ROOM_PIN_REQUIRED")),
-            (r#"{"code":"ROOM_PIN_REJECTED","message":"Wrong PIN"}"#, Some("ROOM_PIN_REJECTED")),
-            (r#"{"code":"ACCESS_TOKEN_INVALID","message":"secret"}"#, None),
+            (
+                r#"{"code":"ROOM_PIN_REQUIRED","message":"PIN required"}"#,
+                Some("ROOM_PIN_REQUIRED"),
+            ),
+            (
+                r#"{"code":"ROOM_PIN_REJECTED","message":"Wrong PIN"}"#,
+                Some("ROOM_PIN_REJECTED"),
+            ),
+            (
+                r#"{"code":"ACCESS_TOKEN_INVALID","message":"secret"}"#,
+                None,
+            ),
         ] {
             let response = format!("401 Unauthorized\n{body}");
-            let (origin, server) = serve_probe(&[("/api/desktop/rooms/room-123/access", &response)]);
+            let (origin, server) =
+                serve_probe(&[("/api/desktop/rooms/room-123/access", &response)]);
             let mut transport = DesktopHttpTransport::new(origin).unwrap();
-            let error = transport.access_desktop("room-123", "client-1", "Guest", None).unwrap_err();
+            let error = transport
+                .access_desktop("room-123", "client-1", "Guest", None)
+                .unwrap_err();
             match expected {
-                Some(code) => assert!(matches!(error, crate::transport::TransportError::Http(401, body) if body.contains(code))),
+                Some(code) => assert!(
+                    matches!(error, crate::transport::TransportError::Http(401, body) if body.contains(code))
+                ),
                 None => assert_eq!(error, crate::transport::TransportError::Unauthorized),
             }
             server.join().unwrap();

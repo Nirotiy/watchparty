@@ -1,3 +1,4 @@
+use crate::config::OriginTrustStore;
 use crate::{
     config::{validate_backend_origin_with_policy, PlayerPreferences, StoredSiteCredentials},
     contracts::{
@@ -10,9 +11,8 @@ use crate::{
     session::DesktopSession,
     transport::{RoomTransport, TransportError},
 };
-use std::sync::Arc;
-use crate::config::OriginTrustStore;
 use serde::Serialize;
+use std::sync::Arc;
 use std::{
     fmt,
     sync::{
@@ -97,8 +97,9 @@ impl NativeRuntimeConfig {
         site_credentials: Option<NativeSiteCredentials>,
         allow_remote_http: bool,
     ) -> Result<Self, RuntimeError> {
-        let backend_origin = validate_backend_origin_with_policy(&backend_origin, allow_remote_http)
-            .map_err(|_| RuntimeError::configuration_error())?;
+        let backend_origin =
+            validate_backend_origin_with_policy(&backend_origin, allow_remote_http)
+                .map_err(|_| RuntimeError::configuration_error())?;
         Ok(Self {
             backend_origin,
             allow_remote_http,
@@ -109,7 +110,10 @@ impl NativeRuntimeConfig {
         })
     }
 
-    pub fn with_trust_store(mut self, store: Arc<OriginTrustStore>) -> Self { self.trust_store = Some(store); self }
+    pub fn with_trust_store(mut self, store: Arc<OriginTrustStore>) -> Self {
+        self.trust_store = Some(store);
+        self
+    }
 
     /// Wires native owner-token persistence (Credential Manager) into every
     /// session created from this config. The token value stays in Rust.
@@ -135,7 +139,8 @@ impl NativeRuntimeConfig {
         player: LibMpvConfig,
         allow_remote_http: bool,
     ) -> Result<Self, RuntimeError> {
-        let mut config = Self::new_with_policy(backend_origin, site_credentials, allow_remote_http)?;
+        let mut config =
+            Self::new_with_policy(backend_origin, site_credentials, allow_remote_http)?;
         config.player = Some(player);
         Ok(config)
     }
@@ -156,7 +161,8 @@ impl NativeRuntimeConfig {
         .map_err(|error| RuntimeError::from_transport(&error))?;
 
         if let Some(store) = &self.trust_store {
-            transport = transport.with_origin_trust(store)
+            transport = transport
+                .with_origin_trust(store)
                 .map_err(|error| RuntimeError::from_transport(&error))?;
         }
 
@@ -169,7 +175,9 @@ impl NativeRuntimeConfig {
             })?;
 
         let mut session = DesktopSession::new(transport, player);
-        if let Some(store) = &self.trust_store { session = session.with_trust_store(Arc::clone(store)); }
+        if let Some(store) = &self.trust_store {
+            session = session.with_trust_store(Arc::clone(store));
+        }
         if let Some(persist) = &self.owner_token_persist {
             let persist = std::sync::Arc::clone(persist);
             session = session.with_owner_token_persist(Box::new(move |token| persist(token)));
@@ -324,14 +332,22 @@ impl RuntimeError {
                 code: "NETWORK_ERROR",
                 message: "网络暂时不可用",
             },
-            TransportError::Http(401, body) if http_error_code(body).as_deref() == Some("ROOM_PIN_REQUIRED") => Self {
-                code: "ROOM_PIN_REQUIRED",
-                message: "加入该房间需要 PIN 码",
-            },
-            TransportError::Http(401, body) if http_error_code(body).as_deref() == Some("ROOM_PIN_REJECTED") => Self {
-                code: "ROOM_PIN_REJECTED",
-                message: "PIN 码错误",
-            },
+            TransportError::Http(401, body)
+                if http_error_code(body).as_deref() == Some("ROOM_PIN_REQUIRED") =>
+            {
+                Self {
+                    code: "ROOM_PIN_REQUIRED",
+                    message: "加入该房间需要 PIN 码",
+                }
+            }
+            TransportError::Http(401, body)
+                if http_error_code(body).as_deref() == Some("ROOM_PIN_REJECTED") =>
+            {
+                Self {
+                    code: "ROOM_PIN_REJECTED",
+                    message: "PIN 码错误",
+                }
+            }
             TransportError::Protocol(_) | TransportError::Http(_, _) => Self {
                 code: "DESKTOP_REQUEST_FAILED",
                 message: "桌面请求失败",
@@ -349,8 +365,11 @@ impl fmt::Display for RuntimeError {
 impl std::error::Error for RuntimeError {}
 
 fn http_error_code(body: &str) -> Option<String> {
-    serde_json::from_str::<serde_json::Value>(body).ok()?
-        .get("code")?.as_str().map(str::to_owned)
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()?
+        .get("code")?
+        .as_str()
+        .map(str::to_owned)
 }
 
 trait ManagedSession: Send {

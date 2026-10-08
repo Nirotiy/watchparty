@@ -92,7 +92,10 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
         }
     }
 
-    pub fn with_trust_store(mut self, store: Arc<OriginTrustStore>) -> Self { self.trust_store = Some(store); self }
+    pub fn with_trust_store(mut self, store: Arc<OriginTrustStore>) -> Self {
+        self.trust_store = Some(store);
+        self
+    }
 
     pub fn start(&mut self, ticket: &str, now: i64) -> Result<Vec<DesktopEvent>, TransportError> {
         self.status = SessionStatus::Connecting;
@@ -311,12 +314,11 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
             _ => {}
         }
         // The token stays native and is sent only while the snapshot names us as owner.
-        // Server-side command policy decides which shared actions require it.
         let is_owner = self.owner_token.is_some()
             && self.snapshot.as_ref().is_some_and(|snapshot| {
                 self.client_id.as_deref() == Some(snapshot.owner_client_id.as_str())
             });
-        if matches!(&command, DesktopCommand::Lock { .. } | DesktopCommand::TransferOwner { .. }) && !is_owner {
+        if requires_owner(&command) && !is_owner {
             return Ok(rejected_owner_ack());
         }
         let owner_token = if is_owner { self.owner_token.clone() } else { None };
@@ -766,9 +768,14 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
                 } else {
                     None
                 };
-                let tls_ca_file = url::Url::parse(&url)
-                    .ok()
-                    .and_then(|u| self.trust_store.as_ref().and_then(|store| store.ca_file_for(&u.origin().ascii_serialization()).ok().flatten()));
+                let tls_ca_file = url::Url::parse(&url).ok().and_then(|u| {
+                    self.trust_store.as_ref().and_then(|store| {
+                        store
+                            .ca_file_for(&u.origin().ascii_serialization())
+                            .ok()
+                            .flatten()
+                    })
+                });
                 let playlist_item_id = self
                     .snapshot
                     .as_ref()
@@ -834,6 +841,21 @@ impl<T: RoomTransport, P: PlayerEngine> DesktopSession<T, P> {
     }
 }
 
+fn requires_owner(command: &DesktopCommand) -> bool {
+    matches!(
+        command,
+        DesktopCommand::Seek { .. }
+            | DesktopCommand::Rate { .. }
+            | DesktopCommand::Loop { .. }
+            | DesktopCommand::Lock { .. }
+            | DesktopCommand::TransferOwner { .. }
+            | DesktopCommand::MediaSet { .. }
+            | DesktopCommand::PlaylistPlay { .. }
+            | DesktopCommand::PlaylistNext { .. }
+            | DesktopCommand::PlaylistAutoNext { .. }
+    )
+}
+
 #[derive(Deserialize)]
 struct ErrorBody {
     code: Option<String>,
@@ -854,44 +876,44 @@ fn rejected_owner_ack() -> CommandAck {
 }
 
 fn ui_error(error: &TransportError) -> UiError {
-        match error {
-            TransportError::Unauthorized => UiError {
-                code: "ACCESS_TOKEN_INVALID".into(),
-                message: "桌面凭据已失效，请重新连接".into(),
-            },
-            TransportError::AuthRequired => UiError {
-                code: "AUTH_REQUIRED".into(),
-                message: "服务需要站点鉴权，请检查已保存的站点凭据".into(),
-            },
-            TransportError::AuthRejected => UiError {
-                code: "AUTH_REJECTED".into(),
-                message: "站点鉴权失败，请检查已保存的站点凭据".into(),
-            },
-            TransportError::NotFound => UiError {
-                code: "ROOM_NOT_FOUND".into(),
-                message: "房间不存在或已解散".into(),
-            },
-            TransportError::DnsFailed => UiError {
-                code: "DNS_FAILED".into(),
-                message: "无法解析服务地址，请检查地址或网络".into(),
-            },
-            TransportError::ConnectionRefused => UiError {
-                code: "CONNECTION_REFUSED".into(),
-                message: "服务未启动或端口错误".into(),
-            },
-            TransportError::TlsTrustRequired => UiError {
-                code: "TLS_TRUST_REQUIRED".into(),
-                message: "服务证书不受信任，请导入或确认来源信任".into(),
-            },
-            TransportError::ProtocolVersionMismatch => UiError {
-                code: "PROTOCOL_VERSION_MISMATCH".into(),
-                message: "客户端或服务端协议版本不兼容，请升级后重试".into(),
-            },
-            TransportError::CapabilityUnavailable => UiError {
-                code: "CAPABILITY_UNAVAILABLE".into(),
-                message: "服务缺少桌面端所需的创建或加入能力".into(),
-            },
-            TransportError::Network(_) => UiError {
+    match error {
+        TransportError::Unauthorized => UiError {
+            code: "ACCESS_TOKEN_INVALID".into(),
+            message: "桌面凭据已失效，请重新连接".into(),
+        },
+        TransportError::AuthRequired => UiError {
+            code: "AUTH_REQUIRED".into(),
+            message: "服务需要站点鉴权，请检查已保存的站点凭据".into(),
+        },
+        TransportError::AuthRejected => UiError {
+            code: "AUTH_REJECTED".into(),
+            message: "站点鉴权失败，请检查已保存的站点凭据".into(),
+        },
+        TransportError::NotFound => UiError {
+            code: "ROOM_NOT_FOUND".into(),
+            message: "房间不存在或已解散".into(),
+        },
+        TransportError::DnsFailed => UiError {
+            code: "DNS_FAILED".into(),
+            message: "无法解析服务地址，请检查地址或网络".into(),
+        },
+        TransportError::ConnectionRefused => UiError {
+            code: "CONNECTION_REFUSED".into(),
+            message: "服务未启动或端口错误".into(),
+        },
+        TransportError::TlsTrustRequired => UiError {
+            code: "TLS_TRUST_REQUIRED".into(),
+            message: "服务证书不受信任，请导入或确认来源信任".into(),
+        },
+        TransportError::ProtocolVersionMismatch => UiError {
+            code: "PROTOCOL_VERSION_MISMATCH".into(),
+            message: "客户端或服务端协议版本不兼容，请升级后重试".into(),
+        },
+        TransportError::CapabilityUnavailable => UiError {
+            code: "CAPABILITY_UNAVAILABLE".into(),
+            message: "服务缺少桌面端所需的创建或加入能力".into(),
+        },
+        TransportError::Network(_) => UiError {
             code: "NETWORK_BACKOFF".into(),
             message: "网络暂时不可用，正在重试".into(),
         },
@@ -920,5 +942,3 @@ fn player_control_error(error: PlayerControlError, control: &str) -> TransportEr
     };
     TransportError::Protocol(format!("local player {control} {reason}"))
 }
-
-

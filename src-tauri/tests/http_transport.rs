@@ -166,7 +166,9 @@ fn desktop_native_entry_matches_live_node_protocol() {
     let base_url = required("DESKTOP_HTTP_BASE_URL");
     let media_id = required("DESKTOP_HTTP_MEDIA_ID");
     let mut transport = DesktopHttpTransport::new(base_url).expect("transport should build");
-    let probe = transport.probe_desktop_backend().expect("probe should decode");
+    let probe = transport
+        .probe_desktop_backend()
+        .expect("probe should decode");
     assert_eq!(probe.status, "ok");
     assert_eq!(probe.protocol_version, 2);
     assert!(probe.capabilities.create_room && probe.capabilities.join_room);
@@ -203,20 +205,41 @@ fn desktop_native_entry_matches_live_node_protocol() {
         .is_none());
 
     let public = transport
-        .create_desktop(&uuid::Uuid::new_v4().to_string(), "Public owner", None, None)
+        .create_desktop(
+            &uuid::Uuid::new_v4().to_string(),
+            "Public owner",
+            None,
+            None,
+        )
         .expect("public room creation should decode");
     assert_eq!(public.generation, 1);
     let public_generation = transport
         .claim_session(&public.room_id, &public.access_token)
         .expect("public room should restore from its token");
-    assert!(transport.snapshot(&public.room_id, &public.access_token, public_generation, None)
-        .expect("restored snapshot should decode").snapshot.is_some());
+    assert!(transport
+        .snapshot(
+            &public.room_id,
+            &public.access_token,
+            public_generation,
+            None
+        )
+        .expect("restored snapshot should decode")
+        .snapshot
+        .is_some());
 
     let protected = transport
-        .create_desktop(&uuid::Uuid::new_v4().to_string(), "PIN owner", Some("1234"), None)
+        .create_desktop(
+            &uuid::Uuid::new_v4().to_string(),
+            "PIN owner",
+            Some("1234"),
+            None,
+        )
         .expect("PIN room creation should decode");
     let guest_id = uuid::Uuid::new_v4().to_string();
-    for (pin, expected) in [(None, "ROOM_PIN_REQUIRED"), (Some("9999"), "ROOM_PIN_REJECTED")] {
+    for (pin, expected) in [
+        (None, "ROOM_PIN_REQUIRED"),
+        (Some("9999"), "ROOM_PIN_REJECTED"),
+    ] {
         match transport.access_desktop(&protected.room_id, &guest_id, "Guest", pin) {
             Err(TransportError::Http(401, body)) => assert!(body.contains(expected), "{body}"),
             other => panic!("expected {expected}, got {other:?}"),
@@ -232,37 +255,94 @@ fn desktop_native_entry_matches_live_node_protocol() {
     let guest_generation = transport
         .claim_session(&protected.room_id, &guest_token)
         .expect("guest session should restore");
-    assert!(transport.snapshot(&protected.room_id, &guest_token, guest_generation, None)
-        .expect("guest snapshot should decode").snapshot.is_some());
+    assert!(transport
+        .snapshot(&protected.room_id, &guest_token, guest_generation, None)
+        .expect("guest snapshot should decode")
+        .snapshot
+        .is_some());
 
-    let search = transport.media_search("Show", None, Some(&guest_token), Some(&protected.room_id)).expect("media search should decode");
+    let search = transport
+        .media_search("Show", None, Some(&guest_token), Some(&protected.room_id))
+        .expect("media search should decode");
     assert!(search.items.iter().any(|item| item.id == media_id));
     let owner_generation = transport
         .claim_session(&protected.room_id, &protected.access_token)
         .expect("owner session should restore");
-    let snapshot = transport.snapshot(&protected.room_id, &protected.access_token, owner_generation, None)
-        .expect("owner snapshot should decode").snapshot.expect("snapshot body");
+    let snapshot = transport
+        .snapshot(
+            &protected.room_id,
+            &protected.access_token,
+            owner_generation,
+            None,
+        )
+        .expect("owner snapshot should decode")
+        .snapshot
+        .expect("snapshot body");
     let owner_token = protected.owner_token.as_deref().expect("owner token");
-    let unlocked = transport.command(&protected.room_id, &protected.access_token, owner_generation,
-        &DesktopCommand::Lock { locked: false }, snapshot.revision, Some(owner_token))
+    let unlocked = transport
+        .command(
+            &protected.room_id,
+            &protected.access_token,
+            owner_generation,
+            &DesktopCommand::Lock { locked: false },
+            snapshot.revision,
+            Some(owner_token),
+        )
         .expect("unlock should decode");
     assert!(unlocked.ok);
-    let media = MediaSource::Http { url: "https://example.com/clip.mp4".into(), title: Some("Clip".into()) };
-    let added = transport.command(&protected.room_id, &protected.access_token, owner_generation,
-        &DesktopCommand::PlaylistAdd { media: media.clone() }, unlocked.revision, Some(owner_token))
+    let media = MediaSource::Http {
+        url: "https://example.com/clip.mp4".into(),
+        title: Some("Clip".into()),
+    };
+    let added = transport
+        .command(
+            &protected.room_id,
+            &protected.access_token,
+            owner_generation,
+            &DesktopCommand::PlaylistAdd {
+                media: media.clone(),
+            },
+            unlocked.revision,
+            Some(owner_token),
+        )
         .expect("URL queue command should decode");
     assert!(added.ok);
-    let queued = transport.snapshot(&protected.room_id, &protected.access_token, owner_generation, None)
-        .expect("queue snapshot should decode").snapshot.expect("queue snapshot body");
+    let queued = transport
+        .snapshot(
+            &protected.room_id,
+            &protected.access_token,
+            owner_generation,
+            None,
+        )
+        .expect("queue snapshot should decode")
+        .snapshot
+        .expect("queue snapshot body");
     assert!(queued.playlist.iter().any(|item| item.media == media));
     let item_id = queued.playlist[0].id.clone();
-    let played = transport.command(&protected.room_id, &protected.access_token, owner_generation,
-        &DesktopCommand::PlaylistPlay { item_id }, queued.revision, Some(owner_token))
+    let played = transport
+        .command(
+            &protected.room_id,
+            &protected.access_token,
+            owner_generation,
+            &DesktopCommand::PlaylistPlay { item_id },
+            queued.revision,
+            Some(owner_token),
+        )
         .expect("playlist play should decode");
     assert!(played.ok);
 
-    transport.leave(&protected.room_id, &guest_token, guest_generation).expect("guest cleanup");
-    transport.leave(&protected.room_id, &protected.access_token, owner_generation).expect("owner cleanup");
-    transport.leave(&public.room_id, &public.access_token, public_generation).expect("public cleanup");
+    transport
+        .leave(&protected.room_id, &guest_token, guest_generation)
+        .expect("guest cleanup");
+    transport
+        .leave(
+            &protected.room_id,
+            &protected.access_token,
+            owner_generation,
+        )
+        .expect("owner cleanup");
+    transport
+        .leave(&public.room_id, &public.access_token, public_generation)
+        .expect("public cleanup");
     println!("WATCHPARTY_NATIVE_ENTRY_E2E_OK");
 }
