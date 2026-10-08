@@ -141,7 +141,7 @@ test("HTTP offline staging and apply work without vendors; explicit bonus nulls 
   f.store.close();
   let externalCalls = 0;
   const unavailable = async () => { externalCalls++; throw new Error("Offline path called a vendor"); };
-  const backend = createBackend({ host: "127.0.0.1", port: 0, pruneIntervalMs: 0, serveStatic: false,
+  const backend = createBackend({ host: "127.0.0.1", port: 0, pruneIntervalMs: 0,
     config: loadConfig({ NODE_ENV: "test", OPENLIST_PASSWORD: "fixture-only", WATCHPARTY_CATALOG_APPROVAL_SECRET: "human-fixture" }),
     catalogDbPath: path.join(f.root, "catalog.sqlite"), posterDir: path.join(f.root, "posters"), catalogSidecarDir: f.root,
     bangumi: { search: unavailable, episodeTitles: unavailable }, tmdb: { search: unavailable }, fetchPoster: unavailable });
@@ -176,7 +176,7 @@ test("an accepted scan blocks offline staging until it settles", async () => {
   f.store.close();
   let release!: () => void;
   const barrier = new Promise<void>(resolve => { release = resolve; });
-  const backend = createBackend({ host: "127.0.0.1", port: 0, pruneIntervalMs: 0, serveStatic: false, syncGraceMs: 5,
+  const backend = createBackend({ host: "127.0.0.1", port: 0, pruneIntervalMs: 0, syncGraceMs: 5,
     config: loadConfig({ NODE_ENV: "test", OPENLIST_PASSWORD: "fixture-only" }),
     catalogDbPath: path.join(f.root, "catalog.sqlite"), posterDir: path.join(f.root, "posters"), catalogSidecarDir: f.root,
     libraryClientFactory: () => ({
@@ -216,7 +216,7 @@ test("unassigned files block import; retained exclusions still require human str
   stageOfflineBundle(f.store, f.root, "lib_anime", "test-bundle", inspected.bundleSha256);
   assert.equal(f.store.exclusions("lib_anime").excluded, 1);
   f.store.close();
-  const backend = createBackend({ host: "127.0.0.1", port: 0, pruneIntervalMs: 0, serveStatic: false,
+  const backend = createBackend({ host: "127.0.0.1", port: 0, pruneIntervalMs: 0,
     config: loadConfig({ NODE_ENV: "test", OPENLIST_PASSWORD: "fixture-only", WATCHPARTY_CATALOG_APPROVAL_SECRET: "human-fixture" }),
     catalogDbPath: path.join(f.root, "catalog.sqlite"), posterDir: path.join(f.root, "posters"), catalogSidecarDir: f.root,
     bangumi: { async search() { return []; }, async episodeTitles() { return new Map(); } } });
@@ -290,7 +290,7 @@ test("explicit missing-human deletion is revision checked, staged only and canno
   assert.deepEqual(f.store.snapshotLibrary("lib_anime"), before);
   assert.ok(f.store.draftDiff("lib_anime").dropped.some(card => card.itemKey === "/Show"));
   f.store.close();
-  const backend = createBackend({ host: "127.0.0.1", port: 0, pruneIntervalMs: 0, serveStatic: false,
+  const backend = createBackend({ host: "127.0.0.1", port: 0, pruneIntervalMs: 0,
     config: loadConfig({ NODE_ENV: "test", OPENLIST_PASSWORD: "fixture-only", WATCHPARTY_CATALOG_APPROVAL_SECRET: "human-fixture" }),
     catalogDbPath: path.join(f.root, "catalog.sqlite"), posterDir: path.join(f.root, "posters"), catalogSidecarDir: f.root });
   await backend.start();

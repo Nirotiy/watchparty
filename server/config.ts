@@ -20,7 +20,6 @@ export type AppConfig = {
   youtubeApiKey: string;
   roomIdleTtlMs: number;
   pruneIntervalMs: number;
-  buildDirectory: string;
   nodeEnv: string;
   openlistUrl: string;
   openlistPublicUrl: string;
@@ -126,7 +125,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     youtubeApiKey: envString(env, "YOUTUBE_API_KEY", ""),
     roomIdleTtlMs: envNumber(env, "ROOM_IDLE_TTL_MS", 8 * 60 * 60 * 1000),
     pruneIntervalMs: envNumber(env, "ROOM_PRUNE_INTERVAL_MS", 60 * 1000),
-    buildDirectory: envString(env, "BUILD_DIRECTORY", "build"),
     nodeEnv,
     openlistUrl: envString(env, "OPENLIST_URL", "http://127.0.0.1:5244"),
     openlistPublicUrl: envString(env, "OPENLIST_PUBLIC_URL", ""),

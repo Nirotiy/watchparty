@@ -43,6 +43,7 @@ const rpc = (idValue: number, method: string, params?: Record<string, unknown>) 
 test("工具表面只有读、草稿写入和带凭证的应用，没有批准", async () => {
   const names = CATALOG_TOOLS.map((tool) => tool.name);
   assert.deepEqual(names, [
+    "catalog_offline_export", "catalog_offline_check", "catalog_offline_stage",
     "catalog_exclusions", "catalog_exclude", "catalog_unexclude",
     "catalog_read",
     "catalog_scan_read",
@@ -71,6 +72,7 @@ test("工具表面只有读、草稿写入和带凭证的应用，没有批准",
       approvalToken: "token",
       rollbackOf: "appr_1",
       sourceFiles: ["Medalist/.watchparty.collection.json"],
+      bundleId: "test-bundle", bundleSha256: "test-hash",
     });
   }
   const issuesApproval = (hit: { method: string; route: string }) =>
@@ -79,6 +81,9 @@ test("工具表面只有读、草稿写入和带凭证的应用，没有批准",
   assert.deepEqual(
     hits.map((hit) => [hit.name, hit.method, hit.route]),
     [
+      ["catalog_offline_export", "POST", "/api/admin/media-libraries/lib_anime/import/offline-export"],
+      ["catalog_offline_check", "POST", "/api/admin/media-libraries/lib_anime/import/offline-check"],
+      ["catalog_offline_stage", "POST", "/api/admin/media-libraries/lib_anime/import/offline-stage"],
       ["catalog_exclusions", "GET", "/api/admin/media-libraries/lib_anime/exclusions"],
       ["catalog_exclude", "POST", "/api/admin/media-libraries/lib_anime/draft/exclude"],
       ["catalog_unexclude", "POST", "/api/admin/media-libraries/lib_anime/draft/unexclude"],

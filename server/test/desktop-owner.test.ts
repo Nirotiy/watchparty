@@ -26,7 +26,7 @@ async function boot(): Promise<Backend> {
     OPENLIST_PASSWORD: "",
     WATCHPARTY_MEDIA_ID_KEY: "test-key",
   });
-  const backend = createBackend({ host: "127.0.0.1", port: 0, pruneIntervalMs: 0, serveStatic: false, config });
+  const backend = createBackend({ host: "127.0.0.1", port: 0, pruneIntervalMs: 0, config });
   await backend.start();
   backends.push(backend);
   return backend;

@@ -347,7 +347,6 @@ test("listing a library does not scrape, and detail serves numbered episodes wit
     host: "127.0.0.1",
     port: 0,
     pruneIntervalMs: 0,
-    serveStatic: false,
     config: loadConfig({ NODE_ENV: "test", OPENLIST_PASSWORD: "secret-value" }),
     catalogInline: true,
     catalogDelayMs: 0,
@@ -520,9 +519,9 @@ test("catalog detail children carry the same compatibility verdict as the browse
     assert.ok(pending);
     const detail = store.getDetail(pending.id)!;
     const [mkv, mp4] = detail.children;
-    assert.equal(mkv.compatibility.browser, "unsupported");
+    assert.equal(mkv.compatibility.browser, "maybe");
     assert.equal(mkv.compatibility.desktop, "supported");
-    assert.ok(mkv.compatibility.browserReason, "MKV must say why the browser refuses it");
+    assert.ok(mkv.compatibility.browserReason, "MKV must describe the local codec check");
     assert.deepEqual(
       [mp4.compatibility.browser, mp4.compatibility.desktop],
       ["supported", "supported"],

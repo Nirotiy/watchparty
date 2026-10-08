@@ -34,7 +34,6 @@ async function boot(): Promise<Backend> {
     host: "127.0.0.1",
     port: 0,
     pruneIntervalMs: 0,
-    serveStatic: false,
     config,
   });
   await backend.start();
@@ -483,7 +482,6 @@ test("stale-pruned MPV with a valid token rejoins as a visible member on its nex
     host: "127.0.0.1",
     port: 0,
     pruneIntervalMs: 0,
-    serveStatic: false,
     config,
     now: () => now,
   });

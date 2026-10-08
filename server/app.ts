@@ -1,12 +1,11 @@
 import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
-import path from "node:path";
 import cors from "cors";
 import express, { type Express } from "express";
 import { Server } from "socket.io";
 import { loadConfig, type AppConfig } from "./config.ts";
-import { registerCoreHttp } from "./core/http/routes.ts";
+import { registerCoreHttp, SUBTITLE_UPLOAD_PATH } from "./core/http/routes.ts";
 import { createReadinessProbe } from "./core/http/readiness.ts";
 import {
   registerHandoffHttp,
@@ -16,8 +15,11 @@ import {
   registerNativeHandoffHttp,
 } from "./core/http/native-routes.ts";
 import { registerLibraryHttp } from "./core/http/library-routes.ts";
+import { GuestAccessStore } from "./core/guest-access.ts";
+import { guestReadGuard } from "./core/http/shared.ts";
 import { createWatchpartyMedia } from "./media/watchparty-media.ts";
 import { createLibraryService, routeLibraryMedia, type LibraryClientFactory } from "./media/library-service.ts";
+import { createSubtitleStore } from "./media/subtitle-store.ts";
 import { createOpenlistClient } from "./media/openlist.ts";
 import { RoomRegistry } from "./core/room/registry.ts";
 import { bindRooms } from "./core/socket/bindRooms.ts";
@@ -36,7 +38,6 @@ export type CreateBackendOptions = {
   pruneIntervalMs?: number;
   now?: () => number;
   config?: AppConfig;
-  serveStatic?: boolean;
   /** Setup-guide readiness cache TTL; 0 disables caching. */
   readinessCacheTtlMs?: number;
   /** Override the OpenList readiness ping budget (ms); default 2000. */
@@ -62,6 +63,12 @@ export type CreateBackendOptions = {
   fetchPoster?: (url: string) => Promise<{ contentType: string; bytes: Buffer } | undefined>;
   /** 枚举/分类同步等待的宽限期（毫秒），超过就回 202。默认 8000。 */
   syncGraceMs?: number;
+  /** 上传字幕的 sqlite 路径；默认 `data/watchparty-subtitles.sqlite`（测试用 `:memory:`）。 */
+  subtitleDbPath?: string;
+  /** 游客凭据有效期（毫秒），默认 12 分钟。 */
+  guestReadTtlMs?: number;
+  /** 同一 IP 每分钟能签发多少张游客凭据，默认 30。 */
+  guestIssueLimitPerMinute?: number;
 };
 
 export type Backend = {
@@ -90,6 +97,17 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
   // Caddy connects over loopback; forwarded clients must keep their own IP.
   app.set("trust proxy", "loopback");
   app.use(cors());
+  // 字幕上传的 JSON 体天生比别处大：正文上限 512KB，而最坏情况（整篇控制字符）转义成
+  // JSON 要胀到约 3MB。给 4MB 是为了让超限请求落到路由自己的 413 SUBTITLE_TOO_LARGE
+  // （带 code），而不是 body-parser 那一个 HTML 413。全局 100KB 上限一字不动。
+  const subtitleUploadJson = express.json({ limit: "4mb" });
+  app.use((req, res, next) => {
+    if (req.method === "POST" && SUBTITLE_UPLOAD_PATH.test(req.path)) {
+      subtitleUploadJson(req, res, next);
+      return;
+    }
+    next();
+  });
   app.use(express.json());
 
   // 慢请求日志：桌面那条链路的客户端总超时是 15s（src-tauri/http.rs），所以"服务端到底在哪条
@@ -141,6 +159,15 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
     idleTtlMs,
   });
 
+  // 未入房只读浏览用的游客凭据表。与房间表共用时钟，方便测试注入。
+  const guests = new GuestAccessStore({
+    now: options.now,
+    ...(options.guestReadTtlMs !== undefined ? { ttlMs: options.guestReadTtlMs } : {}),
+    ...(options.guestIssueLimitPerMinute !== undefined
+      ? { issueLimit: options.guestIssueLimitPerMinute }
+      : {}),
+  });
+
   const media = createWatchpartyMedia(
     createOpenlistClient(cfg, {
       pingTimeoutMs: options.openlistPingTimeoutMs,
@@ -172,6 +199,12 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
   // Readiness keeps the original single-source media. Library ids are routed only to HTTP/native playback.
   const routedMedia = routeLibraryMedia(media, library);
 
+  // 媒体级持久的上传字幕（POST /api/rooms/:roomId/media/subtitles）。
+  const subtitles = createSubtitleStore({
+    ...(options.subtitleDbPath !== undefined ? { dbPath: options.subtitleDbPath } : {}),
+    nodeEnv: cfg.nodeEnv,
+  });
+
   const readiness = createReadinessProbe({
     media,
     configStatus: () => cfg.configStatus,
@@ -188,8 +221,12 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
 
   bindRooms(io, registry);
 
-  registerLibraryHttp(app, library, registry);
-  registerCoreHttp(app, registry, cfg, routedMedia);
+  // 守卫必须早于所有路由：带游客凭据的请求只能进只读白名单，其余路由在触达任何处理器
+  // 之前就 403，不会因为某条路由忘了检查而漏出去。
+  app.use(guestReadGuard(guests));
+
+  registerLibraryHttp(app, library, registry, guests);
+  registerCoreHttp(app, registry, cfg, routedMedia, subtitles);
   registerDesktopProbeHttp(app, { readiness, getListenerInfo });
   registerHandoffHttp(app, registry);
   registerDesktopLifecycleHttp(app, registry);
@@ -197,10 +234,6 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
   registerNativeHandoffHttp(app, registry, "desktop");
   registerNativeClientHttp(app, registry, routedMedia, "mpv", undefined, cfg.mediaPublicOrigins);
   registerNativeClientHttp(app, registry, routedMedia, "desktop", io, cfg.mediaPublicOrigins);
-
-  if (options.serveStatic !== false) {
-    mountLegacyUi(app, cfg.buildDirectory);
-  }
 
   const timers: NodeJS.Timeout[] = [];
   let closed = false;
@@ -228,6 +261,7 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
     if (pruneIntervalMs > 0) {
       const timer = setInterval(() => {
         registry.pruneIdle();
+        guests.prune();
       }, pruneIntervalMs);
       timer.unref();
       timers.push(timer);
@@ -240,6 +274,7 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
     }
     closed = true;
     library.close();
+    subtitles.close();
     for (const timer of timers) {
       clearInterval(timer);
     }
@@ -271,18 +306,4 @@ export function createBackend(options: CreateBackendOptions = {}): Backend {
     start,
     close,
   };
-}
-
-function mountLegacyUi(app: Express, buildDirectory: string): void {
-  const buildDir = path.resolve(import.meta.dirname, "..", buildDirectory);
-  if (!fs.existsSync(buildDir)) {
-    return;
-  }
-  const indexFile = path.join(buildDir, "index.html");
-  app.use(express.static(buildDir));
-  const sendIndex: express.RequestHandler = (_req, res) => {
-    res.sendFile(indexFile);
-  };
-  app.get("/", sendIndex);
-  app.get("/watch/*splat", sendIndex);
 }

@@ -76,7 +76,6 @@ async function boot(options: {
     host: "127.0.0.1",
     port: 0,
     pruneIntervalMs: 0,
-    serveStatic: false,
     config: options.cfg ?? config(),
     libraryClientFactory: (source) => fakeClient(source, options.factoryBehavior),
     bangumi: { async search() { return []; } },
@@ -105,6 +104,40 @@ const secondBody = {
   password: "sekret-value",
   libraries: [{ name: "Film", kind: "movie", path: FILM }],
 };
+
+test("Next MKV list and resolve keep room authentication and desktop compatibility", async () => {
+  const backend = createBackend({
+    host: "127.0.0.1", port: 0, pruneIntervalMs: 0, config: config(),
+    libraryClientFactory: (source) => ({
+      ...fakeClient(source),
+      async list() { return { code: 200, data: { content: [
+        { name: "Movie.mkv", is_dir: false, size: 42, path: `${FILM}/Movie.mkv` },
+      ] } }; },
+      async getDownloadInfo() { return { url: "https://cdn.example/Movie.mkv", size: 42 }; },
+    }),
+  });
+  await backend.start();
+  backends.push(backend);
+  const base = origin(backend);
+  const room = await createRoom(backend);
+  const page = await (await fetch(`${base}/api/media/list?libraryId=lib_film`, {
+    headers: { "x-watchparty-room": room.roomId, "x-watchparty-token": room.accessToken },
+  })).json() as { items: Array<{ id: string; compatibility: { browser: string; desktop: string } }> };
+  const item = page.items[0]!;
+  assert.equal(item.compatibility.browser, "maybe");
+  assert.equal(item.compatibility.desktop, "supported");
+  const resolve = (mediaId: string, token?: string) => fetch(`${base}/api/rooms/${room.roomId}/media/resolve`, {
+    method: "POST", headers: { "content-type": "application/json", ...(token ? { "x-watchparty-token": token } : {}) },
+    body: JSON.stringify({ mediaId }),
+  });
+  assert.equal((await resolve(item.id)).status, 401);
+  assert.equal((await resolve(`${item.id}forged`, room.accessToken)).status, 404);
+  const response = await resolve(item.id, room.accessToken);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    url: "https://cdn.example/Movie.mkv", size: 42, mime: "video/x-matroska", requiresCustomHeaders: false,
+  });
+});
 
 test("seeded libraries stay free of secrets and absolute browse paths", async () => {
   const backend = await boot();

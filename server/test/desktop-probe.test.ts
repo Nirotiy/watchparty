@@ -23,7 +23,6 @@ async function boot(): Promise<Backend> {
     host: "127.0.0.1",
     port: 0,
     pruneIntervalMs: 0,
-    serveStatic: false,
     config,
   });
   await backend.start();

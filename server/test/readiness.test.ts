@@ -88,7 +88,6 @@ async function boot(options: {
     host: "127.0.0.1",
     port: 0,
     pruneIntervalMs: 0,
-    serveStatic: false,
     config,
     ...(options.readinessCacheTtlMs !== undefined
       ? { readinessCacheTtlMs: options.readinessCacheTtlMs }

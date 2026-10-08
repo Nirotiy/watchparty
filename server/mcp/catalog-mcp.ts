@@ -35,6 +35,15 @@ const stringFields = {
 };
 
 export const CATALOG_TOOLS: ToolSpec[] = [
+  ...(["export", "check", "stage"] as const).map(action => ({
+    name: `catalog_offline_${action}`,
+    description: action === "export" ? "导出已判完的草稿、文件信息与缓存海报到服务端离线包，不带凭据。" : action === "check" ? "只读核对离线包与目标文件快照、人工决定，返回包摘要和冲突。" : "核对已审阅包摘要并暂存到草稿，正式应用仍走现有人工批准。",
+    properties: { libraryId: id, bundleId: { type: "string" }, bundleSha256: { type: "string" } },
+    required: action === "stage" ? ["libraryId", "bundleId", "bundleSha256"] : ["libraryId", "bundleId"],
+    async run(call: ApiCall, args: Record<string, unknown>) {
+      return call("POST", `/api/admin/media-libraries/${encodeURIComponent(String(args.libraryId))}/import/offline-${action}`, { bundleId: args.bundleId, ...(action === "stage" ? { bundleSha256: args.bundleSha256 } : {}) });
+    },
+  })),
   {
     name: "catalog_exclusions", description: "读取文件不入库标记及失效路径。", properties: { libraryId: id }, required: ["libraryId"],
     async run(call, args) { return call("GET", `/api/admin/media-libraries/${encodeURIComponent(String(args.libraryId))}/exclusions`); },

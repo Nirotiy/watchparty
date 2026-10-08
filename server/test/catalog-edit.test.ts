@@ -219,7 +219,6 @@ async function started(options: Parameters<typeof createBackend>[0]): Promise<Ba
     host: "127.0.0.1",
     port: 0,
     pruneIntervalMs: 0,
-    serveStatic: false,
     config: loadConfig({ NODE_ENV: "test", OPENLIST_PASSWORD: "secret-value" }),
     catalogInline: true,
     catalogDelayMs: 0,

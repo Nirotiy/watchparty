@@ -110,6 +110,12 @@ export type SubtitleTrack = {
   label: string;
   format: "ass" | "ssa" | "srt" | "vtt";
   language?: string;
+  /**
+   * 来源。旁挂文件 = `sidecar`（既有路由按 id 去 OpenList 取正文），房内上传 =
+   * `upload`（媒体级持久，按 `/media/subtitles/:id/content` 取）。缺省按 sidecar
+   * 处理，所以旧客户端不认这个字段也不会读错。
+   */
+  source?: "sidecar" | "upload";
 };
 
 export type MediaHealthCode =

@@ -34,7 +34,6 @@ async function boot(imageOrigin: string, hits: { count: number }): Promise<Backe
     host: "127.0.0.1",
     port: 0,
     pruneIntervalMs: 0,
-    serveStatic: false,
     config: cfg,
     libraryClientFactory: (source) => fakeClient(source, imageOrigin, hits),
   });

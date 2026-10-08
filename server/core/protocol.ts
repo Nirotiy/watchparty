@@ -63,7 +63,16 @@ export type ErrorCode =
   | "AUTH_REQUIRED"
   | "AUTH_REJECTED"
   | "ROOM_PIN_REQUIRED"
-  | "ROOM_PIN_REJECTED";
+  | "ROOM_PIN_REJECTED"
+  | "GUEST_TOKEN_INVALID"
+  | "GUEST_TOKEN_EXPIRED"
+  | "GUEST_FORBIDDEN"
+  | "GUEST_RATE_LIMITED"
+  | "SUBTITLE_TOO_LARGE"
+  | "SUBTITLE_FORMAT_UNSUPPORTED"
+  | "SUBTITLE_NOT_FOUND"
+  | "SUBTITLE_OWNER_ONLY"
+  | "SUBTITLE_TRACKS_FULL";
 
 export type ApiError = { code: ErrorCode | string; message: string };
 
@@ -201,6 +210,15 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   AUTH_REJECTED: "房间鉴权失败",
   ROOM_PIN_REQUIRED: "加入该房间需要 PIN 码",
   ROOM_PIN_REJECTED: "PIN 码错误",
+  GUEST_TOKEN_INVALID: "游客凭据无效，请重新获取",
+  GUEST_TOKEN_EXPIRED: "游客凭据已过期，请重新获取",
+  GUEST_FORBIDDEN: "游客凭据只能只读浏览媒体库",
+  GUEST_RATE_LIMITED: "游客凭据获取过于频繁，请稍后重试",
+  SUBTITLE_TOO_LARGE: "字幕内容超过 512KB 上限",
+  SUBTITLE_FORMAT_UNSUPPORTED: "只支持 srt / vtt / ass / ssa 文本字幕",
+  SUBTITLE_NOT_FOUND: "字幕不存在或已被删除",
+  SUBTITLE_OWNER_ONLY: "只有房主可以删除字幕",
+  SUBTITLE_TRACKS_FULL: "该媒体的上传字幕已达上限，请先删除不再需要的",
 };
 
 export function errorResult(code: ErrorCode): { ok: false; error: ApiError } {

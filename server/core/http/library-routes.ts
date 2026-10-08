@@ -2,8 +2,9 @@ import type { Express, Request, Response } from "express";
 import { OpenlistServiceError } from "../../media/openlist.ts";
 import { MetadataUnavailable } from "../../media/catalog-metadata.ts";
 import { LibraryRequestError, type LibraryService } from "../../media/library-service.ts";
-import { sendError, requestIp, requireRoomAccess } from "./shared.ts";
+import { sendError, requestIp, requireRoomAccess, requireMediaRead, GUEST_SESSION_PATH } from "./shared.ts";
 import type { RoomRegistry } from "../room/registry.ts";
+import type { GuestAccessStore } from "../guest-access.ts";
 
 /**
  * Media-library routes. Registered before the legacy core routes so
@@ -11,9 +12,18 @@ import type { RoomRegistry } from "../room/registry.ts";
  * existing v1 browser so the shipped web picker keeps its response shape.
  * Readiness is not registered here and must keep using the original media object.
  */
-export function registerLibraryHttp(app: Express, library: LibraryService, registry: RoomRegistry): void {
+export function registerLibraryHttp(
+  app: Express,
+  library: LibraryService,
+  registry: RoomRegistry,
+  guests: GuestAccessStore,
+): void {
   const requireRoom = (req: Request, res: Response): boolean => {
     return requireRoomAccess(req, res, registry);
+  };
+  // 只读浏览：房内房间凭据或有效游客凭据都可以；写路由与播放路由仍只认房间。
+  const requireRead = (req: Request, res: Response): boolean => {
+    return requireMediaRead(req, res, registry, guests);
   };
   app.use(["/api/admin/media-sources", "/api/admin/media-libraries", "/api/admin/media-catalog"], (req, res, next) => {
     if (requireAdmin(library, req, res)) next();
@@ -25,8 +35,19 @@ export function registerLibraryHttp(app: Express, library: LibraryService, regis
     res.json(library.capabilities(library.allowsAdmin(requestIp(req), headerValue(req, "x-watchparty-admin"))));
   });
 
+  // 游客凭据签发：一次性短时效、只读、不绑定房间。无 body（客户端契约如此）。
+  // 限速按 IP，避免这里变成匿名枚举媒体库的固定入口。
+  app.post(GUEST_SESSION_PATH, (req, res) => {
+    const issued = guests.issue(requestIp(req));
+    if (!issued) {
+      sendError(res, 429, "GUEST_RATE_LIMITED");
+      return;
+    }
+    res.json(issued);
+  });
+
   app.get("/api/media/artwork/:mediaId", async (req, res) => {
-    if (!requireRoom(req, res)) return;
+    if (!requireRead(req, res)) return;
     try {
       const image = await library.loadArtwork(paramId(req));
       if (!image) {
@@ -42,8 +63,8 @@ export function registerLibraryHttp(app: Express, library: LibraryService, regis
     }
   });
 
-  app.get("/api/media/libraries", async (_req, res) => {
-    if (!requireRoom(_req, res)) return;
+  app.get("/api/media/libraries", async (req, res) => {
+    if (!requireRead(req, res)) return;
     try {
       res.json({ libraries: await library.libraries() });
     } catch (error) {
@@ -57,7 +78,7 @@ export function registerLibraryHttp(app: Express, library: LibraryService, regis
       next();
       return;
     }
-    if (!requireRoom(req, res)) return;
+    if (!requireRead(req, res)) return;
     try {
       res.json(await library.list(libraryId, queryString(req.query.path) ?? "/", queryString(req.query.cursor)));
     } catch (error) {
@@ -71,7 +92,7 @@ export function registerLibraryHttp(app: Express, library: LibraryService, regis
       next();
       return;
     }
-    if (!requireRoom(req, res)) return;
+    if (!requireRead(req, res)) return;
     try {
       const query = queryString(req.query.q);
       if (!query) {
@@ -113,7 +134,7 @@ export function registerLibraryHttp(app: Express, library: LibraryService, regis
   });
 
   app.get(["/api/media/catalog", "/api/admin/media-catalog"], (req, res) => {
-    if (!req.path.startsWith("/api/admin/") && !requireRoom(req, res)) return;
+    if (!req.path.startsWith("/api/admin/") && !requireRead(req, res)) return;
     const libraryId = queryString(req.query.libraryId);
     if (!libraryId) {
       sendError(res, 400, "INVALID_REQUEST");
@@ -127,7 +148,7 @@ export function registerLibraryHttp(app: Express, library: LibraryService, regis
   });
 
   app.get(["/api/media/catalog/:id", "/api/admin/media-catalog/:id"], async (req, res) => {
-    if (!req.path.startsWith("/api/admin/") && !requireRoom(req, res)) return;
+    if (!req.path.startsWith("/api/admin/") && !requireRead(req, res)) return;
     try {
       res.json(await library.catalogDetail(paramId(req), req.query.episodeTitles !== "0"));
     } catch (error) {
@@ -195,7 +216,7 @@ export function registerLibraryHttp(app: Express, library: LibraryService, regis
   });
 
   app.get("/api/media/posters/:id", (req, res) => {
-    if (!requireRoom(req, res)) return;
+    if (!requireRead(req, res)) return;
     const image = library.catalogPoster(paramId(req));
     if (!image) {
       sendError(res, 404, "MEDIA_NOT_FOUND");
