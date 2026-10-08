@@ -489,7 +489,7 @@ function toItem(library: StoredLibrary, entry: OpenlistEntry, encode: (mediaPath
 export function compatibilityOf(isDir: boolean, extension: string): MediaCompatibility {
   if (extension === "strm") {
     // A pointer: what plays is whatever the line inside names, and that is frequently
-    // HEVC in a container the browser refuses - same as MKV, so the desktop is the
+    // HEVC in a container the browser refuses, so the desktop is the
     // only honest answer rather than "maybe" and a failed <video> load.
     return {
       browser: "unsupported",
@@ -500,9 +500,9 @@ export function compatibilityOf(isDir: boolean, extension: string): MediaCompati
   if (isDir || NATIVE_VIDEO_EXTENSIONS.has(extension)) return { browser: "supported", desktop: "supported" };
   if (extension === "mkv") {
     return {
-      browser: "unsupported",
+      browser: "maybe",
       desktop: "supported",
-      browserReason: "浏览器不承担 MKV 播放，请使用 MPV 或 WatchParty 桌面客户端",
+      browserReason: "浏览器是否支持 MKV 取决于本机 WebCodecs 解码能力",
     };
   }
   if (TRANSCODE_VIDEO_EXTENSIONS.has(extension)) {
@@ -549,6 +549,7 @@ function mimeTypeFor(name: string): string | undefined {
   return {
     mp4: "video/mp4",
     webm: "video/webm",
+    mkv: "video/x-matroska",
     m3u8: "application/vnd.apple.mpegurl",
     mov: "video/quicktime",
     m4v: "video/x-m4v",

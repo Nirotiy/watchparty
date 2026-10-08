@@ -319,7 +319,8 @@ export function createWatchpartyMedia(
     const extension = extensionOf(mediaPath);
     if (
       !SUPPORTED_VIDEO_EXTENSIONS.has(extension) &&
-      !MAYBE_VIDEO_EXTENSIONS.has(extension)
+      !MAYBE_VIDEO_EXTENSIONS.has(extension) &&
+      extension !== "mkv"
     )
       return null;
     const info = await client.getDownloadInfo(mediaPath);
@@ -619,9 +620,9 @@ function compatibilityOf(isDir: boolean, extension: string): MediaCompatibility 
   }
   if (extension === "mkv") {
     return {
-      browser: "unsupported",
+      browser: "maybe",
       desktop: "supported",
-      browserReason: "浏览器不承担 MKV 播放，请使用 MPV 或 WatchParty 桌面客户端",
+      browserReason: "MKV 需由当前浏览器检测视频与音频编码能力",
     };
   }
   if (MAYBE_VIDEO_EXTENSIONS.has(extension)) {
@@ -661,6 +662,7 @@ function extensionOf(name: string): string {
 function mimeTypeFor(name: string): string | undefined {
   return {
     mp4: "video/mp4",
+    mkv: "video/x-matroska",
     webm: "video/webm",
     m3u8: "application/vnd.apple.mpegurl",
     mov: "video/quicktime",

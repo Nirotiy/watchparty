@@ -111,11 +111,11 @@ test("directory results are naturally sorted and expose compatibility metadata",
   );
   assert.equal(result.items[0]!.compatibility.browser, "supported");
   assert.equal(result.items[0]!.compatibility.desktop, "supported");
-  assert.equal(result.items[1]!.compatibility.browser, "unsupported");
+  assert.equal(result.items[1]!.compatibility.browser, "maybe");
   assert.equal(result.items[1]!.compatibility.desktop, "supported");
   assert.equal(
     result.items[1]!.compatibility.browserReason,
-    "浏览器不承担 MKV 播放，请使用 MPV 或 WatchParty 桌面客户端",
+    "MKV 需由当前浏览器检测视频与音频编码能力",
   );
   assert.equal(result.items[2]!.type, "dir");
   assert.equal(result.items[2]!.displayPath, undefined);
@@ -195,7 +195,10 @@ test("resolve accepts direct https links and rejects unsupported files", async (
     mime: "video/mp4",
     requiresCustomHeaders: false,
   });
-  assert.equal(await watchparty.resolve(signedId(`${ANIME}/movie.mkv`)), null);
+  assert.deepEqual(await watchparty.resolve(signedId(`${ANIME}/movie.mkv`)), {
+    url: "https://cdn.example/movie.mkv", size: 7, mime: "video/x-matroska", requiresCustomHeaders: false,
+  });
+  assert.equal(await watchparty.resolve(signedId(`${ANIME}/notes.txt`)), null);
   const mpvMkv = await watchparty.resolveMpv(signedId(`${ANIME}/movie.mkv`));
   assert.equal(mpvMkv?.fallbackUrl, "https://cdn.example/movie.mkv");
 
