@@ -4,7 +4,7 @@
  */
 
 import { refreshCatalog, type CatalogAccepted, type CatalogScan } from "../../desktop-shell/shared/catalog-refresh";
-import { mediaRoomHeaders } from "./media-room-access";
+import { invalidateGuestCredential, mediaReadHeaders, roomMediaHeaders } from "./media-room-access";
 
 import {
   CreateRoomRequest,
@@ -33,17 +33,28 @@ import {
 } from "./contracts";
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const headers = new Headers(options.headers);
-  headers.set("Content-Type", "application/json");
-  const roomRead = (options.method ?? "GET") === "GET" && path.startsWith("/api/media/") && path !== "/api/media/capabilities";
-  if (roomRead) {
-    for (const [key, value] of Object.entries(mediaRoomHeaders())) headers.set(key, value);
+  const baseHeaders = new Headers(options.headers);
+  baseHeaders.set("Content-Type", "application/json");
+  const mediaRead = (options.method ?? "GET") === "GET" && path.startsWith("/api/media/") && path !== "/api/media/capabilities";
+
+  const send = async (): Promise<Response> => {
+    const headers = new Headers(baseHeaders);
+    if (mediaRead) {
+      for (const [key, value] of Object.entries(await mediaReadHeaders())) headers.set(key, value);
+    }
+    return fetch(path, {
+      ...options,
+      headers,
+      ...(mediaRead ? { redirect: "error" as const } : {}),
+    });
+  };
+
+  let res = await send();
+  // 游客凭据可能刚好过期：仅房外的媒体只读请求作废重签并重放一次；房内 401 保持原有语义。
+  if (mediaRead && res.status === 401 && !roomMediaHeaders()) {
+    invalidateGuestCredential();
+    res = await send();
   }
-  const res = await fetch(path, {
-    ...options,
-    headers,
-    ...(roomRead ? { redirect: "error" as const } : {}),
-  });
 
   if (!res.ok) {
     let errBody: { code?: string; message?: string } = {};
@@ -275,6 +286,40 @@ export const api = {
     request<SubtitleTrack[]>(
       `/api/rooms/${encodeURIComponent(roomId)}/media/subtitles?mediaId=${encodeURIComponent(mediaId)}`,
       { headers: { "X-WatchParty-Token": accessToken } },
+    ),
+
+  // 10b. 上传字幕（房内成员；媒体级持久）。契约：temp-html/subtitle-upload-contract-2026-10-08.md
+  uploadSubtitle: (
+    roomId: string,
+    accessToken: string,
+    payload: { mediaId: string; name: string; format: SubtitleTrack["format"]; content: string; language?: string },
+  ): Promise<SubtitleTrack> =>
+    request<SubtitleTrack>(
+      `/api/rooms/${encodeURIComponent(roomId)}/media/subtitles`,
+      { method: "POST", headers: { "X-WatchParty-Token": accessToken }, body: JSON.stringify(payload) },
+    ),
+
+  // 10c. 上传字幕的文本内容（旁挂字幕继续走 9 的既有路由）
+  getSubtitleTrackContent: async (
+    roomId: string,
+    subtitleId: string,
+    accessToken: string,
+  ): Promise<string> => {
+    const res = await fetch(
+      `/api/rooms/${encodeURIComponent(roomId)}/media/subtitles/${encodeURIComponent(subtitleId)}/content`,
+      { headers: { "X-WatchParty-Token": accessToken } },
+    );
+    if (!res.ok) {
+      throw Object.assign(new Error(`无法获取字幕: HTTP ${res.status}`), { status: res.status });
+    }
+    return res.text();
+  },
+
+  // 10d. 删除上传字幕（仅房主；服务端 403 兜底）
+  deleteSubtitle: (roomId: string, accessToken: string, subtitleId: string): Promise<{ removed: boolean }> =>
+    request<{ removed: boolean }>(
+      `/api/rooms/${encodeURIComponent(roomId)}/media/subtitles/${encodeURIComponent(subtitleId)}`,
+      { method: "DELETE", headers: { "X-WatchParty-Token": accessToken } },
     ),
 
   // 11. 签发一次性 native 交接票据（5 分钟 TTL；交接码不进 URL）

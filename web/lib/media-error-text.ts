@@ -20,6 +20,11 @@ const MEDIA_ERROR_TEXT: Record<string, string> = {
   INVALID_REQUEST: "有点字段不合法：检查名称、地址与库路径（路径要以 / 开头）",
   AUTH_REJECTED: "站点鉴权失败，请检查已保存的站点凭据",
   AUTH_REQUIRED: "服务需要站点鉴权",
+  SUBTITLE_TOO_LARGE: "字幕文件超过 512KB",
+  SUBTITLE_FORMAT_UNSUPPORTED: "只支持 SRT / VTT / ASS / SSA 字幕",
+  SUBTITLE_OWNER_ONLY: "只有房主能删除上传的字幕",
+  SUBTITLE_NOT_FOUND: "这条字幕不存在了",
+  SUBTITLE_TRACKS_FULL: "这部片的上传字幕已达上限（32 条），先删一条再传",
 };
 
 export function mediaErrorText(error: unknown, fallback: string): string {

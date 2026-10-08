@@ -1,10 +1,11 @@
 "use client";
 
 import React from "react";
-import { ListVideo, Trash2, Play, Plus, X, Layers, ArrowUp, ArrowDown } from "lucide-react";
+import { Trash2, Play, Plus, X, ArrowUp, ArrowDown } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { PlaylistItem } from "@/lib/contracts";
+import { cn } from "@/lib/utils";
 
 interface PlaylistModalProps {
   isOpen: boolean;
@@ -38,19 +39,19 @@ export function PlaylistModal({
       <DialogContent
         showCloseButton={false}
         aria-describedby={undefined}
-        className="flex h-[520px] max-h-[90dvh] w-full flex-col gap-0 overflow-hidden border-border bg-card p-5 sm:max-w-lg"
+        className="flex h-[520px] max-h-[90dvh] w-full flex-col gap-0 overflow-hidden border-border bg-card p-0 sm:max-w-lg"
       >
         {/* 头部 */}
-        <div className="flex items-center justify-between border-b border-border pb-3">
-          <DialogTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <ListVideo className="size-4 text-sky-400" />
-            <span>房间播放清单 (上限 200 项)</span>
-            <span className="font-mono text-xs text-muted-foreground">[{playlist.length}/200]</span>
+        <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
+          <DialogTitle className="flex items-center gap-2 text-lg font-medium text-foreground">
+            <span>播放清单</span>
+            <span className="font-mono text-xs font-normal text-muted-foreground">{playlist.length}/200</span>
           </DialogTitle>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <Button
-              variant="outline"
+              variant="secondary"
               size="sm"
+              className="h-7 text-xs"
               onClick={() => {
                 onClose();
                 onOpenMediaSelector();
@@ -64,7 +65,7 @@ export function PlaylistModal({
               size="icon-sm"
               onClick={onClose}
               aria-label="关闭"
-              className="text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="text-muted-foreground hover:text-foreground"
             >
               <X className="size-4" />
             </Button>
@@ -72,11 +73,10 @@ export function PlaylistModal({
         </div>
 
         {/* 列表区 */}
-        <div className="flex-1 overflow-y-auto pt-3 space-y-1.5">
+        <div className="flex-1 space-y-0.5 overflow-y-auto p-2">
           {playlist.length === 0 ? (
-            <div className="flex h-48 flex-col items-center justify-center text-xs text-muted-foreground">
-              <Layers className="mb-2 size-6 text-muted-foreground/50" />
-              <span>播放清单暂无项目，点击右上角「添加片源」从媒体库中选取</span>
+            <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
+              清单为空
             </div>
           ) : (
             playlist.map((item, idx) => {
@@ -86,30 +86,27 @@ export function PlaylistModal({
               return (
                 <div
                   key={item.id}
-                  className={`flex items-center justify-between rounded border p-2.5 text-xs transition-colors ${
-                    isCurrent
-                      ? "border-sky-500/80 bg-sky-950/30 text-white"
-                      : "border-border bg-black text-foreground/85 hover:border-ring"
-                  }`}
+                  className={cn(
+                    "flex items-center justify-between gap-3 rounded-sm px-2.5 py-2 text-sm transition-colors",
+                    isCurrent ? "bg-muted text-foreground" : "hover:bg-accent",
+                  )}
                 >
-                  <div className="flex items-center gap-2.5 truncate pr-3">
-                    <span className="font-mono text-[11px] text-muted-foreground">{idx + 1}.</span>
-                    <span className="truncate font-medium">{mediaTitle}</span>
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span className="shrink-0 font-mono text-xs text-ash">{idx + 1}</span>
+                    <span className="truncate">{mediaTitle}</span>
                     {isCurrent && (
-                      <span className="rounded bg-sky-500/20 px-1.5 py-0.5 font-mono text-[9px] font-bold text-sky-400">
-                        PLAYING
-                      </span>
+                      <span className="shrink-0 rounded-[4px] bg-info-soft px-1.5 text-xs text-info">播放中</span>
                     )}
                   </div>
 
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex shrink-0 items-center gap-0.5">
                     {/* 上移 / 下移 */}
                     {canEditQueue && (
-                      <div className="flex items-center gap-0.5">
+                      <>
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          className="size-6 text-muted-foreground hover:bg-accent hover:text-foreground"
+                          className="size-6 text-muted-foreground hover:text-foreground"
                           disabled={idx === 0}
                           onClick={() => onMoveItem(item.id, idx - 1)}
                           title="上移"
@@ -120,7 +117,7 @@ export function PlaylistModal({
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          className="size-6 text-muted-foreground hover:bg-accent hover:text-foreground"
+                          className="size-6 text-muted-foreground hover:text-foreground"
                           disabled={idx === playlist.length - 1}
                           onClick={() => onMoveItem(item.id, idx + 1)}
                           title="下移"
@@ -128,19 +125,19 @@ export function PlaylistModal({
                         >
                           <ArrowDown className="size-3" />
                         </Button>
-                      </div>
+                      </>
                     )}
 
                     {!isCurrent && canPlayItem && (
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        className="size-6 bg-white text-black hover:bg-primary/90"
+                        className="size-6 text-foreground hover:bg-white/10"
                         onClick={() => onPlayItem(item.id)}
                         title="立即切到此项"
                         aria-label={`立即播放：${mediaTitle}`}
                       >
-                        <Play className="size-3 fill-black" />
+                        <Play className="size-3" />
                       </Button>
                     )}
                     {canEditQueue && (

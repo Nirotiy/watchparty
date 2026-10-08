@@ -1,0 +1,464 @@
+{
+  "startedAt": "2026-10-08T11:41:08.982Z",
+  "checks": [
+    {
+      "label": "initial-frame",
+      "elapsedMs": 1155,
+      "value": {
+        "time": 0,
+        "phase": "paused",
+        "audio": "blocked",
+        "rate": 1,
+        "workers": [
+          false
+        ],
+        "errors": [],
+        "cues": [],
+        "control": "播放"
+      }
+    },
+    {
+      "label": "trusted-gesture-audio",
+      "elapsedMs": 1100,
+      "value": {
+        "time": 1.067,
+        "phase": "playing",
+        "audio": "running",
+        "rate": 1,
+        "workers": [
+          false
+        ],
+        "errors": [],
+        "cues": [
+          {
+            "text": "M00",
+            "time": 0.833
+          },
+          {
+            "text": "M00",
+            "time": 0.867
+          },
+          {
+            "text": "M00",
+            "time": 0.9
+          },
+          {
+            "text": "M00",
+            "time": 0.933
+          },
+          {
+            "text": "M00",
+            "time": 0.967
+          },
+          {
+            "text": "M00",
+            "time": 1
+          },
+          {
+            "text": "M00",
+            "time": 1.033
+          },
+          {
+            "text": "M00",
+            "time": 1.067
+          }
+        ],
+        "control": "暂停"
+      }
+    },
+    {
+      "label": "local-track-switch-keeps-playing",
+      "elapsedMs": 993,
+      "value": {
+        "time": 2.1,
+        "phase": "playing",
+        "audio": "running",
+        "rate": 1,
+        "workers": [
+          false
+        ],
+        "errors": [],
+        "cues": [
+          {
+            "text": "M00",
+            "time": 1.233
+          },
+          {
+            "text": "M00",
+            "time": 1.267
+          },
+          {
+            "text": "M00",
+            "time": 1.3
+          },
+          {
+            "text": "M00",
+            "time": 1.333
+          },
+          {
+            "text": "M00",
+            "time": 1.367
+          },
+          {
+            "text": "M00",
+            "time": 1.4
+          },
+          {
+            "text": "M00",
+            "time": 1.433
+          },
+          {
+            "text": "M00",
+            "time": 1.467
+          }
+        ],
+        "control": "暂停"
+      }
+    },
+    {
+      "label": "disabled-subtitles-still-play-video",
+      "elapsedMs": 4683,
+      "value": {
+        "time": 6.767,
+        "phase": "playing",
+        "audio": "running",
+        "rate": 1,
+        "workers": [
+          false
+        ],
+        "errors": [],
+        "cues": [],
+        "control": "暂停"
+      }
+    },
+    {
+      "label": "selected-subtitle-track-renders",
+      "elapsedMs": 3483,
+      "value": {
+        "time": 10.267,
+        "phase": "playing",
+        "audio": "running",
+        "rate": 1,
+        "workers": [
+          false
+        ],
+        "errors": [],
+        "cues": [
+          {
+            "text": "M02",
+            "time": 10.2
+          },
+          {
+            "text": "M02",
+            "time": 10.233
+          },
+          {
+            "text": "M02",
+            "time": 10.267
+          }
+        ],
+        "control": "暂停"
+      }
+    },
+    {
+      "label": "expired-range-renews-and-resumes",
+      "elapsedMs": 218,
+      "value": {
+        "time": 16000.187,
+        "phase": "playing",
+        "audio": "running",
+        "rate": 0.95,
+        "workers": [
+          false
+        ],
+        "errors": [],
+        "cues": [
+          {
+            "text": "M02",
+            "time": 10.2
+          },
+          {
+            "text": "M02",
+            "time": 10.233
+          },
+          {
+            "text": "M02",
+            "time": 10.267
+          },
+          {
+            "text": "M02",
+            "time": 10.3
+          },
+          {
+            "text": "M02",
+            "time": 10.333
+          }
+        ],
+        "control": "暂停"
+      }
+    },
+    {
+      "label": "read-stall-is-local-buffering",
+      "elapsedMs": 764,
+      "value": {
+        "time": 16000.187,
+        "phase": "buffering",
+        "audio": "running",
+        "rate": 0.95,
+        "workers": [
+          false
+        ],
+        "errors": [],
+        "cues": [
+          {
+            "text": "M02",
+            "time": 10.2
+          },
+          {
+            "text": "M02",
+            "time": 10.233
+          },
+          {
+            "text": "M02",
+            "time": 10.267
+          },
+          {
+            "text": "M02",
+            "time": 10.3
+          },
+          {
+            "text": "M02",
+            "time": 10.333
+          }
+        ],
+        "control": "暂停"
+      }
+    },
+    {
+      "label": "stall-recovery-at-095",
+      "elapsedMs": 3590,
+      "value": {
+        "time": 8003.027,
+        "phase": "playing",
+        "audio": "running",
+        "rate": 0.95,
+        "workers": [
+          false
+        ],
+        "errors": [],
+        "cues": [
+          {
+            "text": "M02",
+            "time": 10.2
+          },
+          {
+            "text": "M02",
+            "time": 10.233
+          },
+          {
+            "text": "M02",
+            "time": 10.267
+          },
+          {
+            "text": "M02",
+            "time": 10.3
+          },
+          {
+            "text": "M02",
+            "time": 10.333
+          }
+        ],
+        "control": "暂停"
+      }
+    },
+    {
+      "label": "subtitles-resume-after-stall",
+      "elapsedMs": 1856,
+      "value": {
+        "time": 8005.893,
+        "phase": "playing",
+        "audio": "running",
+        "rate": 0.95,
+        "workers": [
+          false
+        ],
+        "errors": [],
+        "cues": [
+          {
+            "text": "M02",
+            "time": 10.2
+          },
+          {
+            "text": "M02",
+            "time": 10.233
+          },
+          {
+            "text": "M02",
+            "time": 10.267
+          },
+          {
+            "text": "M02",
+            "time": 10.3
+          },
+          {
+            "text": "M02",
+            "time": 10.333
+          },
+          {
+            "text": "M01",
+            "time": 8005.86
+          },
+          {
+            "text": "M01",
+            "time": 8005.893
+          }
+        ],
+        "control": "暂停"
+      }
+    },
+    {
+      "label": "same-media-retry-follows-current-room-time",
+      "elapsedMs": 323,
+      "value": {
+        "time": 8006.227,
+        "phase": "playing",
+        "audio": "running",
+        "rate": 0.95,
+        "workers": [
+          true,
+          false
+        ],
+        "errors": [],
+        "cues": [
+          {
+            "text": "M02",
+            "time": 10.333
+          },
+          {
+            "text": "M01",
+            "time": 8005.86
+          },
+          {
+            "text": "M01",
+            "time": 8005.893
+          },
+          {
+            "text": "M01",
+            "time": 8005.927
+          },
+          {
+            "text": "M01",
+            "time": 8006.127
+          },
+          {
+            "text": "M01",
+            "time": 8006.16
+          },
+          {
+            "text": "M01",
+            "time": 8006.193
+          },
+          {
+            "text": "M01",
+            "time": 8006.227
+          }
+        ],
+        "control": "暂停"
+      }
+    },
+    {
+      "label": "retry-audio-unlocked",
+      "elapsedMs": 0,
+      "value": {
+        "time": 8006.227,
+        "phase": "playing",
+        "audio": "running",
+        "rate": 0.95,
+        "workers": [
+          true,
+          false
+        ],
+        "errors": [],
+        "cues": [
+          {
+            "text": "M02",
+            "time": 10.333
+          },
+          {
+            "text": "M01",
+            "time": 8005.86
+          },
+          {
+            "text": "M01",
+            "time": 8005.893
+          },
+          {
+            "text": "M01",
+            "time": 8005.927
+          },
+          {
+            "text": "M01",
+            "time": 8006.127
+          },
+          {
+            "text": "M01",
+            "time": 8006.16
+          },
+          {
+            "text": "M01",
+            "time": 8006.193
+          },
+          {
+            "text": "M01",
+            "time": 8006.227
+          }
+        ],
+        "control": "暂停"
+      }
+    }
+  ],
+  "scope": "Next integration, local server response stall; not a global throughput limit",
+  "tracks": {
+    "items": [
+      {
+        "id": 1,
+        "kind": "audio",
+        "codec": "aac",
+        "label": "audio 1",
+        "language": "eng",
+        "supported": true
+      },
+      {
+        "id": 2,
+        "kind": "audio",
+        "codec": "aac",
+        "label": "audio 2",
+        "language": "jpn",
+        "supported": true
+      },
+      {
+        "id": 3,
+        "kind": "subtitle",
+        "codec": "subrip",
+        "label": "subtitle 3",
+        "language": "eng",
+        "supported": true
+      },
+      {
+        "id": 4,
+        "kind": "subtitle",
+        "codec": "subrip",
+        "label": "subtitle 4",
+        "language": "jpn",
+        "supported": true
+      }
+    ],
+    "localSelectionPreservesRoomRevision": true
+  },
+  "renewal": {
+    "rejectedRanges": 1,
+    "renewals": 1
+  },
+  "pass": true,
+  "profileDeleted": true
+}

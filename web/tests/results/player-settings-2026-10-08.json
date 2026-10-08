@@ -1,0 +1,78 @@
+{
+  "startedAt": "2026-10-08T14:15:50.737Z",
+  "checks": [
+    {
+      "label": "player-frame",
+      "ok": true
+    },
+    {
+      "label": "cue-default-style",
+      "ok": true
+    },
+    {
+      "label": "manual-pick-keeps-language-lists",
+      "ok": true
+    },
+    {
+      "label": "settings-dialog-open",
+      "ok": true
+    },
+    {
+      "label": "source-preference-saved",
+      "ok": true
+    },
+    {
+      "label": "language-list-add-reorder",
+      "ok": true
+    },
+    {
+      "label": "font-150-repaints-paused",
+      "ok": true
+    },
+    {
+      "label": "yellow-applies",
+      "ok": true
+    },
+    {
+      "label": "outline-off-stops-strokes",
+      "ok": true
+    },
+    {
+      "label": "background-black-draws-rect",
+      "ok": true
+    },
+    {
+      "label": "bottom-raise-moves-baseline",
+      "ok": true,
+      "value": {
+        "baselineY": 912,
+        "raisedY": 804
+      }
+    },
+    {
+      "label": "appearance-persisted",
+      "ok": true
+    },
+    {
+      "label": "volume-slider-saves",
+      "ok": true
+    },
+    {
+      "label": "offset-step-then-zero",
+      "ok": true
+    },
+    {
+      "label": "clear-all-offsets-confirm",
+      "ok": true
+    },
+    {
+      "label": "reset-to-defaults-and-repaint",
+      "ok": true
+    },
+    {
+      "label": "persist-after-reload",
+      "ok": true
+    }
+  ],
+  "pass": true
+}

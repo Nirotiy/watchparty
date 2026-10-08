@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useSyncExternalStore } from "react";
 import { OpenListModal } from "./openlist-modal";
 import { PlaylistModal } from "./playlist-modal";
 import { MembersModal } from "./members-modal";
 import { MpvLaunchModal } from "./mpv-launch-modal";
+import { PlayerSettingsDialog } from "./player-settings-dialog";
 import { PlayerAdapter, PlayerAdapterHandle } from "./player-adapter";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -22,6 +23,15 @@ import {
 import { WatchPartySocket } from "@/lib/socket";
 import { api } from "@/lib/api";
 import { createVttBlobUrl } from "@/lib/subtitle-parser";
+import { mediaErrorText } from "@/lib/media-error-text";
+import { synchronizePlayback } from "@/lib/playback-sync";
+import type { EmbeddedTrack, EmbeddedTracks, PlayerLocalState, PlayerCapabilities } from "@/lib/player-local";
+import { DEFAULT_PLAYER_PREFERENCES, DEFAULT_SUBTITLE_APPEARANCE,
+  clearAllSubtitleOffsets, clampSubtitleOffset, getPreferenceMediaKey, preferredExternalSubtitle, readPlayerPreferences,
+  readSubtitleOffset, savePlayerPreferences, saveSubtitleOffset, trackPreferencePatch,
+  type PlayerPreferences, type SubtitleAppearance } from "@/lib/player-preferences";
+import { operationResult, runBatchOperation, reconcilePlaylistAdd, confirmStoppedBatchItem,
+  type BatchOperationResult, type PlaylistAddAttempt } from "@/lib/media-operation-result";
 
 interface RoomPlayerProps {
   roomId: string;
@@ -96,29 +106,34 @@ function mediaSourceKey(source: MediaSource): string {
   return `${source.kind}:${source.url}`;
 }
 
-function requiresDesktopPlayback(source: MediaSource): boolean {
-  return source.kind === "openlist" && source.container.toLowerCase() === "mkv";
+const subscribeToHydration = () => () => {};
+
+export default function RoomPlayer(props: RoomPlayerProps) {
+  const hydrated = useSyncExternalStore(subscribeToHydration, () => true, () => false);
+  return hydrated ? <HydratedRoomPlayer {...props} /> : <div className="h-dvh w-screen bg-black" />;
 }
 
-export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerProps) {
+function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerProps) {
   // 1. 本地客户端标识与 Token 准备
   const [clientId] = useState<string>(() => {
-    if (typeof window === "undefined") return "";
-    let id = localStorage.getItem("watchparty_client_id");
-    if (!id) {
-      id = crypto.randomUUID();
-      localStorage.setItem("watchparty_client_id", id);
-    }
-    return id;
+    const fallback = crypto.randomUUID();
+    try {
+      const saved = localStorage.getItem("watchparty_client_id");
+      if (saved) return saved;
+      localStorage.setItem("watchparty_client_id", fallback);
+    } catch { /* A session identity still works when browser storage is disabled. */ }
+    return fallback;
   });
   const [ownerToken, setOwnerToken] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem(`owner_${roomId}`);
+    try { return localStorage.getItem(`owner_${roomId}`); } catch { return null; }
   });
 
   // 2. 权威快照与派生状态 (来自服务端，绝不写死)
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
   const snapshotRef = useRef<RoomSnapshot | null>(null);
+  const commandQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const uncertainQueueAddRef = useRef<PlaylistAddAttempt | null>(null);
+  const [queueResult, setQueueResult] = useState<BatchOperationResult<MediaSource> | null>(null);
 
   useEffect(() => {
     snapshotRef.current = snapshot;
@@ -136,16 +151,37 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
   const sourceKeyRef = useRef<string | null>(null);
   const resolvedMediaRef = useRef<{ mediaId: string; url: string } | null>(null);
   const resolveSequenceRef = useRef(0);
+  const subtitleSequenceRef = useRef(0);
+  const failedPlayerKeyRef = useRef<string | null>(null);
+  const reconnectRecoveryRef = useRef(false);
 
   // 4. 本地播放控制 UI 状态 (音量、全屏、字幕纯本地，不广播)
-  const [volume, setVolume] = useState(85);
-  const [isMuted, setIsMuted] = useState(false);
+  const [preferences, setPreferences] = useState<PlayerPreferences>(readPlayerPreferences);
+  const preferencesRef = useRef(preferences);
+  const [volume, setVolume] = useState(preferences.volume);
+  const [isMuted, setIsMuted] = useState(preferences.muted);
+  const persistPreferences = useCallback((patch: Partial<PlayerPreferences>) => {
+    const next = savePlayerPreferences({ ...preferencesRef.current, ...patch });
+    preferencesRef.current = next;
+    setPreferences(next);
+  }, []);
   const [currentTime, setCurrentTime] = useState(0);
   const [totalDuration, setTotalDuration] = useState(0);
   const [bufferedPercent, setBufferedPercent] = useState(0);
+  const [playerReady, setPlayerReady] = useState(0);
+  const [desktopFallbackKey, setDesktopFallbackKey] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [areControlsVisible, setAreControlsVisible] = useState(true);
   const [seekPreview, setSeekPreview] = useState<number | null>(null);
+
+  // 本机状态和能力由当前内核报告，不进入房间快照。
+  const [localState, setLocalState] = useState<PlayerLocalState | null>(null);
+  const [playerCapabilities, setPlayerCapabilities] = useState<PlayerCapabilities | null>(null);
+  const [embeddedTracks, setEmbeddedTracks] = useState<EmbeddedTracks | null>(null);
+  const [playerError, setPlayerError] = useState<string | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [desktopFallbackNote, setDesktopFallbackNote] = useState<string | null>(null);
+  const touchPressedWhileHiddenRef = useRef(false);
 
   // 5. 字幕核心状态 (本地隔离，支持 SRT 动态转 VTT)
   const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([]);
@@ -153,6 +189,13 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
   const [rawSubtitleContent, setRawSubtitleContent] = useState<string | null>(null);
   const [subtitleOffset, setSubtitleOffset] = useState<number>(0.0);
   const [showSubtitleMenu, setShowSubtitleMenu] = useState<boolean>(false);
+  const [showAudioMenu, setShowAudioMenu] = useState<boolean>(false);
+  const [showMoreMenu, setShowMoreMenu] = useState<boolean>(false);
+  const [showSettingsMenu, setShowSettingsMenu] = useState<boolean>(false);
+  // 字幕上传（媒体级持久；契约 temp-html/subtitle-upload-contract-2026-10-08.md）
+  const [subtitleUploadBusy, setSubtitleUploadBusy] = useState(false);
+  const [subtitleUploadError, setSubtitleUploadError] = useState<string | null>(null);
+  const subtitleFileRef = useRef<HTMLInputElement | null>(null);
 
   const activeSubtitleTrack = subtitleTracks.find((track) => track.id === activeSubtitleId) ?? null;
 
@@ -202,6 +245,9 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
     !snapshot?.source ||
     snapshot.paused !== false ||
     showSubtitleMenu ||
+    showAudioMenu ||
+    showMoreMenu ||
+    showSettingsMenu ||
     isOpenListModalOpen ||
     isPlaylistModalOpen ||
     isMembersModalOpen;
@@ -278,7 +324,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
 
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(document.fullscreenElement === containerRef.current);
+      setIsFullscreen(document.fullscreenElement !== null);
     };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
@@ -292,10 +338,10 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
   }, []);
 
   const clearSubtitles = useCallback(() => {
+    subtitleSequenceRef.current += 1;
     setSubtitleTracks([]);
     setActiveSubtitleId(null);
     setRawSubtitleContent(null);
-    setSubtitleOffset(0);
   }, []);
 
   // Resolve OpenList URLs without coupling media state to the Socket lifecycle.
@@ -303,21 +349,28 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
     async (source: MediaSource, token: string, isRetry = false) => {
       const sourceKey = mediaSourceKey(source);
       if (sourceKeyRef.current !== sourceKey) {
+        failedPlayerKeyRef.current = null;
+        resolveSequenceRef.current += 1;
         sourceKeyRef.current = sourceKey;
         resolvedMediaRef.current = null;
         hasRetriedResolveRef.current = false;
         setStreamUrl(null);
         clearSubtitles();
+        setSubtitleOffset(readSubtitleOffset(getPreferenceMediaKey(source)));
+        setTotalDuration(0);
+        setCurrentTime(0);
+        setBufferedPercent(0);
+        setLocalState(null);
+        setPlayerCapabilities(null);
+        setEmbeddedTracks(null);
+        setPlayerError(null);
+        setIsRetrying(false);
+        setDesktopFallbackNote(null);
       }
 
       if (source.kind === "http" || source.kind === "hls" || source.kind === "youtube") {
-        setStreamUrl(source.kind === "youtube" ? null : source.url);
-        return;
-      }
-
-      if (requiresDesktopPlayback(source)) {
         setIsResolving(false);
-        setGlobalError(null);
+        setStreamUrl(source.kind === "youtube" ? null : source.url);
         return;
       }
 
@@ -328,30 +381,35 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
         const result = await api.resolveMedia(roomId, source.mediaId, token);
         if (sequence !== resolveSequenceRef.current) return;
         if (result.requiresCustomHeaders) {
-          setGlobalError("该媒体要求自定义请求头，网页端暂无法直接播放");
+          setGlobalError(null);
+          setDesktopFallbackNote("该媒体要求自定义请求头，网页端无法直接播放。");
+          setDesktopFallbackKey(sourceKey);
           return;
         }
         resolvedMediaRef.current = { mediaId: source.mediaId, url: result.url };
         setStreamUrl(result.url);
         setGlobalError(null);
 
+        const subtitleSequence = ++subtitleSequenceRef.current;
         try {
           const tracks = await api.getSubtitleTracks(roomId, source.mediaId, token);
-          if (sequence !== resolveSequenceRef.current) return;
+          if (sequence !== resolveSequenceRef.current || subtitleSequence !== subtitleSequenceRef.current) return;
           setSubtitleTracks(tracks);
-          const firstTrack = tracks[0];
+          const saved = preferencesRef.current;
+          // 来源偏好：外挂优先时自动挑外挂（语言列表命中/默认轨）；内嵌优先时交给引擎内嵌路径。
+          const firstTrack = saved.subtitlesOff || saved.subtitleSourcePreference !== "external"
+            ? undefined
+            : preferredExternalSubtitle(tracks, saved.subtitleLanguages);
           if (!firstTrack) return;
-          const subtitleContent = await api.getSubtitleContent(
-            roomId,
-            firstTrack.mediaId,
-            token,
-          );
-          if (sequence !== resolveSequenceRef.current) return;
+          const subtitleContent = await (firstTrack.source === "upload"
+            ? api.getSubtitleTrackContent(roomId, firstTrack.id, token)
+            : api.getSubtitleContent(roomId, firstTrack.mediaId, token));
+          if (sequence !== resolveSequenceRef.current || subtitleSequence !== subtitleSequenceRef.current) return;
           setActiveSubtitleId(firstTrack.id);
-          setSubtitleOffset(firstTrack.offsetSeconds ?? 0);
+          setSubtitleOffset(readSubtitleOffset(getPreferenceMediaKey(source), undefined, firstTrack.offsetSeconds ?? 0));
           setRawSubtitleContent(subtitleContent);
         } catch {
-          if (sequence === resolveSequenceRef.current) clearSubtitles();
+          if (sequence === resolveSequenceRef.current && subtitleSequence === subtitleSequenceRef.current) clearSubtitles();
         }
       } catch (error: unknown) {
         if (sequence !== resolveSequenceRef.current) return;
@@ -377,26 +435,46 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
       onConnect: () => {
         setIsSocketConnected(true);
         setGlobalError(null);
+        reconnectRecoveryRef.current = failedPlayerKeyRef.current !== null;
       },
       onDisconnect: () => {
         setIsSocketConnected(false);
       },
       onSnapshot: (newSnapshot) => {
         if (ownerToken && newSnapshot.ownerClientId !== clientId) {
-          localStorage.removeItem(`owner_${roomId}`);
+          try { localStorage.removeItem(`owner_${roomId}`); } catch { /* Session state remains authoritative. */ }
           setOwnerToken(null);
         }
+        snapshotRef.current = newSnapshot;
         setSnapshot(newSnapshot);
         // 若当前有媒体且与当前解析源不一致，拉取并解析
         if (newSnapshot.source) {
           resolveAndLoadMedia(newSnapshot.source, accessToken);
+          if (reconnectRecoveryRef.current && failedPlayerKeyRef.current === mediaSourceKey(newSnapshot.source)) {
+            reconnectRecoveryRef.current = false;
+            failedPlayerKeyRef.current = null;
+            playerRef.current?.retry?.();
+          }
         } else {
+          failedPlayerKeyRef.current = null;
+          reconnectRecoveryRef.current = false;
           sourceKeyRef.current = null;
           resolvedMediaRef.current = null;
           resolveSequenceRef.current += 1;
           hasRetriedResolveRef.current = false;
           setStreamUrl(null);
+          setIsResolving(false);
+          setTotalDuration(0);
+          setCurrentTime(0);
+          setBufferedPercent(0);
+          setLocalState(null);
+          setPlayerCapabilities(null);
+          setEmbeddedTracks(null);
+          setPlayerError(null);
+          setIsRetrying(false);
+          setDesktopFallbackNote(null);
           clearSubtitles();
+          setSubtitleOffset(0);
         }
       },
       onMembers: (newMembers) => {
@@ -409,7 +487,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
       },
       onOwnerToken: (newOwnerToken) => {
         setOwnerToken(newOwnerToken);
-        localStorage.setItem(`owner_${roomId}`, newOwnerToken);
+        try { localStorage.setItem(`owner_${roomId}`, newOwnerToken); } catch { /* Keep the token in this session. */ }
       },
       onError: (err) => {
         // 握手鉴权失败：旧 token 已失效，交回页面层降级到门禁/重入流程。
@@ -433,34 +511,9 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
   // 权威时钟 NTP 追帧同步逻辑
   useEffect(() => {
     if (!snapshot || !playerRef.current || isResolving) return;
-    const player = playerRef.current;
-
-    // 播放/暂停状态对齐
-    if (snapshot.paused) {
-      player.pause();
-    } else {
-      player.play().catch(() => {});
-    }
-
-    // 倍速对齐
-    player.setPlaybackRate(snapshot.playbackRate);
-
-    // 计算权威理论播放时间
     const clockOffset = socketRef.current?.getClockOffset() || 0;
-    const nowMs = Date.now();
-    const elapsedSeconds = snapshot.paused
-      ? 0
-      : ((nowMs + clockOffset - snapshot.serverTimeMs) / 1000) * snapshot.playbackRate;
-    const expectedTime = Math.max(0, snapshot.positionSeconds + elapsedSeconds);
-    const deltaSeconds = player.getCurrentTime() - expectedTime;
-
-    // 三段式追帧：<0.25s 不动；0.25s~1s 微调倍速；>1s seek
-    if (Math.abs(deltaSeconds) > 1.0) {
-      player.seek(expectedTime);
-    } else if (Math.abs(deltaSeconds) > 0.25 && !snapshot.paused) {
-      player.setPlaybackRate(deltaSeconds > 0 ? snapshot.playbackRate * 0.95 : snapshot.playbackRate * 1.05);
-    }
-  }, [snapshot, isResolving]);
+    synchronizePlayback(playerRef.current, snapshot, Date.now() + clockOffset);
+  }, [snapshot, isResolving, playerReady]);
 
   // 权限与房主判定
   const isOwner = snapshot?.ownerClientId === clientId;
@@ -478,44 +531,49 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
   }, []);
 
   const runCommand = useCallback(
-    async (
+    (
       command: (socket: WatchPartySocket, revision: number) => Promise<CommandAck>,
     ): Promise<CommandAck> => {
-      const socket = socketRef.current;
-      const initialRevision = snapshotRef.current?.revision;
-      if (!socket || initialRevision === undefined) {
-        const unavailable: CommandAck = {
-          ok: false,
-          error: { code: "NOT_CONNECTED", message: "房间连接尚未就绪" },
-        };
-        setGlobalError(unavailable.error.message);
-        return unavailable;
-      }
-
-      let revision = initialRevision;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const acknowledgement = await command(socket, revision);
-        if (acknowledgement.ok) {
-          setGlobalError(null);
-          return acknowledgement;
-        }
-        if (acknowledgement.error.code !== "REVISION_CONFLICT" || attempt === 1) {
-          setGlobalError(acknowledgement.error.message);
-          return acknowledgement;
-        }
-        const newerRevision = await waitForNewerRevision(revision);
-        if (newerRevision === null) {
-          const timeout: CommandAck = {
+      // Read the authoritative revision when this user action reaches the front of the queue.
+      const pending = commandQueueRef.current.then(async (): Promise<CommandAck> => {
+        const socket = socketRef.current;
+        const initialRevision = snapshotRef.current?.revision;
+        if (!socket || initialRevision === undefined) {
+          const unavailable: CommandAck = {
             ok: false,
-            error: { code: "REVISION_SYNC_TIMEOUT", message: "未收到最新房间状态，请重试" },
+            error: { code: "NOT_CONNECTED", message: "房间连接尚未就绪" },
           };
-          setGlobalError(timeout.error.message);
-          return timeout;
+          setGlobalError(unavailable.error.message);
+          return unavailable;
         }
-        revision = newerRevision;
-      }
 
-      return { ok: false, error: { code: "COMMAND_FAILED", message: "指令执行失败" } };
+        let revision = initialRevision;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const acknowledgement = await command(socket, revision);
+          if (acknowledgement.ok) {
+            setGlobalError(null);
+            return acknowledgement;
+          }
+          if (acknowledgement.error.code !== "REVISION_CONFLICT" || attempt === 1) {
+            setGlobalError(acknowledgement.error.message);
+            return acknowledgement;
+          }
+          const newerRevision = await waitForNewerRevision(revision);
+          if (newerRevision === null) {
+            const timeout: CommandAck = {
+              ok: false,
+              error: { code: "REVISION_SYNC_TIMEOUT", message: "未收到最新房间状态，请重试" },
+            };
+            setGlobalError(timeout.error.message);
+            return timeout;
+          }
+          revision = newerRevision;
+        }
+
+        return { ok: false, error: { code: "COMMAND_FAILED", message: "指令执行失败" } };
+      });
+      commandQueueRef.current = pending.then(() => {}, () => {});
+      return pending;
     },
     [waitForNewerRevision],
   );
@@ -523,21 +581,249 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
   const selectSubtitleTrack = useCallback(
     async (track: SubtitleTrack) => {
       if (!accessToken) return;
+      const sequence = ++subtitleSequenceRef.current;
+      const sourceKey = sourceKeyRef.current;
       try {
-        const content = await api.getSubtitleContent(roomId, track.mediaId, accessToken);
+        const content = await (track.source === "upload"
+          ? api.getSubtitleTrackContent(roomId, track.id, accessToken)
+          : api.getSubtitleContent(roomId, track.mediaId, accessToken));
+        if (sequence !== subtitleSequenceRef.current || sourceKey !== sourceKeyRef.current) return;
         setActiveSubtitleId(track.id);
-        setSubtitleOffset(track.offsetSeconds ?? 0);
+        setSubtitleOffset(readSubtitleOffset(getPreferenceMediaKey(snapshotRef.current?.source ?? null), undefined, track.offsetSeconds ?? 0));
         setRawSubtitleContent(content);
+        // 手选只作用于当前媒体（覆盖自动选择、同媒体重试保留）；不重排全局语言列表（handoff §八）。
+        persistPreferences({ subtitlesOff: false });
         setGlobalError(null);
       } catch (error: unknown) {
+        if (sequence !== subtitleSequenceRef.current || sourceKey !== sourceKeyRef.current) return;
         setGlobalError(error instanceof Error ? error.message : "字幕加载失败");
       }
     },
-    [accessToken, roomId],
+    [accessToken, roomId, persistPreferences],
   );
+
+  const handleSubtitleUpload = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file || !accessToken) return;
+      const format = (/\.([a-z0-9]+)$/i.exec(file.name)?.[1] ?? "").toLowerCase();
+      if (format !== "srt" && format !== "vtt" && format !== "ass" && format !== "ssa") {
+        setSubtitleUploadError("只支持 SRT / VTT / ASS / SSA 字幕");
+        return;
+      }
+      if (file.size > 512 * 1024) {
+        setSubtitleUploadError("字幕文件超过 512KB");
+        return;
+      }
+      const source = snapshotRef.current?.source ?? null;
+      if (!source || source.kind !== "openlist") {
+        setSubtitleUploadError("当前片源不支持上传字幕");
+        return;
+      }
+      setSubtitleUploadBusy(true);
+      setSubtitleUploadError(null);
+      try {
+        const content = await file.text();
+        const created = await api.uploadSubtitle(roomId, accessToken, {
+          mediaId: source.mediaId,
+          name: file.name,
+          format,
+          content,
+        });
+        setSubtitleTracks((prev) => [...prev.filter((track) => track.id !== created.id), created]);
+        await selectSubtitleTrack(created);
+      } catch (error: unknown) {
+        const status = (error as { status?: number }).status;
+        setSubtitleUploadError(
+          status === 404 || status === 405 ? "字幕上传尚未启用" : mediaErrorText(error, "字幕上传失败"),
+        );
+      } finally {
+        setSubtitleUploadBusy(false);
+      }
+    },
+    [accessToken, roomId, selectSubtitleTrack],
+  );
+
+  const handleSubtitleDelete = useCallback(
+    async (track: SubtitleTrack) => {
+      if (!accessToken || track.source !== "upload") return;
+      try {
+        await api.deleteSubtitle(roomId, accessToken, track.id);
+        setSubtitleTracks((prev) => prev.filter((item) => item.id !== track.id));
+        if (activeSubtitleId === track.id) {
+          setActiveSubtitleId(null);
+          setRawSubtitleContent(null);
+        }
+      } catch (error: unknown) {
+        setSubtitleUploadError(mediaErrorText(error, "删除字幕失败"));
+      }
+    },
+    [accessToken, roomId, activeSubtitleId],
+  );
+
+  // 内嵌轨道选择：只作用于本机引擎，不发房间命令。
+  const selectEmbeddedAudio = useCallback(async (track: EmbeddedTrack) => {
+    if (!track.supported) return;
+    const sourceKey = sourceKeyRef.current;
+    try {
+      const select = playerRef.current?.selectAudioTrack;
+      if (!select) return;
+      await select(track.id);
+      if (sourceKey !== sourceKeyRef.current) return;
+      persistPreferences(trackPreferencePatch("audio", track));
+      setGlobalError(null);
+    } catch (error: unknown) {
+      setGlobalError(error instanceof Error ? error.message : "切换音轨失败");
+    }
+  }, [persistPreferences]);
+
+  const selectEmbeddedSubtitle = useCallback((track: EmbeddedTrack) => {
+    if (!track.supported) return;
+    try {
+      const select = playerRef.current?.selectSubtitleTrack;
+      if (!select) return;
+      select(track.id);
+      subtitleSequenceRef.current += 1;
+      setActiveSubtitleId(null);
+      setRawSubtitleContent(null);
+      persistPreferences(trackPreferencePatch("subtitle", track));
+      setGlobalError(null);
+    } catch (error: unknown) {
+      setGlobalError(error instanceof Error ? error.message : "切换字幕轨失败");
+    }
+  }, [persistPreferences]);
+
+  const disableSubtitles = useCallback(() => {
+    subtitleSequenceRef.current += 1;
+    setActiveSubtitleId(null);
+    setRawSubtitleContent(null);
+    try {
+      playerRef.current?.selectSubtitleTrack?.(null);
+      persistPreferences(trackPreferencePatch("subtitle", null));
+      setGlobalError(null);
+    } catch (error: unknown) {
+      setGlobalError(error instanceof Error ? error.message : "关闭字幕失败");
+    }
+  }, [persistPreferences]);
+
+  const adjustSubtitleOffset = (delta: number) => {
+    const next = clampSubtitleOffset(+(subtitleOffset + delta).toFixed(1));
+    setSubtitleOffset(next);
+    saveSubtitleOffset(getPreferenceMediaKey(snapshotRef.current?.source ?? null), next);
+  };
+
+  // ===== 本机设置（最终 handoff）：外观即时生效；语言与来源偏好下次载入生效；手选不写全局列表。 =====
+  const updateSubtitleAppearance = (patch: Partial<SubtitleAppearance>) => {
+    persistPreferences({ subtitleAppearance: { ...preferencesRef.current.subtitleAppearance, ...patch } });
+  };
+  const handleLanguageListChange = (kind: "audio" | "subtitle", next: string[]) => {
+    persistPreferences(kind === "audio" ? { audioLanguages: next } : { subtitleLanguages: next });
+  };
+  const handleSubtitlesOffChange = (off: boolean) => {
+    if (off) {
+      disableSubtitles();
+      return;
+    }
+    persistPreferences({ subtitlesOff: false });
+    const saved = preferencesRef.current;
+    const externalMatch = preferredExternalSubtitle(subtitleTracks, saved.subtitleLanguages);
+    if (saved.subtitleSourcePreference === "external" && externalMatch) {
+      void selectSubtitleTrack(externalMatch);
+      return;
+    }
+    try {
+      playerRef.current?.selectSubtitleTrack?.(embeddedTracks?.subtitleId ?? null);
+    } catch {
+      // 引擎未就绪：载入时按偏好恢复。
+    }
+  };
+  const handleResetPlayerPreferences = () => {
+    const next = savePlayerPreferences({ ...DEFAULT_PLAYER_PREFERENCES, subtitleAppearance: { ...DEFAULT_SUBTITLE_APPEARANCE } });
+    preferencesRef.current = next;
+    setPreferences(next);
+    setVolume(next.volume);
+    setIsMuted(next.muted);
+    playerRef.current?.setVolume(next.volume / 100);
+    playerRef.current?.setMuted(next.muted);
+  };
+  const handleZeroSubtitleOffset = () => {
+    setSubtitleOffset(0);
+    saveSubtitleOffset(getPreferenceMediaKey(snapshotRef.current?.source ?? null), 0);
+  };
+  const handleClearAllOffsets = () => {
+    clearAllSubtitleOffsets();
+    setSubtitleOffset(0);
+  };
+  // 能力语境：YouTube 走自身字幕；ASS/SSA（外挂或内嵌）走原样式——外观设置对它们不生效，如实说明。
+  const settingsSourceIsYoutube = snapshot?.source?.kind === "youtube";
+  const activeSubtitleIsAss = Boolean(
+    (activeSubtitleTrack && (activeSubtitleTrack.format === "ass" || activeSubtitleTrack.format === "ssa")) ||
+    (!activeSubtitleId && embeddedTracks?.subtitleId != null &&
+      embeddedTracks.items.some((track) => track.id === embeddedTracks.subtitleId && track.kind === "subtitle" && /ass|ssa/i.test(track.codec))),
+  );
+  const appearanceNotice = settingsSourceIsYoutube
+    ? "YouTube 使用其自身字幕能力"
+    : activeSubtitleIsAss ? "当前是 ASS 字幕：使用原样式，外观不生效" : null;
+  const appearanceDisabled = settingsSourceIsYoutube;
+
+  // 内嵌优先但媒体没有内嵌字幕轨时，回退外挂（handoff：「来源不存在则使用另一来源」），每媒体一次。
+  const externalFallbackRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!snapshot?.source || !accessToken) return;
+    const saved = preferencesRef.current;
+    if (saved.subtitlesOff || saved.subtitleSourcePreference !== "embedded") return;
+    if (!embeddedTracks || subtitleTracks.length === 0 || activeSubtitleId) return;
+    if (embeddedTracks.items.some((track) => track.kind === "subtitle" && track.supported)) return;
+    const mediaKey = getPreferenceMediaKey(snapshot.source);
+    if (!mediaKey || externalFallbackRef.current === mediaKey) return;
+    const fallback = preferredExternalSubtitle(subtitleTracks, saved.subtitleLanguages);
+    if (!fallback) return;
+    externalFallbackRef.current = mediaKey;
+    void selectSubtitleTrack(fallback);
+  }, [snapshot?.source, accessToken, embeddedTracks, subtitleTracks, activeSubtitleId, selectSubtitleTrack]);
+
+  const addQueueMedia = useCallback((media: MediaSource): Promise<CommandAck> => runCommand(async (socket, revision) => {
+    if (uncertainQueueAddRef.current) return { ok: false, error: { code: "QUEUE_ADD_UNCERTAIN", message: "上次添加结果待核对，暂不能再次添加" } };
+    const before = snapshotRef.current;
+    if (!before) return { ok: false, error: { code: "NOT_CONNECTED", message: "房间连接尚未就绪" } };
+    const attempt = { before, media, clientId };
+    let acknowledgement: CommandAck;
+    try { acknowledgement = await socket.playlistAdd(media, revision); }
+    catch { acknowledgement = { ok: false, error: { code: "COMMAND_EXCEPTION", message: "添加结果未知，请核对房间清单" } }; }
+    if (operationResult(acknowledgement).status === "uncertain") uncertainQueueAddRef.current = attempt;
+    return acknowledgement;
+  }), [runCommand, clientId]);
+
+  const reconcileQueueResult = async (result: BatchOperationResult<MediaSource>) => {
+    const attempt = uncertainQueueAddRef.current;
+    if (!attempt || !socketRef.current) return result;
+    const fresh = await socketRef.current.refreshSnapshot();
+    const acknowledgement = reconcilePlaylistAdd(attempt, fresh);
+    if (!acknowledgement) return result;
+    uncertainQueueAddRef.current = null;
+    const confirmed = confirmStoppedBatchItem(result, acknowledgement);
+    setQueueResult(confirmed);
+    setGlobalError(null);
+    return confirmed;
+  };
+
+  const handleRetryPlayback = () => {
+    if (isRetrying || !playerRef.current?.retry) return;
+    setIsRetrying(true);
+    playerRef.current.retry();
+  };
 
   // 播放器流过期 / 403 异常拦截：单次自动重新解析
   const handlePlayerError = (err: { code: string; message: string; isStreamExpired?: boolean }) => {
+    if (err.code === "MKV_ERROR") failedPlayerKeyRef.current = sourceKeyRef.current;
+    if (err.code === "MKV_UNSUPPORTED" && snapshot?.source) {
+      setDesktopFallbackKey(mediaSourceKey(snapshot.source));
+      setDesktopFallbackNote(null);
+      setPlayerError(null);
+      setGlobalError(null);
+      return;
+    }
     if (
       err.isStreamExpired &&
       snapshot?.source?.kind === "openlist" &&
@@ -546,13 +832,33 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
     ) {
       hasRetriedResolveRef.current = true;
       resolveAndLoadMedia(snapshot.source, accessToken, true);
-    } else {
-      setGlobalError(err.message);
+      return;
     }
+    setIsRetrying(false);
+    setPlayerError(err.message.replace(/https?:\/\/\S+/g, "链接已隐藏"));
+    setGlobalError(null);
   };
 
+  const refreshStreamUrl = useCallback(async () => {
+    const source = snapshotRef.current?.source;
+    if (source?.kind !== "openlist" || !accessToken) throw new Error("无法续期媒体签名");
+    const key = mediaSourceKey(source);
+    const resolved = await api.resolveMedia(roomId, source.mediaId, accessToken);
+    const currentSource = snapshotRef.current?.source;
+    if (!currentSource || mediaSourceKey(currentSource) !== key) throw new Error("媒体已经切换");
+    if (resolved.requiresCustomHeaders) throw new Error("媒体要求原生请求头");
+    return resolved.url;
+  }, [roomId, accessToken]);
+
   // 交互控制 (全部发送至服务端等待 Ack 回执)
-  const handleTogglePlay = async () => {
+  const handleTogglePlay = async (info?: { pointerType?: string }) => {
+    // 触屏：控制层隐藏时首次点按只呼出控制层，不改共享播放状态。
+    if (info?.pointerType === "touch" && touchPressedWhileHiddenRef.current) {
+      touchPressedWhileHiddenRef.current = false;
+      revealControls();
+      return;
+    }
+    touchPressedWhileHiddenRef.current = false;
     if (!snapshot || !socketRef.current) return;
     if (!canControl) {
       triggerLockWarning("暂停/播放");
@@ -577,9 +883,11 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
   };
 
   const toggleMute = () => {
+    void playerRef.current?.unlockAudio?.().catch(() => {});
     const nextMuted = !isMuted;
     setIsMuted(nextMuted);
     playerRef.current?.setMuted(nextMuted);
+    persistPreferences({ muted: nextMuted });
   };
 
   const handlePrevTrack = async () => {
@@ -625,11 +933,12 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
   };
 
   const toggleFullscreen = async () => {
-    if (document.fullscreenElement === containerRef.current) {
+    if (document.fullscreenElement) {
       await document.exitFullscreen();
       return;
     }
-    await containerRef.current?.requestFullscreen();
+    // 整文档全屏：Radix 弹层挂在 body 上，只全屏房间容器会让菜单与弹窗不可见。
+    await document.documentElement.requestFullscreen();
   };
 
   const formatTime = (secs: number) => {
@@ -643,12 +952,51 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
       ? snapshot.source.title
       : "暂未载入媒体";
 
+  const isDesktopFallback = Boolean(
+    snapshot?.source && desktopFallbackKey === mediaSourceKey(snapshot.source),
+  );
+  const embeddedAudioTracks = playerCapabilities?.embeddedTracks ? (embeddedTracks?.items ?? []).filter((track) => track.kind === "audio") : [];
+  const embeddedSubtitleTracks = playerCapabilities?.embeddedTracks ? (embeddedTracks?.items ?? []).filter((track) => track.kind === "subtitle") : [];
+
+  const stageStatus = React.useMemo<{ title: string; detail: string | null; hint: string | null } | null>(() => {
+    if (!snapshot?.source || playerError || isDesktopFallback) return null;
+    if (snapshot.source.kind === "openlist" && isResolving && !streamUrl) {
+      return { title: "解析直链中", detail: null, hint: null };
+    }
+    if (!localState) return null;
+    if (localState.phase === "loading") return { title: playerCapabilities?.engine === "mkv" ? "初始化解码器" : "加载中", detail: null, hint: null };
+    if (localState.phase === "buffering") {
+      return {
+        title: "缓冲中",
+        detail: playerCapabilities?.bufferedAhead && localState.bufferedAheadSeconds > 0.05 ? `可播 ${localState.bufferedAheadSeconds.toFixed(1)}s` : null,
+        hint: "本机缓冲，房间进度不受影响",
+      };
+    }
+    if (localState.phase === "ended") {
+      const playlist = snapshot.playlist;
+      const index = playlist.findIndex((item) => item.id === snapshot.currentPlaylistItemId);
+      const hint = snapshot.loop
+        ? "循环播放已开启"
+        : index >= 0 && index < playlist.length - 1
+          ? "下一项将暂停待播"
+          : null;
+      return { title: "播放结束", detail: null, hint };
+    }
+    return null;
+  }, [snapshot, isResolving, streamUrl, localState, playerCapabilities, playerError, isDesktopFallback]);
+
   return (
     <TooltipProvider>
     <div
       ref={containerRef}
       onPointerMove={revealControls}
       onPointerDown={revealControls}
+      onPointerDownCapture={(event) => {
+        // 触屏点按舞台前先记录控制层是否隐藏（捕获阶段早于容器冒泡的 revealControls）。
+        if (event.pointerType === "touch") {
+          touchPressedWhileHiddenRef.current = !areControlsVisible && !shouldPinControls;
+        }
+      }}
       onKeyDown={revealControls}
       className="relative flex h-dvh w-screen flex-col overflow-hidden bg-black font-sans text-white select-none"
     >
@@ -715,16 +1063,63 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
           </div>
         )}
 
+        {/* 本机播放状态，独立于自动隐藏浮层 */}
+        {stageStatus && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 px-6 text-center">
+            <p className="text-sm font-semibold text-white [text-shadow:_0_1px_3px_rgb(0_0_0_/_90%)]">{stageStatus.title}</p>
+            {stageStatus.detail && (
+              <p className="font-mono text-xs text-white/85 [text-shadow:_0_1px_3px_rgb(0_0_0_/_90%)]">{stageStatus.detail}</p>
+            )}
+            {stageStatus.hint && (
+              <p className="text-[11px] text-white/70 [text-shadow:_0_1px_3px_rgb(0_0_0_/_90%)]">{stageStatus.hint}</p>
+            )}
+          </div>
+        )}
+
+        {/* 音频被浏览器挂起：可信点击只解锁本机音频 */}
+        {playerCapabilities?.audioUnlock && localState?.audio === "blocked" && snapshot?.source && !playerError && !isDesktopFallback && (
+          <button
+            type="button"
+            onClick={() => { void playerRef.current?.unlockAudio?.().catch(() => {}); }}
+            className="absolute bottom-[10rem] left-3 z-20 flex items-center gap-1.5 rounded border border-amber-500/40 bg-black/85 px-2.5 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-950/60 sm:bottom-28"
+          >
+            <MsIcon name="volume_off" className="text-[16px]" />
+            声音未开启 · 点按启用
+          </button>
+        )}
+
+        {/* 本机引擎失败：同媒体重试或走桌面出口（不展示带签名 URL 的文本） */}
+        {playerError && !isDesktopFallback && (
+          <div className="absolute left-1/2 top-1/2 z-30 w-[min(26rem,90%)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-rose-900/70 bg-black/95 p-4 shadow-2xl">
+            <div className="flex items-center gap-2 text-sm font-semibold text-rose-200">
+              <MsIcon name="error" className="text-[18px]" />
+              本机播放失败
+            </div>
+            <p className="mt-2 text-xs leading-relaxed break-words text-rose-100/85">{playerError}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button size="sm" disabled={isRetrying || !playerCapabilities?.retry} onClick={handleRetryPlayback}>
+                <MsIcon name="refresh" className="text-[15px]" />
+                {isRetrying ? "重试中…" : "重试本机播放"}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setIsMpvModalOpen(true)}>
+                <MsIcon name="tv" className="text-[15px]" />
+                桌面端播放
+              </Button>
+            </div>
+            <p className="mt-2.5 text-[11px] text-muted-foreground">错误来自本机引擎；房间进度与其它成员不受影响。</p>
+          </div>
+        )}
+
         {/* 真实多内核 PlayerAdapter 渲染 */}
-        {snapshot?.source && requiresDesktopPlayback(snapshot.source) ? (
+        {isDesktopFallback ? (
           <div className="flex size-full flex-col items-center justify-center gap-3 px-6 text-center">
             <div className="flex size-14 items-center justify-center rounded-full border border-sky-900 bg-sky-950/40">
               <MsIcon name="tv" className="text-[28px] text-sky-400" />
             </div>
             <div className="space-y-1">
-              <p className="text-sm font-semibold text-white">此媒体需要 WatchParty 桌面端</p>
+              <p className="text-sm font-semibold text-white">此媒体需要 Banguru 桌面端</p>
               <p className="text-xs text-muted-foreground">
-                房间已经同步选片；桌面端加入后会使用 libmpv 播放 MKV 并继续接收房间控制。
+                {desktopFallbackNote ?? "房间已经同步选片；桌面端加入后会接管播放并继续接收房间控制。"}
               </p>
             </div>
             <Button size="sm" onClick={() => setIsMpvModalOpen(true)}>
@@ -737,17 +1132,32 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
             ref={playerRef}
             source={snapshot.source}
             streamUrl={streamUrl}
+            refreshStreamUrl={refreshStreamUrl}
             subtitleVttUrl={subtitleVttUrl}
             assSubtitle={assSubtitle}
+            subtitleOffsetSeconds={subtitleOffset}
+            subtitleStyle={preferences.subtitleAppearance}
+            initialTrackPreferences={preferences}
+            onCapabilities={setPlayerCapabilities}
+            onLocalState={(state) => setLocalState(state)}
+            onEmbeddedTracks={(tracks) => setEmbeddedTracks(tracks)}
             onTimeUpdate={(c, d, b) => {
               setCurrentTime(c);
               setTotalDuration(d);
               setBufferedPercent(b);
             }}
-            onLoadedMetadata={(d) => setTotalDuration(d)}
+            onLoadedMetadata={(d) => {
+              failedPlayerKeyRef.current = null;
+              setPlayerError(null);
+              setIsRetrying(false);
+              setTotalDuration(d);
+              playerRef.current?.setVolume(volume);
+              playerRef.current?.setMuted(isMuted);
+              setPlayerReady((ready) => ready + 1);
+            }}
             onEnded={() => {
               // 自动切播下一首
-              if (snapshot && socketRef.current && canControl) {
+              if (snapshot && socketRef.current && canOwnerControl) {
                 void runCommand((socket, revision) => socket.playlistAutoNext(snapshot.currentPlaylistItemId, revision));
               }
             }}
@@ -801,8 +1211,22 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
         </div>
 
         {/* 控制行：左（音量/字幕）· 中（传输）· 右（倍速/清单/循环/全屏） */}
-        <div className="relative mt-1 flex items-center">
-          <div className="flex flex-1 items-center gap-1">
+        <div className="relative mt-1 flex flex-wrap items-center gap-y-1 sm:flex-nowrap">
+          {/* 运输组：宽屏绝对居中（现状）；窄屏独占一行居中，不与两侧工具重叠 */}
+          <div className="order-1 flex w-full basis-full items-center justify-center gap-1 sm:absolute sm:left-1/2 sm:order-none sm:w-auto sm:basis-auto sm:-translate-x-1/2">
+            <IconControl icon="skip_previous" label="上一项" onClick={handlePrevTrack} />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => void handleTogglePlay()}
+              aria-label={snapshot?.paused ? "播放" : "暂停"}
+              className="text-white hover:bg-white/15"
+            >
+              <MsIcon name={snapshot?.paused ? "play_arrow" : "pause"} filled className="text-[26px]" />
+            </Button>
+            <IconControl icon="skip_next" label="下一项" onClick={handleNextTrack} />
+          </div>
+          <div className="order-2 flex flex-1 items-center gap-1 sm:order-none">
             <IconControl
               icon={isMuted || volume === 0 ? "volume_off" : "volume_up"}
               label={isMuted || volume === 0 ? "取消静音" : "静音"}
@@ -813,14 +1237,16 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
               value={[isMuted ? 0 : volume]}
               max={100}
               onValueChange={(values) => {
+                void playerRef.current?.unlockAudio?.().catch(() => {});
                 const v = values[0] ?? 0;
                 setVolume(v);
                 playerRef.current?.setVolume(v);
                 playerRef.current?.setMuted(false);
                 setIsMuted(false);
+                persistPreferences({ volume: v, muted: false });
               }}
               aria-label="音量"
-              className="w-20"
+              className="w-20 max-sm:hidden"
             />
             <Popover open={showSubtitleMenu} onOpenChange={setShowSubtitleMenu}>
               <PopoverTrigger asChild>
@@ -835,27 +1261,108 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
               </PopoverTrigger>
               <PopoverContent side="top" align="start" className="w-64 p-3">
                 <div className="space-y-3">
-                  <div className="text-[11px] font-semibold text-foreground/85">本地字幕控制</div>
+                  <div className="text-[11px] font-semibold text-foreground/85">本机字幕控制</div>
                   {subtitleTracks.length > 0 && (
                     <div className="space-y-1">
-                      <div className="text-[10px] text-muted-foreground">选择字幕轨</div>
+                      <div className="text-[10px] text-muted-foreground">外挂字幕（优先）</div>
                       {subtitleTracks.map((tr) => (
+                        <div key={tr.id} className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            onClick={() => void selectSubtitleTrack(tr)}
+                            className={cn(
+                              "h-8 min-w-0 flex-1 justify-between px-2 text-xs",
+                              activeSubtitleId === tr.id
+                                ? "bg-sky-500/20 text-sky-400 hover:bg-sky-500/20 hover:text-sky-400"
+                                : "font-normal text-muted-foreground hover:bg-secondary hover:text-white",
+                            )}
+                          >
+                            <span className="truncate">
+                              {tr.source === "upload" ? "上传 · " : ""}{tr.label}
+                            </span>
+                            <span className="font-mono text-[9px] uppercase">{tr.format}</span>
+                          </Button>
+                          {tr.source === "upload" && isOwner && (
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`删除字幕 ${tr.label}`}
+                              className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                              onClick={() => void handleSubtitleDelete(tr)}
+                            >
+                              <MsIcon name="close" className="text-[14px]" />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <Button
+                      variant="ghost"
+                      disabled={subtitleUploadBusy}
+                      onClick={() => subtitleFileRef.current?.click()}
+                      className="h-8 w-full justify-between px-2 text-xs font-normal text-muted-foreground hover:bg-secondary hover:text-white"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <MsIcon name="upload" className="text-[15px]" />
+                        {subtitleUploadBusy ? "上传中…" : "上传字幕…"}
+                      </span>
+                      <span className="font-mono text-[9px]">SRT·VTT·ASS</span>
+                    </Button>
+                    {subtitleUploadError && (
+                      <p className="px-2 text-[10px] text-destructive">{subtitleUploadError}</p>
+                    )}
+                    <input
+                      ref={subtitleFileRef}
+                      type="file"
+                      accept=".srt,.vtt,.ass,.ssa"
+                      className="hidden"
+                      aria-label="上传字幕文件"
+                      onChange={(event) => void handleSubtitleUpload(event)}
+                    />
+                  </div>
+                  {embeddedSubtitleTracks.length > 0 && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] text-muted-foreground">内嵌字幕轨</div>
+                      {embeddedSubtitleTracks.map((track) => (
                         <Button
-                          key={tr.id}
+                          key={track.id}
                           variant="ghost"
-                          onClick={() => void selectSubtitleTrack(tr)}
+                          disabled={!track.supported}
+                          onClick={() => selectEmbeddedSubtitle(track)}
                           className={cn(
                             "h-8 w-full justify-between px-2 text-xs",
-                            activeSubtitleId === tr.id
+                            !activeSubtitleId && embeddedTracks?.subtitleId === track.id
                               ? "bg-sky-500/20 text-sky-400 hover:bg-sky-500/20 hover:text-sky-400"
                               : "font-normal text-muted-foreground hover:bg-secondary hover:text-white",
+                            !track.supported && "opacity-60",
                           )}
                         >
-                          <span className="truncate">{tr.label}</span>
-                          <span className="font-mono text-[9px] uppercase">{tr.format}</span>
+                          <span className="truncate">
+                            {track.language ? `${track.language} · ` : ""}{track.label}
+                          </span>
+                          <span className="font-mono text-[9px] uppercase">{track.supported ? track.codec : "不支持"}</span>
                         </Button>
                       ))}
                     </div>
+                  )}
+                  {(subtitleTracks.length > 0 || embeddedSubtitleTracks.length > 0) && (
+                    <Button
+                      variant="ghost"
+                      onClick={disableSubtitles}
+                      className={cn(
+                        "h-8 w-full justify-between px-2 text-xs",
+                        !activeSubtitleId && embeddedTracks?.subtitleId == null
+                          ? "bg-sky-500/20 text-sky-400 hover:bg-sky-500/20 hover:text-sky-400"
+                          : "font-normal text-muted-foreground hover:bg-secondary hover:text-white",
+                      )}
+                    >
+                      <span>字幕关闭</span>
+                      <span className="font-mono text-[9px]">
+                        {!activeSubtitleId && embeddedTracks?.subtitleId == null ? "当前" : ""}
+                      </span>
+                    </Button>
                   )}
                   <div className="space-y-1">
                     <div className="text-[10px] text-muted-foreground">时间轴对齐 (仅本机生效)</div>
@@ -863,7 +1370,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setSubtitleOffset((prev) => +(prev - 0.1).toFixed(1))}
+                        onClick={() => adjustSubtitleOffset(-0.1)}
                       >
                         -0.1s
                       </Button>
@@ -871,7 +1378,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setSubtitleOffset((prev) => +(prev + 0.1).toFixed(1))}
+                        onClick={() => adjustSubtitleOffset(0.1)}
                       >
                         +0.1s
                       </Button>
@@ -880,6 +1387,48 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
                 </div>
               </PopoverContent>
             </Popover>
+            {embeddedAudioTracks.length > 0 && (
+              <Popover open={showAudioMenu} onOpenChange={setShowAudioMenu}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="音轨"
+                    className="text-white/85 hover:bg-white/15 hover:text-white"
+                  >
+                    <MsIcon name="graphic_eq" className="text-[20px]" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent side="top" align="start" className="w-64 p-3">
+                  <div className="space-y-3">
+                    <div className="text-[11px] font-semibold text-foreground/85">本机音轨</div>
+                    <div className="space-y-1">
+                      {embeddedAudioTracks.map((track) => (
+                        <Button
+                          key={track.id}
+                          variant="ghost"
+                          disabled={!track.supported}
+                          onClick={() => void selectEmbeddedAudio(track)}
+                          className={cn(
+                            "h-8 w-full justify-between px-2 text-xs",
+                            embeddedTracks?.audioId === track.id
+                              ? "bg-sky-500/20 text-sky-400 hover:bg-sky-500/20 hover:text-sky-400"
+                              : "font-normal text-muted-foreground hover:bg-secondary hover:text-white",
+                            !track.supported && "opacity-60",
+                          )}
+                        >
+                          <span className="truncate">
+                            {track.language ? `${track.language} · ` : ""}{track.label}
+                          </span>
+                          <span className="font-mono text-[9px] uppercase">{track.supported ? track.codec : "不支持"}</span>
+                        </Button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">仅本机切换，不改房间进度。</p>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
             {(activeSubtitleTrack || subtitleOffset !== 0) && (
               <span className="font-mono text-[11px] text-sky-400">
                 {subtitleOffset >= 0 ? `+${subtitleOffset.toFixed(1)}s` : `${subtitleOffset.toFixed(1)}s`}
@@ -887,22 +1436,7 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
             )}
           </div>
 
-          {/* 中置传输控制 */}
-          <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1">
-            <IconControl icon="skip_previous" label="上一项" onClick={handlePrevTrack} />
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleTogglePlay}
-              aria-label={snapshot?.paused ? "播放" : "暂停"}
-              className="text-white hover:bg-white/15"
-            >
-              <MsIcon name={snapshot?.paused ? "play_arrow" : "pause"} filled className="text-[26px]" />
-            </Button>
-            <IconControl icon="skip_next" label="下一项" onClick={handleNextTrack} />
-          </div>
-
-          <div className="flex flex-1 items-center justify-end gap-1">
+          <div className="order-3 flex flex-1 items-center justify-end gap-1 sm:order-none">
             <Button
               variant="ghost"
               size="icon-sm"
@@ -912,23 +1446,73 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
             >
               {(snapshot?.playbackRate || 1).toFixed(2)}x
             </Button>
-            <IconControl
-              icon="playlist_play"
-              label={`播放清单 (${snapshot?.playlist.length || 0})`}
-              onClick={() => setIsPlaylistModalOpen(true)}
-              badge={snapshot?.playlist.length || 0}
-            />
-            <IconControl
-              icon="repeat"
-              label={snapshot?.loop ? "循环播放已开启" : "循环播放"}
-              onClick={handleToggleLoop}
-              active={snapshot?.loop}
-            />
+            <div className="hidden items-center gap-1 sm:flex">
+              <IconControl
+                icon="playlist_play"
+                label={`播放清单 (${snapshot?.playlist.length || 0})`}
+                onClick={() => setIsPlaylistModalOpen(true)}
+                badge={snapshot?.playlist.length || 0}
+              />
+              <IconControl
+                icon="repeat"
+                label={snapshot?.loop ? "循环播放已开启" : "循环播放"}
+                onClick={handleToggleLoop}
+                active={snapshot?.loop}
+              />
+            </div>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="设置"
+              className="text-white/85 hover:bg-white/15 hover:text-white"
+              onClick={() => setShowSettingsMenu(true)}
+            >
+              <MsIcon name="settings" className="text-[20px]" />
+            </Button>
+            
             <IconControl
               icon={isFullscreen ? "close_fullscreen" : "open_in_full"}
               label={isFullscreen ? "退出全屏" : "进入全屏"}
               onClick={() => void toggleFullscreen()}
             />
+            <Popover open={showMoreMenu} onOpenChange={setShowMoreMenu}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="更多工具"
+                  className="text-white/85 hover:bg-white/15 hover:text-white sm:hidden"
+                >
+                  <MsIcon name="more_vert" className="text-[20px]" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent side="top" align="end" className="w-48 p-2">
+                <div className="space-y-1">
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      setIsPlaylistModalOpen(true);
+                    }}
+                    className="h-8 w-full justify-start gap-2 px-2 text-xs font-normal text-muted-foreground hover:bg-secondary hover:text-white"
+                  >
+                    <MsIcon name="playlist_play" className="text-[16px]" />
+                    播放清单 ({snapshot?.playlist.length || 0})
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      void handleToggleLoop();
+                    }}
+                    className="h-8 w-full justify-start gap-2 px-2 text-xs font-normal text-muted-foreground hover:bg-secondary hover:text-white"
+                  >
+                    <MsIcon name="repeat" className="text-[16px]" />
+                    {snapshot?.loop ? "关闭循环播放" : "循环播放"}
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
       </div>
@@ -940,12 +1524,12 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
         fullPage={isLibraryFullPage}
         onToggleFullPage={() => setIsLibraryFullPage((value) => !value)}
         onPlayNow={async (media) => {
-          if (!snapshot || !socketRef.current) return;
+          if (!snapshot || !socketRef.current) return false;
           if (!canOwnerControl) {
             triggerLockWarning("切换播放媒体");
-            return;
+            return false;
           }
-          await runCommand((socket, revision) => socket.mediaSet(media, revision));
+          return (await runCommand((socket, revision) => socket.mediaSet(media, revision))).ok;
         }}
         onPlayOnDesktop={async (media) => {
           if (!snapshot || !socketRef.current) return false;
@@ -960,28 +1544,17 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
           setIsMpvModalOpen(true);
           return true;
         }}
+        queueResult={queueResult}
+        onReconcileQueue={reconcileQueueResult}
         onAddToQueue={async (media) => {
-          if (!snapshot || !socketRef.current) return;
-          await runCommand((socket, revision) => socket.playlistAdd(media, revision));
+          const result = await runBatchOperation([media], addQueueMedia);
+          setQueueResult(result);
+          return result.stopped?.result ?? { status: "succeeded", acknowledgement: result.succeeded[0].acknowledgement };
         }}
         onBatchAdd={async (medias) => {
-          if (!snapshotRef.current || !socketRef.current) return;
-          let revision = snapshotRef.current.revision;
-          for (const media of medias) {
-            let acknowledgement = await socketRef.current.playlistAdd(media, revision);
-            if (!acknowledgement.ok && acknowledgement.error.code === "REVISION_CONFLICT") {
-              const newerRevision = await waitForNewerRevision(revision);
-              if (newerRevision !== null) {
-                revision = newerRevision;
-                acknowledgement = await socketRef.current.playlistAdd(media, revision);
-              }
-            }
-            if (!acknowledgement.ok) {
-              setGlobalError(acknowledgement.error.message);
-              break;
-            }
-            revision = acknowledgement.revision;
-          }
+          const result = await runBatchOperation(medias, addQueueMedia);
+          setQueueResult(result);
+          return result;
         }}
       />
 
@@ -1019,11 +1592,12 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
         members={members}
         isOwner={isOwner}
         onTransferOwnership={async (targetClientId) => {
-          if (!snapshot || !socketRef.current || !isOwner) return;
-          await runCommand((socket, revision) =>
+          if (!snapshot || !socketRef.current || !isOwner) return { ok: false, error: { code: "FORBIDDEN", message: "当前不能移交房主" } };
+          return runCommand((socket, revision) =>
             socket.transferOwner(targetClientId, revision),
           );
         }}
+        onTransferResult={(result) => setGlobalError(result.status === "succeeded" ? null : result.status === "uncertain" ? "移交结果未知，请核对房主状态，暂勿重复操作" : result.error.message)}
       />
 
       <MpvLaunchModal
@@ -1031,6 +1605,33 @@ export default function RoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomP
         onClose={() => setIsMpvModalOpen(false)}
         roomId={roomId}
         accessToken={accessToken}
+      />
+
+      <PlayerSettingsDialog
+        open={showSettingsMenu}
+        onOpenChange={setShowSettingsMenu}
+        preferences={preferences}
+        volume={volume}
+        muted={isMuted}
+        onVolumeChange={(v) => {
+          setVolume(v);
+          playerRef.current?.setVolume(v);
+          playerRef.current?.setMuted(false);
+          setIsMuted(false);
+          persistPreferences({ volume: v, muted: false });
+        }}
+        onToggleMute={toggleMute}
+        onSubtitlesOffChange={handleSubtitlesOffChange}
+        onSourcePreferenceChange={(preference) => persistPreferences({ subtitleSourcePreference: preference })}
+        onLanguageListChange={handleLanguageListChange}
+        updateAppearance={updateSubtitleAppearance}
+        subtitleOffset={subtitleOffset}
+        onOffsetDelta={adjustSubtitleOffset}
+        onOffsetZero={handleZeroSubtitleOffset}
+        appearanceNotice={appearanceNotice}
+        appearanceDisabled={appearanceDisabled}
+        onResetPreferences={handleResetPlayerPreferences}
+        onClearAllOffsets={handleClearAllOffsets}
       />
     </div>
     </TooltipProvider>

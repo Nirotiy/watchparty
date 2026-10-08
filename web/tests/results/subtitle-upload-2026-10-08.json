@@ -1,0 +1,63 @@
+{
+  "startedAt": "2026-10-08T12:35:05.321Z",
+  "roomId": "room-72e989873b8f44dc",
+  "checks": [
+    {
+      "label": "player-frame",
+      "ok": true
+    },
+    {
+      "label": "menu-has-upload-row",
+      "ok": true
+    },
+    {
+      "label": "upload-no-error",
+      "ok": true
+    },
+    {
+      "label": "upload-listed-in-menu",
+      "ok": true
+    },
+    {
+      "label": "member-no-delete-button",
+      "ok": true
+    },
+    {
+      "label": "upload-cue-rendered",
+      "ok": true
+    },
+    {
+      "label": "cue-rendered",
+      "ok": true
+    },
+    {
+      "label": "upload-http-calls",
+      "ok": true
+    },
+    {
+      "label": "cross-room-persistence",
+      "ok": true
+    },
+    {
+      "label": "cross-room-content",
+      "ok": true
+    },
+    {
+      "label": "persist-after-reload",
+      "ok": true
+    },
+    {
+      "label": "delete-http-owner",
+      "ok": true
+    },
+    {
+      "label": "delete-effective",
+      "ok": true
+    }
+  ],
+  "net": {
+    "posted": 1,
+    "contentFetched": 1
+  },
+  "pass": true
+}

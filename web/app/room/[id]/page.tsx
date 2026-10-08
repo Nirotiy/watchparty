@@ -2,15 +2,38 @@
 
 import React, { useState, useEffect, useCallback, use } from "react";
 import { useRouter } from "next/navigation";
-import { Lock, ArrowLeft, RefreshCw, AlertTriangle } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
+import { applyTheme, resolveTheme } from "@/lib/theme";
 import RoomPlayer from "@/components/room-player";
 
 interface RoomPageProps {
   params: Promise<{ id: string }>;
+}
+
+/** 门禁成功（含输码/链接入房）即写一次到访：大厅"最近访问"的数据源。 */
+function recordRoomVisit(roomId: string, hasPin: boolean) {
+  try {
+    const stored = localStorage.getItem("watchparty_history");
+    const parsed = stored ? JSON.parse(stored) : [];
+    const list = Array.isArray(parsed)
+      ? parsed.filter((item): item is { id: string; name?: string; hasPin?: boolean; lastVisited?: number } => Boolean(item) && typeof item.id === "string")
+      : [];
+    const existing = list.find((item) => item.id === roomId);
+    const nextItem = {
+      id: roomId,
+      name: existing?.name ?? `房间 ${roomId}`,
+      hasPin: hasPin || existing?.hasPin === true,
+      lastVisited: Date.now(),
+    };
+    const next = [nextItem, ...list.filter((item) => item.id !== roomId)].slice(0, 10);
+    localStorage.setItem("watchparty_history", JSON.stringify(next));
+  } catch {
+    // 忽略存储失败
+  }
 }
 
 export default function DynamicRoomPage({ params }: RoomPageProps) {
@@ -27,6 +50,14 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
   const [isVerifying, setIsVerifying] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [cachedToken, setCachedToken] = useState<string | null>(null);
+
+  // 播放器面恒黑：房间 ready 时在 html 上钉 .dark（弹窗 portal 到 body 也一并覆盖）；
+  // 离开房间/回到门禁时恢复用户主题（两态手动＋首访跟系统）。
+  useEffect(() => {
+    if (pageState !== "ready") return;
+    document.documentElement.classList.add("dark");
+    return () => applyTheme(resolveTheme());
+  }, [pageState]);
 
   // 1. 初始化检查房间状态与本地 Token 缓存；recheckNonce 变化时重新检查（token 失效降级）。
   useEffect(() => {
@@ -50,6 +81,7 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
           // 免密房间：若已有 Token 直接进入，否则自动请求 access
           if (localToken) {
             setCachedToken(localToken);
+            recordRoomVisit(roomId, false);
             setPageState("ready");
           } else {
             let clientId = localStorage.getItem("watchparty_client_id");
@@ -63,12 +95,14 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
             });
             localStorage.setItem(`token_${roomId}`, accessRes.accessToken);
             setCachedToken(accessRes.accessToken);
+            recordRoomVisit(roomId, false);
             setPageState("ready");
           }
         } else {
           // 受保护房间：如果有本地 Token 则尝试进入，否则拦截进入 PIN 输入界面
           if (localToken) {
             setCachedToken(localToken);
+            recordRoomVisit(roomId, true);
             setPageState("ready");
           } else {
             setPageState("need_auth");
@@ -167,6 +201,7 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
       localStorage.setItem(`token_${roomId}`, res.accessToken);
       localStorage.setItem("watchparty_last_nickname", nickname.trim());
       setCachedToken(res.accessToken);
+      recordRoomVisit(roomId, true);
       setPageState("ready");
     } catch (err: unknown) {
       const error = err as Error & { code?: string };
@@ -191,14 +226,15 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
   if (pageState === "checking") {
     return (
       <div
-        className="flex h-dvh w-screen flex-col items-center justify-center bg-black font-mono text-xs text-muted-foreground"
+        className="flex h-dvh w-screen flex-col items-center justify-center gap-3 bg-background font-sans text-foreground"
         aria-busy="true"
         aria-live="polite"
       >
-        <div className="flex items-center gap-2">
-          <div className="size-2 rounded-full bg-sky-400"></div>
-          <span>正在连接并验证房间 /{roomId}...</span>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="size-1.5 rounded-full bg-ok" />
+          <span>正在连接</span>
         </div>
+        <span className="font-mono text-xs text-muted-foreground">/{roomId}</span>
       </div>
     );
   }
@@ -206,22 +242,13 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
   // 2. 房间不存在 (404)
   if (pageState === "not_found") {
     return (
-      <div className="flex h-dvh w-screen flex-col items-center justify-center bg-black p-4 font-sans text-white">
-        <div className="w-full max-w-sm rounded-lg border border-border bg-card p-6 text-center shadow-2xl space-y-4">
-          <div className="mx-auto flex size-12 items-center justify-center rounded-full border border-border bg-black text-muted-foreground">
-            <AlertTriangle className="size-6 text-amber-500" />
-          </div>
-          <div className="space-y-1">
-            <h2 className="text-base font-semibold text-white">房间不存在或已解散</h2>
-            <p className="font-mono text-xs text-muted-foreground">/{roomId}</p>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            请确认您输入的房间标识符是否正确，或返回大厅创建属于您的新房间。
-          </p>
+      <div className="flex h-dvh w-screen items-center justify-center bg-background p-6 font-sans text-foreground">
+        <div className="w-full max-w-sm space-y-4">
+          <h2 className="text-lg font-medium text-foreground">房间不存在或已解散</h2>
+          <p className="font-mono text-xs text-muted-foreground">/{roomId}</p>
           <div className="pt-2">
-            <Button onClick={() => router.push("/")} className="w-full py-2 text-xs font-semibold">
-              <ArrowLeft className="size-3.5" />
-              <span>返回大厅首页</span>
+            <Button variant="secondary" onClick={() => router.push("/")} className="w-full">
+              返回大厅
             </Button>
           </div>
         </div>
@@ -232,24 +259,22 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
   // 3. 错误状态
   if (pageState === "error") {
     return (
-      <div className="flex h-dvh w-screen flex-col items-center justify-center bg-black p-4 font-sans text-white">
-        <div className="w-full max-w-sm rounded-lg border border-destructive/40 bg-card p-6 text-center shadow-2xl space-y-4">
-          <div className="mx-auto flex size-12 items-center justify-center rounded-full border border-destructive/50 bg-destructive/10 text-destructive">
-            <AlertTriangle className="size-6" />
-          </div>
-          <div className="space-y-1">
-            <h2 className="text-base font-semibold text-white">连接房间异常</h2>
-            <p className="text-xs text-destructive">{errorMessage}</p>
-          </div>
+      <div className="flex h-dvh w-screen items-center justify-center bg-background p-6 font-sans text-foreground">
+        <div className="w-full max-w-sm space-y-4">
+          <h2 className="text-lg font-medium text-foreground">连接房间异常</h2>
+          <p className="flex items-center gap-2 text-sm text-destructive" role="alert" aria-live="polite">
+            <span className="size-1.5 shrink-0 rounded-full bg-destructive" />
+            <span>{errorMessage}</span>
+          </p>
           <div className="flex gap-2 pt-2">
             <Button
               variant="ghost"
               onClick={() => router.push("/")}
-              className="flex-1 text-xs text-muted-foreground hover:text-white"
+              className="text-muted-foreground hover:text-foreground"
             >
               返回首页
             </Button>
-            <Button onClick={() => window.location.reload()} className="flex-1 text-xs font-semibold">
+            <Button onClick={() => window.location.reload()} className="flex-1">
               <RefreshCw className="size-3.5" />
               <span>重试连接</span>
             </Button>
@@ -262,86 +287,78 @@ export default function DynamicRoomPage({ params }: RoomPageProps) {
   // 4. 需要 PIN 码鉴权门禁
   if (pageState === "need_auth") {
     return (
-      <div className="flex h-dvh w-screen flex-col items-center justify-center bg-black p-4 font-sans text-white">
-        <div className="w-full max-w-sm rounded-lg border border-border bg-card p-6 shadow-2xl shadow-black space-y-5">
-          <div className="flex items-center justify-between border-b border-border pb-3">
-            <div className="flex items-center gap-2">
-              <Lock className="size-4 text-sky-400" />
-              <span className="text-sm font-semibold text-white">房间受 PIN 码保护</span>
-            </div>
+      <div className="flex h-dvh w-screen items-center justify-center bg-background p-6 font-sans text-foreground">
+        <form onSubmit={handleVerifyPin} className="w-full max-w-sm space-y-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-medium text-foreground">输入 PIN 进入</h2>
             <span className="font-mono text-xs text-muted-foreground">/{roomId}</span>
           </div>
 
-          <form onSubmit={handleVerifyPin} className="space-y-4">
-            {authError && (
-              <div
-                className="rounded border border-destructive/50 bg-destructive/10 p-2.5 text-xs text-destructive"
-                role="alert"
-                aria-live="polite"
-              >
-                {authError}
-              </div>
-            )}
+          {authError && (
+            <p className="flex items-center gap-2 text-sm text-destructive" role="alert" aria-live="polite">
+              <span className="size-1.5 shrink-0 rounded-full bg-destructive" />
+              <span>{authError}</span>
+            </p>
+          )}
 
-            <div className="space-y-1.5">
-              <Label htmlFor="gate-nickname" className="text-xs text-muted-foreground">
-                进入昵称
-              </Label>
-              <Input
-                id="gate-nickname"
-                type="text"
-                value={nickname}
-                onChange={(e) => setNickname(e.target.value)}
-                placeholder="例如：Bob"
-                maxLength={24}
-                required
-                className="bg-black text-xs"
-              />
-            </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="gate-nickname" className="text-[13px] font-normal text-foreground/80">
+              昵称
+            </Label>
+            <Input
+              id="gate-nickname"
+              type="text"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              placeholder="例如：Bob"
+              maxLength={24}
+              required
+              className="text-sm"
+            />
+          </div>
 
-            <div>
-              <span id="pin-group-label" className="block text-xs font-medium text-muted-foreground">
-                4 位数字房间 PIN 码
-              </span>
-              <div
-                className="mt-1.5 flex justify-center gap-2.5"
-                role="group"
-                aria-labelledby="pin-group-label"
-              >
-                {pinDigits.map((digit, idx) => (
-                  <input
-                    key={idx}
-                    id={`pin-${idx}`}
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    maxLength={1}
-                    value={digit}
-                    aria-label={`PIN 码第 ${idx + 1} 位`}
-                    onChange={(e) => handleDigitChange(idx, e.target.value)}
-                    onKeyDown={(e) => handleKeyDown(idx, e)}
-                    onPaste={handlePaste}
-                    className="size-11 rounded border border-border bg-black text-center font-mono text-base font-bold text-white outline-none focus:border-sky-500"
-                  />
-                ))}
-              </div>
+          <div>
+            <span id="pin-group-label" className="sr-only">
+              4 位数字房间 PIN 码
+            </span>
+            <div
+              className="flex justify-center gap-2.5"
+              role="group"
+              aria-labelledby="pin-group-label"
+            >
+              {pinDigits.map((digit, idx) => (
+                <input
+                  key={idx}
+                  id={`pin-${idx}`}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={1}
+                  value={digit}
+                  aria-label={`PIN 码第 ${idx + 1} 位`}
+                  onChange={(e) => handleDigitChange(idx, e.target.value)}
+                  onKeyDown={(e) => handleKeyDown(idx, e)}
+                  onPaste={handlePaste}
+                  className="size-11 rounded-md border border-input bg-field text-center font-mono text-base font-bold text-foreground outline-none transition-colors focus:border-ring"
+                />
+              ))}
             </div>
+          </div>
 
-            <div className="flex gap-2 pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => router.push("/")}
-                className="flex-1 text-xs text-muted-foreground hover:text-white"
-              >
-                返回
-              </Button>
-              <Button type="submit" disabled={isVerifying} className="flex-1 text-xs font-semibold">
-                {isVerifying ? "验证中..." : "验证进入"}
-              </Button>
-            </div>
-          </form>
-        </div>
+          <div className="flex gap-2 pt-1">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => router.push("/")}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              返回
+            </Button>
+            <Button type="submit" disabled={isVerifying} className="flex-1">
+              {isVerifying ? "验证中…" : "进入"}
+            </Button>
+          </div>
+        </form>
       </div>
     );
   }

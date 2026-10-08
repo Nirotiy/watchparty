@@ -1,5 +1,6 @@
 import type { CatalogCandidate, CatalogCard, CatalogChild, CatalogDetail, CatalogPage, CatalogStatus } from "@/lib/contracts"
 import { exclusionText } from "../../desktop-shell/shared/catalog-exclusions"
+import { canAttemptBrowserPlayback } from "./mkv/compatibility"
 
 /**
  * 标题墙的视图模型。与桌面壳那份（`desktop-shell/src/lib/catalog-view.ts`）同语义、不同文件：
@@ -131,7 +132,9 @@ export function groupSeasons(children: CatalogChild[]): WallSeason[] {
   const seasons = new Map<string, Set<number>>()
   for (const child of children) {
     const key = (child.relDir ?? "").replace(/\/+$/, "") || "unknown"
-    const playable = child.compatibility == null || child.compatibility.browser === "supported"
+    const playable = child.compatibility == null || canAttemptBrowserPlayback({
+      extension: child.name.split(".").pop(), compatibility: child.compatibility,
+    })
     const desktopOnly = !playable && child.compatibility?.desktop === "supported"
     groups.set(key, [...(groups.get(key) ?? []), {
       mediaId: child.mediaId,

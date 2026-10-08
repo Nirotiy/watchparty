@@ -1,0 +1,88 @@
+{
+  "startedAt": "2026-10-07T13:23:07.620Z",
+  "checks": [
+    {
+      "label": "title-initial-load-releases-search",
+      "pass": false
+    },
+    {
+      "label": "title-query-filters",
+      "pass": true
+    },
+    {
+      "label": "clearing-title-query-restores-library",
+      "pass": false
+    },
+    {
+      "label": "old-library-response-cannot-overwrite-new-library",
+      "pass": false
+    },
+    {
+      "label": "old-detail-response-cannot-overwrite-current-card",
+      "pass": false
+    }
+  ],
+  "pass": false,
+  "error": "Catalog state regression",
+  "lastButtons": [
+    "group2",
+    "video_library",
+    "tv",
+    "volume_up",
+    "subtitles",
+    "skip_previous",
+    "play_arrow",
+    "skip_next",
+    "1.05x",
+    "playlist_play",
+    "repeat",
+    "open_in_full",
+    "Library A番剧",
+    "Library B番剧",
+    "点播",
+    "文件",
+    "直链添加",
+    "",
+    "",
+    "搜索",
+    "Library A",
+    "刷新",
+    "AAlpha A",
+    "BBeta A",
+    "展开"
+  ],
+  "diagnostic": {
+    "body": "/room-994fa83a4067f7c4\n已连接\ngroup\n2\nvideo_library\ntv\nMKV fixture\nOPENLIST\n02:19\n06:40\nvolume_up\nsubtitles\nskip_previous\nplay_arrow\nskip_next\n1.05x\nplaylist_play\nrepeat\nopen_in_full\n点播媒体库\nLibrary A\n番剧\nLibrary B\n番剧\n点播\n文件\n直链添加\n搜索\nLibrary A\n2 个标题 · 0 个待确认\n标题库已更新：2 组，命中 2刷新\nA\nAlpha A\nB\nBeta A\nAlpha A\n已确认\n\nDetail a1\n\n展开",
+    "rig": {
+      "slowLibrary": false,
+      "slowDetail": true,
+      "calls": [
+        {
+          "id": "a",
+          "q": ""
+        },
+        {
+          "id": "a",
+          "q": ""
+        },
+        {
+          "id": "a",
+          "q": "Alpha"
+        },
+        {
+          "id": "a",
+          "q": ""
+        },
+        {
+          "id": "b",
+          "q": ""
+        },
+        {
+          "id": "a",
+          "q": ""
+        }
+      ]
+    }
+  },
+  "profileDeleted": true
+}

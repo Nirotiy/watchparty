@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
-import { mediaRoomHeaders } from "@/lib/media-room-access";
+import { mediaReadHeaders } from "@/lib/media-room-access";
 
 /** Header-authenticated images without putting room credentials in their URL. */
 export function MediaImage({ src, fallback = null, ...props }: Omit<ComponentProps<"img">, "src" | "onError"> & {
@@ -17,7 +17,7 @@ export function MediaImage({ src, fallback = null, ...props }: Omit<ComponentPro
       try {
         if (!/^\/api\/media\/(?:artwork|posters)\/[^/?#]+$/.test(src)) throw new Error("Invalid media image path");
         const response = await fetch(src, {
-          headers: mediaRoomHeaders(),
+          headers: await mediaReadHeaders(),
           redirect: "error",
           cache: "no-store",
           signal: controller.signal,

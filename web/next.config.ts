@@ -13,6 +13,9 @@ const nextConfig: NextConfig = {
   // shell and browser automation. Next 16 otherwise blocks its dev client
   // resources for that host, leaving the server-rendered page unhydrated.
   allowedDevOrigins: ["127.0.0.1"],
+  // dev 指示器默认钉在视口左下角，正好压住房间底栏的本机静音按钮（点不到）；
+  // 本地预览以房间 UI 为准，关掉它，避免误导。生产构建本就没有该元素。
+  devIndicators: false,
   outputFileTracingRoot: path.resolve(webRoot, ".."),
   distDir: process.env.WATCHPARTY_NEXT_DIST_DIR ?? ".next",
   async rewrites() {

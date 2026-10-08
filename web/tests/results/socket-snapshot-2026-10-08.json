@@ -1,0 +1,7 @@
+{
+  "startedAt": "2026-10-07T17:54:17.913Z",
+  "scope": "Actual web/lib/socket.ts and real loopback backend, no room mutation.",
+  "pass": true,
+  "received": 2,
+  "revision": 0
+}

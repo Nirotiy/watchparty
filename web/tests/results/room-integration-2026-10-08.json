@@ -1,0 +1,119 @@
+{
+  "startedAt": "2026-10-07T17:49:05.580Z",
+  "checks": [
+    {
+      "label": "initial-global-preferences-restore",
+      "pass": true
+    },
+    {
+      "label": "track-capabilities-connected",
+      "pass": true
+    },
+    {
+      "label": "subtitle-selection-and-offset-persist",
+      "pass": true
+    },
+    {
+      "label": "closing-subtitles-preserves-media-offset",
+      "pass": true
+    },
+    {
+      "label": "new-media-matches-language-not-track-id",
+      "pass": true
+    },
+    {
+      "label": "returning-media-restores-offset",
+      "pass": true
+    },
+    {
+      "label": "remount-restores-persisted-preferences",
+      "pass": true
+    },
+    {
+      "label": "successful-audio-selection-writes-language",
+      "pass": true
+    },
+    {
+      "label": "global-subtitle-off-skips-external-fetch",
+      "pass": true
+    },
+    {
+      "label": "external-selection-persists-language",
+      "pass": true
+    },
+    {
+      "label": "new-media-restores-external-language",
+      "pass": true
+    },
+    {
+      "label": "batch-first-failure-results-visible",
+      "pass": true
+    },
+    {
+      "label": "batch-retry-does-not-repeat-success",
+      "pass": true
+    },
+    {
+      "label": "unknown-result-blocks-retry-and-new-batch",
+      "pass": true
+    },
+    {
+      "label": "snapshot-diff-confirms-committed-timeout",
+      "pass": true
+    },
+    {
+      "label": "confirmed-timeout-is-not-added-again",
+      "pass": true
+    },
+    {
+      "label": "absence-remains-unknown",
+      "pass": true
+    },
+    {
+      "label": "close-reopen-keeps-unknown-guard",
+      "pass": true
+    },
+    {
+      "label": "native-capabilities-hide-embedded-audio",
+      "pass": true
+    },
+    {
+      "label": "native-buffering-state-visible",
+      "pass": true
+    },
+    {
+      "label": "native-local-error-retry-panel",
+      "pass": true
+    },
+    {
+      "label": "native-retry-preserves-paused-muted-controls",
+      "pass": true
+    },
+    {
+      "label": "hls-capabilities-and-local-pause",
+      "pass": true
+    },
+    {
+      "label": "youtube-no-fabricated-buffer-or-track-capabilities",
+      "pass": true
+    },
+    {
+      "label": "youtube-buffering-without-playable-seconds",
+      "pass": true
+    },
+    {
+      "label": "youtube-retry-remains-paused-muted",
+      "pass": true
+    },
+    {
+      "label": "ownership-real-ack-failure-visible-in-modal",
+      "pass": true
+    },
+    {
+      "label": "ownership-success-closes-modal",
+      "pass": true
+    }
+  ],
+  "scope": "Actual room/adapter/modal components. Explicit Socket/API/MKV lifecycle fixtures, real silent MP4/HLS, YouTube SDK fixture. No physical audio or real MKV decoding claim.",
+  "pass": true
+}

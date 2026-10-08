@@ -247,6 +247,8 @@ export interface SubtitleTrack {
   mediaId: string;
   language?: string;
   offsetSeconds?: number;
+  /** 来源：缺省=旁挂字幕文件；upload=房内上传（媒体级持久，见 subtitle-upload-contract）。 */
+  source?: "sidecar" | "upload";
 }
 
 // 11. Command Ack 规范

@@ -224,6 +224,24 @@ export class WatchPartySocket {
   }
 
   // ================= 客户端指令封装 =================
+  /** Rejoin to obtain a fresh authoritative snapshot without issuing a room mutation. */
+  public refreshSnapshot(): Promise<RoomSnapshot> {
+    const socket = this.socket;
+    if (!socket) return Promise.reject(new Error("房间连接尚未就绪"));
+    return new Promise((resolve, reject) => {
+      const receive = (snapshot: RoomSnapshot) => {
+        clearTimeout(timer);
+        resolve(snapshot);
+      };
+      const timer = setTimeout(() => {
+        socket.off("REC:snapshot", receive);
+        reject(new Error("房间快照核对超时"));
+      }, 5000);
+      socket.once("REC:snapshot", receive);
+      socket.disconnect().connect();
+    });
+  }
+
   public sendName(name: string): Promise<CommandAck> {
     return this.emitCommand("CMD:name", { name });
   }

@@ -1,0 +1,490 @@
+{
+  "startedAt": "2026-10-07T11:57:57.489Z",
+  "checks": [
+    {
+      "label": "paused-first-frame",
+      "value": {
+        "wall": 1549.6000000014901,
+        "time": 0,
+        "rate": 1,
+        "audioPeak": 0,
+        "width": 1920,
+        "height": 1080,
+        "pixels": {
+          "mean": 255,
+          "nonblack": 51840
+        },
+        "audio": [
+          {
+            "state": "suspended",
+            "time": 0
+          }
+        ],
+        "rms": 0,
+        "workers": [
+          false
+        ],
+        "cues": [],
+        "rates": [],
+        "errors": [],
+        "body": "/room-994fa83a4067f7c4\n已连接\ngroup\n2\nvideo_library\ntv\nMKV fixture\nOPENLIST\n00:00\n06:40\nvolume_up\nsubtitles\nskip_previous\nplay_arrow\nskip_next\n1.00x\nplaylist_play\nrepeat\nopen_in_full"
+      }
+    },
+    {
+      "label": "playing-with-audio",
+      "value": {
+        "wall": 3779,
+        "time": 2.167,
+        "rate": 1,
+        "audioPeak": 0,
+        "width": 1920,
+        "height": 1080,
+        "pixels": {
+          "mean": 0,
+          "nonblack": 0
+        },
+        "audio": [
+          {
+            "state": "running",
+            "time": 2.192
+          }
+        ],
+        "rms": 0,
+        "workers": [
+          false
+        ],
+        "cues": [
+          {
+            "text": "M00",
+            "time": 1.333
+          },
+          {
+            "text": "M00",
+            "time": 1.367
+          },
+          {
+            "text": "M00",
+            "time": 1.4
+          },
+          {
+            "text": "M00",
+            "time": 1.433
+          },
+          {
+            "text": "M00",
+            "time": 1.467
+          }
+        ],
+        "rates": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "errors": [],
+        "body": "/room-994fa83a4067f7c4\n已连接\ngroup\n3\nvideo_library\ntv\nMKV fixture\nOPENLIST\n00:02\n06:40\nvolume_up\nsubtitles\nskip_previous\npause\nskip_next\n1.00x\nplaylist_play\nrepeat\nopen_in_full"
+      }
+    },
+    {
+      "label": "beep-and-embedded-cue",
+      "value": {
+        "wall": 6838.80000000447,
+        "time": 5.233,
+        "rate": 1,
+        "audioPeak": 0.29882990806293314,
+        "width": 1920,
+        "height": 1080,
+        "pixels": {
+          "mean": 0.09436728395061729,
+          "nonblack": 28
+        },
+        "audio": [
+          {
+            "state": "running",
+            "time": 5.250666666666667
+          }
+        ],
+        "rms": 0,
+        "workers": [
+          false
+        ],
+        "cues": [
+          {
+            "text": "M00",
+            "time": 1.4
+          },
+          {
+            "text": "M00",
+            "time": 1.433
+          },
+          {
+            "text": "M00",
+            "time": 1.467
+          },
+          {
+            "text": "M01",
+            "time": 5.2
+          },
+          {
+            "text": "M01",
+            "time": 5.233
+          }
+        ],
+        "rates": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "errors": [],
+        "body": "/room-994fa83a4067f7c4\n已连接\ngroup\n3\nvideo_library\ntv\nMKV fixture\nOPENLIST\n00:05\n06:40\nvolume_up\nsubtitles\nskip_previous\npause\nskip_next\n1.00x\nplaylist_play\nrepeat\nopen_in_full"
+      }
+    },
+    {
+      "label": "pause-stable",
+      "value": {
+        "wall": 7369.5,
+        "time": 5.267,
+        "rate": 1,
+        "audioPeak": 0.29882990806293314,
+        "width": 1920,
+        "height": 1080,
+        "pixels": {
+          "mean": 0.09436728395061729,
+          "nonblack": 28
+        },
+        "audio": [
+          {
+            "state": "running",
+            "time": 5.781333333333333
+          }
+        ],
+        "rms": 0,
+        "workers": [
+          false
+        ],
+        "cues": [
+          {
+            "text": "M00",
+            "time": 1.433
+          },
+          {
+            "text": "M00",
+            "time": 1.467
+          },
+          {
+            "text": "M01",
+            "time": 5.2
+          },
+          {
+            "text": "M01",
+            "time": 5.233
+          },
+          {
+            "text": "M01",
+            "time": 5.267
+          }
+        ],
+        "rates": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "errors": [],
+        "body": "/room-994fa83a4067f7c4\n已连接\ngroup\n3\nvideo_library\ntv\nMKV fixture\nOPENLIST\n00:05\n06:40\nvolume_up\nsubtitles\nskip_previous\nplay_arrow\nskip_next\n1.00x\nplaylist_play\nrepeat\nopen_in_full"
+      }
+    },
+    {
+      "label": "paused-seek-60",
+      "value": {
+        "wall": 8630.5,
+        "time": 60,
+        "rate": 1,
+        "audioPeak": 0.29882990806293314,
+        "width": 1920,
+        "height": 1080,
+        "pixels": {
+          "mean": 255,
+          "nonblack": 51840
+        },
+        "audio": [
+          {
+            "state": "running",
+            "time": 7.04
+          }
+        ],
+        "rms": 0,
+        "workers": [
+          false
+        ],
+        "cues": [
+          {
+            "text": "M00",
+            "time": 1.433
+          },
+          {
+            "text": "M00",
+            "time": 1.467
+          },
+          {
+            "text": "M01",
+            "time": 5.2
+          },
+          {
+            "text": "M01",
+            "time": 5.233
+          },
+          {
+            "text": "M01",
+            "time": 5.267
+          }
+        ],
+        "rates": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "errors": [],
+        "body": "/room-994fa83a4067f7c4\n已连接\ngroup\n3\nvideo_library\ntv\nMKV fixture\nOPENLIST\n01:00\n06:40\nvolume_up\nsubtitles\nskip_previous\nplay_arrow\nskip_next\n1.00x\nplaylist_play\nrepeat\nopen_in_full"
+      }
+    },
+    {
+      "label": "rate-095",
+      "value": {
+        "wall": 9769.5,
+        "time": 61.033,
+        "rate": 0.95,
+        "audioPeak": 0.29882990806293314,
+        "width": 1920,
+        "height": 1080,
+        "pixels": {
+          "mean": 0.05127314814814815,
+          "nonblack": 12
+        },
+        "audio": [
+          {
+            "state": "running",
+            "time": 8.181333333333333
+          }
+        ],
+        "rms": 0,
+        "workers": [
+          false
+        ],
+        "cues": [
+          {
+            "text": "M12",
+            "time": 60.9
+          },
+          {
+            "text": "M12",
+            "time": 60.933
+          },
+          {
+            "text": "M12",
+            "time": 60.967
+          },
+          {
+            "text": "M12",
+            "time": 61
+          },
+          {
+            "text": "M12",
+            "time": 61.033
+          }
+        ],
+        "rates": [
+          0.949999988079071,
+          0.949999988079071,
+          0.949999988079071,
+          0.949999988079071,
+          0.949999988079071
+        ],
+        "errors": [],
+        "body": "/room-994fa83a4067f7c4\n已连接\ngroup\n3\nvideo_library\ntv\nMKV fixture\nOPENLIST\n01:00\n06:40\nvolume_up\nsubtitles\nskip_previous\npause\nskip_next\n0.95x\nplaylist_play\nrepeat\nopen_in_full"
+      }
+    },
+    {
+      "label": "rate-095-measured",
+      "value": 0.947741216766002
+    },
+    {
+      "label": "running-rate-105",
+      "value": {
+        "wall": 16040.30000000447,
+        "time": 67,
+        "rate": 1.05,
+        "audioPeak": 0.29882990806293314,
+        "width": 1920,
+        "height": 1080,
+        "pixels": {
+          "mean": 0,
+          "nonblack": 0
+        },
+        "audio": [
+          {
+            "state": "running",
+            "time": 14.450666666666667
+          }
+        ],
+        "rms": 0,
+        "workers": [
+          false
+        ],
+        "cues": [
+          {
+            "text": "M13",
+            "time": 66.333
+          },
+          {
+            "text": "M13",
+            "time": 66.367
+          },
+          {
+            "text": "M13",
+            "time": 66.4
+          },
+          {
+            "text": "M13",
+            "time": 66.433
+          },
+          {
+            "text": "M13",
+            "time": 66.467
+          }
+        ],
+        "rates": [
+          1.0499999523162842,
+          1.0499999523162842,
+          1.0499999523162842,
+          1.0499999523162842,
+          1.0499999523162842
+        ],
+        "errors": [],
+        "body": "/room-994fa83a4067f7c4\n已连接\ngroup\n3\nvideo_library\ntv\nMKV fixture\nOPENLIST\n01:07\n06:40\nvolume_up\nsubtitles\nskip_previous\npause\nskip_next\n1.05x\nplaylist_play\nrepeat\nopen_in_full"
+      }
+    },
+    {
+      "label": "playing-seek-120",
+      "value": {
+        "wall": 16298,
+        "time": 120.233,
+        "rate": 1.05,
+        "audioPeak": 0.29882990806293314,
+        "width": 1920,
+        "height": 1080,
+        "pixels": {
+          "mean": 0.07521219135802469,
+          "nonblack": 17
+        },
+        "audio": [
+          {
+            "state": "running",
+            "time": 14.712
+          }
+        ],
+        "rms": 0,
+        "workers": [
+          false
+        ],
+        "cues": [
+          {
+            "text": "M13",
+            "time": 66.4
+          },
+          {
+            "text": "M13",
+            "time": 66.433
+          },
+          {
+            "text": "M13",
+            "time": 66.467
+          },
+          {
+            "text": "M24",
+            "time": 120.2
+          },
+          {
+            "text": "M24",
+            "time": 120.233
+          }
+        ],
+        "rates": [
+          1.0499999523162842,
+          1.0499999523162842,
+          1.0499999523162842,
+          1.0499999523162842,
+          1.0499999523162842
+        ],
+        "errors": [],
+        "body": "/room-994fa83a4067f7c4\n已连接\ngroup\n3\nvideo_library\ntv\nMKV fixture\nOPENLIST\n02:00\n06:40\nvolume_up\nsubtitles\nskip_previous\npause\nskip_next\n1.05x\nplaylist_play\nrepeat\nopen_in_full"
+      }
+    },
+    {
+      "label": "source-switch-releases-worker-and-audio",
+      "value": {
+        "wall": 16549.5,
+        "time": -1,
+        "rate": 0,
+        "audioPeak": 0.29882990806293314,
+        "pixels": null,
+        "audio": [
+          {
+            "state": "closed",
+            "time": 14.76
+          }
+        ],
+        "rms": 0,
+        "workers": [
+          true
+        ],
+        "cues": [
+          {
+            "text": "M13",
+            "time": 66.433
+          },
+          {
+            "text": "M13",
+            "time": 66.467
+          },
+          {
+            "text": "M24",
+            "time": 120.2
+          },
+          {
+            "text": "M24",
+            "time": 120.233
+          },
+          {
+            "text": "M24",
+            "time": 120.267
+          }
+        ],
+        "rates": [
+          1.0499999523162842,
+          1.0499999523162842,
+          1.0499999523162842,
+          1.0499999523162842,
+          1.0499999523162842
+        ],
+        "errors": [],
+        "body": "/room-994fa83a4067f7c4\n已连接\ngroup\n3\nvideo_library\ntv\n暂未载入媒体\nHTTP\nerror\nMEDIA_ELEMENT_ERROR: Format error\n02:00\n06:40\nvolume_up\nsubtitles\nskip_previous\nplay_arrow\nskip_next\n1.00x\nplaylist_play\nrepeat\nopen_in_full"
+      }
+    }
+  ],
+  "samples": [],
+  "metrics": {
+    "requests": 24,
+    "bytes": 8718474,
+    "fullRequests": 0,
+    "resolveCalls": 17,
+    "expired": 0
+  },
+  "pass": true
+}

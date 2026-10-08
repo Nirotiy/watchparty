@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState } from "react";
-import { Lock, X, ArrowRight, AlertCircle, Folder } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { X, ArrowRight, Folder } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Keycap } from "@/components/ui/keycap";
 import { api } from "@/lib/api";
 import { CreateRoomResponse, MediaSource } from "@/lib/contracts";
 
@@ -30,6 +31,18 @@ export function CreateRoomModal({
   const [pin, setPin] = useState(["", "", "", ""]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // 常驻昵称：打开时默认带上次用过的昵称（与门禁同源 watchparty_last_nickname）。
+  useEffect(() => {
+    if (!isOpen) return;
+    try {
+      const saved = localStorage.getItem("watchparty_last_nickname");
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (saved) setNickname((current) => (current ? current : saved));
+    } catch {
+      // 忽略存储失败
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -118,106 +131,98 @@ export function CreateRoomModal({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
         showCloseButton={false}
-        className="max-w-md gap-0 border-border bg-card p-6"
+        className="max-w-md gap-0 border-border bg-card p-0"
         aria-describedby={undefined}
       >
-        <div className="flex items-center justify-between border-b border-border pb-3">
-          <DialogTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <Lock className="size-4 text-sky-400" />
-            <span>创建专属观影房间</span>
-          </DialogTitle>
+        <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
+          <DialogTitle className="text-lg font-medium text-foreground">创建房间</DialogTitle>
           <Button
             variant="ghost"
             size="icon-sm"
             onClick={onClose}
             aria-label="关闭"
-            className="text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground"
           >
             <X className="size-4" />
           </Button>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-          {errorMsg && (
-            <div
-              className="flex items-center gap-2 rounded border border-destructive/50 bg-destructive/10 p-2.5 text-xs text-destructive"
-              role="alert"
-              aria-live="polite"
-            >
-              <AlertCircle className="size-4 shrink-0" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
+        <form onSubmit={handleSubmit}>
+          <div className="space-y-4 px-4 py-4">
+            {errorMsg && (
+              <p
+                className="flex items-center gap-2 text-sm text-destructive"
+                role="alert"
+                aria-live="polite"
+              >
+                <span className="size-1.5 shrink-0 rounded-full bg-destructive" />
+                <span>{errorMsg}</span>
+              </p>
+            )}
 
-          <div className="space-y-1.5">
-            <Label htmlFor="owner-nickname" className="text-xs text-muted-foreground">
-              房主昵称
-            </Label>
-            <Input
-              id="owner-nickname"
-              type="text"
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              placeholder="例如：Alice"
-              maxLength={24}
-              required
-            />
-          </div>
-
-          {/* 初始片源 */}
-          <div>
-            <span id="initial-media-label" className="block text-xs font-medium text-muted-foreground">
-              初始片源 (可选)
-            </span>
-            <div
-              className="mt-1.5 flex items-center justify-between rounded border border-border bg-black p-2.5 text-xs"
-              aria-labelledby="initial-media-label"
-            >
-              {selectedMedia ? (
-                <div className="flex items-center gap-2 truncate pr-2">
-                  <span className="font-medium text-white truncate">
-                    {"title" in selectedMedia && selectedMedia.title ? selectedMedia.title : "已选定媒体"}
-                  </span>
-                  <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] text-sky-400">
-                    {selectedMedia.kind.toUpperCase()}
-                  </span>
-                </div>
-              ) : (
-                <span className="text-muted-foreground">未选择初始媒体，可在进入房间后点播</span>
-              )}
-              {onSelectInitialMedia && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={onSelectInitialMedia}
-                  className="shrink-0"
-                >
-                  <Folder className="size-3 text-sky-400" />
-                  <span>{selectedMedia ? "更改" : "从媒体库选择"}</span>
-                </Button>
-              )}
-            </div>
-          </div>
-
-          {/* PIN 码保护选项 */}
-          <div className="rounded border border-border bg-secondary/60 p-3.5 space-y-3">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="use-pin-toggle" className="text-xs text-foreground/90">
-                启用 4 位数字房间 PIN 码
+            <div className="space-y-1.5">
+              <Label htmlFor="owner-nickname" className="text-[13px] font-normal text-foreground/80">
+                房主昵称
               </Label>
-              <Checkbox
-                id="use-pin-toggle"
-                checked={usePin}
-                onCheckedChange={(checked) => setUsePin(checked === true)}
+              <Input
+                id="owner-nickname"
+                type="text"
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                placeholder="例如：Alice"
+                maxLength={24}
+                required
+                className="text-sm"
               />
             </div>
 
-            {usePin && (
-              <div className="space-y-1.5 pt-1">
-                <div className="text-[11px] text-muted-foreground">
-                  开启后，任何访客均需输入此 4 位数字密码方可进入：
-                </div>
+            {/* 初始片源 */}
+            <div className="space-y-1.5">
+              <span id="initial-media-label" className="block text-[13px] text-foreground/80">
+                初始片源 · 可选
+              </span>
+              <div className="flex items-center justify-between gap-2" aria-labelledby="initial-media-label">
+                {selectedMedia ? (
+                  <span className="flex min-w-0 items-center gap-2 text-sm">
+                    <span className="truncate">
+                      {"title" in selectedMedia && selectedMedia.title ? selectedMedia.title : "已选定媒体"}
+                    </span>
+                    <span className="shrink-0 rounded-[4px] bg-info-soft px-1.5 py-0.5 font-mono text-xs text-info">
+                      {selectedMedia.kind.toUpperCase()}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="text-sm text-ash">未选择</span>
+                )}
+                {onSelectInitialMedia && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={onSelectInitialMedia}
+                    className="shrink-0 text-xs"
+                  >
+                    <Folder className="size-3" />
+                    <span>{selectedMedia ? "更改" : "从媒体库选择"}</span>
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* PIN 码保护 */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="use-pin-toggle" className="text-[13px] font-normal text-foreground/80">
+                  启用 4 位 PIN 保护
+                </Label>
+                <Checkbox
+                  id="use-pin-toggle"
+                  checked={usePin}
+                  onCheckedChange={(checked) => setUsePin(checked === true)}
+                />
+              </div>
+
+              {usePin && (
                 <div className="flex gap-2" role="group" aria-label="房间 PIN 码">
                   {pin.map((digit, idx) => (
                     <input
@@ -232,21 +237,22 @@ export function CreateRoomModal({
                       onChange={(e) => handlePinChange(idx, e.target.value)}
                       onKeyDown={(e) => handlePinKeyDown(idx, e)}
                       onPaste={handlePinPaste}
-                      className="size-10 rounded border border-border bg-secondary text-center font-mono text-base font-bold text-white outline-none focus:border-sky-500"
+                      className="size-10 rounded-md border border-input bg-field text-center font-mono text-base font-bold text-foreground outline-none transition-colors focus:border-ring"
                     />
                   ))}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" size="sm" onClick={onClose}>
+          <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+            <Button type="button" variant="ghost" size="sm" onClick={onClose} className="text-muted-foreground hover:text-foreground">
               取消
             </Button>
-            <Button type="submit" size="sm" disabled={isSubmitting} className="font-semibold">
-              <span>{isSubmitting ? "创建中..." : "立即创建"}</span>
-              <ArrowRight className="size-3.5" />
+            <Button type="submit" size="sm" disabled={isSubmitting}>
+              <span>{isSubmitting ? "创建中…" : "立即创建"}</span>
+              {!isSubmitting && <Keycap className="bg-none border-white/30 bg-white/15 text-white/85 dark:border-black/20 dark:bg-[linear-gradient(180deg,#121212,#0d0d0d)] dark:bg-black/10 dark:text-black/70">⏎</Keycap>}
+              {isSubmitting && <ArrowRight className="size-3.5" />}
             </Button>
           </div>
         </form>

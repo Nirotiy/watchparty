@@ -23,7 +23,7 @@ const notoSansSC = Noto_Sans_SC({
 });
 
 export const metadata: Metadata = {
-  title: "WatchParty",
+  title: "Banguru",
   description: "Watch videos together.",
 };
 
@@ -31,9 +31,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="zh-CN"
-      className={`dark ${geistSans.variable} ${geistMono.variable} ${notoSansSC.variable} h-full antialiased`}
+      suppressHydrationWarning
+      className={`${geistSans.variable} ${geistMono.variable} ${notoSansSC.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-background text-foreground">{children}</body>
+      <body className="min-h-full flex flex-col bg-background text-foreground">
+        {/* 防闪烁：首访跟系统一次，之后以本机手动选择为准（watchparty_theme）；出错回落深色。 */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{var t=localStorage.getItem('watchparty_theme');if(t!=='light'&&t!=='dark'){t=window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';}document.documentElement.classList.toggle('dark',t==='dark');}catch(e){document.documentElement.classList.add('dark');}})();",
+          }}
+        />
+        {children}
+      </body>
     </html>
   );
 }

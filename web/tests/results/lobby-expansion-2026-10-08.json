@@ -1,0 +1,62 @@
+{
+  "capturedAt": "2026-10-08",
+  "scope": "大厅职责扩展（q6:a+iii 正常裸点 / q7:a 行式 / q8:c 双入口）落地验证",
+  "environment": {
+    "preview": "Next dev 18982（fixture 后端 18981）",
+    "browser": "headless Chrome via web/tests/helpers/chrome-session.mjs"
+  },
+  "seededLocalStorage": {
+    "watchparty_continue": [
+      { "roomId": "7f3k", "mediaTitle": "葬送的芙莉莲", "positionSeconds": 1860, "durationSeconds": 3000 },
+      { "roomId": "b2mq", "mediaTitle": "攻壳机动队 S.A.C.", "positionSeconds": 320, "durationSeconds": 1800 }
+    ],
+    "watchparty_history": [
+      { "id": "7f3k", "hasPin": true },
+      { "id": "k9x2", "hasPin": false }
+    ]
+  },
+  "lobbyRender": {
+    "orderContinueBeforeRecent": true,
+    "continueCount": 2,
+    "continueRows": ["葬送的芙莉莲 | 7f3k | · 上次 昨天 | 62%", "攻壳机动队 S.A.C. | b2mq | · 上次 3 天前 | 18%"],
+    "pbarWidth": "62%",
+    "recentCount": 2,
+    "recentRows": ["7f3k | 今天", "k9x2 | 2 天前"],
+    "clearColor": "rgb(106, 107, 108) (ash #6a6b6c，token 修复后生效)",
+    "browseButton": { "bg": "rgb(255, 255, 255)", "height": "40px", "role": "主行动" },
+    "createButton": { "bg": "rgba(0, 0, 0, 0)", "borderTopWidth": "1px", "role": "次级 outline" },
+    "statusLine": { "text": "服务正常", "note": "2026-10-08 用户改口：正常时也带文字（点＋文字）" },
+    "hasOldBrand": false
+  },
+  "clientGuestWiring": {
+    "status": "已接线（2026-10-08 晚补）：media-room-access.ts 房外走游客凭据 POST /api/media/guest-session + X-WatchParty-Guest（懒签发/内存缓存/并发去重/到期重签）；api.ts 房外 401 作废重签重放一次；media-image.tsx 同步接游客头",
+    "liveAttempt": "浏览片源 → 实测捕获 fetch 'POST /api/media/guest-session'（服务端 404）→ 回落 ROOM_ACCESS_REQUIRED 旧文案",
+    "note": "服务端实现该端点后即通；文案与旧行为在未落地期间逐字节一致"
+  },
+  "keyboard": {
+    "arrowDown1": "葬送的芙莉莲 … | ⏎",
+    "arrowDown2": "攻壳机动队 S.A.C. … | ⏎",
+    "escape": "cleared",
+    "note": "继续观看 + 最近访问合成一条导航序列"
+  },
+  "helpDialog": { "opened": true, "rows": ["移动选择 ↑↓", "进入 ⏎", "清空输入 Esc", "本面板 ?"] },
+  "browseEntry": {
+    "dialogOpened": true,
+    "hasRoomAccessError": true,
+    "note": "契约（游客凭据）未落地，停在「请先加入房间再浏览媒体库」错误态；契约就绪即通（media-room-access.ts / api.ts 已按 roomless 目标形态接线）"
+  },
+  "visitRecording": {
+    "createdRoom": "room-3ab7bb51d1f9e665 (fixture POST /api/rooms)",
+    "historyAfterVisit": "[{\"id\":\"room-3ab7bb51d1f9e665\",\"name\":\"房间 room-3ab7bb51d1f9e665\",\"hasPin\":false,\"lastVisited\":1791450278942}]",
+    "lobbyRecentsAfterReturn": "最近访问 | 清除 | room-3ab7bb51d1f9e665 | 今天"
+  },
+  "nicknameDefault": { "value": "Niro", "note": "打开建房弹窗时从 watchparty_last_nickname 预填" },
+  "staticChecks": {
+    "tsc": "exit 0",
+    "npmTest": "23/23 pass",
+    "eslint": "0 errors（警告均为既有 img/alt-text 类）",
+    "productionBuild": "WATCHPARTY_NEXT_DIST_DIR=.next-verify-lobby npm run build exit 0（构建目录已清理，tsconfig 已还原）",
+    "inRoomRegression": "catalog-logic-acceptance 6/6 PASS（web/tests/results/catalog-logic-lobby.json，api.ts 重写后房内读取回归）"
+  },
+  "screenshots": ["%TEMP%/lobby-v2-1.png（大厅）", "%TEMP%/lobby-v2-2-browse.png（浏览片源错误态）", "%TEMP%/lobby-v2-3-recent.png（到访入库后最近访问）"]
+}

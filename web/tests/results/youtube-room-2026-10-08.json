@@ -1,0 +1,19 @@
+{
+  "startedAt": "2026-10-07T17:50:08.358Z",
+  "scope": "Real remote YouTube IFrame API in actual room/adapter components; Socket/API are fixtures. Headless and mute-audio, no physical audio claim.",
+  "state": {
+    "phase": "playing",
+    "presentedTime": 3.180742998092651,
+    "audio": "muted",
+    "body": "/fixture\n已连接\ngroup\n2\nvideo_library\ntv\nYouTube IFrame API demo\nYOUTUBE\n00:03\n22:23\nskip_previous\npause\nskip_next\nvolume_off\nsubtitles\n1.00x\nplaylist_play\nrepeat\nopen_in_full",
+    "capabilities": {
+      "engine": "youtube",
+      "embeddedTracks": false,
+      "audioUnlock": true,
+      "retry": true,
+      "bufferedAhead": false
+    },
+    "iframe": true
+  },
+  "pass": true
+}

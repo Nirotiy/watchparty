@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Banguru 标志：复古电视机与爆米花桶">
+  <defs>
+    <linearGradient id="bl-tvBody" x1="0.12" y1="0" x2="0.42" y2="1">
+      <stop offset="0" stop-color="#546a8f"/>
+      <stop offset="0.45" stop-color="#37507b"/>
+      <stop offset="0.9" stop-color="#25395d"/>
+      <stop offset="1" stop-color="#213256"/>
+    </linearGradient>
+    <linearGradient id="bl-screen" x1="0" y1="0.05" x2="0.85" y2="0.95">
+      <stop offset="0" stop-color="#60d3fe"/>
+      <stop offset="0.35" stop-color="#2aa4fe"/>
+      <stop offset="0.5" stop-color="#148bfd"/>
+      <stop offset="0.7" stop-color="#0c54f1"/>
+      <stop offset="1" stop-color="#0946ec"/>
+    </linearGradient>
+    <linearGradient id="bl-screenSheen" x1="0" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.12"/>
+      <stop offset="0.42" stop-color="#ffffff" stop-opacity="0.03"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="bl-play" x1="0.2" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#f1fbff"/>
+      <stop offset="1" stop-color="#c9e6fb"/>
+    </linearGradient>
+    <linearGradient id="bl-antennaL" x1="0.1" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#54648f"/>
+      <stop offset="1" stop-color="#3d4b73"/>
+    </linearGradient>
+    <linearGradient id="bl-antennaR" x1="0.2" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#6b7da8"/>
+      <stop offset="1" stop-color="#4a5984"/>
+    </linearGradient>
+    <linearGradient id="bl-leg" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#2c3c62"/>
+      <stop offset="1" stop-color="#1f2c4a"/>
+    </linearGradient>
+    <linearGradient id="bl-cream" x1="0.06" y1="0.1" x2="0.72" y2="1">
+      <stop offset="0" stop-color="#fffdf6"/>
+      <stop offset="0.5" stop-color="#fae7d6"/>
+      <stop offset="1" stop-color="#ecccb0"/>
+    </linearGradient>
+    <linearGradient id="bl-red" x1="0.25" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#fc5a4c"/>
+      <stop offset="0.5" stop-color="#ec3a32"/>
+      <stop offset="1" stop-color="#d0241f"/>
+    </linearGradient>
+    <linearGradient id="bl-bucketShade" x1="0.25" y1="0.18" x2="0.72" y2="1">
+      <stop offset="0" stop-color="#8a4a30" stop-opacity="0"/>
+      <stop offset="0.45" stop-color="#8a4a30" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#7a3c26" stop-opacity="0.28"/>
+    </linearGradient>
+    <radialGradient id="bl-popA" cx="0.38" cy="0.3" r="0.92">
+      <stop offset="0" stop-color="#fdf1ba"/>
+      <stop offset="0.5" stop-color="#fbe197"/>
+      <stop offset="1" stop-color="#f3c654"/>
+    </radialGradient>
+    <radialGradient id="bl-popB" cx="0.38" cy="0.3" r="0.92">
+      <stop offset="0" stop-color="#fdec8a"/>
+      <stop offset="0.5" stop-color="#fbc247"/>
+      <stop offset="1" stop-color="#e79a1c"/>
+    </radialGradient>
+    <radialGradient id="bl-popC" cx="0.4" cy="0.32" r="0.92">
+      <stop offset="0" stop-color="#fcd77e"/>
+      <stop offset="0.5" stop-color="#f5ac2b"/>
+      <stop offset="1" stop-color="#cd7a10"/>
+    </radialGradient>
+    <filter id="bl-blur9" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="9"/></filter>
+    <filter id="bl-blur5" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="5"/></filter>
+    <clipPath id="bl-bucketClip">
+      <path d="M 552 547 Q 700 565 843 547 Q 857 546.4 856.6 560 L 852 620 L 841 680 Q 834 752 822 788 Q 814 812 790 812 L 640 812 Q 620 812 610 804 Q 582 786 578 742 L 563 664 L 549 600 Q 545 578 544 564 Q 543 552 552 547 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- 地面软阴影 -->
+  <ellipse cx="712" cy="816" rx="136" ry="20" fill="#a9bcc1" opacity="0.5" filter="url(#bl-blur9)"/>
+  <ellipse cx="245" cy="784" rx="34" ry="8" fill="#a9bcc1" opacity="0.3" filter="url(#bl-blur5)"/>
+
+  <!-- 天线（藏在电视体后面） -->
+  <g stroke-linecap="round" stroke-width="35">
+    <line x1="365" y1="216" x2="447" y2="308" stroke="url(#bl-antennaL)"/>
+    <line x1="560" y1="212" x2="492" y2="300" stroke="url(#bl-antennaR)"/>
+  </g>
+
+  <!-- 左腿（上段被机身挡住） -->
+  <line x1="295" y1="692" x2="247" y2="758" stroke="url(#bl-leg)" stroke-width="46" stroke-linecap="round"/>
+
+  <!-- 电视机体 -->
+  <rect x="163" y="294" width="601" height="426" rx="84" fill="url(#bl-tvBody)"/>
+  <!-- 屏幕 -->
+  <rect x="206" y="339" width="514" height="336" rx="46" fill="url(#bl-screen)"/>
+  <rect x="206" y="339" width="514" height="336" rx="46" fill="url(#bl-screenSheen)"/>
+  <!-- 播放键 -->
+  <path d="M 408 451 L 408 565 L 504 508 Z" fill="url(#bl-play)" stroke="url(#bl-play)" stroke-width="34" stroke-linejoin="round"/>
+
+  <!-- 爆米花堆（下缘被桶沿盖住） -->
+  <g stroke="#c67c16" stroke-opacity="0.22" stroke-width="5">
+    <circle cx="588" cy="510" r="50" fill="url(#bl-popB)"/>
+    <circle cx="648" cy="503" r="52" fill="url(#bl-popB)"/>
+    <circle cx="718" cy="483" r="47" fill="url(#bl-popA)"/>
+    <circle cx="782" cy="473" r="49" fill="url(#bl-popB)"/>
+    <circle cx="818" cy="526" r="33" fill="url(#bl-popC)"/>
+    <circle cx="620" cy="538" r="39" fill="url(#bl-popB)"/>
+    <circle cx="678" cy="524" r="46" fill="url(#bl-popB)"/>
+    <circle cx="742" cy="530" r="51" fill="url(#bl-popB)"/>
+    <circle cx="800" cy="540" r="37" fill="url(#bl-popC)"/>
+    <circle cx="666" cy="556" r="33" fill="url(#bl-popC)"/>
+    <circle cx="726" cy="558" r="37" fill="url(#bl-popB)"/>
+    <circle cx="778" cy="556" r="33" fill="url(#bl-popB)"/>
+  </g>
+
+  <!-- 爆米花桶 -->
+  <path d="M 552 547 Q 700 565 843 547 Q 857 546.4 856.6 560 L 852 620 L 841 680 Q 834 752 822 788 Q 814 812 790 812 L 640 812 Q 620 812 610 804 Q 582 786 578 742 L 563 664 L 549 600 Q 545 578 544 564 Q 543 552 552 547 Z" fill="url(#bl-cream)"/>
+  <g clip-path="url(#bl-bucketClip)">
+    <path d="M 528 534 L 588 548 L 621 810 L 528 828 Z" fill="url(#bl-red)"/>
+    <path d="M 633 538 L 678 538 L 688 826 L 654 826 Z" fill="url(#bl-red)"/>
+    <path d="M 723 538 L 768 538 L 755 826 L 722 826 Z" fill="url(#bl-red)"/>
+    <path d="M 813 548 L 880 536 L 880 828 L 789 812 Z" fill="url(#bl-red)"/>
+    <rect x="538" y="540" width="330" height="280" fill="url(#bl-bucketShade)"/>
+    <!-- 桶沿高光与爆米花落在桶面上的柔影 -->
+    <ellipse cx="702" cy="572" rx="100" ry="16" fill="#7a3c1e" opacity="0.15" filter="url(#bl-blur9)"/>
+    <path d="M 558 550 Q 700 568 840 550" stroke="#ffffff" stroke-opacity="0.22" stroke-width="5" filter="url(#bl-blur5)"/>
+  </g>
+
+  <!-- 溢出的爆米花：左三瓣 + 右两球 -->
+  <ellipse cx="740" cy="824" rx="42" ry="10" fill="#a9bcc1" opacity="0.38" filter="url(#bl-blur5)"/>
+  <ellipse cx="810" cy="820" rx="38" ry="9" fill="#a9bcc1" opacity="0.3" filter="url(#bl-blur5)"/>
+  <g stroke="#c67c16" stroke-opacity="0.28" stroke-width="5">
+    <circle cx="814" cy="784" r="36" fill="url(#bl-popC)"/>
+    <circle cx="802" cy="755" r="28" fill="url(#bl-popC)"/>
+    <circle cx="722" cy="793" r="22" fill="url(#bl-popB)"/>
+    <circle cx="752" cy="787" r="23" fill="url(#bl-popB)"/>
+    <circle cx="736" cy="809" r="20" fill="url(#bl-popB)"/>
+  </g>
+</svg>

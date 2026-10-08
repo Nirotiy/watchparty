@@ -1,0 +1,33 @@
+{
+  "capturedAt": "2026-10-08T07:54:22.351Z",
+  "url": "http://127.0.0.1:18982/",
+  "title": "Banguru",
+  "headerBrand": "Banguru\n创建房间",
+  "imgSrc": "/banguru-logo.svg",
+  "imgLoaded": true,
+  "naturalW": 1024,
+  "icons": [
+    {
+      "href": "/favicon.ico?a5f3f4e9d147a359",
+      "type": "image/x-icon",
+      "sizes": "16x16"
+    },
+    {
+      "href": "/icon.svg?b29abf606d722d2e",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    }
+  ],
+  "iconProbe": {
+    "/favicon.ico?a5f3f4e9d147a359": {
+      "status": 200,
+      "bytes": 0
+    },
+    "/icon.svg?b29abf606d722d2e": {
+      "status": 200,
+      "bytes": 0
+    }
+  },
+  "logoIsBrandSvg": true,
+  "bodyOldBrand": "none"
+}

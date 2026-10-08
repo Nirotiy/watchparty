@@ -1,0 +1,74 @@
+{
+  "startedAt": "2026-10-08T03:16:00.413Z",
+  "checks": [
+    {
+      "label": "next-language-restored-on-real-decoder",
+      "pass": true
+    },
+    {
+      "label": "next-global-subtitle-off-applied",
+      "pass": true
+    },
+    {
+      "label": "next-volume-mute-offset-visible",
+      "pass": true
+    },
+    {
+      "label": "next-offset-writes-current-media",
+      "pass": true
+    },
+    {
+      "label": "next-reload-preserves-language-and-off",
+      "pass": true
+    },
+    {
+      "label": "next-subtitle-off-persists-across-media-with-external",
+      "pass": true
+    },
+    {
+      "label": "next-unmute-restores-saved-volume",
+      "pass": true
+    },
+    {
+      "label": "next-menu-language-preferences-saved",
+      "pass": true
+    },
+    {
+      "label": "next-cross-media-language-restored-with-different-ids",
+      "pass": true
+    },
+    {
+      "label": "next-offset-does-not-leak-to-other-media",
+      "pass": true
+    },
+    {
+      "label": "next-original-media-offset-restored",
+      "pass": true
+    },
+    {
+      "label": "next-external-language-preference-restored",
+      "pass": true
+    },
+    {
+      "label": "next-external-restored-after-refresh",
+      "pass": true
+    },
+    {
+      "label": "next-same-media-menu-retry-restores-frame-and-preferences",
+      "pass": true
+    },
+    {
+      "label": "next-no-unhandled-errors",
+      "pass": true
+    }
+  ],
+  "scope": "Actual production Next, real loopback backend, real local MKV decode. Muted/headless, no physical audio.",
+  "retry": {
+    "workersBefore": 2,
+    "workersAfter": 3,
+    "revisionBefore": 70,
+    "revisionAfter": 70,
+    "position": 150.5
+  },
+  "pass": true
+}

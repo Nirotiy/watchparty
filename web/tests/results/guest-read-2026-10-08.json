@@ -1,0 +1,79 @@
+{
+  "capturedAt": "2026-10-08T10:15:53.160Z",
+  "environment": "fixture(backend 18981/media 18983, room room-3a694e4e76a84bdd) + Next dev 18982",
+  "stateA": {
+    "dialogOpen": true,
+    "librariesSeen": [
+      "Anime 番剧",
+      "Film 电影",
+      "TV Shows 剧集"
+    ],
+    "roomAccessError": false,
+    "noLibraries": false,
+    "wallEmptyOrLoading": "empty-catalog",
+    "note": "fixture 标题库为空（expected）；文件视图有 marks.mkv；批量按钮 disabled=true 已另验"
+  },
+  "stateB": {
+    "rowText": "marks.mkv | /marks.mkv | 用此片开房 | 加入清单",
+    "buttons": [
+      {
+        "text": "用此片开房",
+        "disabled": false
+      },
+      {
+        "text": "加入清单",
+        "disabled": true
+      }
+    ]
+  },
+  "stateC": {
+    "createModalOpen": true,
+    "nicknameValue": "",
+    "mediaPrefilled": true,
+    "excerpt": [
+      "创建房间",
+      "⏎",
+      "浏览片源",
+      "服务正常",
+      "创建房间",
+      "房主昵称",
+      "初始片源 · 可选",
+      "marks.mkv",
+      "OPENLIST",
+      "更改"
+    ]
+  },
+  "net": {
+    "guestSessionCalls": [
+      "POST /api/media/guest-session"
+    ],
+    "mediaReadSamples": [
+      {
+        "method": "POST",
+        "url": "/api/media/guest-session",
+        "guest": false,
+        "room": false
+      },
+      {
+        "method": "GET",
+        "url": "/api/media/libraries",
+        "guest": true,
+        "room": false
+      },
+      {
+        "method": "GET",
+        "url": "/api/media/catalog?libraryId=lib_anime",
+        "guest": true,
+        "room": false
+      },
+      {
+        "method": "GET",
+        "url": "/api/media/list?libraryId=lib_anime&path=%2F",
+        "guest": true,
+        "room": false
+      }
+    ],
+    "mediaWithGuest": 3,
+    "mediaWithoutCredentials": []
+  }
+}

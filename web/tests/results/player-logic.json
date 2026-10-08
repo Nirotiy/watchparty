@@ -1,0 +1,138 @@
+{
+  "date": "2026-10-08",
+  "runner": "T3 collaborative preview, isolated port 18984; actual React components bundled with esbuild, not the production Next page",
+  "adapter": {
+    "checks": [
+      {
+        "label": "native-paused-unlock-preserves-pause-and-mute",
+        "pass": true
+      },
+      {
+        "label": "native-retry-restores-controls",
+        "pass": true
+      },
+      {
+        "label": "native-real-mp4-advances",
+        "pass": true
+      },
+      {
+        "label": "native-autoplay-rejection-is-reported",
+        "pass": true
+      },
+      {
+        "label": "native-muted-does-not-forget-policy-block",
+        "pass": true
+      },
+      {
+        "label": "native-blocked-paused-unlock-does-not-play",
+        "pass": true
+      },
+      {
+        "label": "hls-real-segments-advance-and-report",
+        "pass": true
+      },
+      {
+        "label": "hls-retry-rebuild-preserves-local-controls",
+        "pass": true
+      },
+      {
+        "label": "native-refresh-retry-is-coalesced",
+        "pass": true
+      },
+      {
+        "label": "native-old-refresh-cannot-change-new-source",
+        "pass": true
+      },
+      {
+        "label": "native-new-source-refresh-restores-paused-controls",
+        "pass": true
+      },
+      {
+        "label": "youtube-paused-unlock-no-play",
+        "pass": true
+      },
+      {
+        "label": "youtube-retry-preserves-controls",
+        "pass": true
+      },
+      {
+        "label": "youtube-destroyed-instance-callbacks-ignored",
+        "pass": true
+      },
+      {
+        "label": "youtube-autoplay-blocked-reported",
+        "pass": true
+      },
+      {
+        "label": "youtube-playing-state-clears-block",
+        "pass": true
+      },
+      {
+        "label": "youtube-buffer-is-unavailable",
+        "pass": true
+      },
+      {
+        "details": [],
+        "label": "no-unexpected-adapter-errors",
+        "pass": true
+      },
+      {
+        "label": "ownership-pending-duplicate-guard",
+        "pass": true
+      },
+      {
+        "label": "ownership-known-failure-keeps-modal",
+        "pass": true
+      },
+      {
+        "label": "ownership-success-closes-after-ack",
+        "pass": true
+      },
+      {
+        "label": "ownership-missing-ack-keeps-modal",
+        "pass": true
+      },
+      {
+        "label": "ownership-legacy-confirmed-by-authoritative-members",
+        "pass": true
+      },
+      {
+        "label": "ownership-old-session-result-cannot-close-reopened-modal",
+        "pass": true
+      }
+    ],
+    "scope": "Actual React adapters and MembersModal; real local MP4/HLS. YouTube SDK is a deterministic fixture. No physical audio measurement."
+  },
+  "mkvAdapter": {
+    "checks": [
+      {
+        "label": "mkv-adapter-applies-language-preferences",
+        "pass": true
+      },
+      {
+        "label": "mkv-retry-restores-selection-and-subtitle-off",
+        "pass": true
+      },
+      {
+        "label": "mkv-retry-preserves-controls",
+        "pass": true
+      },
+      {
+        "label": "mkv-next-source-uses-language-not-old-ids",
+        "pass": true
+      },
+      {
+        "label": "mkv-no-restore-errors",
+        "pass": true
+      }
+    ],
+    "scope": "Actual MKV adapter with deterministic engine lifecycle fixture; no decoding or physical audio claim."
+  },
+  "limits": [
+    "YouTube used an SDK event fixture. No remote YouTube playback claim.",
+    "MKV adapter restoration used a lifecycle fixture. Real decode was not verified in this run.",
+    "The T3 preview page did not receive messages from a minimal Worker smoke test or the libav Worker. The libav attempt timed out.",
+    "Native and HLS actual playback used muted synthetic local files. No loopback recording, HDMI recording, or physical audio claim.",
+    "Protected room-player.tsx and openlist-modal.tsx still require preference and structured batch-result wiring."
+  ]
+}

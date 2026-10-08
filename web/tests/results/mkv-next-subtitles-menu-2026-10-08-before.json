@@ -1,0 +1,1429 @@
+{
+  "startedAt": "2026-10-08T03:03:06.812Z",
+  "case": "subtitles",
+  "checks": [
+    {
+      "label": "initial-frame",
+      "elapsedMs": 806,
+      "state": {
+        "epoch": 1791428587987.5,
+        "time": 0,
+        "rate": 1,
+        "phase": "paused",
+        "audio": "blocked",
+        "width": 640,
+        "cues": [
+          {
+            "text": "EN M00",
+            "time": 0
+          }
+        ],
+        "errors": [],
+        "commands": [],
+        "snapshots": [],
+        "workers": [
+          false
+        ],
+        "audioContexts": [
+          "suspended"
+        ],
+        "connected": true,
+        "text": "/room-a7e66aaf59e8bcf6\n已连接\ngroup\n1\nvideo_library\ntv\ntracks.mkv\nOPENLIST\nvolume_off\n声音未开启 · 点按启用\n00:00\n03:00\nskip_previous\nplay_arrow\nskip_next\nvolume_up\nsubtitles\ngraphic_eq\n1.00x\nplaylist_play\nrepeat\nopen_in_full",
+        "peakHz": 0,
+        "peakDb": -200
+      }
+    },
+    {
+      "label": "paused-seek-subtitle-20.5",
+      "elapsedMs": 105,
+      "state": {
+        "epoch": 1791428588108.6,
+        "time": 20.5,
+        "rate": 1,
+        "phase": "paused",
+        "audio": "blocked",
+        "width": 640,
+        "cues": [
+          {
+            "text": "EN M00",
+            "time": 0
+          },
+          {
+            "text": "EN M04",
+            "time": 20.5
+          }
+        ],
+        "errors": [],
+        "commands": [],
+        "snapshots": [
+          {
+            "revision": 4,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 20.5
+          }
+        ],
+        "workers": [
+          false
+        ],
+        "audioContexts": [
+          "suspended"
+        ],
+        "connected": true,
+        "text": "/room-a7e66aaf59e8bcf6\n已连接\ngroup\n1\nvideo_library\ntv\ntracks.mkv\nOPENLIST\nvolume_off\n声音未开启 · 点按启用\n00:20\n03:00\nskip_previous\nplay_arrow\nskip_next\nvolume_up\nsubtitles\ngraphic_eq\n1.00x\nplaylist_play\nrepeat\nopen_in_full",
+        "peakHz": 0,
+        "peakDb": -200
+      }
+    },
+    {
+      "label": "paused-seek-subtitle-30.5",
+      "elapsedMs": 110,
+      "state": {
+        "epoch": 1791428588222.1,
+        "time": 30.5,
+        "rate": 1,
+        "phase": "paused",
+        "audio": "blocked",
+        "width": 640,
+        "cues": [
+          {
+            "text": "EN M00",
+            "time": 0
+          },
+          {
+            "text": "EN M04",
+            "time": 20.5
+          },
+          {
+            "text": "EN M06",
+            "time": 30.5
+          }
+        ],
+        "errors": [],
+        "commands": [],
+        "snapshots": [
+          {
+            "revision": 4,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 5,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 30.5
+          }
+        ],
+        "workers": [
+          false
+        ],
+        "audioContexts": [
+          "suspended"
+        ],
+        "connected": true,
+        "text": "/room-a7e66aaf59e8bcf6\n已连接\ngroup\n1\nvideo_library\ntv\ntracks.mkv\nOPENLIST\nvolume_off\n声音未开启 · 点按启用\n00:20\n03:00\nskip_previous\nplay_arrow\nskip_next\nvolume_up\nsubtitles\ngraphic_eq\n1.00x\nplaylist_play\nrepeat\nopen_in_full",
+        "peakHz": 0,
+        "peakDb": -200
+      }
+    },
+    {
+      "label": "paused-seek-subtitle-10.5",
+      "elapsedMs": 208,
+      "state": {
+        "epoch": 1791428588447.2002,
+        "time": 10.5,
+        "rate": 1,
+        "phase": "paused",
+        "audio": "blocked",
+        "width": 640,
+        "cues": [
+          {
+            "text": "EN M00",
+            "time": 0
+          },
+          {
+            "text": "EN M04",
+            "time": 20.5
+          },
+          {
+            "text": "EN M06",
+            "time": 30.5
+          },
+          {
+            "text": "EN M02",
+            "time": 10.5
+          }
+        ],
+        "errors": [],
+        "commands": [],
+        "snapshots": [
+          {
+            "revision": 4,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 5,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 30.5
+          },
+          {
+            "revision": 6,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 10.5
+          }
+        ],
+        "workers": [
+          false
+        ],
+        "audioContexts": [
+          "suspended"
+        ],
+        "connected": true,
+        "text": "/room-a7e66aaf59e8bcf6\n已连接\ngroup\n1\nvideo_library\ntv\ntracks.mkv\nOPENLIST\nvolume_off\n声音未开启 · 点按启用\n00:30\n03:00\nskip_previous\nplay_arrow\nskip_next\nvolume_up\nsubtitles\ngraphic_eq\n1.00x\nplaylist_play\nrepeat\nopen_in_full",
+        "peakHz": 0,
+        "peakDb": -200
+      }
+    },
+    {
+      "label": "load-ass-font.mkv",
+      "elapsedMs": 431,
+      "state": {
+        "epoch": 1791428588891.1,
+        "time": 20.5,
+        "rate": 1,
+        "phase": "paused",
+        "audio": "blocked",
+        "width": 640,
+        "cues": [
+          {
+            "text": "EN M00",
+            "time": 0
+          },
+          {
+            "text": "EN M04",
+            "time": 20.5
+          },
+          {
+            "text": "EN M06",
+            "time": 30.5
+          },
+          {
+            "text": "EN M02",
+            "time": 10.5
+          }
+        ],
+        "errors": [],
+        "commands": [],
+        "snapshots": [
+          {
+            "revision": 4,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 5,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 30.5
+          },
+          {
+            "revision": 6,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 10.5
+          },
+          {
+            "revision": 7,
+            "source": "ass-font.mkv",
+            "paused": true,
+            "position": 0
+          },
+          {
+            "revision": 8,
+            "source": "ass-font.mkv",
+            "paused": true,
+            "position": 20.5
+          }
+        ],
+        "workers": [
+          true,
+          false,
+          false
+        ],
+        "audioContexts": [
+          "closed",
+          "suspended"
+        ],
+        "connected": true,
+        "text": "/room-a7e66aaf59e8bcf6\n已连接\ngroup\n1\nvideo_library\ntv\nass-font.mkv\nOPENLIST\nvolume_off\n声音未开启 · 点按启用\n00:00\n03:00\nskip_previous\nplay_arrow\nskip_next\nvolume_up\nsubtitles\ngraphic_eq\n1.00x\nplaylist_play\nrepeat\nopen_in_full",
+        "peakHz": 0,
+        "peakDb": -200
+      }
+    },
+    {
+      "label": "load-ass-fallback.mkv",
+      "elapsedMs": 420,
+      "state": {
+        "epoch": 1791428590402.5,
+        "time": 20.5,
+        "rate": 1,
+        "phase": "paused",
+        "audio": "blocked",
+        "width": 640,
+        "cues": [
+          {
+            "text": "EN M00",
+            "time": 0
+          },
+          {
+            "text": "EN M04",
+            "time": 20.5
+          },
+          {
+            "text": "EN M06",
+            "time": 30.5
+          },
+          {
+            "text": "EN M02",
+            "time": 10.5
+          }
+        ],
+        "errors": [],
+        "commands": [],
+        "snapshots": [
+          {
+            "revision": 4,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 5,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 30.5
+          },
+          {
+            "revision": 6,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 10.5
+          },
+          {
+            "revision": 7,
+            "source": "ass-font.mkv",
+            "paused": true,
+            "position": 0
+          },
+          {
+            "revision": 8,
+            "source": "ass-font.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 9,
+            "source": "ass-fallback.mkv",
+            "paused": true,
+            "position": 0
+          },
+          {
+            "revision": 10,
+            "source": "ass-fallback.mkv",
+            "paused": true,
+            "position": 20.5
+          }
+        ],
+        "workers": [
+          true,
+          true,
+          true,
+          false,
+          false
+        ],
+        "audioContexts": [
+          "closed",
+          "closed",
+          "suspended"
+        ],
+        "connected": true,
+        "text": "/room-a7e66aaf59e8bcf6\n已连接\ngroup\n1\nvideo_library\ntv\nass-fallback.mkv\nOPENLIST\nvolume_off\n声音未开启 · 点按启用\n00:00\n03:00\nskip_previous\nplay_arrow\nskip_next\nvolume_up\nsubtitles\ngraphic_eq\n1.00x\nplaylist_play\nrepeat\nopen_in_full",
+        "peakHz": 0,
+        "peakDb": -200
+      }
+    },
+    {
+      "label": "load-external-vtt.mkv",
+      "elapsedMs": 2055,
+      "state": {
+        "epoch": 1791428595592.1,
+        "time": 30.5,
+        "rate": 1,
+        "phase": "paused",
+        "audio": "blocked",
+        "width": 640,
+        "cues": [
+          {
+            "text": "EN M00",
+            "time": 0
+          },
+          {
+            "text": "EN M04",
+            "time": 20.5
+          },
+          {
+            "text": "EN M06",
+            "time": 30.5
+          },
+          {
+            "text": "EN M02",
+            "time": 10.5
+          },
+          {
+            "text": "EN M00",
+            "time": 0
+          },
+          {
+            "text": "VTT M06",
+            "time": 30.5
+          }
+        ],
+        "errors": [],
+        "commands": [],
+        "snapshots": [
+          {
+            "revision": 4,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 5,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 30.5
+          },
+          {
+            "revision": 6,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 10.5
+          },
+          {
+            "revision": 7,
+            "source": "ass-font.mkv",
+            "paused": true,
+            "position": 0
+          },
+          {
+            "revision": 8,
+            "source": "ass-font.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 9,
+            "source": "ass-fallback.mkv",
+            "paused": true,
+            "position": 0
+          },
+          {
+            "revision": 10,
+            "source": "ass-fallback.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 11,
+            "source": "ass-fallback.mkv",
+            "paused": true,
+            "position": 30.5
+          },
+          {
+            "revision": 12,
+            "source": "ass-fallback.mkv",
+            "paused": true,
+            "position": 34.5
+          },
+          {
+            "revision": 13,
+            "source": "external-vtt.mkv",
+            "paused": true,
+            "position": 0
+          },
+          {
+            "revision": 14,
+            "source": "external-vtt.mkv",
+            "paused": true,
+            "position": 30.5
+          }
+        ],
+        "workers": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          false
+        ],
+        "audioContexts": [
+          "closed",
+          "closed",
+          "closed",
+          "suspended"
+        ],
+        "connected": true,
+        "text": "/room-a7e66aaf59e8bcf6\n已连接\ngroup\n1\nvideo_library\ntv\nexternal-vtt.mkv\nOPENLIST\nvolume_off\n声音未开启 · 点按启用\n00:30\n03:00\nskip_previous\nplay_arrow\nskip_next\nvolume_up\nsubtitles\ngraphic_eq\n+0.0s\n1.00x\nplaylist_play\nrepeat\nopen_in_full",
+        "peakHz": 0,
+        "peakDb": -200
+      }
+    },
+    {
+      "label": "external-vtt-paused-target-cue",
+      "elapsedMs": 1,
+      "state": {
+        "epoch": 1791428596603.6,
+        "time": 30.5,
+        "rate": 1,
+        "phase": "paused",
+        "audio": "blocked",
+        "width": 640,
+        "cues": [
+          {
+            "text": "EN M00",
+            "time": 0
+          },
+          {
+            "text": "EN M04",
+            "time": 20.5
+          },
+          {
+            "text": "EN M06",
+            "time": 30.5
+          },
+          {
+            "text": "EN M02",
+            "time": 10.5
+          },
+          {
+            "text": "EN M00",
+            "time": 0
+          },
+          {
+            "text": "VTT M06",
+            "time": 30.5
+          }
+        ],
+        "errors": [],
+        "commands": [],
+        "snapshots": [
+          {
+            "revision": 4,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 5,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 30.5
+          },
+          {
+            "revision": 6,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 10.5
+          },
+          {
+            "revision": 7,
+            "source": "ass-font.mkv",
+            "paused": true,
+            "position": 0
+          },
+          {
+            "revision": 8,
+            "source": "ass-font.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 9,
+            "source": "ass-fallback.mkv",
+            "paused": true,
+            "position": 0
+          },
+          {
+            "revision": 10,
+            "source": "ass-fallback.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 11,
+            "source": "ass-fallback.mkv",
+            "paused": true,
+            "position": 30.5
+          },
+          {
+            "revision": 12,
+            "source": "ass-fallback.mkv",
+            "paused": true,
+            "position": 34.5
+          },
+          {
+            "revision": 13,
+            "source": "external-vtt.mkv",
+            "paused": true,
+            "position": 0
+          },
+          {
+            "revision": 14,
+            "source": "external-vtt.mkv",
+            "paused": true,
+            "position": 30.5
+          }
+        ],
+        "workers": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          false
+        ],
+        "audioContexts": [
+          "closed",
+          "closed",
+          "closed",
+          "suspended"
+        ],
+        "connected": true,
+        "text": "/room-a7e66aaf59e8bcf6\n已连接\ngroup\n1\nvideo_library\ntv\nexternal-vtt.mkv\nOPENLIST\nvolume_off\n声音未开启 · 点按启用\n00:30\n03:00\nskip_previous\nplay_arrow\nskip_next\nvolume_up\nsubtitles\ngraphic_eq\n+0.0s\n1.00x\nplaylist_play\nrepeat\nopen_in_full",
+        "peakHz": 0,
+        "peakDb": -200
+      }
+    },
+    {
+      "label": "load-external-ass.mkv",
+      "elapsedMs": 1958,
+      "state": {
+        "epoch": 1791428598579,
+        "time": 30.5,
+        "rate": 1,
+        "phase": "paused",
+        "audio": "blocked",
+        "width": 640,
+        "cues": [
+          {
+            "text": "EN M00",
+            "time": 0
+          },
+          {
+            "text": "EN M04",
+            "time": 20.5
+          },
+          {
+            "text": "EN M06",
+            "time": 30.5
+          },
+          {
+            "text": "EN M02",
+            "time": 10.5
+          },
+          {
+            "text": "EN M00",
+            "time": 0
+          },
+          {
+            "text": "VTT M06",
+            "time": 30.5
+          }
+        ],
+        "errors": [],
+        "commands": [],
+        "snapshots": [
+          {
+            "revision": 4,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 5,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 30.5
+          },
+          {
+            "revision": 6,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 10.5
+          },
+          {
+            "revision": 7,
+            "source": "ass-font.mkv",
+            "paused": true,
+            "position": 0
+          },
+          {
+            "revision": 8,
+            "source": "ass-font.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 9,
+            "source": "ass-fallback.mkv",
+            "paused": true,
+            "position": 0
+          },
+          {
+            "revision": 10,
+            "source": "ass-fallback.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 11,
+            "source": "ass-fallback.mkv",
+            "paused": true,
+            "position": 30.5
+          },
+          {
+            "revision": 12,
+            "source": "ass-fallback.mkv",
+            "paused": true,
+            "position": 34.5
+          },
+          {
+            "revision": 13,
+            "source": "external-vtt.mkv",
+            "paused": true,
+            "position": 0
+          },
+          {
+            "revision": 14,
+            "source": "external-vtt.mkv",
+            "paused": true,
+            "position": 30.5
+          },
+          {
+            "revision": 15,
+            "source": "external-ass.mkv",
+            "paused": true,
+            "position": 0
+          },
+          {
+            "revision": 16,
+            "source": "external-ass.mkv",
+            "paused": true,
+            "position": 30.5
+          }
+        ],
+        "workers": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          false,
+          true,
+          false
+        ],
+        "audioContexts": [
+          "closed",
+          "closed",
+          "closed",
+          "closed",
+          "suspended"
+        ],
+        "connected": true,
+        "text": "/room-a7e66aaf59e8bcf6\n已连接\ngroup\n1\nvideo_library\ntv\nexternal-ass.mkv\nOPENLIST\nvolume_off\n声音未开启 · 点按启用\n00:00\n03:00\nskip_previous\nplay_arrow\nskip_next\nvolume_up\nsubtitles\ngraphic_eq\n+0.0s\n1.00x\nplaylist_play\nrepeat\nopen_in_full",
+        "peakHz": 0,
+        "peakDb": -200
+      }
+    }
+  ],
+  "assFontComparison": {
+    "ass-font.mkv": {
+      "events": [
+        {
+          "Start": 20000,
+          "Duration": 4000,
+          "ReadOrder": 4,
+          "Layer": 0,
+          "Style": 1,
+          "MarginL": 0,
+          "MarginR": 0,
+          "MarginV": 0,
+          "Name": "",
+          "Text": "ASS M04 Font Test WWW iii",
+          "Effect": ""
+        }
+      ],
+      "styles": [
+        {
+          "Name": "Default",
+          "FontName": "Arial",
+          "FontSize": 18,
+          "PrimaryColour": 4294967040,
+          "SecondaryColour": 16776960,
+          "OutlineColour": 0,
+          "BackColour": 128,
+          "Bold": 200,
+          "Italic": 0,
+          "Underline": 0,
+          "StrikeOut": 0,
+          "ScaleX": 1,
+          "ScaleY": 1,
+          "Spacing": 0,
+          "Angle": 0,
+          "BorderStyle": 1,
+          "Outline": 2,
+          "Shadow": 3,
+          "Alignment": 2,
+          "MarginL": 20,
+          "MarginR": 20,
+          "MarginV": 20,
+          "Encoding": 0,
+          "treat_fontname_as_pattern": 0,
+          "Blur": 0,
+          "Justify": 0
+        },
+        {
+          "Name": "Default",
+          "FontName": "Comic Sans MS",
+          "FontSize": 30,
+          "PrimaryColour": 4294967040,
+          "SecondaryColour": 4278190080,
+          "OutlineColour": 0,
+          "BackColour": 0,
+          "Bold": 0,
+          "Italic": 0,
+          "Underline": 0,
+          "StrikeOut": 0,
+          "ScaleX": 1,
+          "ScaleY": 1,
+          "Spacing": 0,
+          "Angle": 0,
+          "BorderStyle": 1,
+          "Outline": 2,
+          "Shadow": 0,
+          "Alignment": 2,
+          "MarginL": 10,
+          "MarginR": 10,
+          "MarginV": 20,
+          "Encoding": 1,
+          "treat_fontname_as_pattern": 0,
+          "Blur": 0,
+          "Justify": 0
+        }
+      ],
+      "pixels": {
+        "hash": "aa65086f069e17dcabf160d21e55e0c7584d7995dbf999fb53e8a72f1df8f8f4",
+        "whitePixels": 5299,
+        "overlayPixels": 17079,
+        "bytes": 1339840
+      }
+    },
+    "ass-fallback.mkv": {
+      "events": [
+        {
+          "Start": 20000,
+          "Duration": 4000,
+          "ReadOrder": 4,
+          "Layer": 0,
+          "Style": 1,
+          "MarginL": 0,
+          "MarginR": 0,
+          "MarginV": 0,
+          "Name": "",
+          "Text": "ASS M04 Font Test WWW iii",
+          "Effect": ""
+        }
+      ],
+      "styles": [
+        {
+          "Name": "Default",
+          "FontName": "Arial",
+          "FontSize": 18,
+          "PrimaryColour": 4294967040,
+          "SecondaryColour": 16776960,
+          "OutlineColour": 0,
+          "BackColour": 128,
+          "Bold": 200,
+          "Italic": 0,
+          "Underline": 0,
+          "StrikeOut": 0,
+          "ScaleX": 1,
+          "ScaleY": 1,
+          "Spacing": 0,
+          "Angle": 0,
+          "BorderStyle": 1,
+          "Outline": 2,
+          "Shadow": 3,
+          "Alignment": 2,
+          "MarginL": 20,
+          "MarginR": 20,
+          "MarginV": 20,
+          "Encoding": 0,
+          "treat_fontname_as_pattern": 0,
+          "Blur": 0,
+          "Justify": 0
+        },
+        {
+          "Name": "Default",
+          "FontName": "Comic Sans MS",
+          "FontSize": 30,
+          "PrimaryColour": 4294967040,
+          "SecondaryColour": 4278190080,
+          "OutlineColour": 0,
+          "BackColour": 0,
+          "Bold": 0,
+          "Italic": 0,
+          "Underline": 0,
+          "StrikeOut": 0,
+          "ScaleX": 1,
+          "ScaleY": 1,
+          "Spacing": 0,
+          "Angle": 0,
+          "BorderStyle": 1,
+          "Outline": 2,
+          "Shadow": 0,
+          "Alignment": 2,
+          "MarginL": 10,
+          "MarginR": 10,
+          "MarginV": 20,
+          "Encoding": 1,
+          "treat_fontname_as_pattern": 0,
+          "Blur": 0,
+          "Justify": 0
+        }
+      ],
+      "pixels": {
+        "hash": "270e04e941a4f51f5c9689bcb8f1a498ac5b07dda62a472662992ab07584700f",
+        "whitePixels": 6592,
+        "overlayPixels": 21914,
+        "bytes": 1339840
+      }
+    }
+  },
+  "pausedAss": {
+    "before": {
+      "hash": "891625a2f669b8fb2a8c04b3611e8c400df075dfea23d2106c2cacb4a92d23b0",
+      "whitePixels": 7027,
+      "overlayPixels": 22114,
+      "bytes": 1339840
+    },
+    "expired": {
+      "hash": "40fd3715b7c194cb4ad722a2e1223ff20ed2c8c1083d484d3f137ffcd7b63f67",
+      "whitePixels": 1346,
+      "overlayPixels": 0,
+      "bytes": 1339840
+    },
+    "events": [
+      {
+        "Start": 30000,
+        "Duration": 4000,
+        "ReadOrder": 6,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "ASS M06 Font Test WWW iii",
+        "Effect": ""
+      }
+    ]
+  },
+  "externalAss": {
+    "events": [
+      {
+        "Start": 0,
+        "Duration": 4000,
+        "ReadOrder": 0,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M00",
+        "Effect": ""
+      },
+      {
+        "Start": 5000,
+        "Duration": 4000,
+        "ReadOrder": 1,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M01",
+        "Effect": ""
+      },
+      {
+        "Start": 10000,
+        "Duration": 4000,
+        "ReadOrder": 2,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M02",
+        "Effect": ""
+      },
+      {
+        "Start": 15000,
+        "Duration": 4000,
+        "ReadOrder": 3,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M03",
+        "Effect": ""
+      },
+      {
+        "Start": 20000,
+        "Duration": 4000,
+        "ReadOrder": 4,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M04",
+        "Effect": ""
+      },
+      {
+        "Start": 25000,
+        "Duration": 4000,
+        "ReadOrder": 5,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M05",
+        "Effect": ""
+      },
+      {
+        "Start": 30000,
+        "Duration": 4000,
+        "ReadOrder": 6,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M06",
+        "Effect": ""
+      },
+      {
+        "Start": 35000,
+        "Duration": 4000,
+        "ReadOrder": 7,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M07",
+        "Effect": ""
+      },
+      {
+        "Start": 40000,
+        "Duration": 4000,
+        "ReadOrder": 8,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M08",
+        "Effect": ""
+      },
+      {
+        "Start": 45000,
+        "Duration": 4000,
+        "ReadOrder": 9,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M09",
+        "Effect": ""
+      },
+      {
+        "Start": 50000,
+        "Duration": 4000,
+        "ReadOrder": 10,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M10",
+        "Effect": ""
+      },
+      {
+        "Start": 55000,
+        "Duration": 4000,
+        "ReadOrder": 11,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M11",
+        "Effect": ""
+      },
+      {
+        "Start": 60000,
+        "Duration": 4000,
+        "ReadOrder": 12,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M12",
+        "Effect": ""
+      },
+      {
+        "Start": 65000,
+        "Duration": 4000,
+        "ReadOrder": 13,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M13",
+        "Effect": ""
+      },
+      {
+        "Start": 70000,
+        "Duration": 4000,
+        "ReadOrder": 14,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M14",
+        "Effect": ""
+      },
+      {
+        "Start": 75000,
+        "Duration": 4000,
+        "ReadOrder": 15,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M15",
+        "Effect": ""
+      },
+      {
+        "Start": 80000,
+        "Duration": 4000,
+        "ReadOrder": 16,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M16",
+        "Effect": ""
+      },
+      {
+        "Start": 85000,
+        "Duration": 4000,
+        "ReadOrder": 17,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M17",
+        "Effect": ""
+      },
+      {
+        "Start": 90000,
+        "Duration": 4000,
+        "ReadOrder": 18,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M18",
+        "Effect": ""
+      },
+      {
+        "Start": 95000,
+        "Duration": 4000,
+        "ReadOrder": 19,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M19",
+        "Effect": ""
+      },
+      {
+        "Start": 100000,
+        "Duration": 4000,
+        "ReadOrder": 20,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M20",
+        "Effect": ""
+      },
+      {
+        "Start": 105000,
+        "Duration": 4000,
+        "ReadOrder": 21,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M21",
+        "Effect": ""
+      },
+      {
+        "Start": 110000,
+        "Duration": 4000,
+        "ReadOrder": 22,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M22",
+        "Effect": ""
+      },
+      {
+        "Start": 115000,
+        "Duration": 4000,
+        "ReadOrder": 23,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M23",
+        "Effect": ""
+      },
+      {
+        "Start": 120000,
+        "Duration": 4000,
+        "ReadOrder": 24,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M24",
+        "Effect": ""
+      },
+      {
+        "Start": 125000,
+        "Duration": 4000,
+        "ReadOrder": 25,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M25",
+        "Effect": ""
+      },
+      {
+        "Start": 130000,
+        "Duration": 4000,
+        "ReadOrder": 26,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M26",
+        "Effect": ""
+      },
+      {
+        "Start": 135000,
+        "Duration": 4000,
+        "ReadOrder": 27,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M27",
+        "Effect": ""
+      },
+      {
+        "Start": 140000,
+        "Duration": 4000,
+        "ReadOrder": 28,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M28",
+        "Effect": ""
+      },
+      {
+        "Start": 145000,
+        "Duration": 4000,
+        "ReadOrder": 29,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M29",
+        "Effect": ""
+      },
+      {
+        "Start": 150000,
+        "Duration": 4000,
+        "ReadOrder": 30,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M30",
+        "Effect": ""
+      },
+      {
+        "Start": 155000,
+        "Duration": 4000,
+        "ReadOrder": 31,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M31",
+        "Effect": ""
+      },
+      {
+        "Start": 160000,
+        "Duration": 4000,
+        "ReadOrder": 32,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M32",
+        "Effect": ""
+      },
+      {
+        "Start": 165000,
+        "Duration": 4000,
+        "ReadOrder": 33,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M33",
+        "Effect": ""
+      },
+      {
+        "Start": 170000,
+        "Duration": 4000,
+        "ReadOrder": 34,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M34",
+        "Effect": ""
+      },
+      {
+        "Start": 175000,
+        "Duration": 4000,
+        "ReadOrder": 35,
+        "Layer": 0,
+        "Style": 1,
+        "MarginL": 0,
+        "MarginR": 0,
+        "MarginV": 0,
+        "Name": "",
+        "Text": "EXTERNAL ASS M35",
+        "Effect": ""
+      }
+    ],
+    "pixels": {
+      "hash": "b1aa9f23610010963585a9e7f405de7db833acdb85fda6f992e9be3feb478863",
+      "whitePixels": 4832,
+      "overlayPixels": 13560,
+      "bytes": 1339840
+    }
+  },
+  "pass": true,
+  "profilesDeleted": true
+}

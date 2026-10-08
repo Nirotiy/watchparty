@@ -1,0 +1,99 @@
+{
+  "startedAt": "2026-10-07T14:03:16.485Z",
+  "case": "playback",
+  "checks": [
+    {
+      "label": "initial-frame",
+      "elapsedMs": 1211,
+      "state": {
+        "epoch": 1791381799779.5,
+        "time": 0,
+        "rate": 1,
+        "phase": "paused",
+        "audio": "blocked",
+        "width": 640,
+        "cues": [
+          {
+            "text": "EN M00",
+            "time": 0
+          }
+        ],
+        "errors": [],
+        "commands": [],
+        "snapshots": [],
+        "workers": [
+          false
+        ],
+        "audioContexts": [
+          "suspended"
+        ],
+        "connected": true,
+        "text": "/room-e7048a21845a9ecc\n已连接\ngroup\n1\nvideo_library\ntv\ntracks.mkv\nOPENLIST\n00:00\n03:00\nvolume_up\nsubtitles\nskip_previous\nplay_arrow\nskip_next\n1.00x\nplaylist_play\nrepeat\nopen_in_full",
+        "peakHz": 0,
+        "peakDb": -200
+      }
+    },
+    {
+      "label": "initial-frame",
+      "elapsedMs": 1321,
+      "state": {
+        "epoch": 1791381802879.6,
+        "time": 0,
+        "rate": 1,
+        "phase": "paused",
+        "audio": "blocked",
+        "width": 640,
+        "cues": [
+          {
+            "text": "EN M00",
+            "time": 0
+          }
+        ],
+        "errors": [],
+        "commands": [],
+        "snapshots": [],
+        "workers": [
+          false
+        ],
+        "audioContexts": [
+          "suspended"
+        ],
+        "connected": true,
+        "text": "/room-e7048a21845a9ecc\n已连接\ngroup\n2\nvideo_library\ntv\ntracks.mkv\nOPENLIST\n00:00\n03:00\nvolume_up\nsubtitles\nskip_previous\nplay_arrow\nskip_next\n1.00x\nplaylist_play\nrepeat\nopen_in_full",
+        "peakHz": 0,
+        "peakDb": -200
+      }
+    }
+  ],
+  "concurrent": [
+    {
+      "ok": true,
+      "revision": 2
+    },
+    {
+      "ok": true,
+      "revision": 4
+    },
+    {
+      "ok": true,
+      "revision": 3
+    },
+    {
+      "ok": false,
+      "error": {
+        "code": "REVISION_CONFLICT",
+        "message": "房间状态已更新，请重新同步后重试"
+      }
+    },
+    {
+      "ok": false,
+      "error": {
+        "code": "REVISION_CONFLICT",
+        "message": "房间状态已更新，请重新同步后重试"
+      }
+    }
+  ],
+  "pass": false,
+  "error": "every queued user seek should settle successfully",
+  "profilesDeleted": true
+}

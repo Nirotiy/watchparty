@@ -1,0 +1,35 @@
+{
+  "startedAt": "2026-10-07T13:57:49.425Z",
+  "checks": [
+    {
+      "label": "title-initial-load-releases-search",
+      "pass": true
+    },
+    {
+      "label": "title-query-filters",
+      "pass": true
+    },
+    {
+      "label": "clearing-title-query-restores-library",
+      "pass": true
+    },
+    {
+      "label": "old-library-response-cannot-overwrite-new-library",
+      "pass": true
+    },
+    {
+      "label": "old-detail-response-cannot-overwrite-current-card",
+      "pass": true
+    },
+    {
+      "label": "old-review-response-cannot-reopen-detail-or-library",
+      "pass": true
+    },
+    {
+      "label": "old-scrape-response-cannot-reload-previous-library",
+      "pass": true
+    }
+  ],
+  "pass": true,
+  "profileDeleted": true
+}

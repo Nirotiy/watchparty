@@ -1,0 +1,537 @@
+{
+  "startedAt": "2026-10-07T14:08:36.295Z",
+  "case": "subtitles",
+  "checks": [
+    {
+      "label": "initial-frame",
+      "elapsedMs": 2227,
+      "state": {
+        "epoch": 1791382119392.5999,
+        "time": 0,
+        "rate": 1,
+        "phase": "paused",
+        "audio": "blocked",
+        "width": 640,
+        "cues": [
+          {
+            "text": "EN M00",
+            "time": 0
+          }
+        ],
+        "errors": [],
+        "commands": [],
+        "snapshots": [],
+        "workers": [
+          false
+        ],
+        "audioContexts": [
+          "suspended"
+        ],
+        "connected": true,
+        "text": "/room-e7048a21845a9ecc\n已连接\ngroup\n1\nvideo_library\ntv\ntracks.mkv\nOPENLIST\n00:00\n03:00\nvolume_up\nsubtitles\nskip_previous\nplay_arrow\nskip_next\n1.00x\nplaylist_play\n2\nrepeat\nopen_in_full",
+        "peakHz": 0,
+        "peakDb": -200
+      }
+    },
+    {
+      "label": "paused-seek-subtitle-20.5",
+      "elapsedMs": 112,
+      "state": {
+        "epoch": 1791382119520.0999,
+        "time": 20.5,
+        "rate": 1,
+        "phase": "paused",
+        "audio": "blocked",
+        "width": 640,
+        "cues": [
+          {
+            "text": "EN M00",
+            "time": 0
+          },
+          {
+            "text": "EN M04",
+            "time": 20.5
+          }
+        ],
+        "errors": [],
+        "commands": [],
+        "snapshots": [
+          {
+            "revision": 84,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 20.5
+          }
+        ],
+        "workers": [
+          false
+        ],
+        "audioContexts": [
+          "suspended"
+        ],
+        "connected": true,
+        "text": "/room-e7048a21845a9ecc\n已连接\ngroup\n1\nvideo_library\ntv\ntracks.mkv\nOPENLIST\n00:00\n03:00\nvolume_up\nsubtitles\nskip_previous\nplay_arrow\nskip_next\n1.00x\nplaylist_play\n2\nrepeat\nopen_in_full",
+        "peakHz": 0,
+        "peakDb": -200
+      }
+    },
+    {
+      "label": "paused-seek-subtitle-30.5",
+      "elapsedMs": 255,
+      "state": {
+        "epoch": 1791382119782.9,
+        "time": 30.5,
+        "rate": 1,
+        "phase": "paused",
+        "audio": "blocked",
+        "width": 640,
+        "cues": [
+          {
+            "text": "EN M00",
+            "time": 0
+          },
+          {
+            "text": "EN M04",
+            "time": 20.5
+          },
+          {
+            "text": "EN M06",
+            "time": 30.5
+          }
+        ],
+        "errors": [],
+        "commands": [],
+        "snapshots": [
+          {
+            "revision": 84,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 85,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 30.5
+          }
+        ],
+        "workers": [
+          false
+        ],
+        "audioContexts": [
+          "suspended"
+        ],
+        "connected": true,
+        "text": "/room-e7048a21845a9ecc\n已连接\ngroup\n1\nvideo_library\ntv\ntracks.mkv\nOPENLIST\n00:20\n03:00\nvolume_up\nsubtitles\nskip_previous\nplay_arrow\nskip_next\n1.00x\nplaylist_play\n2\nrepeat\nopen_in_full",
+        "peakHz": 0,
+        "peakDb": -200
+      }
+    },
+    {
+      "label": "paused-seek-subtitle-10.5",
+      "elapsedMs": 352,
+      "state": {
+        "epoch": 1791382120141.5,
+        "time": 10.5,
+        "rate": 1,
+        "phase": "paused",
+        "audio": "blocked",
+        "width": 640,
+        "cues": [
+          {
+            "text": "EN M00",
+            "time": 0
+          },
+          {
+            "text": "EN M04",
+            "time": 20.5
+          },
+          {
+            "text": "EN M06",
+            "time": 30.5
+          },
+          {
+            "text": "EN M02",
+            "time": 10.5
+          }
+        ],
+        "errors": [],
+        "commands": [],
+        "snapshots": [
+          {
+            "revision": 84,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 85,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 30.5
+          },
+          {
+            "revision": 86,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 10.5
+          }
+        ],
+        "workers": [
+          false
+        ],
+        "audioContexts": [
+          "suspended"
+        ],
+        "connected": true,
+        "text": "/room-e7048a21845a9ecc\n已连接\ngroup\n1\nvideo_library\ntv\ntracks.mkv\nOPENLIST\n00:30\n03:00\nvolume_up\nsubtitles\nskip_previous\nplay_arrow\nskip_next\n1.00x\nplaylist_play\n2\nrepeat\nopen_in_full",
+        "peakHz": 0,
+        "peakDb": -200
+      }
+    },
+    {
+      "label": "load-ass-font.mkv",
+      "elapsedMs": 802,
+      "state": {
+        "epoch": 1791382120953.0999,
+        "time": 20.5,
+        "rate": 1,
+        "phase": "paused",
+        "audio": "blocked",
+        "width": 640,
+        "cues": [
+          {
+            "text": "EN M00",
+            "time": 0
+          },
+          {
+            "text": "EN M04",
+            "time": 20.5
+          },
+          {
+            "text": "EN M06",
+            "time": 30.5
+          },
+          {
+            "text": "EN M02",
+            "time": 10.5
+          }
+        ],
+        "errors": [],
+        "commands": [],
+        "snapshots": [
+          {
+            "revision": 84,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 85,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 30.5
+          },
+          {
+            "revision": 86,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 10.5
+          },
+          {
+            "revision": 87,
+            "source": "ass-font.mkv",
+            "paused": true,
+            "position": 0
+          },
+          {
+            "revision": 88,
+            "source": "ass-font.mkv",
+            "paused": true,
+            "position": 20.5
+          }
+        ],
+        "workers": [
+          true,
+          false,
+          false
+        ],
+        "audioContexts": [
+          "closed",
+          "suspended"
+        ],
+        "connected": true,
+        "text": "/room-e7048a21845a9ecc\n已连接\ngroup\n1\nvideo_library\ntv\nass-font.mkv\nOPENLIST\n00:00\n03:00\nvolume_up\nsubtitles\nskip_previous\nplay_arrow\nskip_next\n1.00x\nplaylist_play\n2\nrepeat\nopen_in_full",
+        "peakHz": 0,
+        "peakDb": -200
+      }
+    },
+    {
+      "label": "load-ass-fallback.mkv",
+      "elapsedMs": 534,
+      "state": {
+        "epoch": 1791382122925.3,
+        "time": 20.5,
+        "rate": 1,
+        "phase": "paused",
+        "audio": "blocked",
+        "width": 640,
+        "cues": [
+          {
+            "text": "EN M00",
+            "time": 0
+          },
+          {
+            "text": "EN M04",
+            "time": 20.5
+          },
+          {
+            "text": "EN M06",
+            "time": 30.5
+          },
+          {
+            "text": "EN M02",
+            "time": 10.5
+          }
+        ],
+        "errors": [],
+        "commands": [],
+        "snapshots": [
+          {
+            "revision": 84,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 85,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 30.5
+          },
+          {
+            "revision": 86,
+            "source": "tracks.mkv",
+            "paused": true,
+            "position": 10.5
+          },
+          {
+            "revision": 87,
+            "source": "ass-font.mkv",
+            "paused": true,
+            "position": 0
+          },
+          {
+            "revision": 88,
+            "source": "ass-font.mkv",
+            "paused": true,
+            "position": 20.5
+          },
+          {
+            "revision": 89,
+            "source": "ass-fallback.mkv",
+            "paused": true,
+            "position": 0
+          },
+          {
+            "revision": 90,
+            "source": "ass-fallback.mkv",
+            "paused": true,
+            "position": 20.5
+          }
+        ],
+        "workers": [
+          true,
+          true,
+          true,
+          false,
+          false
+        ],
+        "audioContexts": [
+          "closed",
+          "closed",
+          "suspended"
+        ],
+        "connected": true,
+        "text": "/room-e7048a21845a9ecc\n已连接\ngroup\n1\nvideo_library\ntv\nass-fallback.mkv\nOPENLIST\n00:00\n03:00\nvolume_up\nsubtitles\nskip_previous\nplay_arrow\nskip_next\n1.00x\nplaylist_play\n2\nrepeat\nopen_in_full",
+        "peakHz": 0,
+        "peakDb": -200
+      }
+    }
+  ],
+  "assFontComparison": {
+    "ass-font.mkv": {
+      "events": [
+        {
+          "Start": 20000,
+          "Duration": 4000,
+          "ReadOrder": 4,
+          "Layer": 0,
+          "Style": 1,
+          "MarginL": 0,
+          "MarginR": 0,
+          "MarginV": 0,
+          "Name": "",
+          "Text": "ASS M04 Font Test WWW iii",
+          "Effect": ""
+        }
+      ],
+      "styles": [
+        {
+          "Name": "Default",
+          "FontName": "Arial",
+          "FontSize": 18,
+          "PrimaryColour": 4294967040,
+          "SecondaryColour": 16776960,
+          "OutlineColour": 0,
+          "BackColour": 128,
+          "Bold": 200,
+          "Italic": 0,
+          "Underline": 0,
+          "StrikeOut": 0,
+          "ScaleX": 1,
+          "ScaleY": 1,
+          "Spacing": 0,
+          "Angle": 0,
+          "BorderStyle": 1,
+          "Outline": 2,
+          "Shadow": 3,
+          "Alignment": 2,
+          "MarginL": 20,
+          "MarginR": 20,
+          "MarginV": 20,
+          "Encoding": 0,
+          "treat_fontname_as_pattern": 0,
+          "Blur": 0,
+          "Justify": 0
+        },
+        {
+          "Name": "Default",
+          "FontName": "Comic Sans MS",
+          "FontSize": 30,
+          "PrimaryColour": 4294967040,
+          "SecondaryColour": 4278190080,
+          "OutlineColour": 0,
+          "BackColour": 0,
+          "Bold": 0,
+          "Italic": 0,
+          "Underline": 0,
+          "StrikeOut": 0,
+          "ScaleX": 1,
+          "ScaleY": 1,
+          "Spacing": 0,
+          "Angle": 0,
+          "BorderStyle": 1,
+          "Outline": 2,
+          "Shadow": 0,
+          "Alignment": 2,
+          "MarginL": 10,
+          "MarginR": 10,
+          "MarginV": 20,
+          "Encoding": 1,
+          "treat_fontname_as_pattern": 0,
+          "Blur": 0,
+          "Justify": 0
+        }
+      ],
+      "pixels": {
+        "hash": "591640b7c0db6366b858dba157df6e017bfa6b28d1c212f47ded0c12f4d19420",
+        "whitePixels": 1186,
+        "bytes": 1339840
+      },
+      "forcedPixels": {
+        "hash": "a0df2f08b251e28c2fe86d10c375f899a6d1758815d8f8b4340f5db5d4efc1c0",
+        "whitePixels": 5649,
+        "bytes": 1339840
+      }
+    },
+    "ass-fallback.mkv": {
+      "events": [
+        {
+          "Start": 20000,
+          "Duration": 4000,
+          "ReadOrder": 4,
+          "Layer": 0,
+          "Style": 1,
+          "MarginL": 0,
+          "MarginR": 0,
+          "MarginV": 0,
+          "Name": "",
+          "Text": "ASS M04 Font Test WWW iii",
+          "Effect": ""
+        }
+      ],
+      "styles": [
+        {
+          "Name": "Default",
+          "FontName": "Arial",
+          "FontSize": 18,
+          "PrimaryColour": 4294967040,
+          "SecondaryColour": 16776960,
+          "OutlineColour": 0,
+          "BackColour": 128,
+          "Bold": 200,
+          "Italic": 0,
+          "Underline": 0,
+          "StrikeOut": 0,
+          "ScaleX": 1,
+          "ScaleY": 1,
+          "Spacing": 0,
+          "Angle": 0,
+          "BorderStyle": 1,
+          "Outline": 2,
+          "Shadow": 3,
+          "Alignment": 2,
+          "MarginL": 20,
+          "MarginR": 20,
+          "MarginV": 20,
+          "Encoding": 0,
+          "treat_fontname_as_pattern": 0,
+          "Blur": 0,
+          "Justify": 0
+        },
+        {
+          "Name": "Default",
+          "FontName": "Comic Sans MS",
+          "FontSize": 30,
+          "PrimaryColour": 4294967040,
+          "SecondaryColour": 4278190080,
+          "OutlineColour": 0,
+          "BackColour": 0,
+          "Bold": 0,
+          "Italic": 0,
+          "Underline": 0,
+          "StrikeOut": 0,
+          "ScaleX": 1,
+          "ScaleY": 1,
+          "Spacing": 0,
+          "Angle": 0,
+          "BorderStyle": 1,
+          "Outline": 2,
+          "Shadow": 0,
+          "Alignment": 2,
+          "MarginL": 10,
+          "MarginR": 10,
+          "MarginV": 20,
+          "Encoding": 1,
+          "treat_fontname_as_pattern": 0,
+          "Blur": 0,
+          "Justify": 0
+        }
+      ],
+      "pixels": {
+        "hash": "591640b7c0db6366b858dba157df6e017bfa6b28d1c212f47ded0c12f4d19420",
+        "whitePixels": 1186,
+        "bytes": 1339840
+      },
+      "forcedPixels": {
+        "hash": "591640b7c0db6366b858dba157df6e017bfa6b28d1c212f47ded0c12f4d19420",
+        "whitePixels": 1186,
+        "bytes": 1339840
+      }
+    }
+  },
+  "pass": false,
+  "error": "attachment font changes glyph raster versus fallback",
+  "profilesDeleted": true
+}
