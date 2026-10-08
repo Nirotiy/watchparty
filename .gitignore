@@ -15,7 +15,7 @@
 # production
 /build
 /web/.next
-/web/.next-mkv-*
+/web/.next-*
 /web/out
 /web/node_modules
 /web/public/vendor
