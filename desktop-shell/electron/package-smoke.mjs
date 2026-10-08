@@ -58,8 +58,11 @@ try {
     servedPort = server.address().port
   }
 }
+if (!usingExistingHealthService) servedPort = server.address().port
 const env = { ...process.env }
-delete env.ELECTRON_RUN_AS_NODE
+// Exercise the shipped launcher against the environment that broke direct launch.
+env.ELECTRON_RUN_AS_NODE = '1'
+delete env.WATCHPARTY_LOCAL_LAUNCH
 if (!usingExistingHealthService) {
   const fixtureOrigin = `http://127.0.0.1:${servedPort}`
   env.WATCHPARTY_SMOKE_HEALTH_ORIGIN = fixtureOrigin

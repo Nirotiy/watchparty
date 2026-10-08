@@ -10,7 +10,13 @@ export class SidecarClient extends EventEmitter {
   #closed = false
   constructor(executable, args) {
     super()
-    this.#child = spawn(executable, args, { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] })
+    this.#child = spawn(executable, args, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
+    this.#child.stderr.setEncoding('utf8')
+    this.#child.stderr.on('data', chunk => {
+      for (const line of chunk.split(/\r?\n/)) {
+        if (/^(desktop_sidecar_failed|desktop_initialization_failed [A-Z_]+)$/.test(line)) console.error(line)
+      }
+    })
     this.#child.stdout.setEncoding('utf8')
     this.#child.stdout.on('data', chunk => {
       this.#buffer += chunk

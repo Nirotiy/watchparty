@@ -4,6 +4,16 @@
   "private": true,
   "type": "module",
   "main": "main.mjs",
-  "scripts": { "start": "node launch.mjs", "test:startup": "node launch.mjs --startup-check", "test:linkle": "node launch.mjs --linkle-check", "test:native": "node launch.mjs --smoke", "test:setup-guide": "node launch.mjs --setup-guide-check", "package:local": "node package-local.mjs" },
-  "devDependencies": { "electron": "^44.0.0" }
+  "scripts": {
+    "start": "node launch.mjs",
+    "test:startup": "node launch.mjs --startup-check",
+    "test:linkle": "node launch.mjs --linkle-check",
+    "test:native": "node launch.mjs --smoke",
+    "test:setup-guide": "node launch.mjs --setup-guide-check",
+    "package:local": "node package-local.mjs"
+  },
+  "devDependencies": {
+    "electron": "^44.0.0",
+    "rcedit": "5.0.2"
+  }
 }

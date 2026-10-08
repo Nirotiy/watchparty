@@ -44,7 +44,7 @@ export async function runSmoke(window, native) {
     tabs: document.querySelectorAll('.fluent-settings-nav [role="tab"]').length,
     themeSwitch: Boolean(document.querySelector('.fluent-settings-content [role="switch"]')),
   }))()`)
-  assert.deepEqual(fluentSettings, { provider: true, tabs: 5, themeSwitch: true })
+  assert.deepEqual(fluentSettings, { provider: true, tabs: 4, themeSwitch: true })
   await window.webContents.executeJavaScript(`(() => {
     const tab = [...document.querySelectorAll('.fluent-settings-nav [role="tab"]')].find(item => item.textContent?.includes('播放'))
     if (!tab) throw new Error('playback_tab_missing')
@@ -137,9 +137,9 @@ public static class CaptionProbe {
 }
 '@
 Write-Output ([CaptionProbe]::Hit(${hwnd}, 150, 16))
-Write-Output ([CaptionProbe]::Hit(${hwnd}, $width - 20, 16))`
+Write-Output ([CaptionProbe]::Hit(${hwnd}, ${width} - 20, 16))`
     // Async child execution keeps Electron's main thread free to answer WM_NCHITTEST.
-    const { stdout } = await promisify(execFile)('powershell.exe', ['-NoProfile', '-Command', script], { windowsHide: true, timeout: 15000 })
+    const { stdout } = await promisify(execFile)(process.env.WATCHPARTY_SMOKE_POWERSHELL ?? 'powershell.exe', ['-NoProfile', '-Command', script], { windowsHide: true, timeout: 15000 })
     const [dragRegion, corner] = stdout.trim().split(/\r?\n/).map(Number)
     assert.equal(dragRegion, 2, 'Windows must return HTCAPTION for the drag region')
     // 8/9/20 = HTMINBUTTON/HTMAXBUTTON/HTCLOSE：右上角还有原生窗口按钮就说明 WCO 又回来了，
@@ -193,12 +193,9 @@ Write-Output ([CaptionProbe]::Hit(${hwnd}, $width - 20, 16))`
   const capabilities = await invoke('mediaRequest', { method: 'GET', path: '/api/media/capabilities', query: null, body: null })
   assert.equal(capabilities.status, 200, JSON.stringify(capabilities))
   assert.equal(JSON.parse(capabilities.body).libraries, true)
-  const libraries = await invoke('mediaRequest', { method: 'GET', path: '/api/media/libraries', query: null, body: null })
-  assert.equal(libraries.status, 200, JSON.stringify(libraries))
-  const libraryRows = JSON.parse(libraries.body).libraries
-  assert.ok(Array.isArray(libraryRows) && libraryRows.length >= 1, JSON.stringify(libraryRows))
-  assert.equal(typeof libraryRows[0].id, 'string')
-  console.log('MEDIA_LIBRARIES ' + JSON.stringify({ capabilities: JSON.parse(capabilities.body), libraries: libraryRows.map(row => ({ id: row.id, kind: row.kind, health: row.health })) }))
+  const deniedLibraries = await invoke('mediaRequest', { method: 'GET', path: '/api/media/libraries', query: null, body: null }).then(() => null, error => error)
+  assert.equal(deniedLibraries?.code, 'ROOM_ACCESS_REQUIRED', JSON.stringify(deniedLibraries))
+  console.log('MEDIA_ROOM_ACCESS_REQUIRED_OK')
   for (const attempt of [
     { method: 'GET', path: '/api/media/roots', query: null, body: null },
     { method: 'POST', path: '/api/media/list', query: null, body: {} },

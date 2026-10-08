@@ -72,28 +72,56 @@ export function parseYrc(raw?: string | null): YrcLine[] {
   return lines.sort((left, right) => left.start - right.start)
 }
 
-function ownerIndex(lines: YrcLine[], start: number, end: number): number {
-  const middle = (start + end) / 2
-  let fallback = -1
+function ownerIndex(lines: YrcLine[], start: number): number {
+  let nearest = -1
+  let distance = Infinity
+  for (let i = 0; i < lines.length; i += 1) {
+    const delta = Math.abs(lines[i].start - start)
+    if (delta <= 500 && delta < distance) { nearest = i; distance = delta }
+  }
+  if (nearest >= 0) return nearest
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i]
-    const ownerEnd = Math.max(line.end, line.start + 1)
+    const ownerEnd = Math.min(Math.max(line.end, line.start + 1), lines[i + 1]?.start ?? Infinity)
     if (start >= line.start && start < ownerEnd) return i
-    if (line.start <= middle) fallback = i
   }
-  return fallback >= 0 ? fallback : lines.length ? 0 : -1
+  return -1
 }
 
 /**
  * Measured live 2026-09-22: the word translation/romanization tracks do not align
  * with the word track by line count (Cruel Summer 65 vs 60), so the extra track is
- * paired by time window, never by index.
+ * paired by onset (within 500 ms) or the active line's window, never by index.
+ * Unrelated timestamps outside these bounds stay unpaired.
  */
 export function pairByTime(main: YrcLine[], extra: YrcLine[]): string[] {
   const buckets: string[][] = main.map(() => [])
   for (const line of extra) {
-    const index = ownerIndex(main, line.start, line.end)
+    const index = ownerIndex(main, line.start)
     if (index >= 0) buckets[index].push(line.text)
   }
   return buckets.map(bucket => bucket.join(" "))
+}
+
+/** Legacy timestamps belong to legacy originals; bridge to YRC by original text. */
+export function pairLyricExtras(main: YrcLine[], wordExtra: string | null | undefined, legacyMain: string | null | undefined, legacyExtra: string | null | undefined): string[] {
+  const primary = pairByTime(main, parseYrc(wordExtra))
+  const legacy = parseYrc(legacyMain)
+  const fallback = pairByTime(legacy.length ? legacy : main, parseYrc(legacyExtra))
+  if (!legacy.length) return primary.map((text, index) => text || fallback[index] || "")
+  const key = (text: string) => text.normalize("NFKC").toLowerCase().replace(/[\p{P}\p{Z}\p{S}\s]/gu, "")
+  const legacyKeys = legacy.map(line => key(line.text))
+  let cursor = 0
+  return main.map((line, index) => {
+    const textKey = key(line.text)
+    let match = -1
+    let distance = Infinity
+    for (let i = cursor; textKey && i < legacy.length; i += 1) {
+      const delta = Math.abs(legacy[i].start - line.start)
+      if (legacyKeys[i] === textKey && delta < distance) { match = i; distance = delta }
+    }
+    // Matching in order keeps repeated chorus lines from sharing a legacy row.
+    if (match >= 0) cursor = match + 1
+    return primary[index] || (match >= 0 ? fallback[match] : "") || ""
+  })
 }

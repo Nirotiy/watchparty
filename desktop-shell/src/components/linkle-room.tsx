@@ -16,7 +16,7 @@ import type { MusicPartyAdapter, MusicSearchResult, PlaylistScope, PlaylistSumma
 import type { MusicAlbum, MusicMetadata, PlaybackHistoryItem } from "../../shared/musicparty-contract"
 import type { MusicPartyConnection } from "../../shared/musicparty-connection"
 import type { RoomIdentity } from "../../shared/lobby-contract"
-import { pairByTime, parseYrc } from "../../shared/yrc"
+import { pairLyricExtras, parseYrc } from "../../shared/yrc"
 import { linkleIdentity, linkleMemberOf, migrateLocalSettings, type LinkleMemberIdentity } from "../../shared/local-schema"
 import type { MusicPartyAccount } from "../../shared/musicparty-adapter"
 import type { LyricDetail } from "../../shared/musicparty-adapter"
@@ -82,8 +82,7 @@ function buildLyrics(detail: LyricDetail): LyricState {
   const word = parseYrc(detail.wordLyric)
   const source = word.length ? word : parseYrc(detail.lyric)
   if (!source.length) return { status: "none", lines: [] }
-  const translated = parseYrc(detail.translatedLyric)
-  const paired = pairByTime(source, translated.length ? translated : parseYrc(detail.wordTranslatedLyric))
+  const paired = pairLyricExtras(source, word.length ? detail.wordTranslatedLyric : "", detail.lyric, detail.translatedLyric)
   const lines = source.map((line, index) => {
     const windowEnd = line.end > line.start ? line.end : source[index + 1]?.start ?? line.start + LINE_TAIL_MS
     const units = line.segments

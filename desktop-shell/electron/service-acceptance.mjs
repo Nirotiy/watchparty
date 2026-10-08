@@ -3,7 +3,7 @@ import { createServer, request as httpRequest } from 'node:http'
 import { createServer as createHttpsServer } from 'node:https'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { execFile } from 'node:child_process'
@@ -25,7 +25,11 @@ let lastRedeemDisplayName = null
 async function startCoverFixture({ dir, servers, listen }) {
   const key = join(dir, 'cover.key')
   const pem = join(dir, 'cover.pem')
-  await promisify(execFile)(join(process.env.ProgramFiles ?? 'C:/Program Files', 'Git/usr/bin/openssl.exe'), [
+  const fixtureDirectory = process.env.WATCHPARTY_ACCEPTANCE_TLS_DIR
+  if (fixtureDirectory) {
+    await copyFile(join(fixtureDirectory, 'cover.key'), key)
+    await copyFile(join(fixtureDirectory, 'cover.pem'), pem)
+  } else await promisify(execFile)(join(process.env.ProgramFiles ?? 'C:/Program Files', 'Git/usr/bin/openssl.exe'), [
     'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', pem, '-days', '1',
     '-subj', '/CN=WatchParty isolated album art', '-addext', 'subjectAltName=IP:127.0.0.1', '-addext', 'basicConstraints=critical,CA:TRUE',
   ], { windowsHide: true })
@@ -419,6 +423,15 @@ export async function runServiceAcceptance({ window, native, invoke, exe, dir, e
         const guestServer = await guestAccount()
         assert.equal(guestServer?.guest, true, `server must report a guest session: ${JSON.stringify(guestServer)}`)
         assert.equal(guestServer?.displayName, guestName)
+        // Exercise the public-room join with a guest before invite redemption changes the identity.
+        await until(() => js(`Boolean(document.querySelector('#linkle-room-lounge'))`), 'guest public room listing')
+        await js(`document.querySelector('#linkle-room-lounge').closest('.lobby-row').querySelector('.lobby-row-actions button').click()`)
+        await until(() => js(`Boolean(document.querySelector('.lobby-dialog[open]'))`), 'guest join dialog')
+        await click('加入房间')
+        await until(() => js(`Boolean(document.querySelector('.linkle-room .roomhead'))`), 'guest public room workspace', 20000)
+        assert.equal((await guestAccount())?.guest, true, 'joining must preserve the guest identity')
+        console.log('LINKLE_GUEST_PUBLIC_ROOM_JOIN_OK')
+        await leaveLinkleRoom()
         // 改显示名：服务端先落新名，publicId 不动，本机桌面昵称跟着同步。
         await js(`Array.from(document.querySelectorAll('.lobby-card-actions button')).find(button => button.textContent.trim() === '修改昵称')?.click()`)
         await until(() => js(`Boolean(document.querySelector('.lobby-rename input'))`), 'rename editor')
