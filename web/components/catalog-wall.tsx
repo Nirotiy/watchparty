@@ -18,7 +18,7 @@ export function CatalogWall({ cards, selectedId, onSelect }: {
   onSelect: (card: WallCard) => void;
 }) {
   return (
-    <ul className="grid content-start gap-4 sm:grid-cols-3 xl:grid-cols-4" aria-label="标题墙">
+    <ul className="grid content-start gap-4 grid-cols-2 @sm:grid-cols-3 @3xl:grid-cols-4 @5xl:grid-cols-5 @7xl:grid-cols-6" aria-label="标题墙">
       {cards.map(card => (
         <li key={card.id} className="min-w-0">
           <button

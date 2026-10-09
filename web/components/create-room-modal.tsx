@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Keycap } from "@/components/ui/keycap";
 import { api } from "@/lib/api";
 import { CreateRoomResponse, MediaSource } from "@/lib/contracts";
 
@@ -251,7 +250,14 @@ export function CreateRoomModal({
             </Button>
             <Button type="submit" size="sm" disabled={isSubmitting}>
               <span>{isSubmitting ? "创建中…" : "立即创建"}</span>
-              {!isSubmitting && <Keycap className="bg-none border-white/30 bg-white/15 text-white/85 dark:border-black/20 dark:bg-[linear-gradient(180deg,#121212,#0d0d0d)] dark:bg-black/10 dark:text-black/70">⏎</Keycap>}
+              {!isSubmitting && (
+                <span
+                  aria-hidden="true"
+                  className="inline-flex h-5 min-w-5 items-center justify-center rounded-[4px] border border-white/30 bg-white/15 px-1.5 text-xs text-white/85 dark:border-black/30 dark:bg-[#151515] dark:text-[#f4f4f6]"
+                >
+                  ⏎
+                </span>
+              )}
               {isSubmitting && <ArrowRight className="size-3.5" />}
             </Button>
           </div>

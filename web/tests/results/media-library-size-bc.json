@@ -1,0 +1,144 @@
+{
+  "startedAt": "2026-10-09T06:31:41.789Z",
+  "checks": [
+    {
+      "label": "2560-modal",
+      "ok": true,
+      "value": {
+        "w": 1440,
+        "h": 900,
+        "wallCols": 6
+      }
+    },
+    {
+      "label": "2560-modal-wallCols-rail-open",
+      "ok": true,
+      "value": 5
+    },
+    {
+      "label": "2560-rail-modal",
+      "ok": true,
+      "value": 320
+    },
+    {
+      "label": "2560-fullpage",
+      "ok": true,
+      "value": {
+        "innerW": 2240,
+        "wallCols": 6,
+        "railW": 360,
+        "vw": 2560
+      }
+    },
+    {
+      "label": "1280-modal",
+      "ok": true,
+      "value": {
+        "w": 1178,
+        "h": 688,
+        "wallCols": 5
+      }
+    },
+    {
+      "label": "1280-modal-wallCols-rail-open",
+      "ok": true,
+      "value": 4
+    },
+    {
+      "label": "1280-rail-modal",
+      "ok": true,
+      "value": 320
+    },
+    {
+      "label": "1280-fullpage",
+      "ok": true,
+      "value": {
+        "innerW": 1203,
+        "wallCols": 4,
+        "railW": 360,
+        "vw": 1280
+      }
+    },
+    {
+      "label": "modal-2560-size",
+      "ok": true,
+      "value": {
+        "actual": "1440x900",
+        "expect": "1440x900"
+      }
+    },
+    {
+      "label": "modal-2560-wallCols-before-select",
+      "ok": true,
+      "value": {
+        "actual": 6,
+        "expect": 6
+      }
+    },
+    {
+      "label": "rail-2560-modal",
+      "ok": true,
+      "value": {
+        "actual": 320,
+        "expect": 320
+      }
+    },
+    {
+      "label": "full-2560-innerW",
+      "ok": true,
+      "value": {
+        "actual": 2240,
+        "expect": 2240
+      }
+    },
+    {
+      "label": "full-2560-wallCols",
+      "ok": true,
+      "value": {
+        "actual": 6,
+        "expect": 6
+      }
+    },
+    {
+      "label": "full-2560-railW",
+      "ok": true,
+      "value": {
+        "actual": 360,
+        "expect": 360
+      }
+    },
+    {
+      "label": "modal-1280-size",
+      "ok": true,
+      "value": {
+        "actual": "1178x688",
+        "expect": "1178x688"
+      }
+    },
+    {
+      "label": "modal-1280-wallCols-before-select",
+      "ok": true,
+      "value": {
+        "actual": 5,
+        "expect": 5
+      }
+    },
+    {
+      "label": "full-1280-innerW",
+      "ok": true,
+      "value": {
+        "actual": 1203,
+        "expect": 1203
+      }
+    },
+    {
+      "label": "full-1280-wallCols",
+      "ok": true,
+      "value": {
+        "actual": 4,
+        "expect": 4
+      }
+    }
+  ],
+  "pass": true
+}

@@ -186,6 +186,8 @@ spacing:
 
 - 追加（2026-10-08，播放器设置落地／终版 handoff + 布局 B）：按 `temp-html/web-player-settings-grill-2026-10-08.html`（三轮 grill 终稿）落地。模型：有序语言列表（音轨/字幕各一，旧单值迁移为单元素列表；按顺序逐项匹配、精确标签→主语言回退、排除不支持、同级保序）+ 字幕来源优先级（外挂/内嵌，默认外挂；空表或无命中回退来源默认轨，来源缺失回退另一来源）+ 关闭字幕独立开关（显式关闭优先、重选解除）+ 普通文本字幕外观（字号 50–300、白/黄、描边开关、背景、底部位置上移 0＝自动安全区 / 5–30 手动，渲染端防裁切约束）+ 偏移 ±30s 步进 0.1（clamp）。**菜单手选不写全局列表**（只解除关闭；覆盖当前媒体、同媒体重试保留；换媒体按列表重应用）；播放速度/循环/自动下一项不入设置（房间状态）。UI＝布局 B 居中大窗（左分组导航：基础/字幕外观/字幕偏移/恢复），组件 `player-settings-dialog.tsx`；引擎 `draw()` 样式钩子含暂停态重绘（restart 路径）。验收：设置 E2E 17/17（语言列表增删移、来源切换、字号滑杆暂停重绘 68px、底部上移 108px、清偏移确认、重置回默认并重绘、刷新持久、手选不写列表）；mkv-ui 39/39、fault 全过、npm test 25/25、tsc/eslint 0、生产构建 exit 0。两个历史 helper（next-preferences / room-integration）的"手选写全局语言"旧断言已改到新语义（**next-preferences 全量套件本轮未复跑**，需隔离端口栈）。静态稿：`temp-html/web-player-settings-options-2026-10-08.html`（A/B/C 已选 B）。
 
+- 追加（2026-10-09，媒体库尺寸/布局策略＝弹-B＋页-C 落地）：用户从 `temp-html/media-library-size-options-2026-10-09.html` 选定。落地：弹窗 `w-[min(92vw,1440px)] h-[min(86dvh,900px)]`（取代 1152×min(80dvh,780)）；整页内容壳 `max-w-[min(94vw,2240px)]`（取代 1680 cap）；右栏整页态加宽 **360**（弹窗态保持 320）；**标题墙改容器查询**（`@container` 于滚动容器，列序 `grid-cols-2 @sm:3 @3xl:4 @5xl:5 @7xl:6`）——列数随容器而非视口，弹/页两壳自然分化（2560：弹 1440 宽未选 6 列/选中 5 列；页 2240 宽 6 列；1280：弹 1178 未选 5 列/选中 4 列）。验收：`tests/results/media-library-size-bc.json` pass；catalog-logic 6/6（`catalog-logic-size-bc.json`）；npm test 25/25、tsc/eslint 0、生产构建 exit 0。截图 `%TEMP%/size-2560-modal.png`、`size-bc-full-2560.png`。
+
 ## 附录 A · cinema 面登记（冻结参考，只读）
 
 - 舞台与浮层背景：`#000`；浮层渐变 `black → transparent`。

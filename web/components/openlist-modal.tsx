@@ -914,9 +914,9 @@ export function OpenListModal({
                   这个库还没有标题
                 </div>
               ) : (
-                <div className={cn("grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden", railVisible && "lg:grid-cols-[minmax(0,1fr)_320px]")}>
+                <div className={cn("grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden", railVisible && (fullPage ? "lg:grid-cols-[minmax(0,1fr)_360px]" : "lg:grid-cols-[minmax(0,1fr)_320px]"))}>
                   {/* 只有墙滚；右栏固定在自己的高度里（产品负责人 2026-09-27）。 */}
-                  <div className="min-h-0 overflow-y-auto pr-1">
+                  <div className="min-h-0 overflow-y-auto pr-1 @container">
                     <CatalogWall cards={wallCards} selectedId={selectedId} onSelect={openCard} />
                   </div>
                   {rail}
@@ -1235,7 +1235,7 @@ export function OpenListModal({
 
   if (fullPage) {
     return <div className="fixed inset-0 z-50 flex flex-col items-center overflow-hidden bg-background">
-      <div className="flex min-h-0 w-full max-w-[1680px] flex-1 flex-col">{panel}</div>
+      <div className="flex min-h-0 w-full max-w-[min(94vw,2240px)] flex-1 flex-col">{panel}</div>
     </div>;
   }
   return (
@@ -1243,7 +1243,7 @@ export function OpenListModal({
       <DialogContent
         showCloseButton={false}
         aria-describedby={undefined}
-        className="flex h-[min(80dvh,780px)] w-full max-w-6xl flex-col gap-0 overflow-hidden border-border bg-card p-0 sm:max-w-6xl"
+        className="flex h-[min(86dvh,900px)] w-[min(92vw,1440px)] max-w-[min(92vw,1440px)] flex-col gap-0 overflow-hidden border-border bg-card p-0 sm:max-w-[min(92vw,1440px)]"
       >
         {panel}
       </DialogContent>
