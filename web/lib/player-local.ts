@@ -29,6 +29,12 @@ export type EmbeddedTrack = {
   label: string;
   language?: string;
   supported: boolean;
+  /**
+   * 容器里的"媒体默认轨"标记（MKV FlagDefault）。
+   * 当前 libav.js 6.10.9.0 构建不暴露 disposition，引擎恒为 undefined；
+   * "跟随媒体默认"因此在有标记时优先它、无标记时按语言列表回退。
+   */
+  default?: boolean;
 };
 
 export type EmbeddedTracks = {

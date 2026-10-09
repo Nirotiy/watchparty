@@ -5,12 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
+import { SubtitleAppearancePreview } from "./subtitle-appearance-preview";
 import {
-  LANGUAGE_OPTIONS, SUBTITLE_BOTTOM_RAISE_MAX, SUBTITLE_BOTTOM_RAISE_MIN, SUBTITLE_FONT_MAX, SUBTITLE_FONT_MIN,
-  type PlayerPreferences, type SubtitleAppearance, type SubtitleSourcePreference,
+  LANGUAGE_OPTIONS, SKIP_STEP_OPTIONS, SUBTITLE_BACKGROUND_OPACITIES, SUBTITLE_BOTTOM_RAISE_MAX,
+  SUBTITLE_BOTTOM_RAISE_MIN, SUBTITLE_FONT_MAX, SUBTITLE_FONT_MIN,
+  type PictureFit, type PlayerPreferences, type SkipStepSeconds, type SubtitleAppearance,
+  type SubtitleMode, type SubtitleSourcePreference,
 } from "@/lib/player-preferences";
 
-type SettingsSection = "basic" | "appearance" | "offset" | "reset";
+type SettingsSection = "basic" | "appearance" | "offset" | "playback" | "reset";
 
 interface PlayerSettingsDialogProps {
   open: boolean;
@@ -20,16 +23,22 @@ interface PlayerSettingsDialogProps {
   muted: boolean;
   onVolumeChange: (volume: number) => void;
   onToggleMute: () => void;
-  onSubtitlesOffChange: (off: boolean) => void;
+  onSubtitleModeChange: (mode: SubtitleMode) => void;
   onSourcePreferenceChange: (preference: SubtitleSourcePreference) => void;
   onLanguageListChange: (kind: "audio" | "subtitle", next: string[]) => void;
   updateAppearance: (patch: Partial<SubtitleAppearance>) => void;
   subtitleOffset: number;
   onOffsetDelta: (delta: number) => void;
   onOffsetZero: () => void;
+  onSkipStepChange: (kind: "backward" | "forward", seconds: SkipStepSeconds) => void;
+  onPictureFitChange: (fit: PictureFit) => void;
   /** 语境说明（ASS 原样式 / YouTube 自身能力）；null＝当前设置适用。 */
   appearanceNotice: string | null;
   appearanceDisabled: boolean;
+  /** 画面缩放不适用说明（如 YouTube）；null＝适用。 */
+  fitNotice: string | null;
+  /** 本机存储可用性：不可用时设置只在本次会话生效，界面须如实提示。 */
+  storageAvailable: boolean;
   onResetPreferences: () => void;
   onClearAllOffsets: () => void;
 }
@@ -56,20 +65,27 @@ function languageLabel(code: string): string {
   return LANGUAGE_OPTIONS.find((option) => option.value === code)?.label ?? code;
 }
 
+const SUBTITLE_MODE_OPTIONS: ReadonlyArray<{ value: SubtitleMode; label: string }> = [
+  { value: "media-default", label: "跟随媒体默认" },
+  { value: "prefer-list", label: "始终按偏好" },
+  { value: "off", label: "关闭" },
+];
+
 export function PlayerSettingsDialog(props: PlayerSettingsDialogProps) {
   const {
-    open, onOpenChange, preferences, volume, muted, onVolumeChange, onToggleMute, onSubtitlesOffChange,
+    open, onOpenChange, preferences, volume, muted, onVolumeChange, onToggleMute, onSubtitleModeChange,
     onSourcePreferenceChange, onLanguageListChange, updateAppearance, subtitleOffset, onOffsetDelta, onOffsetZero,
-    appearanceNotice, appearanceDisabled, onResetPreferences, onClearAllOffsets,
+    onSkipStepChange, onPictureFitChange, appearanceNotice, appearanceDisabled, fitNotice, storageAvailable,
+    onResetPreferences, onClearAllOffsets,
   } = props;
   const [section, setSection] = useState<SettingsSection>("basic");
   const [confirmingClear, setConfirmingClear] = useState(false);
   const appearance = preferences.subtitleAppearance;
 
-  const chip = (active: boolean) => cn(
+  const chip = (active: boolean, disabled = false) => cn(
     "h-7 rounded-md border px-2.5 text-xs transition-colors",
     active ? "border-sky-500/40 bg-sky-500/20 text-sky-400" : "border-border font-normal text-muted-foreground hover:bg-secondary hover:text-white",
-    appearanceDisabled && "cursor-not-allowed opacity-50",
+    disabled && "cursor-not-allowed opacity-50",
   );
 
   const languageRows = (kind: "audio" | "subtitle") => {
@@ -134,6 +150,7 @@ export function PlayerSettingsDialog(props: PlayerSettingsDialogProps) {
     { key: "basic", label: "基础" },
     { key: "appearance", label: "字幕外观" },
     { key: "offset", label: "字幕偏移" },
+    { key: "playback", label: "播放" },
     { key: "reset", label: "恢复" },
   ];
 
@@ -142,7 +159,9 @@ export function PlayerSettingsDialog(props: PlayerSettingsDialogProps) {
       <DialogContent className="w-[92vw] gap-0 overflow-hidden p-0 sm:max-w-[680px]">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <DialogTitle className="text-[15px] font-medium">本机设置</DialogTitle>
-          <span className="text-[10px] text-muted-foreground">自动保存本机 · 不发送房间命令</span>
+          <span className={cn("text-[10px]", storageAvailable ? "text-muted-foreground" : "text-warn")}>
+            {storageAvailable ? "自动保存本机 · 不发送房间命令" : "本机存储不可用：设置仅在本次会话生效"}
+          </span>
         </div>
         <div className="grid sm:grid-cols-[150px_1fr]">
           <nav className="flex gap-1 border-b border-border p-2 sm:flex-col sm:border-r sm:border-b-0" aria-label="设置分组">
@@ -175,10 +194,20 @@ export function PlayerSettingsDialog(props: PlayerSettingsDialogProps) {
                   <span className="text-xs text-muted-foreground">静音</span>
                   <ToggleSwitch checked={muted} onToggle={onToggleMute} label="静音" />
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">关闭字幕</span>
-                  <ToggleSwitch checked={preferences.subtitlesOff} onToggle={() => onSubtitlesOffChange(!preferences.subtitlesOff)} label="关闭字幕" />
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted-foreground">字幕显示</span>
+                  <span className="flex gap-1">
+                    {SUBTITLE_MODE_OPTIONS.map((option) => (
+                      <button key={option.value} type="button" aria-pressed={preferences.subtitleMode === option.value}
+                        onClick={() => onSubtitleModeChange(option.value)}
+                        className={chip(preferences.subtitleMode === option.value)}>{option.label}</button>
+                    ))}
+                  </span>
                 </div>
+                <p className="text-[10px] text-muted-foreground">
+                  跟随媒体默认：优先标记为默认的字幕轨，无默认标记时按字幕语言列表匹配，未命中则关闭。
+                  始终按偏好：只选语言列表命中的字幕轨，列表为空回退媒体默认，未命中则关闭。关闭为最高优先级。
+                </p>
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-xs text-muted-foreground">字幕来源优先级</span>
                   <span className="flex gap-1">
@@ -193,7 +222,8 @@ export function PlayerSettingsDialog(props: PlayerSettingsDialogProps) {
                 {languageRows("audio")}
                 {languageRows("subtitle")}
                 <p className="text-[10px] text-muted-foreground">
-                  重复匹配规则：按列表顺序逐项，先精确标签再主语言回退；同语言多个字幕候选按来源优先级；列表为空＝媒体默认。改动下次载入媒体生效。
+                  重复匹配规则：按列表顺序逐项，先精确标签再主语言回退；同一语言外挂/内嵌并列时按来源优先级，仍同级保留媒体轨道顺序。
+                  来源偏好只在并列时打破平局。改动立即重新应用；手选只作用当前媒体。
                 </p>
               </div>
             )}
@@ -201,6 +231,7 @@ export function PlayerSettingsDialog(props: PlayerSettingsDialogProps) {
             {section === "appearance" && (
               <div className="space-y-3">
                 {appearanceNotice && <p className="text-xs text-warn">{appearanceNotice}</p>}
+                <SubtitleAppearancePreview appearance={appearance} />
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-xs text-muted-foreground">字号</span>
                   <span className="flex flex-1 items-center justify-end gap-2">
@@ -213,32 +244,59 @@ export function PlayerSettingsDialog(props: PlayerSettingsDialogProps) {
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-xs text-muted-foreground">颜色</span>
                   <span className="flex gap-1">
-                    <button type="button" disabled={appearanceDisabled} onClick={() => updateAppearance({ color: "white" })} className={chip(appearance.color === "white")}>白字</button>
-                    <button type="button" disabled={appearanceDisabled} onClick={() => updateAppearance({ color: "yellow" })} className={chip(appearance.color === "yellow")}>黄字</button>
+                    {([["white", "白"], ["yellow", "黄"], ["cyan", "青"], ["green", "绿"]] as const).map(([value, label]) => (
+                      <button key={value} type="button" disabled={appearanceDisabled} aria-pressed={appearance.color === value}
+                        onClick={() => updateAppearance({ color: value })} className={chip(appearance.color === value, appearanceDisabled)}>{label}</button>
+                    ))}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted-foreground">字重</span>
+                  <span className="flex gap-1">
+                    <button type="button" disabled={appearanceDisabled} aria-pressed={appearance.fontWeight === "normal"} onClick={() => updateAppearance({ fontWeight: "normal" })}
+                      className={chip(appearance.fontWeight === "normal", appearanceDisabled)}>普通</button>
+                    <button type="button" disabled={appearanceDisabled} aria-pressed={appearance.fontWeight === "bold"} onClick={() => updateAppearance({ fontWeight: "bold" })}
+                      className={chip(appearance.fontWeight === "bold", appearanceDisabled)}>粗体</button>
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-xs text-muted-foreground">描边</span>
                   <span className="flex gap-1">
-                    <button type="button" disabled={appearanceDisabled} onClick={() => updateAppearance({ outline: true })} className={chip(appearance.outline)}>黑描边</button>
-                    <button type="button" disabled={appearanceDisabled} onClick={() => updateAppearance({ outline: false })} className={chip(!appearance.outline)}>无描边</button>
+                    {([["none", "无"], ["thin", "细"], ["thick", "粗"]] as const).map(([value, label]) => (
+                      <button key={value} type="button" disabled={appearanceDisabled} aria-pressed={appearance.outline === value}
+                        onClick={() => updateAppearance({ outline: value })} className={chip(appearance.outline === value, appearanceDisabled)}>{label}</button>
+                    ))}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted-foreground">阴影</span>
+                  <span className="flex gap-1">
+                    {([["none", "无"], ["soft", "柔和"], ["strong", "强"]] as const).map(([value, label]) => (
+                      <button key={value} type="button" disabled={appearanceDisabled} aria-pressed={appearance.shadow === value}
+                        onClick={() => updateAppearance({ shadow: value })} className={chip(appearance.shadow === value, appearanceDisabled)}>{label}</button>
+                    ))}
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-xs text-muted-foreground">背景</span>
                   <span className="flex gap-1">
-                    <button type="button" disabled={appearanceDisabled} onClick={() => updateAppearance({ background: "none" })} className={chip(appearance.background === "none")}>无背景</button>
-                    <button type="button" disabled={appearanceDisabled} onClick={() => updateAppearance({ background: "black" })} className={chip(appearance.background === "black")}>黑底</button>
+                    {SUBTITLE_BACKGROUND_OPACITIES.map((value) => (
+                      <button key={value} type="button" disabled={appearanceDisabled} aria-pressed={appearance.backgroundOpacity === value}
+                        onClick={() => updateAppearance({ backgroundOpacity: value })}
+                        className={chip(appearance.backgroundOpacity === value, appearanceDisabled)}>
+                        {value === 0 ? "关闭" : `${value}%`}
+                      </button>
+                    ))}
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-xs text-muted-foreground">底部位置</span>
                   <span className="flex items-center gap-1">
                     <button type="button" disabled={appearanceDisabled} aria-pressed={appearance.bottomRaisePercent === 0}
-                      onClick={() => updateAppearance({ bottomRaisePercent: 0 })} className={chip(appearance.bottomRaisePercent === 0)}>自动安全区</button>
+                      onClick={() => updateAppearance({ bottomRaisePercent: 0 })} className={chip(appearance.bottomRaisePercent === 0, appearanceDisabled)}>自动安全区</button>
                     <button type="button" disabled={appearanceDisabled} aria-pressed={appearance.bottomRaisePercent > 0}
                       onClick={() => updateAppearance({ bottomRaisePercent: appearance.bottomRaisePercent > 0 ? appearance.bottomRaisePercent : 10 })}
-                      className={chip(appearance.bottomRaisePercent > 0)}>手动</button>
+                      className={chip(appearance.bottomRaisePercent > 0, appearanceDisabled)}>手动</button>
                   </span>
                 </div>
                 {appearance.bottomRaisePercent > 0 && (
@@ -252,7 +310,9 @@ export function PlayerSettingsDialog(props: PlayerSettingsDialogProps) {
                     </span>
                   </div>
                 )}
-                <p className="text-[10px] text-muted-foreground">只作用于普通文本字幕（VTT/SRT）；ASS 使用原样式与附件字体。</p>
+                <p className="text-[10px] text-muted-foreground">
+                  只作用于普通文本字幕（VTT/SRT），浏览器原生与 MKV 路径即时生效；ASS 使用原样式与附件字体。不提供字体族选择。
+                </p>
               </div>
             )}
 
@@ -267,7 +327,48 @@ export function PlayerSettingsDialog(props: PlayerSettingsDialogProps) {
                   <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={onOffsetZero}>归零</Button>
                   <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={() => onOffsetDelta(0.1)}>+0.1s</Button>
                 </div>
-                <p className="text-[10px] text-muted-foreground">范围 -30s 到 +30s，步进 0.1s；正值延后字幕。按媒体单独保存。</p>
+                <p className="text-[10px] text-muted-foreground">范围 -30s 到 +30s，步进 0.1s；正值延后字幕。按媒体单独保存，切回该媒体时恢复。</p>
+              </div>
+            )}
+
+            {section === "playback" && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted-foreground">快退步长</span>
+                  <span className="flex flex-wrap justify-end gap-1">
+                    {SKIP_STEP_OPTIONS.map((seconds) => (
+                      <button key={seconds} type="button" aria-pressed={preferences.skipBackwardSeconds === seconds}
+                        onClick={() => onSkipStepChange("backward", seconds)}
+                        className={chip(preferences.skipBackwardSeconds === seconds)}>{seconds}s</button>
+                    ))}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted-foreground">快进步长</span>
+                  <span className="flex flex-wrap justify-end gap-1">
+                    {SKIP_STEP_OPTIONS.map((seconds) => (
+                      <button key={seconds} type="button" aria-pressed={preferences.skipForwardSeconds === seconds}
+                        onClick={() => onSkipStepChange("forward", seconds)}
+                        className={chip(preferences.skipForwardSeconds === seconds)}>{seconds}s</button>
+                    ))}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted-foreground">画面缩放</span>
+                  <span className="flex gap-1">
+                    <button type="button" aria-pressed={preferences.pictureFit === "contain"} disabled={Boolean(fitNotice)}
+                      onClick={() => onPictureFitChange("contain")}
+                      className={chip(preferences.pictureFit === "contain", Boolean(fitNotice))}>完整显示</button>
+                    <button type="button" aria-pressed={preferences.pictureFit === "cover"} disabled={Boolean(fitNotice)}
+                      onClick={() => onPictureFitChange("cover")}
+                      className={chip(preferences.pictureFit === "cover", Boolean(fitNotice))}>铺满画面</button>
+                  </span>
+                </div>
+                {fitNotice && <p className="text-xs text-warn">{fitNotice}</p>}
+                <p className="text-[10px] text-muted-foreground">
+                  完整显示不裁切；铺满画面裁切边缘，仅在浏览器原生与 MKV 路径生效。
+                  步长只保存在本机；实际跳转仍是房间操作，按你的角色权限与同步规则处理。
+                </p>
               </div>
             )}
 
@@ -275,7 +376,7 @@ export function PlayerSettingsDialog(props: PlayerSettingsDialogProps) {
               <div className="space-y-2">
                 <Button variant="secondary" size="sm" className="h-7 w-full justify-start px-2 text-xs font-normal" onClick={onResetPreferences}>
                   <MsIconSmall name="restart_alt" />
-                  重置播放器偏好（音量 / 静音 / 语言 / 来源 / 字幕外观）
+                  重置播放器偏好（音量 / 字幕模式 / 外观 / 步长 / 缩放）
                 </Button>
                 {confirmingClear ? (
                   <div className="flex items-center gap-1.5">
@@ -289,7 +390,7 @@ export function PlayerSettingsDialog(props: PlayerSettingsDialogProps) {
                     清除全部媒体偏移…
                   </Button>
                 )}
-                <p className="text-[10px] text-muted-foreground">只影响本机播放偏好；不动房间凭据、最近房间与继续观看记录。</p>
+                <p className="text-[10px] text-muted-foreground">只影响本机播放偏好；不动房间凭据、最近房间与继续观看记录。当前媒体偏移可单独归零。</p>
               </div>
             )}
           </div>

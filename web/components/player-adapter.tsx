@@ -3,11 +3,13 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import Hls from "hls.js";
 import type JASSUB from "jassub";
-import type { MediaSource } from "@/lib/contracts";
+import type { MediaSource, SubtitleTrack } from "@/lib/contracts";
 import { MkvPlayerAdapter } from "./mkv-player-adapter";
 import { isMkvSource } from "@/lib/mkv/compatibility";
 import { bufferedAheadSeconds, type PlayerLocalState, type EmbeddedTracks, type PlayerCapabilities } from "@/lib/player-local";
-import type { TrackPreferences } from "@/lib/player-preferences";
+import { DEFAULT_SUBTITLE_APPEARANCE, type PictureFit, type SubtitleAppearance } from "@/lib/player-preferences";
+import { parseSubtitleCues } from "@/lib/subtitle-parser";
+import { paintSubtitleLines, subtitleMarginPx } from "@/lib/mkv/subtitle-paint";
 
 type YouTubePlayer = {
   destroy: () => void;
@@ -112,7 +114,12 @@ export interface PlayerAdapterProps {
   assSubtitle?: { content: string; offsetSeconds: number } | null;
   subtitleOffsetSeconds?: number;
   /** 普通字幕外观（即时生效；ASS 原样式与 YouTube 自身能力不适用）。 */
-  subtitleStyle?: import("@/lib/mkv/player").SubtitleStyle;
+  subtitleStyle?: SubtitleAppearance;
+  /** 画面缩放：完整显示/铺满画面（仅浏览器原生与 MKV 路径；YouTube 由调用方标记不适用）。 */
+  pictureFit?: PictureFit;
+  /** 原生路径 VTT/SRT 覆盖层的数据源（MKV 路径走 subtitleVttUrl 隐藏轨，互不干扰）。 */
+  subtitleText?: string | null;
+  subtitleFormat?: SubtitleTrack["format"] | null;
   onTimeUpdate?: (currentTime: number, duration: number, bufferedPercent: number) => void;
   onLoadedMetadata?: (duration: number) => void;
   onEnded?: () => void;
@@ -121,7 +128,7 @@ export interface PlayerAdapterProps {
   onLocalState?: (state: PlayerLocalState) => void;
   onEmbeddedTracks?: (tracks: EmbeddedTracks) => void;
   onCapabilities?: (capabilities: PlayerCapabilities) => void;
-  initialTrackPreferences?: TrackPreferences;
+  preferredAudioLanguages?: string[];
 }
 
 export const PlayerAdapter = forwardRef<PlayerAdapterHandle, PlayerAdapterProps>(function PlayerAdapter(props, ref) {
@@ -135,12 +142,17 @@ const NativePlayerAdapter = forwardRef<PlayerAdapterHandle, PlayerAdapterProps>(
     const {
       source,
       streamUrl,
-      subtitleVttUrl,
       assSubtitle,
+      subtitleOffsetSeconds = 0,
+      subtitleStyle,
+      pictureFit,
+      subtitleText,
+      subtitleFormat,
     } = props;
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const hlsRef = useRef<Hls | null>(null);
     const youtubeContainerRef = useRef<HTMLDivElement | null>(null);
+    const subtitleCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const youtubePlayerRef = useRef<YouTubePlayer | null>(null);
     const youtubeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const assRendererRef = useRef<JASSUB | null>(null);
@@ -155,6 +167,7 @@ const NativePlayerAdapter = forwardRef<PlayerAdapterHandle, PlayerAdapterProps>(
     const sourceGeneration = useRef(0);
 
     const isYouTube = source?.kind === "youtube";
+    const fitClass = pictureFit === "cover" ? "object-cover" : "object-contain";
     const sourceKind = source?.kind;
     const youtubeVideoId = source?.kind === "youtube" ? source.videoId : null;
     const sourceKey = source?.kind === "openlist" ? `openlist:${source.mediaId}`
@@ -451,6 +464,42 @@ const NativePlayerAdapter = forwardRef<PlayerAdapterHandle, PlayerAdapterProps>(
       };
     }, [assSubtitle, isYouTube]);
 
+    // 原生路径 VTT/SRT 覆盖层：与 MKV 画布共用绘制器，外观/偏移即时生效（ASS 走 JASSUB 不动）。
+    const subtitleCues = React.useMemo(
+      () => subtitleText && subtitleFormat ? parseSubtitleCues(subtitleText, subtitleFormat) : [],
+      [subtitleText, subtitleFormat],
+    );
+    useEffect(() => {
+      if (isYouTube) return;
+      const canvas = subtitleCanvasRef.current;
+      const video = videoRef.current;
+      if (!canvas || !video) return;
+      let raf = 0;
+      let lastKey: string | null = null;
+      const tick = () => {
+        raf = requestAnimationFrame(tick);
+        if (video.videoWidth && (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight)) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          lastKey = null;
+        }
+        const time = video.currentTime - subtitleOffsetSeconds;
+        const active = subtitleCues.filter((cue) => cue.start <= time && cue.end > time);
+        const key = `${active.map((cue) => cue.text).join("|")}::${JSON.stringify(subtitleStyle ?? null)}::${canvas.width}x${canvas.height}`;
+        if (key === lastKey) return;
+        lastKey = key;
+        const context = canvas.getContext("2d");
+        if (!context) return;
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        if (active.length === 0) return;
+        paintSubtitleLines(context, active.flatMap((cue) => cue.text.split("\n")), subtitleStyle ?? DEFAULT_SUBTITLE_APPEARANCE,
+          canvas.width, canvas.height,
+          subtitleMarginPx(canvas.width, canvas.height, canvas.clientWidth, canvas.clientHeight));
+      };
+      raf = requestAnimationFrame(tick);
+      return () => cancelAnimationFrame(raf);
+    }, [isYouTube, subtitleCues, subtitleOffsetSeconds, subtitleStyle]);
+
     const handleTimeUpdate = () => {
       const video = videoRef.current;
       if (!video) return;
@@ -486,47 +535,44 @@ const NativePlayerAdapter = forwardRef<PlayerAdapterHandle, PlayerAdapterProps>(
             <div ref={youtubeContainerRef} className="pointer-events-none size-full" />
           </button>
         ) : (
-          <video
-            ref={videoRef}
-            playsInline
-            onPointerUp={(event) => {
-              if (event.pointerType === "mouse" && event.button !== 0) return;
-              callbacksRef.current.onPlayClick?.({ pointerType: event.pointerType });
-            }}
-            onTimeUpdate={handleTimeUpdate}
-            onLoadedMetadata={() => {
-              const video = videoRef.current;
-              if (!video) return;
-              const state = controls.current;
-              video.volume = state.volume / 100;
-              video.muted = state.muted;
-              video.playbackRate = state.rate;
-              if (state.position) video.currentTime = state.position;
-              reportState({ phase: "ready" });
-              callbacksRef.current.onLoadedMetadata?.(video.duration || 0);
-              if (controls.current.playing) void playLocal(); else video.pause();
-            }}
-            onPlaying={() => { audioBlocked.current = false; reportState({ phase: "playing" }); reportAudio(); }}
-            onPause={() => { if (!videoRef.current?.ended && local.current.phase !== "error") reportState({ phase: "paused" }); reportAudio(); }}
-            onWaiting={() => { if (controls.current.playing) reportState({ phase: "buffering" }); }}
-            onSeeking={() => { if (controls.current.playing) reportState({ phase: "buffering" }); }}
-            onSeeked={() => { reportState({ phase: videoRef.current?.paused ? "paused" : "playing" }); reportAudio(); }}
-            onProgress={() => reportState()}
-            onVolumeChange={reportAudio}
-            onEnded={() => { controls.current.playing = false; reportState({ phase: "ended" }); reportAudio(); callbacksRef.current.onEnded?.(); }}
-            onError={handleVideoError}
-            className="size-full cursor-pointer object-contain"
-          >
-            {subtitleVttUrl && (
-              <track
-                kind="subtitles"
-                src={subtitleVttUrl}
-                srcLang="zh"
-                label="本地字幕"
-                default
-              />
-            )}
-          </video>
+          <>
+            <video
+              ref={videoRef}
+              playsInline
+              onPointerUp={(event) => {
+                if (event.pointerType === "mouse" && event.button !== 0) return;
+                callbacksRef.current.onPlayClick?.({ pointerType: event.pointerType });
+              }}
+              onTimeUpdate={handleTimeUpdate}
+              onLoadedMetadata={() => {
+                const video = videoRef.current;
+                if (!video) return;
+                const state = controls.current;
+                video.volume = state.volume / 100;
+                video.muted = state.muted;
+                video.playbackRate = state.rate;
+                if (state.position) video.currentTime = state.position;
+                reportState({ phase: "ready" });
+                callbacksRef.current.onLoadedMetadata?.(video.duration || 0);
+                if (controls.current.playing) void playLocal(); else video.pause();
+              }}
+              onPlaying={() => { audioBlocked.current = false; reportState({ phase: "playing" }); reportAudio(); }}
+              onPause={() => { if (!videoRef.current?.ended && local.current.phase !== "error") reportState({ phase: "paused" }); reportAudio(); }}
+              onWaiting={() => { if (controls.current.playing) reportState({ phase: "buffering" }); }}
+              onSeeking={() => { if (controls.current.playing) reportState({ phase: "buffering" }); }}
+              onSeeked={() => { reportState({ phase: videoRef.current?.paused ? "paused" : "playing" }); reportAudio(); }}
+              onProgress={() => reportState()}
+              onVolumeChange={reportAudio}
+              onEnded={() => { controls.current.playing = false; reportState({ phase: "ended" }); reportAudio(); callbacksRef.current.onEnded?.(); }}
+              onError={handleVideoError}
+              className={`size-full cursor-pointer ${fitClass}`}
+            />
+            <canvas
+              ref={subtitleCanvasRef}
+              aria-hidden="true"
+              className={`pointer-events-none absolute inset-0 size-full ${fitClass}`}
+            />
+          </>
         )}
       </div>
     );

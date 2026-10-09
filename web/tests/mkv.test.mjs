@@ -177,7 +177,7 @@ test("MKV lifecycle supersedes paused seeks, closes decoders and aborts source r
   } };
   const { MkvPlayer } = await loadModule("player", [plugin]);
   const renderedCues = [];
-  const canvas = { width: 0, height: 0, dataset: {}, getContext: () => ({ drawImage() {}, strokeText() {}, fillText(text) { renderedCues.push(text); } }) };
+  const canvas = { width: 0, height: 0, dataset: {}, getContext: () => ({ drawImage() {}, save() {}, restore() {}, strokeText() {}, fillText(text) { renderedCues.push(text); } }) };
   const errors = [];
   const player = new MkvPlayer({ canvas, onReady() {}, onTimeUpdate() {}, onEnded() {}, onError: (...args) => errors.push(args) });
   try {

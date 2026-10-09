@@ -1,0 +1,399 @@
+{
+  "startedAt": "2026-10-09T17:04:36.604Z",
+  "scope": "追加设置三模式/外观/步长/缩放/存储/重启恢复；真实 MKV 引擎；本地 fixture 房间",
+  "checks": [
+    {
+      "label": "first-paused-frame",
+      "elapsedMs": 803
+    },
+    {
+      "label": "media-default-missing-marker-falls-closed",
+      "value": {
+        "subtitleId": null,
+        "cueDraws": 0
+      }
+    },
+    {
+      "label": "settings-open",
+      "elapsedMs": 3
+    },
+    {
+      "label": "preview-drawn",
+      "elapsedMs": 6
+    },
+    {
+      "label": "preview-bold",
+      "elapsedMs": 4
+    },
+    {
+      "label": "preview-cyan",
+      "elapsedMs": 3
+    },
+    {
+      "label": "preview-thick-outline",
+      "elapsedMs": 3
+    },
+    {
+      "label": "preview-strong-shadow",
+      "elapsedMs": 6
+    },
+    {
+      "label": "preview-half-background",
+      "elapsedMs": 2
+    },
+    {
+      "label": "appearance-preview-live-levels",
+      "value": {
+        "fontBaseline": "30px sans-serif",
+        "fontBold": "bold 30px sans-serif",
+        "thickLineWidth": 7.199999809265137,
+        "color": "#00e5ff",
+        "shadow": "blur>0",
+        "background": "rgba(0,0,0,0.5)"
+      }
+    },
+    {
+      "label": "settings-closed",
+      "elapsedMs": 256
+    },
+    {
+      "label": "room-reloaded",
+      "elapsedMs": 460
+    },
+    {
+      "label": "prefer-list-selects-japanese",
+      "elapsedMs": 0
+    },
+    {
+      "label": "cue-JP M02-at-10.25",
+      "elapsedMs": 139
+    },
+    {
+      "label": "prefer-list-language-hit",
+      "value": {
+        "subtitleId": 4,
+        "cue": [
+          "JP M02"
+        ]
+      }
+    },
+    {
+      "label": "room-reloaded",
+      "elapsedMs": 475
+    },
+    {
+      "label": "prefer-list-empty-falls-to-engine-default",
+      "elapsedMs": 0
+    },
+    {
+      "label": "cue-EN M02-at-10.25",
+      "elapsedMs": 139
+    },
+    {
+      "label": "prefer-list-empty-engine-default",
+      "value": {
+        "subtitleId": 3,
+        "cue": [
+          "EN M02"
+        ]
+      }
+    },
+    {
+      "label": "room-reloaded",
+      "elapsedMs": 525
+    },
+    {
+      "label": "media-default-list-fallback",
+      "elapsedMs": 1
+    },
+    {
+      "label": "media-default-list-fallback",
+      "value": {
+        "subtitleId": 3
+      }
+    },
+    {
+      "label": "room-reloaded",
+      "elapsedMs": 442
+    },
+    {
+      "label": "off-mode-keeps-subtitles-off",
+      "elapsedMs": 1
+    },
+    {
+      "label": "subtitle-menu-open",
+      "elapsedMs": 2
+    },
+    {
+      "label": "manual-reselect-clears-off",
+      "elapsedMs": 4
+    },
+    {
+      "label": "off-priority-and-reselect-clears",
+      "value": {
+        "subtitleId": 4,
+        "modeAfterPick": "media-default"
+      }
+    },
+    {
+      "label": "room-reloaded",
+      "elapsedMs": 495
+    },
+    {
+      "label": "cue-EXT M02-at-10.25",
+      "elapsedMs": 139
+    },
+    {
+      "label": "room-reloaded",
+      "elapsedMs": 520
+    },
+    {
+      "label": "cue-JP M02-at-10.25",
+      "elapsedMs": 138
+    },
+    {
+      "label": "cross-source-tie-break",
+      "value": {
+        "externalCue": [
+          "EXT M02"
+        ],
+        "embeddedCue": [
+          "JP M02"
+        ],
+        "uploadedId": "e259914e-4e55-4c26-8381-594f58d54cd4"
+      }
+    },
+    {
+      "label": "room-reloaded",
+      "elapsedMs": 522
+    },
+    {
+      "label": "styled-subtitle-tracks",
+      "elapsedMs": 0
+    },
+    {
+      "label": "cue-JP M02-at-10.25",
+      "elapsedMs": 138
+    },
+    {
+      "label": "appearance-applies-to-mkv-canvas",
+      "value": {
+        "font": "bold 45px sans-serif",
+        "fillStyle": "#00e5ff",
+        "lineWidth": 10.800000190734863,
+        "shadowBlur": 40.5
+      }
+    },
+    {
+      "label": "settings-open",
+      "elapsedMs": 2
+    },
+    {
+      "label": "fit-cover",
+      "elapsedMs": 2
+    },
+    {
+      "label": "settings-closed",
+      "elapsedMs": 254
+    },
+    {
+      "label": "cue-JP M02-at-10.25",
+      "elapsedMs": 137
+    },
+    {
+      "label": "settings-open",
+      "elapsedMs": 2
+    },
+    {
+      "label": "fit-contain",
+      "elapsedMs": 1
+    },
+    {
+      "label": "settings-closed",
+      "elapsedMs": 258
+    },
+    {
+      "label": "picture-fit-cover-contain-fullscreen",
+      "value": {
+        "coverCueDrawn": true,
+        "fullscreenCover": true,
+        "restoredContain": true
+      }
+    },
+    {
+      "label": "youtube-source-active",
+      "elapsedMs": 15
+    },
+    {
+      "label": "settings-open",
+      "elapsedMs": 2
+    },
+    {
+      "label": "fit-not-applicable-note",
+      "elapsedMs": 0
+    },
+    {
+      "label": "settings-closed",
+      "elapsedMs": 254
+    },
+    {
+      "label": "media-restored",
+      "elapsedMs": 142
+    },
+    {
+      "label": "youtube-fit-not-applicable",
+      "value": {
+        "note": true,
+        "chipsDisabled": true
+      }
+    },
+    {
+      "label": "room-reloaded",
+      "elapsedMs": 489
+    },
+    {
+      "label": "settings-open",
+      "elapsedMs": 2
+    },
+    {
+      "label": "persisted-mode-chip",
+      "elapsedMs": 1
+    },
+    {
+      "label": "persisted-appearance",
+      "elapsedMs": 7
+    },
+    {
+      "label": "settings-closed",
+      "elapsedMs": 258
+    },
+    {
+      "label": "reload-restores-preferences",
+      "value": {
+        "mode": "始终按偏好",
+        "pressedChips": [
+          "10s",
+          "10s",
+          "完整显示"
+        ],
+        "appearanceRestored": true
+      }
+    },
+    {
+      "label": "settings-open",
+      "elapsedMs": 6
+    },
+    {
+      "label": "storage-unavailable-notice",
+      "elapsedMs": 1
+    },
+    {
+      "label": "settings-closed",
+      "elapsedMs": 249
+    },
+    {
+      "label": "storage-unavailable-notice",
+      "value": true
+    },
+    {
+      "label": "settings-open",
+      "elapsedMs": 4
+    },
+    {
+      "label": "reset-defaults",
+      "elapsedMs": 1
+    },
+    {
+      "label": "settings-closed",
+      "elapsedMs": 253
+    },
+    {
+      "label": "reset-reapplies-rules",
+      "elapsedMs": 1
+    },
+    {
+      "label": "reset-restores-defaults-and-rules",
+      "value": true
+    },
+    {
+      "label": "browser-becomes-owner",
+      "elapsedMs": 14
+    },
+    {
+      "label": "settings-open",
+      "elapsedMs": 2
+    },
+    {
+      "label": "skip-steps-persisted",
+      "elapsedMs": 2
+    },
+    {
+      "label": "settings-closed",
+      "elapsedMs": 254
+    },
+    {
+      "label": "skip-forward-30",
+      "elapsedMs": 12
+    },
+    {
+      "label": "local-media-time-syncs-forward",
+      "elapsedMs": 124
+    },
+    {
+      "label": "keyboard-skip-back-5",
+      "elapsedMs": 13
+    },
+    {
+      "label": "local-media-time-syncs-back",
+      "elapsedMs": 124
+    },
+    {
+      "label": "keyboard-skip-forward-30",
+      "elapsedMs": 15
+    },
+    {
+      "label": "skip-steps-and-room-seek",
+      "value": {
+        "revisionBeforeSettings": 46,
+        "revisionDuringSettings": 46,
+        "revisionAfterSkip": 47,
+        "forward30": 30,
+        "keyboardBack": -5,
+        "keyboardForward": 30
+      }
+    },
+    {
+      "label": "members-modal-open",
+      "elapsedMs": 2
+    },
+    {
+      "label": "transfer-confirm-visible",
+      "elapsedMs": 1
+    },
+    {
+      "label": "ownership-returned",
+      "elapsedMs": 1
+    },
+    {
+      "label": "ownership-handed-back",
+      "value": {
+        "ownerId": "ffe6095e-a531-4433-af79-0edf4e95e41d"
+      }
+    }
+  ],
+  "fixture": {
+    "subtitleTracks": [
+      {
+        "id": 3,
+        "language": "eng"
+      },
+      {
+        "id": 4,
+        "language": "jpn"
+      }
+    ],
+    "englishId": 3,
+    "japaneseId": 4
+  },
+  "pass": true
+}

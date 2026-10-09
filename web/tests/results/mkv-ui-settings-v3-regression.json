@@ -1,0 +1,567 @@
+{
+  "startedAt": "2026-10-09T17:03:43.280Z",
+  "checks": [
+    {
+      "label": "first-paused-frame",
+      "elapsedMs": 811
+    },
+    {
+      "label": "geometry-ui-360",
+      "value": {
+        "transport": {
+          "x": 90,
+          "y": 552,
+          "right": 270,
+          "bottom": 588,
+          "w": 180,
+          "h": 36
+        },
+        "left": {
+          "x": 16,
+          "y": 592,
+          "right": 120,
+          "bottom": 624,
+          "w": 104,
+          "h": 32
+        },
+        "right": {
+          "x": 204,
+          "y": 592,
+          "right": 344,
+          "bottom": 624,
+          "w": 140,
+          "h": 32
+        },
+        "width": 360,
+        "height": 640,
+        "volumeSliderVisible": false,
+        "moreVisible": true,
+        "audioMenuButton": true,
+        "subtitleButton": true
+      }
+    },
+    {
+      "label": "geometry-ui-390",
+      "value": {
+        "transport": {
+          "x": 105,
+          "y": 756,
+          "right": 285,
+          "bottom": 792,
+          "w": 180,
+          "h": 36
+        },
+        "left": {
+          "x": 16,
+          "y": 796,
+          "right": 120,
+          "bottom": 828,
+          "w": 104,
+          "h": 32
+        },
+        "right": {
+          "x": 234,
+          "y": 796,
+          "right": 374,
+          "bottom": 828,
+          "w": 140,
+          "h": 32
+        },
+        "width": 390,
+        "height": 844,
+        "volumeSliderVisible": false,
+        "moreVisible": true,
+        "audioMenuButton": true,
+        "subtitleButton": true
+      }
+    },
+    {
+      "label": "geometry-ui-683",
+      "value": {
+        "transport": {
+          "x": 251.5,
+          "y": 718,
+          "right": 431.5,
+          "bottom": 754,
+          "w": 180,
+          "h": 36
+        },
+        "left": {
+          "x": 16,
+          "y": 720,
+          "right": 204,
+          "bottom": 752,
+          "w": 188,
+          "h": 32
+        },
+        "right": {
+          "x": 491,
+          "y": 720,
+          "right": 667,
+          "bottom": 752,
+          "w": 176,
+          "h": 32
+        },
+        "width": 683,
+        "height": 768,
+        "volumeSliderVisible": true,
+        "moreVisible": false,
+        "audioMenuButton": true,
+        "subtitleButton": true
+      }
+    },
+    {
+      "label": "geometry-ui-1366",
+      "value": {
+        "transport": {
+          "x": 593,
+          "y": 718,
+          "right": 773,
+          "bottom": 754,
+          "w": 180,
+          "h": 36
+        },
+        "left": {
+          "x": 16,
+          "y": 720,
+          "right": 204,
+          "bottom": 752,
+          "w": 188,
+          "h": 32
+        },
+        "right": {
+          "x": 1174,
+          "y": 720,
+          "right": 1350,
+          "bottom": 752,
+          "w": 176,
+          "h": 32
+        },
+        "width": 1366,
+        "height": 768,
+        "volumeSliderVisible": true,
+        "moreVisible": false,
+        "audioMenuButton": true,
+        "subtitleButton": true
+      }
+    },
+    {
+      "label": "geometry-ui-2560",
+      "value": {
+        "transport": {
+          "x": 1190,
+          "y": 1390,
+          "right": 1370,
+          "bottom": 1426,
+          "w": 180,
+          "h": 36
+        },
+        "left": {
+          "x": 16,
+          "y": 1392,
+          "right": 204,
+          "bottom": 1424,
+          "w": 188,
+          "h": 32
+        },
+        "right": {
+          "x": 2368,
+          "y": 1392,
+          "right": 2544,
+          "bottom": 1424,
+          "w": 176,
+          "h": 32
+        },
+        "width": 2560,
+        "height": 1440,
+        "volumeSliderVisible": true,
+        "moreVisible": false,
+        "audioMenuButton": true,
+        "subtitleButton": true
+      }
+    },
+    {
+      "label": "narrow-360-two-row-layout",
+      "value": {
+        "transportBottom": 588,
+        "leftTop": 592,
+        "rightTop": 592
+      }
+    },
+    {
+      "label": "reload-blocked-audio",
+      "elapsedMs": 479
+    },
+    {
+      "label": "audio-chip-unlock",
+      "elapsedMs": 122
+    },
+    {
+      "label": "audio-chip-gone",
+      "elapsedMs": 1
+    },
+    {
+      "label": "audio-chip-local-unlock",
+      "value": {
+        "revisionBeforeUnlock": 19,
+        "revisionAfterUnlock": 19
+      }
+    },
+    {
+      "label": "audio-menu-opens",
+      "elapsedMs": 1
+    },
+    {
+      "label": "audio-track-switched",
+      "elapsedMs": 1
+    },
+    {
+      "label": "subtitle-menu-opens",
+      "elapsedMs": 2
+    },
+    {
+      "label": "embedded-subtitle-selected",
+      "elapsedMs": 2
+    },
+    {
+      "label": "subtitles-off",
+      "elapsedMs": 0
+    },
+    {
+      "label": "embedded-subtitle-reselected",
+      "elapsedMs": 1
+    },
+    {
+      "label": "track-menus-local-only",
+      "value": {
+        "revisionBeforeTracks": 19,
+        "revisionAfterTracks": 19
+      }
+    },
+    {
+      "label": "cue-at-10.25",
+      "elapsedMs": 260
+    },
+    {
+      "label": "subtitle-safe-area",
+      "value": {
+        "cues": [
+          "JP M02"
+        ],
+        "lowestCssY": 656,
+        "overlayTop": 668,
+        "marginCssPx": 12,
+        "controlsState": "visible",
+        "atSeconds": 10.25
+      }
+    },
+    {
+      "label": "playing-before-stall",
+      "elapsedMs": 1008
+    },
+    {
+      "label": "buffering-status-visible",
+      "elapsedMs": 521
+    },
+    {
+      "label": "buffering-recovered",
+      "elapsedMs": 0
+    },
+    {
+      "label": "buffering-status-local",
+      "value": {
+        "visibleDuringStall": true,
+        "hiddenAfterRecovery": true
+      }
+    },
+    {
+      "label": "retry-panel-visible",
+      "elapsedMs": 137
+    },
+    {
+      "label": "retry-refetches-same-media",
+      "elapsedMs": 0
+    },
+    {
+      "label": "retry-panel-returns",
+      "elapsedMs": 3
+    },
+    {
+      "label": "desktop-handoff-dialog",
+      "elapsedMs": 2
+    },
+    {
+      "label": "fixture-media-restored",
+      "elapsedMs": 261
+    },
+    {
+      "label": "same-media-retry-panel",
+      "value": {
+        "fetchesBeforeRetry": 1,
+        "fetchesAfterRetry": 2
+      }
+    },
+    {
+      "label": "fullscreen-entered",
+      "value": {
+        "attempts": 2,
+        "diagnostics": [
+          {
+            "found": true,
+            "rect": {
+              "x": 1318,
+              "y": 720,
+              "w": 32,
+              "h": 32
+            },
+            "hit": "DIV",
+            "active": "DIV",
+            "bodyPointerEvents": "none",
+            "fullscreenEnabled": true
+          },
+          {
+            "found": true,
+            "rect": {
+              "x": 1318,
+              "y": 720,
+              "w": 32,
+              "h": 32
+            },
+            "hit": "SPAN",
+            "active": "BODY",
+            "bodyPointerEvents": "auto",
+            "fullscreenEnabled": true
+          }
+        ]
+      }
+    },
+    {
+      "label": "fullscreen-controls-visible",
+      "elapsedMs": 3
+    },
+    {
+      "label": "fullscreen-menu-visible",
+      "elapsedMs": 2
+    },
+    {
+      "label": "fullscreen-dialog-visible",
+      "elapsedMs": 3
+    },
+    {
+      "label": "fullscreen-exited",
+      "value": {
+        "attempts": 2,
+        "diagnostics": [
+          {
+            "found": true,
+            "rect": {
+              "x": 1318,
+              "y": 720
+            },
+            "hit": "DIV",
+            "fullscreen": "HTML",
+            "controlsState": "visible"
+          },
+          {
+            "found": true,
+            "rect": {
+              "x": 1318,
+              "y": 720
+            },
+            "hit": "SPAN",
+            "fullscreen": "HTML",
+            "controlsState": "visible"
+          }
+        ]
+      }
+    },
+    {
+      "label": "fullscreen-includes-overlays-and-dialogs",
+      "value": true
+    },
+    {
+      "label": "playing-for-touch",
+      "elapsedMs": 264
+    },
+    {
+      "label": "second-tap-toggles",
+      "elapsedMs": 6
+    },
+    {
+      "label": "touch-first-tap-reveals-only",
+      "value": {
+        "secondTapToggled": true
+      }
+    }
+  ],
+  "geometry": [
+    {
+      "label": "ui-360",
+      "transport": {
+        "x": 90,
+        "y": 552,
+        "right": 270,
+        "bottom": 588,
+        "w": 180,
+        "h": 36
+      },
+      "left": {
+        "x": 16,
+        "y": 592,
+        "right": 120,
+        "bottom": 624,
+        "w": 104,
+        "h": 32
+      },
+      "right": {
+        "x": 204,
+        "y": 592,
+        "right": 344,
+        "bottom": 624,
+        "w": 140,
+        "h": 32
+      },
+      "width": 360,
+      "height": 640,
+      "volumeSliderVisible": false,
+      "moreVisible": true,
+      "audioMenuButton": true,
+      "subtitleButton": true
+    },
+    {
+      "label": "ui-390",
+      "transport": {
+        "x": 105,
+        "y": 756,
+        "right": 285,
+        "bottom": 792,
+        "w": 180,
+        "h": 36
+      },
+      "left": {
+        "x": 16,
+        "y": 796,
+        "right": 120,
+        "bottom": 828,
+        "w": 104,
+        "h": 32
+      },
+      "right": {
+        "x": 234,
+        "y": 796,
+        "right": 374,
+        "bottom": 828,
+        "w": 140,
+        "h": 32
+      },
+      "width": 390,
+      "height": 844,
+      "volumeSliderVisible": false,
+      "moreVisible": true,
+      "audioMenuButton": true,
+      "subtitleButton": true
+    },
+    {
+      "label": "ui-683",
+      "transport": {
+        "x": 251.5,
+        "y": 718,
+        "right": 431.5,
+        "bottom": 754,
+        "w": 180,
+        "h": 36
+      },
+      "left": {
+        "x": 16,
+        "y": 720,
+        "right": 204,
+        "bottom": 752,
+        "w": 188,
+        "h": 32
+      },
+      "right": {
+        "x": 491,
+        "y": 720,
+        "right": 667,
+        "bottom": 752,
+        "w": 176,
+        "h": 32
+      },
+      "width": 683,
+      "height": 768,
+      "volumeSliderVisible": true,
+      "moreVisible": false,
+      "audioMenuButton": true,
+      "subtitleButton": true
+    },
+    {
+      "label": "ui-1366",
+      "transport": {
+        "x": 593,
+        "y": 718,
+        "right": 773,
+        "bottom": 754,
+        "w": 180,
+        "h": 36
+      },
+      "left": {
+        "x": 16,
+        "y": 720,
+        "right": 204,
+        "bottom": 752,
+        "w": 188,
+        "h": 32
+      },
+      "right": {
+        "x": 1174,
+        "y": 720,
+        "right": 1350,
+        "bottom": 752,
+        "w": 176,
+        "h": 32
+      },
+      "width": 1366,
+      "height": 768,
+      "volumeSliderVisible": true,
+      "moreVisible": false,
+      "audioMenuButton": true,
+      "subtitleButton": true
+    },
+    {
+      "label": "ui-2560",
+      "transport": {
+        "x": 1190,
+        "y": 1390,
+        "right": 1370,
+        "bottom": 1426,
+        "w": 180,
+        "h": 36
+      },
+      "left": {
+        "x": 16,
+        "y": 1392,
+        "right": 204,
+        "bottom": 1424,
+        "w": 188,
+        "h": 32
+      },
+      "right": {
+        "x": 2368,
+        "y": 1392,
+        "right": 2544,
+        "bottom": 1424,
+        "w": 176,
+        "h": 32
+      },
+      "width": 2560,
+      "height": 1440,
+      "volumeSliderVisible": true,
+      "moreVisible": false,
+      "audioMenuButton": true,
+      "subtitleButton": true
+    }
+  ],
+  "scope": "Scheme A UI surfaces; fixture room only",
+  "pass": true,
+  "profileDeleted": true
+}

@@ -4,7 +4,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import type JASSUB from "jassub";
 import type { MkvPlayer, EmbeddedSubtitle } from "@/lib/mkv/player";
 import type { PlayerAdapterHandle, PlayerAdapterProps } from "./player-adapter";
-import { matchPreferredTracks } from "@/lib/player-preferences";
+import { matchPreferredAudio } from "@/lib/player-preferences";
 
 export const MkvPlayerAdapter = forwardRef<PlayerAdapterHandle, PlayerAdapterProps>(function MkvPlayerAdapter(props, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -71,11 +71,12 @@ export const MkvPlayerAdapter = forwardRef<PlayerAdapterHandle, PlayerAdapterPro
           if (cancelled) return;
           if (player) {
             const tracks = player.embeddedTracks;
-            const preferred = callbacks.current.initialTrackPreferences
-              ? matchPreferredTracks(tracks, callbacks.current.initialTrackPreferences) : tracks;
+            // 音轨自动选择在适配器内完成；字幕选择统一由 room-player 的决策函数驱动（需要跨外挂/内嵌候选）。
+            const preferredAudioId = callbacks.current.preferredAudioLanguages
+              ? matchPreferredAudio(tracks, callbacks.current.preferredAudioLanguages) : tracks.audioId;
             const selected = selectedTracks.current;
-            const audioId = selected.audioId ?? preferred.audioId;
-            const subtitleId = selected.subtitleId === undefined ? preferred.subtitleId : selected.subtitleId;
+            const audioId = selected.audioId ?? preferredAudioId;
+            const subtitleId = selected.subtitleId === undefined ? tracks.subtitleId : selected.subtitleId;
             if (audioId !== null && audioId !== tracks.audioId) {
               void player.selectAudioTrack(audioId).catch(() => {
                 if (!cancelled) callbacks.current.onError?.({ code: "AUDIO_TRACK_RESTORE_ERROR", message: "Audio track could not be restored" });
@@ -169,7 +170,7 @@ export const MkvPlayerAdapter = forwardRef<PlayerAdapterHandle, PlayerAdapterPro
       void renderer.destroy().catch(() => {});
     };
     const subtitleCanvas = document.createElement("canvas");
-    subtitleCanvas.className = "pointer-events-none absolute inset-0 size-full object-contain";
+    subtitleCanvas.className = `pointer-events-none absolute inset-0 size-full ${callbacks.current.pictureFit === "cover" ? "object-cover" : "object-contain"}`;
     subtitleCanvas.width = canvasRef.current.width;
     subtitleCanvas.height = canvasRef.current.height;
     host.append(subtitleCanvas);
@@ -209,9 +210,15 @@ export const MkvPlayerAdapter = forwardRef<PlayerAdapterHandle, PlayerAdapterPro
     };
   }, [embedded, assSubtitle, subtitleVttUrl, streamUrl, subtitleOffsetSeconds]);
 
+  // 画面缩放即时生效：主画布走 JSX 类名；JASSUB 覆盖画布是命令式创建，需要同步切换。
+  useEffect(() => {
+    const overlay = subtitleHostRef.current?.querySelector("canvas");
+    if (overlay) overlay.className = `pointer-events-none absolute inset-0 size-full ${props.pictureFit === "cover" ? "object-cover" : "object-contain"}`;
+  }, [props.pictureFit, embedded, assSubtitle, subtitleVttUrl]);
+
   return (
     <div className="relative flex size-full items-center justify-center overflow-hidden bg-black">
-      <canvas ref={canvasRef} className="size-full cursor-pointer object-contain" aria-label="MKV 视频"
+      <canvas ref={canvasRef} className={`size-full cursor-pointer ${props.pictureFit === "cover" ? "object-cover" : "object-contain"}`} aria-label="MKV 视频"
         onPointerUp={(event) => {
           if (event.pointerType === "mouse" && event.button !== 0) return;
           void playerRef.current?.unlockAudio().catch(() => {});

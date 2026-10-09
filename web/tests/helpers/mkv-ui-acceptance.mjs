@@ -277,8 +277,29 @@ try {
     if(!dialog)return false;const r=dialog.getBoundingClientRect();return r.width>0&&r.height>0&&r.top>=0&&r.bottom<=innerHeight+1;})()`)) === true);
   await clickSelector('button[aria-label="关闭媒体库"]');
   await sleep(200);
-  await clickSelector('button[aria-label="退出全屏"]');
-  await until("fullscreen-exited", async () => (await evaluate(`document.fullscreenElement===null`)) === true);
+  // 退出与进入同为命令式全屏代理；弹窗关闭动画/控制层时序会让单次点击偶发落空，
+  // 与进入步骤对称做重试并记录每次诊断（命中元素、按钮矩形、当前 fullscreenElement）。
+  const fullscreenExitDiagnostics = [];
+  let fullscreenExited = false;
+  for (let attempt = 0; attempt < 4 && !fullscreenExited; attempt += 1) {
+    fullscreenExitDiagnostics.push(await evaluate(`(()=>{const b=document.querySelector('button[aria-label="退出全屏"]');
+      if(!b)return {found:false};
+      const r=b.getBoundingClientRect();
+      const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+      return {found:true,rect:{x:Math.round(r.x),y:Math.round(r.y)},hit:hit?String(hit.getAttribute?.('aria-label')||hit.tagName):null,
+        fullscreen: document.fullscreenElement?.tagName ?? null,
+        controlsState: document.querySelector('[data-controls-pinned]')?.getAttribute('data-controls-state')};})()`));
+    await browser.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 640, y: 300 });
+    await sleep(80);
+    await clickSelector('button[aria-label="退出全屏"]');
+    const exitDeadline = Date.now() + 2000;
+    while (Date.now() < exitDeadline && !fullscreenExited) {
+      fullscreenExited = await evaluate(`document.fullscreenElement===null`);
+      if (!fullscreenExited) await sleep(100);
+    }
+  }
+  if (!fullscreenExited) throw new Error(`fullscreen not exited: ${JSON.stringify(fullscreenExitDiagnostics)}`);
+  result.checks.push({ label: "fullscreen-exited", value: { attempts: fullscreenExitDiagnostics.length, diagnostics: fullscreenExitDiagnostics } });
   result.checks.push({ label: "fullscreen-includes-overlays-and-dialogs", value: true });
 
   // ---- 8. 触屏：控制层隐藏时首次点按只呼出，不切换共享播放 ----

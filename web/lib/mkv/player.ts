@@ -2,21 +2,12 @@ import type { Packet } from "@libav.js/types";
 import { LibavSession, packetDecodeSeconds, packetSeconds, type MediaStream } from "./libav-session";
 import { MediaClock } from "./media-clock";
 import { RangeFile } from "./range-file";
+import { paintSubtitleLines, subtitleMarginPx } from "./subtitle-paint";
 import type { EmbeddedTrack, PlayerLocalState, EmbeddedTracks } from "../player-local";
+import { DEFAULT_SUBTITLE_APPEARANCE, type SubtitleAppearance } from "../player-preferences";
 
 export type EmbeddedSubtitle = { header: string; fonts: Uint8Array[]; index: number };
 type Caption = { start: number; end: number; text: string };
-export type SubtitleStyle = {
-  /** 字号（%）：50–300，默认 100。 */
-  fontScale: number;
-  color: "white" | "yellow";
-  outline: boolean;
-  background: "none" | "black";
-  /** 底部位置上移（% of 视觉高度）：0＝自动安全区（默认）；手动 5–30，渲染端约束防裁切。 */
-  bottomRaisePercent: number;
-};
-
-export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = { fontScale: 100, color: "white", outline: true, background: "none", bottomRaisePercent: 0 };
 
 export type MkvPlayerOptions = {
   canvas: HTMLCanvasElement;
@@ -31,7 +22,7 @@ export type MkvPlayerOptions = {
   onLocalState?: (state: PlayerLocalState) => void;
   onSubtitlePacket?: (text: string, start: number, duration: number) => void;
   onSubtitleReset?: () => void;
-  subtitleStyle?: SubtitleStyle;
+  subtitleStyle?: SubtitleAppearance;
 };
 
 /** Room-local decoder. Commands supersede older runs; only one run can touch the demuxer. */
@@ -73,7 +64,7 @@ export class MkvPlayer {
   constructor(private readonly options: MkvPlayerOptions) {}
 
   /** 外观即时生效：draw() 每帧读取；暂停态触发一次重绘（与 setExternalSubtitle 同一套路）。 */
-  setSubtitleStyle(style: SubtitleStyle) {
+  setSubtitleStyle(style: SubtitleAppearance) {
     this.options.subtitleStyle = style;
     if (this.loaded && !this.wantedPlaying && !this.disposed) this.restart();
   }
@@ -404,16 +395,6 @@ export class MkvPlayer {
     this.raf = requestAnimationFrame(() => this.present(version));
   }
 
-  /** 底栏浮层约占画面下缘 112 CSS px；按显示缩放换算基线，字幕不被控制层遮挡。 */
-  private subtitleMargin(): number {
-    const { canvas } = this.options;
-    const scale = Math.min(
-      (canvas.clientWidth || canvas.width) / canvas.width,
-      (canvas.clientHeight || canvas.height) / canvas.height,
-    ) || 1;
-    return Math.max(canvas.height / 9, Math.min(canvas.height * 0.3, 112 / scale));
-  }
-
   private draw(frame: VideoFrame) {
     const { canvas } = this.options;
     const context = canvas.getContext("2d");
@@ -431,32 +412,9 @@ export class MkvPlayer {
       : this.captions.filter((cue) => cue.start <= mediaTime - this.subtitleOffset
         && cue.end > mediaTime - this.subtitleOffset).map((cue) => cue.text);
     if (lines.length) {
-      const style = this.options.subtitleStyle ?? DEFAULT_SUBTITLE_STYLE;
-      const fontPx = Math.round(Math.max(20, canvas.height / 24) * (Math.min(300, Math.max(50, style.fontScale)) / 100));
-      const fillColor = style.color === "yellow" ? "#ffd400" : "#fff";
-      context.font = `${fontPx}px sans-serif`;
-      context.textAlign = "center";
-      context.fillStyle = fillColor;
-      const raise = style.bottomRaisePercent > 0
-        ? (Math.min(30, Math.max(5, style.bottomRaisePercent)) / 100) * canvas.height : 0;
-      // 自动安全区为基准；手动上移后再夹一层防裁切边界（handoff：范围由渲染器约束）。
-      const baseline = Math.max(fontPx * 2, canvas.height - this.subtitleMargin() - raise);
-      const lineHeight = canvas.height / 20;
-      lines.join("\n").split("\n").forEach((line, index, all) => {
-        const y = baseline - (all.length - index - 1) * lineHeight;
-        if (style.background === "black") {
-          const width = Math.min(context.measureText(line).width, canvas.width * 0.9);
-          context.fillStyle = "rgba(0,0,0,0.6)";
-          context.fillRect(canvas.width / 2 - width / 2 - fontPx * 0.3, y - fontPx, width + fontPx * 0.6, fontPx * 1.3);
-          context.fillStyle = fillColor;
-        }
-        if (style.outline) {
-          context.lineWidth = Math.max(3, canvas.height / 200);
-          context.strokeStyle = "#000";
-          context.strokeText(line, canvas.width / 2, y, canvas.width * 0.9);
-        }
-        context.fillText(line, canvas.width / 2, y, canvas.width * 0.9);
-      });
+      const style = this.options.subtitleStyle ?? DEFAULT_SUBTITLE_APPEARANCE;
+      paintSubtitleLines(context, lines.join("\n").split("\n"), style, canvas.width, canvas.height,
+        subtitleMarginPx(canvas.width, canvas.height, canvas.clientWidth, canvas.clientHeight));
     }
     this.options.onFrame?.(mediaTime);
   }

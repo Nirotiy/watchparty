@@ -1,0 +1,106 @@
+{
+  "startedAt": "2026-10-09T17:02:38.767Z",
+  "scope": "两名浏览器客户端同房、不同本机偏好；真实 MKV 引擎；本地 fixture 房间",
+  "checks": [
+    {
+      "label": "A-loaded",
+      "elapsedMs": 795
+    },
+    {
+      "label": "B-loaded",
+      "elapsedMs": 780
+    },
+    {
+      "label": "A-subtitle-selected",
+      "elapsedMs": 1
+    },
+    {
+      "label": "B-subtitle-selected",
+      "elapsedMs": 1
+    },
+    {
+      "label": "A-styled-cue",
+      "elapsedMs": 136
+    },
+    {
+      "label": "B-plain-cue",
+      "elapsedMs": 1
+    },
+    {
+      "label": "A-is-owner",
+      "elapsedMs": 15
+    },
+    {
+      "label": "A-skip-forward-30",
+      "elapsedMs": 11
+    },
+    {
+      "label": "A-playing-advances",
+      "elapsedMs": 871
+    },
+    {
+      "label": "B-follows-room-sync",
+      "elapsedMs": 1
+    },
+    {
+      "label": "independent-preferences-and-synced-room",
+      "value": {
+        "fitA": "size-full cursor-pointer object-cover",
+        "fitB": "size-full cursor-pointer object-contain",
+        "styleEvidence": {
+          "A": {
+            "text": "JP M02",
+            "font": "bold 45px sans-serif",
+            "fillStyle": "#00e5ff",
+            "lineWidth": 10.800000190734863,
+            "shadowBlur": 40.5
+          },
+          "B": {
+            "text": "JP M02",
+            "font": "45px sans-serif",
+            "fillStyle": "#ffffff",
+            "lineWidth": 5.400000095367432,
+            "shadowBlur": 0
+          }
+        },
+        "preferenceDiff": {
+          "volume": [
+            20,
+            80
+          ],
+          "pictureFit": [
+            "cover",
+            "contain"
+          ],
+          "skip": [
+            5,
+            10
+          ],
+          "color": [
+            "cyan",
+            "white"
+          ],
+          "weight": [
+            "bold",
+            "normal"
+          ]
+        },
+        "positionBefore": 10.25,
+        "afterSeek": 40.25
+      }
+    },
+    {
+      "label": "handback-modal-open",
+      "elapsedMs": 3
+    },
+    {
+      "label": "handback-confirm",
+      "elapsedMs": 1
+    },
+    {
+      "label": "ownership-returned",
+      "elapsedMs": 12
+    }
+  ],
+  "pass": true
+}

@@ -88,3 +88,39 @@ export function createVttBlobUrl(
       : srtToVttText(normalized, offsetSeconds);
   return URL.createObjectURL(new Blob([vttText], { type: "text/vtt;charset=utf-8" }));
 }
+
+export type SubtitleCue = { start: number; end: number; text: string };
+
+const ENTITY_MAP: Record<string, string> = {
+  amp: "&", lt: "<", gt: ">", nbsp: " ", lrm: "", rlm: "", quot: "\"", "#39": "'",
+};
+
+function cueText(rawLines: string[]): string {
+  return rawLines.join("\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&([a-z#0-9]+);/gi, (match, name: string) => ENTITY_MAP[name.toLowerCase()] ?? match)
+    .trim();
+}
+
+/** 解析 SRT/VTT 为纯文本 cue 列表（原生覆盖层用；ASS/SSA 返回空）。 */
+export function parseSubtitleCues(subtitleText: string, format: SubtitleTrack["format"]): SubtitleCue[] {
+  if (format === "ass" || format === "ssa") return [];
+  const blocks = subtitleText
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n?/g, "\n")
+    .split(/\n\s*\n/);
+  const cues: SubtitleCue[] = [];
+  for (const block of blocks) {
+    const lines = block.split("\n");
+    const cueIndex = lines.findIndex((line) => line.includes("-->"));
+    if (cueIndex < 0) continue;
+    const [rawStart, rawEnd] = lines[cueIndex].split("-->");
+    const start = parseTimestamp(rawStart ?? "");
+    const end = rawEnd === undefined ? null : parseTimestamp(rawEnd);
+    if (start === null || end === null) continue;
+    const text = cueText(lines.slice(cueIndex + 1));
+    if (!text) continue;
+    cues.push({ start, end, text });
+  }
+  return cues;
+}

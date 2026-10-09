@@ -26,10 +26,11 @@ import { createVttBlobUrl } from "@/lib/subtitle-parser";
 import { mediaErrorText } from "@/lib/media-error-text";
 import { synchronizePlayback } from "@/lib/playback-sync";
 import type { EmbeddedTrack, EmbeddedTracks, PlayerLocalState, PlayerCapabilities } from "@/lib/player-local";
-import { DEFAULT_PLAYER_PREFERENCES, DEFAULT_SUBTITLE_APPEARANCE,
-  clearAllSubtitleOffsets, clampSubtitleOffset, getPreferenceMediaKey, preferredExternalSubtitle, readPlayerPreferences,
-  readSubtitleOffset, savePlayerPreferences, saveSubtitleOffset, trackPreferencePatch,
-  type PlayerPreferences, type SubtitleAppearance } from "@/lib/player-preferences";
+import { DEFAULT_PLAYER_PREFERENCES,
+  clearAllSubtitleOffsets, clampSubtitleOffset, decideSubtitleSelection, getPreferenceMediaKey,
+  preferencesStorageAvailable, readPlayerPreferences, readSubtitleOffset, savePlayerPreferences, saveSubtitleOffset,
+  type PlayerPreferences, type SkipStepSeconds, type SubtitleAppearance, type SubtitleMode,
+  type SubtitleSourcePreference } from "@/lib/player-preferences";
 import { operationResult, runBatchOperation, reconcilePlaylistAdd, confirmStoppedBatchItem,
   type BatchOperationResult, type PlaylistAddAttempt } from "@/lib/media-operation-result";
 
@@ -192,6 +193,9 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
   const [showAudioMenu, setShowAudioMenu] = useState<boolean>(false);
   const [showMoreMenu, setShowMoreMenu] = useState<boolean>(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState<boolean>(false);
+  const [storageAvailable, setStorageAvailable] = useState(true);
+  // 手选只作用当前媒体：同媒体重试保留；换媒体清除后重新应用本机规则（追加裁决）。
+  const manualSubtitleRef = useRef<{ key: string; kind: "external" | "embedded"; id: string | number } | null>(null);
   // 字幕上传（媒体级持久；契约 temp-html/subtitle-upload-contract-2026-10-08.md）
   const [subtitleUploadBusy, setSubtitleUploadBusy] = useState(false);
   const [subtitleUploadError, setSubtitleUploadError] = useState<string | null>(null);
@@ -315,9 +319,21 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
   }, [clearControlsHideTimer, scheduleControlsHide, shouldPinControls]);
 
   // 隐藏后根节点通常没有焦点，Tab/方向键等事件不会冒泡到播放器。
-  // 在组件存活期间监听文档级键盘输入，确保键盘也能重新呼出控制层。
+  // 在组件存活期间监听文档级键盘输入：任意键呼出控制层；←/→ 按偏好步长跳转（房间操作，按权限同步）。
+  const skipShortcutRef = useRef<(direction: -1 | 1) => void>(() => {});
+  const shortcutBlockedRef = useRef(false);
   useEffect(() => {
-    const handleDocumentKeyDown = () => revealControls();
+    const handleDocumentKeyDown = (event: KeyboardEvent) => {
+      revealControls();
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.defaultPrevented) return;
+      if (shortcutBlockedRef.current) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest(
+        'input, textarea, select, button, a, [contenteditable="true"], [role="slider"], [role="switch"], [role="dialog"], [role="listbox"], [role="menu"], [role="tab"]')) return;
+      event.preventDefault();
+      skipShortcutRef.current(event.key === "ArrowLeft" ? -1 : 1);
+    };
     document.addEventListener("keydown", handleDocumentKeyDown);
     return () => document.removeEventListener("keydown", handleDocumentKeyDown);
   }, [revealControls]);
@@ -354,6 +370,7 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
         sourceKeyRef.current = sourceKey;
         resolvedMediaRef.current = null;
         hasRetriedResolveRef.current = false;
+        manualSubtitleRef.current = null;
         setStreamUrl(null);
         clearSubtitles();
         setSubtitleOffset(readSubtitleOffset(getPreferenceMediaKey(source)));
@@ -395,19 +412,7 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
           const tracks = await api.getSubtitleTracks(roomId, source.mediaId, token);
           if (sequence !== resolveSequenceRef.current || subtitleSequence !== subtitleSequenceRef.current) return;
           setSubtitleTracks(tracks);
-          const saved = preferencesRef.current;
-          // 来源偏好：外挂优先时自动挑外挂（语言列表命中/默认轨）；内嵌优先时交给引擎内嵌路径。
-          const firstTrack = saved.subtitlesOff || saved.subtitleSourcePreference !== "external"
-            ? undefined
-            : preferredExternalSubtitle(tracks, saved.subtitleLanguages);
-          if (!firstTrack) return;
-          const subtitleContent = await (firstTrack.source === "upload"
-            ? api.getSubtitleTrackContent(roomId, firstTrack.id, token)
-            : api.getSubtitleContent(roomId, firstTrack.mediaId, token));
-          if (sequence !== resolveSequenceRef.current || subtitleSequence !== subtitleSequenceRef.current) return;
-          setActiveSubtitleId(firstTrack.id);
-          setSubtitleOffset(readSubtitleOffset(getPreferenceMediaKey(source), undefined, firstTrack.offsetSeconds ?? 0));
-          setRawSubtitleContent(subtitleContent);
+          // 自动选轨统一交给决策 effect（需要内嵌轨一起参与模式/语言/平局判定）。
         } catch {
           if (sequence === resolveSequenceRef.current && subtitleSequence === subtitleSequenceRef.current) clearSubtitles();
         }
@@ -462,6 +467,7 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
           resolvedMediaRef.current = null;
           resolveSequenceRef.current += 1;
           hasRetriedResolveRef.current = false;
+          manualSubtitleRef.current = null;
           setStreamUrl(null);
           setIsResolving(false);
           setTotalDuration(0);
@@ -579,7 +585,7 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
   );
 
   const selectSubtitleTrack = useCallback(
-    async (track: SubtitleTrack) => {
+    async (track: SubtitleTrack, manual = true) => {
       if (!accessToken) return;
       const sequence = ++subtitleSequenceRef.current;
       const sourceKey = sourceKeyRef.current;
@@ -591,8 +597,12 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
         setActiveSubtitleId(track.id);
         setSubtitleOffset(readSubtitleOffset(getPreferenceMediaKey(snapshotRef.current?.source ?? null), undefined, track.offsetSeconds ?? 0));
         setRawSubtitleContent(content);
-        // 手选只作用于当前媒体（覆盖自动选择、同媒体重试保留）；不重排全局语言列表（handoff §八）。
-        persistPreferences({ subtitlesOff: false });
+        if (manual) {
+          const source = snapshotRef.current?.source ?? null;
+          manualSubtitleRef.current = source ? { key: mediaSourceKey(source), kind: "external", id: track.id } : null;
+          // 重新选择字幕解除显式关闭（模式回到"跟随媒体默认"）；手选不重排全局语言列表。
+          if (preferencesRef.current.subtitleMode === "off") persistPreferences({ subtitleMode: "media-default" });
+        }
         setGlobalError(null);
       } catch (error: unknown) {
         if (sequence !== subtitleSequenceRef.current || sourceKey !== sourceKeyRef.current) return;
@@ -654,6 +664,9 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
         if (activeSubtitleId === track.id) {
           setActiveSubtitleId(null);
           setRawSubtitleContent(null);
+          if (manualSubtitleRef.current?.kind === "external" && manualSubtitleRef.current.id === track.id) {
+            manualSubtitleRef.current = null;
+          }
         }
       } catch (error: unknown) {
         setSubtitleUploadError(mediaErrorText(error, "删除字幕失败"));
@@ -671,12 +684,11 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
       if (!select) return;
       await select(track.id);
       if (sourceKey !== sourceKeyRef.current) return;
-      persistPreferences(trackPreferencePatch("audio", track));
       setGlobalError(null);
     } catch (error: unknown) {
       setGlobalError(error instanceof Error ? error.message : "切换音轨失败");
     }
-  }, [persistPreferences]);
+  }, []);
 
   const selectEmbeddedSubtitle = useCallback((track: EmbeddedTrack) => {
     if (!track.supported) return;
@@ -687,7 +699,10 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
       subtitleSequenceRef.current += 1;
       setActiveSubtitleId(null);
       setRawSubtitleContent(null);
-      persistPreferences(trackPreferencePatch("subtitle", track));
+      const source = snapshotRef.current?.source ?? null;
+      if (source) manualSubtitleRef.current = { key: mediaSourceKey(source), kind: "embedded", id: track.id };
+      // 重新选择字幕解除显式关闭。
+      if (preferencesRef.current.subtitleMode === "off") persistPreferences({ subtitleMode: "media-default" });
       setGlobalError(null);
     } catch (error: unknown) {
       setGlobalError(error instanceof Error ? error.message : "切换字幕轨失败");
@@ -700,7 +715,9 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
     setRawSubtitleContent(null);
     try {
       playerRef.current?.selectSubtitleTrack?.(null);
-      persistPreferences(trackPreferencePatch("subtitle", null));
+      manualSubtitleRef.current = null;
+      // 显式关闭跨媒体保存；重新选择字幕会解除。
+      persistPreferences({ subtitleMode: "off" });
       setGlobalError(null);
     } catch (error: unknown) {
       setGlobalError(error instanceof Error ? error.message : "关闭字幕失败");
@@ -713,33 +730,34 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
     saveSubtitleOffset(getPreferenceMediaKey(snapshotRef.current?.source ?? null), next);
   };
 
-  // ===== 本机设置（最终 handoff）：外观即时生效；语言与来源偏好下次载入生效；手选不写全局列表。 =====
+  // ===== 本机设置（追加裁决）：外观/步长/缩放即时生效；规则改动立即重新应用；手选不写全局列表。 =====
   const updateSubtitleAppearance = (patch: Partial<SubtitleAppearance>) => {
     persistPreferences({ subtitleAppearance: { ...preferencesRef.current.subtitleAppearance, ...patch } });
   };
   const handleLanguageListChange = (kind: "audio" | "subtitle", next: string[]) => {
+    if (kind === "subtitle") manualSubtitleRef.current = null;
     persistPreferences(kind === "audio" ? { audioLanguages: next } : { subtitleLanguages: next });
   };
-  const handleSubtitlesOffChange = (off: boolean) => {
-    if (off) {
-      disableSubtitles();
-      return;
+  const handleSubtitleModeChange = useCallback((mode: SubtitleMode) => {
+    manualSubtitleRef.current = null;
+    persistPreferences({ subtitleMode: mode });
+    if (mode === "off") {
+      subtitleSequenceRef.current += 1;
+      setActiveSubtitleId(null);
+      setRawSubtitleContent(null);
+      try { playerRef.current?.selectSubtitleTrack?.(null); } catch { /* 引擎未就绪：决策 effect 收尾。 */ }
     }
-    persistPreferences({ subtitlesOff: false });
-    const saved = preferencesRef.current;
-    const externalMatch = preferredExternalSubtitle(subtitleTracks, saved.subtitleLanguages);
-    if (saved.subtitleSourcePreference === "external" && externalMatch) {
-      void selectSubtitleTrack(externalMatch);
-      return;
-    }
-    try {
-      playerRef.current?.selectSubtitleTrack?.(embeddedTracks?.subtitleId ?? null);
-    } catch {
-      // 引擎未就绪：载入时按偏好恢复。
-    }
+    // media-default / prefer-list：交给决策 effect 立即重新应用。
+  }, [persistPreferences]);
+  const handleSourcePreferenceChange = useCallback((preference: SubtitleSourcePreference) => {
+    manualSubtitleRef.current = null;
+    persistPreferences({ subtitleSourcePreference: preference });
+  }, [persistPreferences]);
+  const handleSkipStepChange = (kind: "backward" | "forward", seconds: SkipStepSeconds) => {
+    persistPreferences(kind === "backward" ? { skipBackwardSeconds: seconds } : { skipForwardSeconds: seconds });
   };
   const handleResetPlayerPreferences = () => {
-    const next = savePlayerPreferences({ ...DEFAULT_PLAYER_PREFERENCES, subtitleAppearance: { ...DEFAULT_SUBTITLE_APPEARANCE } });
+    const next = savePlayerPreferences({ ...DEFAULT_PLAYER_PREFERENCES });
     preferencesRef.current = next;
     setPreferences(next);
     setVolume(next.volume);
@@ -767,21 +785,50 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
     : activeSubtitleIsAss ? "当前是 ASS 字幕：使用原样式，外观不生效" : null;
   const appearanceDisabled = settingsSourceIsYoutube;
 
-  // 内嵌优先但媒体没有内嵌字幕轨时，回退外挂（handoff：「来源不存在则使用另一来源」），每媒体一次。
-  const externalFallbackRef = useRef<string | null>(null);
+  // 统一字幕决策（追加裁决 §字幕模式与自动选择）：模式 × 媒体默认标记 × 语言列表 × 来源平局。
+  // 外挂接口没有默认标记，永不冒充"媒体默认轨"；手选（当前媒体）覆盖自动结果，本 effect 只在无手选时应用。
   useEffect(() => {
-    if (!snapshot?.source || !accessToken) return;
-    const saved = preferencesRef.current;
-    if (saved.subtitlesOff || saved.subtitleSourcePreference !== "embedded") return;
-    if (!embeddedTracks || subtitleTracks.length === 0 || activeSubtitleId) return;
-    if (embeddedTracks.items.some((track) => track.kind === "subtitle" && track.supported)) return;
-    const mediaKey = getPreferenceMediaKey(snapshot.source);
-    if (!mediaKey || externalFallbackRef.current === mediaKey) return;
-    const fallback = preferredExternalSubtitle(subtitleTracks, saved.subtitleLanguages);
-    if (!fallback) return;
-    externalFallbackRef.current = mediaKey;
-    void selectSubtitleTrack(fallback);
-  }, [snapshot?.source, accessToken, embeddedTracks, subtitleTracks, activeSubtitleId, selectSubtitleTrack]);
+    const source = snapshot?.source;
+    if (!source) return;
+    const manual = manualSubtitleRef.current;
+    if (manual && manual.key === mediaSourceKey(source)) return;
+    const decision = decideSubtitleSelection({
+      mode: preferences.subtitleMode,
+      languages: preferences.subtitleLanguages,
+      sourcePreference: preferences.subtitleSourcePreference,
+      embedded: embeddedTracks?.items ?? [],
+      external: subtitleTracks,
+      embeddedDefaultPickId: embeddedTracks?.subtitleId ?? null,
+    });
+    // 应用到引擎/取字幕属于对外部系统的同步；用微任务回调避免渲染提交阶段内的级联 setState。
+    queueMicrotask(() => {
+      if (decision.kind === "external") {
+        if (activeSubtitleId === decision.track.id) return;
+        void selectSubtitleTrack(decision.track, false);
+        return;
+      }
+      if (decision.kind === "embedded") {
+        if (!activeSubtitleId && embeddedTracks?.subtitleId === decision.id) return;
+        try {
+          playerRef.current?.selectSubtitleTrack?.(decision.id);
+          if (activeSubtitleId) {
+            subtitleSequenceRef.current += 1;
+            setActiveSubtitleId(null);
+            setRawSubtitleContent(null);
+          }
+        } catch { /* 引擎未就绪：onTracks 到达后重新决策。 */ }
+        return;
+      }
+      if (activeSubtitleId) {
+        subtitleSequenceRef.current += 1;
+        setActiveSubtitleId(null);
+        setRawSubtitleContent(null);
+      }
+      if (embeddedTracks && embeddedTracks.subtitleId != null) {
+        try { playerRef.current?.selectSubtitleTrack?.(null); } catch { /* 引擎未就绪。 */ }
+      }
+    });
+  }, [snapshot?.source, embeddedTracks, subtitleTracks, preferences, activeSubtitleId, selectSubtitleTrack]);
 
   const addQueueMedia = useCallback((media: MediaSource): Promise<CommandAck> => runCommand(async (socket, revision) => {
     if (uncertainQueueAddRef.current) return { ok: false, error: { code: "QUEUE_ADD_UNCERTAIN", message: "上次添加结果待核对，暂不能再次添加" } };
@@ -881,6 +928,28 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
     const targetSecs = values[0] ?? 0;
     await runCommand((socket, revision) => socket.seek(targetSecs, revision));
   };
+
+  // 快进/后退：步长只是本机偏好；实际执行 seek 是房间操作，按角色权限与同步规则处理。
+  // base 优先取引擎当前时间：紧跟在一次 seek 之后时，React state 可能还停留在旧位置。
+  const handleSkip = async (direction: -1 | 1) => {
+    if (!snapshot || !socketRef.current) return;
+    if (!canOwnerControl) {
+      triggerLockWarning(direction < 0 ? "快退" : "快进");
+      return;
+    }
+    const step = direction < 0 ? preferencesRef.current.skipBackwardSeconds : preferencesRef.current.skipForwardSeconds;
+    const engineTime = playerRef.current?.getCurrentTime?.();
+    const base = typeof engineTime === "number" && Number.isFinite(engineTime) ? engineTime : currentTime;
+    const upperBound = totalDuration > 0 ? totalDuration : Number.POSITIVE_INFINITY;
+    const target = Math.max(0, Math.min(upperBound, base + direction * step));
+    await runCommand((socket, revision) => socket.seek(target, revision));
+  };
+
+  // 键盘跳转桥接：始终引用最新渲染的 handleSkip；弹层打开时屏蔽方向键。
+  useEffect(() => {
+    skipShortcutRef.current = (direction) => { void handleSkip(direction); };
+    shortcutBlockedRef.current = showSettingsMenu || isOpenListModalOpen || isPlaylistModalOpen || isMembersModalOpen || isMpvModalOpen;
+  });
 
   const toggleMute = () => {
     void playerRef.current?.unlockAudio?.().catch(() => {});
@@ -1137,7 +1206,10 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
             assSubtitle={assSubtitle}
             subtitleOffsetSeconds={subtitleOffset}
             subtitleStyle={preferences.subtitleAppearance}
-            initialTrackPreferences={preferences}
+            pictureFit={preferences.pictureFit}
+            subtitleText={rawSubtitleContent}
+            subtitleFormat={activeSubtitleTrack?.format ?? null}
+            preferredAudioLanguages={preferences.audioLanguages}
             onCapabilities={setPlayerCapabilities}
             onLocalState={(state) => setLocalState(state)}
             onEmbeddedTracks={(tracks) => setEmbeddedTracks(tracks)}
@@ -1215,6 +1287,7 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
           {/* 运输组：宽屏绝对居中（现状）；窄屏独占一行居中，不与两侧工具重叠 */}
           <div className="order-1 flex w-full basis-full items-center justify-center gap-1 sm:absolute sm:left-1/2 sm:order-none sm:w-auto sm:basis-auto sm:-translate-x-1/2">
             <IconControl icon="skip_previous" label="上一项" onClick={handlePrevTrack} />
+            <IconControl icon="fast_rewind" label={`快退 ${preferences.skipBackwardSeconds} 秒（←）`} onClick={() => void handleSkip(-1)} />
             <Button
               variant="ghost"
               size="icon"
@@ -1224,6 +1297,7 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
             >
               <MsIcon name={snapshot?.paused ? "play_arrow" : "pause"} filled className="text-[26px]" />
             </Button>
+            <IconControl icon="fast_forward" label={`快进 ${preferences.skipForwardSeconds} 秒（→）`} onClick={() => void handleSkip(1)} />
             <IconControl icon="skip_next" label="下一项" onClick={handleNextTrack} />
           </div>
           <div className="order-2 flex flex-1 items-center gap-1 sm:order-none">
@@ -1465,7 +1539,7 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
               size="icon-sm"
               aria-label="设置"
               className="text-white/85 hover:bg-white/15 hover:text-white"
-              onClick={() => setShowSettingsMenu(true)}
+              onClick={() => { setStorageAvailable(preferencesStorageAvailable()); setShowSettingsMenu(true); }}
             >
               <MsIcon name="settings" className="text-[20px]" />
             </Button>
@@ -1621,15 +1695,19 @@ function HydratedRoomPlayer({ roomId, accessToken, onAuthInvalid }: RoomPlayerPr
           persistPreferences({ volume: v, muted: false });
         }}
         onToggleMute={toggleMute}
-        onSubtitlesOffChange={handleSubtitlesOffChange}
-        onSourcePreferenceChange={(preference) => persistPreferences({ subtitleSourcePreference: preference })}
+        onSubtitleModeChange={handleSubtitleModeChange}
+        onSourcePreferenceChange={handleSourcePreferenceChange}
         onLanguageListChange={handleLanguageListChange}
         updateAppearance={updateSubtitleAppearance}
         subtitleOffset={subtitleOffset}
         onOffsetDelta={adjustSubtitleOffset}
         onOffsetZero={handleZeroSubtitleOffset}
+        onSkipStepChange={handleSkipStepChange}
+        onPictureFitChange={(fit) => persistPreferences({ pictureFit: fit })}
         appearanceNotice={appearanceNotice}
         appearanceDisabled={appearanceDisabled}
+        fitNotice={settingsSourceIsYoutube ? "YouTube 播放器不支持画面缩放，此设置对其不适用" : null}
+        storageAvailable={storageAvailable}
         onResetPreferences={handleResetPlayerPreferences}
         onClearAllOffsets={handleClearAllOffsets}
       />

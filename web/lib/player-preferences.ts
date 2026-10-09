@@ -1,20 +1,28 @@
 import type { MediaSource, SubtitleTrack } from "./contracts";
 import type { EmbeddedTrack, EmbeddedTracks } from "./player-local";
 
-export type TrackPreferences = {
-  /** 有序语言列表（按顺序匹配：先精确标签，再主语言回退）；空列表＝媒体默认。 */
-  audioLanguages: string[];
-  subtitleLanguages: string[];
-  subtitlesOff: boolean;
-};
+/** 字幕显示模式（追加裁决）：三模式共同决定自动选轨；手选始终覆盖自动结果。 */
+export type SubtitleMode = "media-default" | "prefer-list" | "off";
 
-/** 普通文本字幕外观（handoff 三轮裁决）：仅作用于画布渲染的 VTT/SRT，ASS 走原样式不受影响。 */
+export type SubtitleSourcePreference = "external" | "embedded";
+
+export type SubtitleColor = "white" | "yellow" | "cyan" | "green";
+export type SubtitleFontWeight = "normal" | "bold";
+export type SubtitleOutline = "none" | "thin" | "thick";
+export type SubtitleShadow = "none" | "soft" | "strong";
+export const SUBTITLE_BACKGROUND_OPACITIES = [0, 25, 50, 75, 100] as const;
+export type SubtitleBackgroundOpacity = (typeof SUBTITLE_BACKGROUND_OPACITIES)[number];
+
+/** 普通文本字幕外观（仅作用于 VTT/SRT；ASS/SSA 走原样式不受影响）。 */
 export type SubtitleAppearance = {
   /** 字号（%）：50–300，默认 100。 */
   fontScale: number;
-  color: "white" | "yellow";
-  outline: boolean;
-  background: "none" | "black";
+  color: SubtitleColor;
+  fontWeight: SubtitleFontWeight;
+  outline: SubtitleOutline;
+  shadow: SubtitleShadow;
+  /** 黑色背景透明度（%）：0＝关闭，默认 0。 */
+  backgroundOpacity: SubtitleBackgroundOpacity;
   /** 底部位置上移（% of 视觉高度）：0＝自动安全区（默认）；手动 5–30，渲染端再约束防裁切。 */
   bottomRaisePercent: number;
 };
@@ -27,10 +35,17 @@ export const SUBTITLE_OFFSET_LIMIT_SECONDS = 30;
 export const LANGUAGE_LIST_LIMIT = 8;
 
 export const DEFAULT_SUBTITLE_APPEARANCE: Readonly<SubtitleAppearance> = {
-  fontScale: 100, color: "white", outline: true, background: "none", bottomRaisePercent: 0,
+  fontScale: 100, color: "white", fontWeight: "normal", outline: "thin", shadow: "none",
+  backgroundOpacity: 0, bottomRaisePercent: 0,
 };
 
-export type SubtitleSourcePreference = "external" | "embedded";
+/** 快进/后退步长（秒）：两档各自独立保存。 */
+export const SKIP_STEP_OPTIONS = [5, 10, 15, 20, 25, 30] as const;
+export type SkipStepSeconds = (typeof SKIP_STEP_OPTIONS)[number];
+export const DEFAULT_SKIP_STEP_SECONDS: SkipStepSeconds = 10;
+
+/** 画面缩放：完整显示（默认，不裁切）或铺满画面（裁切边缘）。YouTube 不适用。 */
+export type PictureFit = "contain" | "cover";
 
 /** 语言列表编辑器的固定选项。 */
 export const LANGUAGE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
@@ -44,26 +59,44 @@ export const LANGUAGE_OPTIONS: ReadonlyArray<{ value: string; label: string }> =
   { value: "ru", label: "俄语" },
 ];
 
-export type PlayerPreferences = TrackPreferences & {
+export type PlayerPreferences = {
   volume: number;
   muted: boolean;
-  /** 字幕来源优先级：默认外挂优先（上传字幕归外挂来源）。 */
+  /** 有序语言列表（按顺序匹配：先精确标签，再主语言回退）；空列表＝媒体默认。 */
+  audioLanguages: string[];
+  subtitleLanguages: string[];
+  subtitleMode: SubtitleMode;
+  /** 源平局偏好：只在同一语言优先级出现多个候选时打破平局（不能推翻模式或语言优先级）。 */
   subtitleSourcePreference: SubtitleSourcePreference;
   subtitleAppearance: SubtitleAppearance;
+  skipBackwardSeconds: SkipStepSeconds;
+  skipForwardSeconds: SkipStepSeconds;
+  pictureFit: PictureFit;
 };
 
 type PreferenceStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 const GLOBAL_KEY = "watchparty.player-preferences.v1";
 const OFFSET_KEY = "watchparty.subtitle-offsets.v1";
 export const DEFAULT_PLAYER_PREFERENCES: Readonly<PlayerPreferences> = {
-  volume: 85, muted: false, audioLanguages: [], subtitleLanguages: [], subtitlesOff: false,
-  subtitleSourcePreference: "external",
+  volume: 85, muted: false, audioLanguages: [], subtitleLanguages: [],
+  subtitleMode: "media-default", subtitleSourcePreference: "external",
   subtitleAppearance: { ...DEFAULT_SUBTITLE_APPEARANCE },
+  skipBackwardSeconds: DEFAULT_SKIP_STEP_SECONDS, skipForwardSeconds: DEFAULT_SKIP_STEP_SECONDS,
+  pictureFit: "contain",
 };
 
 function browserStorage(): PreferenceStorage | undefined {
   try { return typeof window === "undefined" ? undefined : window.localStorage; }
   catch { return undefined; }
+}
+
+/** 存储是否可用：不可用时偏好仍供本次会话使用，但界面须提示未保存。 */
+export function preferencesStorageAvailable(storage: PreferenceStorage | undefined = browserStorage()): boolean {
+  try {
+    storage?.setItem("watchparty.storage-probe", "1");
+    storage?.removeItem("watchparty.storage-probe");
+    return true;
+  } catch { return false; }
 }
 
 function readJson(storage: PreferenceStorage | undefined, key: string): unknown {
@@ -89,7 +122,7 @@ export function normalizeTrackLanguage(value: unknown): string | null {
   return normalized ? [normalized, ...parts].join("-") : null;
 }
 
-function clampNumber(value:unknown, min:number, max:number, fallback:number): number {
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
 }
 
@@ -105,22 +138,52 @@ function normalizeLanguageList(value: unknown): string[] {
   return list;
 }
 
+function oneOf<T extends string>(value: unknown, options: readonly T[], fallback: T): T {
+  return typeof value === "string" && (options as readonly string[]).includes(value) ? value as T : fallback;
+}
+
+function validateSkipStep(value: unknown): SkipStepSeconds {
+  return typeof value === "number" && (SKIP_STEP_OPTIONS as readonly number[]).includes(value)
+    ? value as SkipStepSeconds : DEFAULT_SKIP_STEP_SECONDS;
+}
+
+function snapBackgroundOpacity(value: unknown): SubtitleBackgroundOpacity {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  const snapped = Math.round(Math.max(0, Math.min(100, value)) / 25) * 25;
+  return snapped as SubtitleBackgroundOpacity;
+}
+
 function validateSubtitleAppearance(value: unknown): SubtitleAppearance {
   const data = record(value) ? value : {};
   const bottomRaise = typeof data.bottomRaisePercent === "number" && Number.isFinite(data.bottomRaisePercent)
     ? (data.bottomRaisePercent <= 0 ? 0 : Math.max(SUBTITLE_BOTTOM_RAISE_MIN, Math.min(SUBTITLE_BOTTOM_RAISE_MAX, data.bottomRaisePercent)))
     : DEFAULT_SUBTITLE_APPEARANCE.bottomRaisePercent;
+  // 迁移：旧 outline 布尔 → none/thin；旧 background "none"/"black"（固定 60% 透明度）→ 0/50。
+  const outline = data.outline === "thick" ? "thick"
+    : data.outline === "none" || data.outline === false ? "none"
+      : data.outline === "thin" || data.outline === true ? "thin"
+        : DEFAULT_SUBTITLE_APPEARANCE.outline;
+  const backgroundOpacity = data.background === "black" ? 50
+    : data.background === "none" ? 0
+      : snapBackgroundOpacity(data.backgroundOpacity);
   return {
     fontScale: clampNumber(data.fontScale, SUBTITLE_FONT_MIN, SUBTITLE_FONT_MAX, DEFAULT_SUBTITLE_APPEARANCE.fontScale),
-    color: data.color === "yellow" ? "yellow" : "white",
-    outline: typeof data.outline === "boolean" ? data.outline : DEFAULT_SUBTITLE_APPEARANCE.outline,
-    background: data.background === "black" ? "black" : "none",
+    color: oneOf(data.color, ["white", "yellow", "cyan", "green"], DEFAULT_SUBTITLE_APPEARANCE.color),
+    fontWeight: oneOf(data.fontWeight, ["normal", "bold"], DEFAULT_SUBTITLE_APPEARANCE.fontWeight),
+    outline,
+    shadow: oneOf(data.shadow, ["none", "soft", "strong"], DEFAULT_SUBTITLE_APPEARANCE.shadow),
+    backgroundOpacity,
     bottomRaisePercent: bottomRaise,
   };
 }
 
 function validatePreferences(value: unknown): PlayerPreferences {
   const data = record(value) ? value : {};
+  // 迁移：旧 subtitlesOff 布尔 → 显式关闭模式；缺省一律"跟随媒体默认"。
+  const subtitleMode: SubtitleMode = data.subtitleMode === "prefer-list" || data.subtitleMode === "off"
+    ? data.subtitleMode
+    : data.subtitleMode === "media-default" ? "media-default"
+      : data.subtitlesOff === true ? "off" : "media-default";
   return {
     volume: typeof data.volume === "number" && Number.isFinite(data.volume)
       ? Math.max(0, Math.min(100, data.volume)) : DEFAULT_PLAYER_PREFERENCES.volume,
@@ -128,9 +191,12 @@ function validatePreferences(value: unknown): PlayerPreferences {
     // 迁移：旧单值字段 audioLanguage/subtitleLanguage（含 null）→ 有序列表。
     audioLanguages: normalizeLanguageList(data.audioLanguages ?? data.audioLanguage),
     subtitleLanguages: normalizeLanguageList(data.subtitleLanguages ?? data.subtitleLanguage),
-    subtitlesOff: typeof data.subtitlesOff === "boolean" ? data.subtitlesOff : false,
+    subtitleMode,
     subtitleSourcePreference: data.subtitleSourcePreference === "embedded" ? "embedded" : "external",
     subtitleAppearance: validateSubtitleAppearance(data.subtitleAppearance),
+    skipBackwardSeconds: validateSkipStep(data.skipBackwardSeconds),
+    skipForwardSeconds: validateSkipStep(data.skipForwardSeconds),
+    pictureFit: data.pictureFit === "cover" ? "cover" : "contain",
   };
 }
 
@@ -210,27 +276,84 @@ export function orderedLanguageMatch<T>(
   return undefined;
 }
 
-/** 外挂字幕自动选择：语言列表命中 → 命中轨；空表或无命中 → 该来源默认轨（首个，handoff §八）。 */
-export function preferredExternalSubtitle(tracks: SubtitleTrack[], languages: string[]): SubtitleTrack | undefined {
-  return orderedLanguageMatch(tracks, languages, (track) => track.language) ?? tracks[0];
+/** 音轨自动选择：有序列表命中 → 该轨；未命中 → 引擎自身默认轨（tracks.audioId）。 */
+export function matchPreferredAudio(tracks: EmbeddedTracks, audioLanguages: string[]): number | null {
+  const supported = tracks.items.filter((track) => track.kind === "audio" && track.supported);
+  return orderedLanguageMatch(supported, audioLanguages, (track) => track.language)?.id ?? tracks.audioId;
 }
 
-/** 内嵌轨道自动选择（音轨/字幕各按有序语言列表；字幕另受"关闭字幕"优先）。 */
-export function matchPreferredTracks(tracks: EmbeddedTracks, preferences: TrackPreferences): Pick<EmbeddedTracks, "audioId" | "subtitleId"> {
-  const supported = tracks.items.filter((track) => track.supported);
-  const audioMatch = orderedLanguageMatch(supported.filter((track) => track.kind === "audio"), preferences.audioLanguages, (track) => track.language);
-  const subtitleMatch = orderedLanguageMatch(supported.filter((track) => track.kind === "subtitle"), preferences.subtitleLanguages, (track) => track.language);
-  return {
-    audioId: audioMatch?.id ?? tracks.audioId,
-    subtitleId: preferences.subtitlesOff ? null : subtitleMatch?.id ?? tracks.subtitleId,
-  };
-}
+export type SubtitleSelection =
+  | { kind: "external"; track: SubtitleTrack }
+  | { kind: "embedded"; id: number }
+  | { kind: "none" };
+
+type SubtitleCandidate =
+  | { kind: "embedded"; id: number; language?: string; defaulted: boolean }
+  | { kind: "external"; track: SubtitleTrack; language?: string };
+
+export type SubtitleDecisionInput = {
+  mode: SubtitleMode;
+  languages: string[];
+  sourcePreference: SubtitleSourcePreference;
+  /** 当前媒体全部内嵌轨（内部过滤 kind=subtitle 且 supported）。 */
+  embedded: EmbeddedTrack[];
+  external: SubtitleTrack[];
+  /**
+   * 引擎自身默认选择（载入后未干预时的内嵌字幕轨）。仅在"始终按偏好"列表为空、
+   * 且媒体没有默认标记时可用的回退；媒体默认标记优先于它。
+   */
+  embeddedDefaultPickId: number | null;
+};
 
 /**
- * 菜单手选只影响当前媒体（覆盖自动选择、同媒体重试保留），不重排全局语言列表（handoff §八）。
- * 唯一跨媒体记忆：字幕显式关闭；重新选字幕解除关闭。
+ * 字幕自动选轨（追加裁决 §字幕模式与自动选择）：
+ * - 关闭：最高优先级，不显示任何字幕；
+ * - 跟随媒体默认：默认标记轨 → 语言列表（跨外挂/内嵌）→ 关闭；
+ * - 始终按偏好：语言列表命中（列表非空，未命中即关闭）；列表为空回退媒体默认轨
+ *   （默认标记 → 引擎自身默认选择）。
+ * 来源偏好只在同一语言优先级出现多个候选时打破平局；仍同级保留媒体轨道顺序。
+ * 外挂字幕接口没有默认标记，永远不参与"媒体默认"步骤（不以第一条冒充默认轨）。
  */
-export function trackPreferencePatch(kind: EmbeddedTrack["kind"], track: EmbeddedTrack | null): Partial<TrackPreferences> {
-  if (kind === "audio") return {};
-  return { subtitlesOff: track === null };
+export function decideSubtitleSelection(input: SubtitleDecisionInput): SubtitleSelection {
+  if (input.mode === "off") return { kind: "none" };
+  const candidates: SubtitleCandidate[] = [
+    ...input.embedded
+      .filter((track) => track.kind === "subtitle" && track.supported)
+      .map((track): SubtitleCandidate => ({ kind: "embedded", id: track.id, language: track.language, defaulted: track.default === true })),
+    ...input.external.map((track): SubtitleCandidate => ({ kind: "external", track, language: track.language })),
+  ];
+  const toSelection = (candidate: SubtitleCandidate | undefined): SubtitleSelection =>
+    candidate?.kind === "embedded" ? { kind: "embedded", id: candidate.id }
+      : candidate?.kind === "external" ? { kind: "external", track: candidate.track }
+        : { kind: "none" };
+  const pickSamePriority = (hits: SubtitleCandidate[]): SubtitleCandidate | undefined => {
+    const embeddedHit = hits.find((hit) => hit.kind === "embedded");
+    const externalHit = hits.find((hit) => hit.kind === "external");
+    if (embeddedHit && externalHit) return input.sourcePreference === "external" ? externalHit : embeddedHit;
+    return embeddedHit ?? externalHit;
+  };
+  const matchLanguages = (): SubtitleCandidate | undefined => {
+    for (const language of input.languages) {
+      const preferred = normalizeTrackLanguage(language);
+      if (!preferred) continue;
+      const tagOf = (candidate: SubtitleCandidate) => normalizeTrackLanguage(candidate.language);
+      const exact = pickSamePriority(candidates.filter((candidate) => tagOf(candidate) === preferred));
+      if (exact) return exact;
+      const base = preferred.split("-")[0];
+      const fallback = pickSamePriority(candidates.filter((candidate) => tagOf(candidate)?.split("-")[0] === base));
+      if (fallback) return fallback;
+    }
+    return undefined;
+  };
+  const flaggedDefault = candidates.find((candidate) => candidate.kind === "embedded" && candidate.defaulted);
+
+  if (input.mode === "media-default") {
+    if (flaggedDefault) return toSelection(flaggedDefault);
+    return toSelection(matchLanguages());
+  }
+  // prefer-list
+  if (input.languages.length > 0) return toSelection(matchLanguages());
+  if (flaggedDefault) return toSelection(flaggedDefault);
+  const engineDefault = candidates.find((candidate) => candidate.kind === "embedded" && candidate.id === input.embeddedDefaultPickId);
+  return toSelection(engineDefault);
 }

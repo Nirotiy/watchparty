@@ -88,7 +88,7 @@ const page = await (await fetch(`${base}/api/media/list?libraryId=lib_anime`, {
 const source = { kind: "openlist", mediaId: page.items[0].id, title: "MKV fixture", container: "mkv" };
 backend.app.get("/__fixture", (_req, res) => res.json({ room, ownerId, source, metrics, snapshot }));
 backend.app.post("/__fixture/command", async (req, res) => {
-  const allowed = ["CMD:mediaSet", "CMD:play", "CMD:pause", "CMD:seek", "CMD:rate"];
+  const allowed = ["CMD:mediaSet", "CMD:play", "CMD:pause", "CMD:seek", "CMD:rate", "CMD:transferOwner"];
   if (!allowed.includes(req.body.event)) { res.status(400).end(); return; }
   const payload = { ...req.body.payload, expectedRevision: snapshot?.revision };
   if (req.body.event === "CMD:mediaSet" && !payload.media) payload.media = source;
