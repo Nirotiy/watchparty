@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Banguru / Linkle 当前交接</title>
+<style>
+body{margin:0;background:#000;color:#fff;font:15px/1.7 system-ui,"Microsoft YaHei",sans-serif}main{max-width:1060px;margin:24px auto;padding:0 24px}h1{font-size:26px}h2{margin-top:32px;border-top:1px solid #444;padding-top:20px;font-size:20px}pre{overflow-wrap:anywhere;white-space:pre-wrap;background:#151515;padding:16px}li{margin:6px 0}code{color:#b9defe}table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid #333;padding:10px;text-align:left;vertical-align:top}th{color:#b9defe}a{color:#b9defe}
+</style>
+<main>
+<h1>Banguru / Linkle 桌面交接</h1>
+<p>2026-09-21。当前唯一交接入口。工作区为 <code>D:\NRT-GIT</code>。只在本地工作，不提交、不部署、不操作生产数据。两个仓库均为大量 dirty 状态，不能以 HEAD 复现当前实现。</p>
+
+<h2>新 session 起手</h2>
+<pre>请读取 watchparty/dev/session-handoff-current.html，先核对适用 AGENTS.md、WatchParty 和 MusicParty Git 状态及已有实现。保留一切无关未提交、未跟踪内容；绝不 reset、clean、覆盖、读取或输出 .env、Cookie、数据库、node_modules、媒体样本或临时日志。
+
+当前工作是 Linkle 桌面端设计和协议准备，不是重新验证已完成的 D3 播放链路。Linkle 的视觉方向已经从早期 B "正在播放优先" 深化为 "单屏房间工作区 + 唯一悬浮播放条"，但仍只存在于 temp-html 静态稿，尚未批准写入真实组件。
+
+先让用户评审 temp-html/linkle-one-screen-player-mockup.html。它保留 248px 应用侧栏和 32px 内容起点；房内工作区可使用侧栏外剩余宽度，左侧为当前内容或任务面板，右侧为常驻歌词，顶部为房间任务入口，底部为唯一播放控制区。桌面浮条提案为 88px，替代旧 64px 会话摘要条；小于 880px 的 132px 降级仍待用户确认。不要默认实施。
+
+共享播放控制必须先对齐 MusicParty 真实协议、状态投影和授权，再接进 Electron。共享暂停、下一首、随机、seek 分别受独立规则约束；本机音量和静音只影响本机。浏览、点歌、歌单、聊天和歌词页面不得拥有播放器生命周期；切房只能复用已有 checkpoint/rollback 切换事务。
+
+每次改动前列出具体文件。改动后分别运行 WatchParty 与 MusicParty 的相关检查，并区分源码测试、真实服务、Electron IPC、libmpv 和用户听音证据。</pre>
+
+<h2>当前设计状态</h2>
+<table><thead><tr><th>项目</th><th>当前结论</th><th>状态</th></tr></thead><tbody>
+<tr><td>应用外壳</td><td>已选方案 B。248px 侧栏，32px 内容起点，960px 主列用于大厅和设置；活动会话条在存在会话时距内容左右 24px、底部 20px。</td><td>真实外壳已改；需真实 Windows 视觉验收。</td></tr>
+<tr><td>Linkle B</td><td>早期 B 是正在播放优先。浏览器功能研究后，改为单屏房间工作区与唯一浮条；这不是把旧主区控件简单搬到底部。</td><td>仅静态稿，待用户确认。</td></tr>
+<tr><td>单屏房内布局</td><td>顶部为房名、连接状态、点歌、队列、歌单、聊天未读、成员、更多和离房。左主区显示当前曲目或当前任务。右侧常驻歌词且独立滚动。外壳不纵向滚动，任务区和歌词各自滚动。</td><td>静态稿已完成。</td></tr>
+<tr><td>唯一悬浮播放条</td><td>左侧小封面和曲目信息，中部上排房间进度，下排为房间随机、暂停或恢复、下一首，随后是明确标为本机的静音与音量。右侧仅歌词聚焦和曲目更多操作。</td><td>桌面 88px 提案，待视觉确认。</td></tr>
+<tr><td>歌词</td><td>浮条歌词按钮先执行聚焦或打开右侧歌词，不改变房间进度。当前浏览器歌词行没有 click/seek 接线；点击歌词 seek 属于新的共享控制能力。</td><td>边界已固定，未实现。</td></tr>
+<tr><td>歌单导出</td><td>浏览器已有房间和个人歌单的 TXT、CSV、JSON 导出。旧稿不是没有此功能，而是入口过深。新稿将“导出”直接放在歌单详情工具栏，覆盖保存、取消和失败。</td><td>静态稿已补；真实受控原生保存未接。</td></tr>
+</tbody></table>
+
+<h2>静态材料</h2>
+<ul>
+<li><a href="../temp-html/screenbox-shell-unification-options.html">版心与导航方案</a>：已选 B。</li>
+<li><a href="../temp-html/linkle-full-flow-mockups.html">Linkle A/B/C 全链路稿</a>：已选 B，作为历史比较。</li>
+<li><a href="../temp-html/linkle-browser-parity-plan.html">浏览器功能对齐规划</a>：17 项映射与 6 阶段验收。</li>
+<li><a href="../temp-html/linkle-b-boundary-mockup.html">第一轮边界深化稿</a>：权限、歌单、聊天、异常状态。</li>
+<li><a href="../temp-html/linkle-one-screen-player-mockup.html">当前应优先评审的一屏播放稿</a>：Fluent Design 2 控件层级，本机音量和静音在浮条中部下侧。</li>
+</ul>
+<p>所有 <code>temp-html</code> 稿件是本地评审材料，已按单文件加入 <code>.git/info/exclude</code>，不改共享 <code>.gitignore</code>。它们不连接服务，也不构成任何功能完成声明。</p>
+
+<h2>Linkle 功能与协议边界</h2>
+<ul>
+<li>浏览与活动会话分离。浏览别的房间不退出当前会话；只有确认切房才调用既有切换事务，失败必须回滚旧会话。</li>
+<li>暂停、下一首和随机分别读取各自房间锁。暂停锁只阻止“正在播放到暂停”，不阻止已暂停后的恢复；管理员没有这三项锁的特殊豁免。</li>
+<li>seek 尚未统一。浏览器允许实际点歌者、可管理房间者或无 <code>enqueuedById</code> 曲目；Go Runtime 当前只允许管理员或实际点歌者。不能照抄浏览器按钮状态。</li>
+<li>桌面适配层的 <code>player.play/player.pause/player.seek</code> 与 Go WebSocket 路由的 <code>control.toggle-pause/control.seek/control.next/control.toggle-shuffle</code> 尚未发现别名映射。当前 App 的 Linkle 暂停实际是 <code>NativeAudioPlayer</code> 本地暂停，不是共享房间控制。</li>
+<li>共享控制未接线前，真实 UI 不得把按钮做成可执行。设计稿可展示最终可用、锁定、等待确认和拒绝状态，但工程实现必须禁用真实发送。</li>
+<li>完整浏览器对齐范围还包括：队列多选与排序、来源与分页搜索、歌词和翻译、个人喜欢、房间与个人歌单、房间/公共/系统聊天、历史和未读、成员、账号、来源与媒体管理、布局和快捷键。不要只实现三个分页后声称全链路完成。</li>
+</ul>
+
+<h2>下一阶段建议</h2>
+<ol>
+<li>用户评审 <code>linkle-one-screen-player-mockup.html</code>，尤其确认桌面 88px 浮条、窄窗 132px 降级、右侧歌词常驻和顶部任务入口。</li>
+<li>确认后，先写一份共享控制协议对齐计划，逐项确定桌面请求、Go 路由、ACK/NACK、锁状态、seek 授权、<code>playEpoch</code> 和重连后快照，不先写 UI 按钮。</li>
+<li>再实现完整状态投影和受控共享命令，分别测试正常、锁定、拒绝、超时和重连。</li>
+<li>协议稳定后，按一屏稿实现房内外壳、浮条、歌词、队列、点歌、歌单导出、聊天和成员。每个浏览器动作都要有明确桌面入口或明确保留原因。</li>
+</ol>
+
+<h2>D2 / D3 证据</h2>
+<p>D2 核心垂直切片完成。历史真实隔离服务验证覆盖 A→B→A、私密房错误和正确密码、A 注销后 B 可用、页面切换不重连、真实连接终止后的重连连续播放、队列 resync、原生 load/progress、全局音频焦点、deep link 与单实例。用户已确认实际视频、音频、音轨、字幕、seek 和窗口操作。无需无故重复。</p>
+<p>D3 adapter 独立矩阵覆盖 Netease、YouTube、Bilibili resolve 成功失败，媒体失败停止与同一 <code>playEpoch</code> 抑制重载，队列、歌词、封面、聊天、成员和版本拒绝。尚不能声称真实第三方 provider、物理断网、休眠恢复、Windows 屏幕阅读器或 125%/150%/200% DPI 全部通过。</p>
+
+<h2>当前实现与安全约束</h2>
+<ul>
+<li>保留 Electron + React/Vite + Fluent UI React v9 + Rust/libmpv。不要迁移 Screenbox 的 C#/UWP/libvlc，也不引入第二个音频引擎。</li>
+<li><code>desktop-shell/src/App.tsx</code> 负责外壳。<code>shared/lobby-contract.ts</code>、<code>lobby-switch-driver.ts</code>、<code>use-lobby-facade.ts</code> 保留 typed rooms/list/create、checkpoint/rollback、唯一音频焦点和 origin 凭据隔离。</li>
+<li>长期凭据只留在原生层。Electron sandbox、contextIsolation、命令白名单和 stdio sidecar 必须保留。页面切换不得重建连接。</li>
+<li>Mica 是窗口底材。视频 HWND 上方的模糊、系统媒体键、SMTC、防休眠和热插拔都属于独立原生能力，不由 Fluent 自动提供。</li>
+</ul>
+
+<h2>工作区和最新包</h2>
+<p>WatchParty 基线 <code>9e0b70d7</code>，MusicParty 历史 HEAD <code>7412179</code>。Tauri 清理归档位于 <code>artifacts/cleanup-archive/20260920T100903Z/</code>。不要整体删除 <code>src-tauri</code> 或 <code>target</code>，其中仍有 Electron 所需共享原生核心。</p>
+<p>最新完整本地包是 <code>artifacts/electron-local/WatchParty-Electron-20260920T101042Z/</code>。保留完整目录，不能仅取 EXE。其 87 项 manifest 哈希已匹配，包级 smoke 通过；18081 health 在该 smoke 中由现有服务复用，因此不把它称为隔离的真实 MusicParty 房间或可听音频证据。</p>
+
+<h2>本地入口与检查</h2>
+<p>MusicParty <code>18081</code>，OpenList <code>5247</code>，WatchParty 后端 <code>18082</code>，用户管理 Next.js <code>18083</code>。Electron 的 Banguru 后端应填 <code>http://127.0.0.1:18082</code>；<code>18083</code> 是用户管理网页，不能作为后端地址。</p>
+<pre>watchparty/desktop-shell:
+  npx tsc --noEmit
+  npm run build
+  node --test tests/*.test.mjs
+  npm run electron:build
+  npm --prefix electron run test:native
+  npm --prefix electron run package:local
+
+watchparty/src-tauri:
+  cargo test --lib --tests
+
+musicparty/MusicParty/backend-go:
+  go test ./internal/httpapi ./internal/contractspec ./internal/realtime ./integration</pre>
+<p>本轮静态稿后未重跑完整包。此前 <code>npx tsc --noEmit</code>、<code>npm run build</code> 和上述 MusicParty Go 四组测试通过。Vite 仍报告现有动态导入和大 bundle 警告，不是失败。</p>
+</main>
+</html>

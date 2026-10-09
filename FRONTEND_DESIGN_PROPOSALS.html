@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WatchParty 前端落地实施方案与 UI 设计稿比较</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #000000;
+      --surface: #0a0a0a;
+      --surface-2: #141414;
+      --line: #262626;
+      --line-strong: #3f3f3f;
+      --text: #ffffff;
+      --muted: #a3a3a3;
+      --dim: #737373;
+      --accent: #38bdf8;
+      --accent-dim: rgba(56, 189, 248, 0.15);
+      --good: #4ade80;
+      --good-dim: rgba(74, 222, 128, 0.15);
+      --warn: #fbbf24;
+      --bad: #f87171;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      padding: 24px;
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 16px;
+      margin-bottom: 24px;
+    }
+    h1 {
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .spec-badge {
+      display: inline-block;
+      margin-top: 6px;
+      font-size: 12px;
+      font-family: monospace;
+      color: var(--accent);
+    }
+    p.intro {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    /* 方案容器 */
+    .proposal-section {
+      display: grid;
+      gap: 32px;
+      margin-bottom: 48px;
+    }
+    .proposal-card {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: 6px;
+      padding: 20px;
+    }
+    .proposal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 12px;
+      margin-bottom: 16px;
+    }
+    .proposal-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #fff;
+    }
+    .proposal-tag {
+      font-size: 11px;
+      font-family: monospace;
+      padding: 2px 6px;
+      background: var(--surface-2);
+      border: 1px solid var(--line-strong);
+      border-radius: 3px;
+      color: var(--muted);
+    }
+
+    /* 模拟 UI 视窗 */
+    .mock-viewport {
+      border: 1px solid var(--line);
+      background: #000;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 14px;
+    }
+
+    /* 方案 A: 经典双栏工作台 */
+    .mock-layout-a {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      min-height: 480px;
+    }
+    .player-area-a {
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--line);
+      background: #000;
+    }
+    .video-canvas {
+      flex: 1;
+      background: #050505;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      min-height: 320px;
+    }
+    .video-overlay-title {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      font-size: 13px;
+      background: rgba(0,0,0,0.85);
+      border: 1px solid var(--line);
+      padding: 4px 10px;
+      border-radius: 4px;
+    }
+    .video-controls {
+      height: 44px;
+      background: var(--surface);
+      border-top: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 12px;
+      font-size: 12px;
+    }
+    .sidebar-a {
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+    }
+    .sidebar-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--line);
+    }
+    .sidebar-tab-item {
+      flex: 1;
+      padding: 8px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+      border-right: 1px solid var(--line);
+      cursor: pointer;
+    }
+    .sidebar-tab-item.active {
+      color: var(--text);
+      background: var(--surface-2);
+      font-weight: 500;
+    }
+    .sidebar-content {
+      padding: 12px;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    /* 方案 B: 沉浸式影院 + 悬浮模态弹窗 */
+    .mock-layout-b {
+      display: flex;
+      flex-direction: column;
+      min-height: 480px;
+      background: #000;
+    }
+    .theater-bar {
+      height: 38px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      font-size: 12px;
+    }
+    .theater-video {
+      flex: 1;
+      background: #050505;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      min-height: 360px;
+    }
+
+    /* 方案 C: 折叠抽屉极简模式 */
+    .mock-layout-c {
+      display: flex;
+      flex-direction: column;
+      min-height: 480px;
+    }
+    .action-header-c {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+    }
+
+    /* 通用组件视觉规范 */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      border: 1px solid var(--line-strong);
+      background: var(--surface-2);
+      color: var(--text);
+    }
+    .btn-primary {
+      background: #fff;
+      color: #000;
+      border: 1px solid #fff;
+      font-weight: 500;
+    }
+    .badge {
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+    .badge-sync {
+      background: var(--good-dim);
+      color: var(--good);
+      border: 1px solid var(--good);
+    }
+    .badge-lock {
+      background: rgba(251, 191, 36, 0.15);
+      color: var(--warn);
+      border: 1px solid var(--warn);
+    }
+    .list-item {
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      background: #000;
+      margin-bottom: 6px;
+      border-radius: 4px;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .list-item.active {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 14px;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+    }
+    th {
+      background: var(--surface-2);
+      color: #fff;
+    }
+    td {
+      color: var(--muted);
+    }
+
+    .checklist {
+      list-style: none;
+      margin-top: 12px;
+    }
+    .checklist li {
+      padding: 4px 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .checklist li::before {
+      content: "✓ ";
+      color: var(--good);
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>WatchParty 前端落地实施方案与 UI 设计稿比较</h1>
+    <div class="spec-badge">契约基准：UNIVERSAL_ALIGNMENT_SPEC.md v1.0.0-FINAL</div>
+    <p class="intro">
+      根据权威契约规范与产品要求，本次前端改造将彻底移除 mock 数据，严格通过 <code>/api/*</code> 与 <code>/socket.io/*</code> 代理与后端交互，支持权威时钟 5 次 NTP 采样校准、三段式追帧算法、OpenList 自然排序/A-Z过滤/搜索、ASS/SRT 本地字幕隔离。
+    </p>
+  </header>
+
+  <!-- 架构落地规划概览 -->
+  <div class="proposal-card" style="margin-bottom: 24px;">
+    <div class="proposal-header">
+      <span class="proposal-title">1. 前端技术栈与核心模块落地矩阵</span>
+      <span class="proposal-tag">Next.js 16 + Tailwind 4 + Socket.io-client</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>功能模块</th>
+          <th>契约对应接口 / 信令</th>
+          <th>核心实现机制</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>时钟同步引擎 (ClockSync)</strong></td>
+          <td><code>CMD:clockSync</code> ➔ <code>serverTimeMs</code></td>
+          <td>进入房间立即连续 5 次 NTP 采样取中位数算出基准偏移 $\Delta t$，每 30s 周期校准；三段式追帧（&le;250ms保持, 250~1000ms微调 rate&plusmn;5%, &gt;1000ms seek）。</td>
+        </tr>
+        <tr>
+          <td><strong>房间门禁与 PIN 验证</strong></td>
+          <td><code>GET /api/rooms/:id</code><br><code>POST /api/rooms/:id/access</code></td>
+          <td>探查不存在时显示 404，PIN 保护时展示 4 格输入与 5 次 429 限速防御；成功写入 localStorage <code>room_token_&lt;id&gt;</code>。</td>
+        </tr>
+        <tr>
+          <td><strong>OpenList 媒体选择器</strong></td>
+          <td><code>GET /api/media/list</code><br><code>GET /api/media/search</code><br><code>POST /api/rooms/:id/media/resolve</code></td>
+          <td>限定 Anime/Film/TV Shows 三根目录；支持 A-Z 快速过滤与全局中文搜索；自然排序（第2集排在第10集前）；临时直链解析（403/410单次重试）。</td>
+        </tr>
+        <tr>
+          <td><strong>房间控制与乐观并发</strong></td>
+          <td><code>CMD:play</code>, <code>CMD:pause</code>, <code>CMD:seek</code>, <code>CMD:playlistAdd</code>, <code>CMD:lock</code></td>
+          <td>所有修改携带当前 <code>expectedRevision</code>；遇到 <code>REVISION_CONFLICT</code> 自动拉取最新快照；房主锁严格前端防越权拦截。</td>
+        </tr>
+        <tr>
+          <td><strong>本地字幕与 WASM 渲染</strong></td>
+          <td><code>GET /api/rooms/:id/media/subtitle</code></td>
+          <td>支持 ASS/SSA/SRT/VTT；字幕选择与 &plusmn;0.1s 偏移纯本地状态，绝不广播污染全房。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 3 套 UI 方案比对 -->
+  <h2 style="font-size: 18px; margin-bottom: 16px;">2. 房间主界面设计方案比较 (请选择方案)</h2>
+
+  <div class="proposal-section">
+    <!-- 方案 A -->
+    <div class="proposal-card">
+      <div class="proposal-header">
+        <div>
+          <span class="proposal-title">方案 A：经典双栏分体工作台（推荐）</span>
+          <p style="color: var(--muted); font-size: 12px; margin-top: 4px;">左侧大画幅播放器 + 右侧常驻可切换面板（播放清单 / 在线成员 / 字幕调校 / 媒体库直选）</p>
+        </div>
+        <span class="proposal-tag">方案 A</span>
+      </div>
+
+      <div class="mock-viewport">
+        <div class="mock-layout-a">
+          <!-- 左侧播放器区 -->
+          <div class="player-area-a">
+            <div class="video-canvas">
+              <div class="video-overlay-title">搖曳露營△ 第3季 - 第02集 迷你露营与新炊具 [MP4]</div>
+              <div style="font-size: 36px; opacity: 0.6;">▶</div>
+              <div style="position: absolute; bottom: 12px; right: 12px; display: flex; gap: 6px;">
+                <span class="badge badge-sync">已同步 (差值 &lt; 0.3s)</span>
+                <span class="badge badge-lock">房主控制锁开启</span>
+              </div>
+            </div>
+            <!-- 控制条 -->
+            <div class="video-controls">
+              <button class="btn btn-primary" style="padding: 2px 8px;">暂停</button>
+              <span style="font-family: monospace; font-size: 11px;">07:24 / 23:40</span>
+              <div style="flex: 1; height: 4px; background: var(--line); border-radius: 2px; position: relative;">
+                <div style="width: 32%; height: 100%; background: var(--accent); border-radius: 2px;"></div>
+              </div>
+              <span style="font-size: 11px; color: var(--muted);">1.0x</span>
+              <span style="font-size: 11px; color: var(--muted);">循环: 关</span>
+              <button class="btn" style="font-size: 11px;">全屏</button>
+            </div>
+          </div>
+
+          <!-- 右侧边栏 -->
+          <div class="sidebar-a">
+            <div class="sidebar-tabs">
+              <div class="sidebar-tab-item active">播放清单 (3)</div>
+              <div class="sidebar-tab-item">成员 (2)</div>
+              <div class="sidebar-tab-item">字幕设置</div>
+            </div>
+            <div class="sidebar-content">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                <span style="font-size: 11px; color: var(--muted);">播放列表 [3/200]</span>
+                <button class="btn" style="font-size: 11px;">+ 媒体库选片</button>
+              </div>
+              <div class="list-item">
+                <span>1. 第01集 旅立之朝、春之气味</span>
+                <span style="color: var(--dim); font-size: 10px;">MP4</span>
+              </div>
+              <div class="list-item active">
+                <span>2. 第02集 迷你露营与新炊具</span>
+                <span style="color: var(--accent); font-size: 10px;">PLAYING</span>
+              </div>
+              <div class="list-item">
+                <span>3. 第03集 出发！千头站之行</span>
+                <span style="color: var(--dim); font-size: 10px;">MP4</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <ul class="checklist">
+        <li><strong>优点</strong>：信息密度高，边看视频边管理播放列表与选集极其流畅，无弹窗遮挡视频。</li>
+        <li><strong>适合场景</strong>：桌面多集连播、剧集快速检索、房主频繁切片。</li>
+      </ul>
+    </div>
+
+    <!-- 方案 B -->
+    <div class="proposal-card">
+      <div class="proposal-header">
+        <div>
+          <span class="proposal-title">方案 B：全宽沉浸式影院 + 悬浮模态弹窗</span>
+          <p style="color: var(--muted); font-size: 12px; margin-top: 4px;">视频占据全部宽度最大化观影视角，播放列表、媒体库和成员列表均以模态弹窗（Pop-up Modal）触发</p>
+        </div>
+        <span class="proposal-tag">方案 B</span>
+      </div>
+
+      <div class="mock-viewport">
+        <div class="mock-layout-b">
+          <div class="theater-bar">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-family: monospace; font-weight: bold; color: var(--accent);">ROOM / alpha-4</span>
+              <span class="badge badge-sync">已同步</span>
+              <span class="badge badge-lock">房主锁</span>
+            </div>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn">媒体库</button>
+              <button class="btn">播放清单 (3)</button>
+              <button class="btn">在线成员 (2)</button>
+            </div>
+          </div>
+          <div class="theater-video">
+            <div style="font-size: 36px; opacity: 0.6;">▶</div>
+            <div style="position: absolute; bottom: 8px; left: 12px; font-size: 12px; color: var(--muted);">
+              当前播放：搖曳露營△ 第3季 - 第02集 迷你露营与新炊具
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <ul class="checklist">
+        <li><strong>优点</strong>：视频尺寸最大化，画面纯粹干净，适合专心看电影。</li>
+        <li><strong>不足</strong>：查看清单或添加片源时弹窗会短暂阻挡视频画面。</li>
+      </ul>
+    </div>
+
+    <!-- 方案 C -->
+    <div class="proposal-card">
+      <div class="proposal-header">
+        <div>
+          <span class="proposal-title">方案 C：全宽自适应 + 底部可折叠控制台抽屉</span>
+          <p style="color: var(--muted); font-size: 12px; margin-top: 4px;">顶部大画幅，底部将媒体库/播放清单/成员折叠为分栏面板，支持展开收起</p>
+        </div>
+        <span class="proposal-tag">方案 C</span>
+      </div>
+
+      <div class="mock-viewport">
+        <div class="mock-layout-c">
+          <div class="action-header-c">
+            <span style="font-size: 12px; font-weight: 500;">WatchParty 协同影院</span>
+            <div style="display: flex; gap: 6px;">
+              <span class="badge badge-sync">已同步</span>
+              <span class="badge badge-lock">已锁定</span>
+            </div>
+          </div>
+          <div style="background: #050505; height: 260px; display: flex; align-items: center; justify-content: center;">
+            <div style="font-size: 32px; opacity: 0.6;">▶</div>
+          </div>
+          <div style="border-top: 1px solid var(--line); background: var(--surface); padding: 10px 14px; display: flex; gap: 12px; align-items: center; justify-content: space-between;">
+            <div style="font-size: 12px;"><strong>当前播放：</strong>第02集 迷你露营与新炊具</div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn">展开媒体库</button>
+              <button class="btn">展开播放列表</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <ul class="checklist">
+        <li><strong>优点</strong>：兼顾全宽大屏幕与快捷操作面板。</li>
+        <li><strong>适合场景</strong>：中等屏幕与移动端自适应。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="proposal-card">
+    <div class="proposal-header">
+      <span class="proposal-title">3. 下一步实施计划</span>
+    </div>
+    <ul class="checklist">
+      <li><strong>步骤 1</strong>：用户选定 UI 布局方案（推荐方案 A，或桌面方案 A / 移动端方案 B 自适应）。</li>
+      <li><strong>步骤 2</strong>：完善 <code>web/lib/contracts.ts</code> 严格对齐 <code>RoomSnapshot</code>, <code>MediaSource</code>, <code>PlaylistItem</code>, <code>RoomMember</code>。</li>
+      <li><strong>步骤 3</strong>：重构 <code>web/lib/socket.ts</code> 与权威时钟 5 次 NTP 采样校准及三段式追帧逻辑。</li>
+      <li><strong>步骤 4</strong>：落地真实媒体选择器（OpenList 目录、A-Z过滤、中文搜索、直链解析）。</li>
+      <li><strong>步骤 5</strong>：落地房间主播放器（HTML5/HLS/YouTube 内核、本地 ASS/SRT 字幕渲染）。</li>
+      <li><strong>步骤 6</strong>：执行前端 <code>npm run build</code> 与 <code>npm run lint</code> 验收检查。</li>
+    </ul>
+  </div>
+
+</body>
+</html>

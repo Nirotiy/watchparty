@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WatchParty MPV 插件开发计划</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background: #000; color: #fff; font: 14px/1.65 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; margin: 0; padding: 2rem 1.25rem 4rem; max-width: 60rem; margin-inline: auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 .2rem; }
+  h2 { font-size: 1.05rem; margin: 2.2rem 0 .6rem; padding-bottom: .3rem; border-bottom: 1px solid #333; }
+  h3 { font-size: .95rem; margin: 1.4rem 0 .4rem; color: #ddd; }
+  p, li { color: #ccc; }
+  strong { color: #fff; }
+  code { background: #161616; border: 1px solid #2a2a2a; padding: .05em .35em; border-radius: 3px; font-size: .85em; color: #9cd3ff; }
+  pre { background: #101010; border: 1px solid #2a2a2a; padding: .7rem .9rem; overflow-x: auto; font-size: .82rem; color: #9cd3ff; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; font-size: .86rem; }
+  th, td { border: 1px solid #2a2a2a; padding: .4rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #141414; color: #fff; }
+  td { color: #ccc; }
+  .meta { color: #888; font-size: .85rem; margin-bottom: 1.5rem; }
+  .tag { display: inline-block; font-size: .75rem; padding: 0 .45em; border: 1px solid #444; border-radius: 3px; margin-right: .4em; color: #bbb; }
+  .gate { color: #ffb347; }
+  .done { color: #7fd67f; }
+  .todo { color: #ff9d9d; }
+  ul { padding-left: 1.3rem; }
+  .note { border-left: 2px solid #444; padding-left: .8rem; margin: .8rem 0; color: #aaa; font-size: .88rem; }
+</style>
+</head>
+<body>
+
+<h1>WatchParty MPV 插件开发计划</h1>
+<p class="meta">状态：实现前补充约束已整理（契约见 UNIVERSAL_ALIGNMENT_SPEC.md 第 9 节，commit ca1cff26）· 本文件仅存于本地 dev/，不入库 · 主程序前后端已完成（dba2787d server / 4aa37ab4 web）· 2026-09-03 原文件丢失，自会话记录原样恢复</p>
+
+<h2>定位</h2>
+<p>MPV 插件是主程序的<b>侧支客户端</b>，不是第二套产品。形态经两轮边界追问后冻结：</p>
+<ul>
+  <li><strong>浏览器是唯一控制台</strong>：创建房间、媒体库、播放列表、成员与转让、字幕选择全部在网页完成。</li>
+  <li><strong>MPV 是被发射出来的纯渲染端</strong>：通过一次性交接票据加入房间，同步播放当前媒体，本地播放事件翻译成共享命令。</li>
+  <li>混合房间：MPV 与浏览器成员共存；可选房间策略标记 mpvOnly（v1 仅客户端策略，无服务端强校验）。</li>
+  <li>MPV 直连百度直链（零 VPS 流量），失败回退 OpenList <code>/p/</code> 代理（消耗 VPS 带宽）。</li>
+</ul>
+
+<h2>已冻结的关键决策</h2>
+<table>
+  <tr><th>决策</th><th>结论</th><th>来源</th></tr>
+  <tr><td>传输方式</td><td>HTTP 轮询，不用 socket.io（mpv Lua 无现成客户端）；轮询间隔 2s</td><td>Q3 / spec 9.3</td></tr>
+  <tr><td>身份交接</td><td>一次性票据，TTL 5 分钟，兑换产生独立 clientId 与 <code>clientType=mpv</code> token；ownerToken 永不经票据传递</td><td>Q11 / spec 9.2</td></tr>
+  <tr><td>直链获取</td><td>管理员 <code>/api/fs/link</code>，服务端白名单过滤后仅透传 <code>User-Agent</code>；浏览器 resolve 保持单链</td><td>gate 实测 / spec 9.3、9.6</td></tr>
+  <tr><td>回退认证</td><td>MPV 本地配置 <code>media_basic_auth</code>，票据与响应不携带站点 Basic Auth 凭据</td><td>spec 9.5</td></tr>
+  <tr><td>协议版本</td><td><code>PROTOCOL_VERSION = 2</code>，不匹配返回 426 硬拒绝</td><td>Q10 / spec 9.1</td></tr>
+  <tr><td>同步策略</td><td>乐观执行 + revision 冲突让位；MPV 采用低频 clock probe，以 snapshot.serverTimeMs 和本地时钟偏移共同计算追帧目标</td><td>Q5 / spec 9.3，待实现前补充</td></tr>
+  <tr><td>列表推进</td><td>MPV 仅在正常播完且仍对应当前条目时驱动 playlistNext；服务端校验 expectedRevision 与当前条目，竞态由 revision 冲突收敛</td><td>Q15 / spec 9.4，待补充当前条目标识校验</td></tr>
+</table>
+
+<h2>实现前必须锁定的行为</h2>
+<p class="meta">这些内容不是额外功能，而是避免 MPV、浏览器和服务端在边界条件下产生不同解释的最低契约。</p>
+<ul>
+  <li><strong>远端状态应用抑制本地回传</strong>：MPV 应用 snapshot 时设置 <code>applyingRemoteState</code> 标记；由远端 pause/play、seek、rate、loadfile 触发的属性变化不得再次发送 <code>CMD:*</code>。标记必须覆盖异步操作完成前的整个窗口。</li>
+  <li><strong>异步操作代次</strong>：插件维护 <code>loadGeneration</code> 或等价递增序号。每个 HTTP 响应、<code>file-loaded</code>、<code>end-file</code> 和延迟任务回调都必须验证代次，旧媒体的回调不得覆盖新媒体状态。</li>
+  <li><strong>本地 seek 只发送一次</strong>：<code>time-pos</code> 不是持续上报进度的信号。用户拖动结束后通过 250 至 500ms debounce 发送一次 <code>CMD:seek</code>；远端纠偏产生的 seek 必须被标记并抑制。</li>
+  <li><strong>本地倍速同样需要抑制</strong>：远端应用 <code>set playback-rate</code> 时不得回传 <code>CMD:rate</code>；非法倍速由服务端拒绝，插件回到快照中的有效值。</li>
+  <li><strong>时钟偏移必须可计算</strong>：<code>serverTimeMs</code> 定义为 Unix epoch 毫秒。第一版不新增独立 clock endpoint，而是记录每次 snapshot 请求的本地开始/结束时间，用 RTT 中点与 <code>serverTimeMs</code> 估算偏移；加入后至少取 3 次结果的中位数，每 30 至 60 秒低频重校准，并对系统时钟跳变和高 RTT 保守处理。</li>
+  <li><strong>列表推进要防旧媒体误触发</strong>：<code>end-file</code> 只有在正常结束、当前加载代次仍有效、且当前媒体仍等于结束时的媒体/播放列表条目时，才允许发送 <code>playlistNext</code>。</li>
+  <li><strong>loop 语义必须统一</strong>：实现前明确 <code>loop=true</code> 是循环当前媒体还是循环整个播放列表；明确列表末尾在 <code>loop=false</code> 时是停留、暂停还是清空媒体。当前 Room 的 <code>loop</code> 字段和 <code>playlistNext</code> 末尾回第一项行为尚未完全一致，必须先补测试并更新服务端实现/契约。</li>
+  <li><strong>token 持久化边界</strong>：配置文件只为当前房间的短期重启便利保存 MPV accessToken 与 clientId，不做刷新、跨房间复用或长期会话；收到 401、404 或服务端重启后立即清除并要求重新发射。</li>
+</ul>
+
+<h2>阶段 0：后端前置端点</h2>
+<p class="meta">预估 1 至 1.5 天 · 阻塞插件全部网络功能 · 纯后端改动，与主前端无交集</p>
+<ul>
+  <li><code>POST /api/rooms/:roomId/handoff</code>：浏览器 accessToken 鉴权，签发 128-bit 以上随机票据（TTL 5 分钟、一次性、记录 roomId 与发起 clientId）。兑换必须原子消费；并发兑换只能成功一次。票据不进入 URL、日志、localStorage 或 ownerToken。</li>
+  <li><code>POST /api/mpv/handoff</code>：兑换票据，生成独立 clientId + <code>clientType=mpv</code> token，返回 protocolVersion、clientId、房间摘要与首个快照。票据过期、已使用、跨房间统一返回 <code>HANDOFF_TICKET_INVALID</code>。</li>
+  <li><code>GET /api/rooms/:roomId/mpv/snapshot?since=&lt;revision&gt;</code>：落后返回快照，相同返回 204；必须要求 Bearer token、<code>clientType=mpv</code> 和协议版本头。建议增加超时、响应体上限，ETag 可作为后续优化。</li>
+  <li><code>POST /api/rooms/:roomId/mpv/command</code>：复用现有 <code>CMD:*</code> 分发器与 CommandAck 语义；请求体统一为 <code>{ type, expectedRevision, ...payload }</code>，建议同时携带 <code>expectedCurrentPlaylistItemId</code> 防止旧 <code>end-file</code> 推进错误条目。</li>
+  <li><code>POST /api/rooms/:roomId/media/resolve-mpv</code>：<code>/api/fs/link</code> + UA-only 白名单 + <code>fallbackUrl</code>；上游必需被剔除的头时 directUrl 置空。</li>
+  <li>统一 HTTP 头：<code>Authorization: Bearer</code>、<code>X-WatchParty-Client-Type: mpv</code>、<code>X-WatchParty-Protocol: 2</code>。缺失/非法协议返回 426；浏览器 token 调 MPV endpoint 返回 403；MPV token 不得获得 owner 权限。</li>
+  <li><code>RoomRegistry</code> 的 token record 必须保存 <code>clientType</code>；MPV 重连时明确同一 clientId 的旧连接顶替规则，不能让旧连接断开时误删新连接成员。</li>
+  <li><code>PROTOCOL_VERSION = 2</code> 常量；socket 握手与 /api/mpv/* 双侧校验。</li>
+  <li>错误码：<code>HANDOFF_TICKET_INVALID</code> (401)、<code>PROTOCOL_VERSION_MISMATCH</code> (426)，并补齐 MPV endpoint 的 <code>ACCESS_TOKEN_INVALID</code>、<code>FORBIDDEN</code>、<code>REVISION_CONFLICT</code> 行为。</li>
+</ul>
+<p><strong>验收</strong>：测试覆盖票据 TTL/一次性/房间绑定/并发兑换、clientType 隔离（浏览器 token 调 MPV endpoint 得 403）、协议头缺失与版本硬拒绝、白名单剔除 Cookie/Authorization、command ack 与 socket 等价、旧媒体 end-file 不得推进新媒体；curl 冒烟走完 handoff → snapshot → command → resolve-mpv 全链。</p>
+
+<h2>阶段 1：插件壳与加入流程</h2>
+<p class="meta">预估 1 天 · 产物：可加入房间并起播当前视频的 watchparty.lua</p>
+<ul>
+  <li>script-opts：<code>backend_origin</code>、<code>room_id</code>、<code>media_basic_auth</code>（可选）；持久化文件 <code>~/.config/mpv/watchparty.json</code>（accessToken、clientId、最近房间）。accessToken 需要文件权限保护；directUrl、headers、Basic Auth 不得持久化。</li>
+  <li>加入：读剪贴板票据（Windows PowerShell / macOS pbpaste / Linux wl-paste、xclip 或 xsel）→ <code>/api/mpv/handoff</code> → 持久化 token 与 clientId。页面显示“交接码”而非“链接”，不把 ticket 放入 URL 或 shell 命令。</li>
+  <li>能力探测：启动时确认 <code>mp.command_native_async</code>、<code>mp.observe_property</code>、JSON 解析和必要事件可用；缺失能力时 OSD 提示最低版本。</li>
+  <li>轮询循环：后台 timer 每 2s 拉取 snapshot（携带 protocol/client type header）；204 不视为错误，连续网络失败使用 4、8、16s 退避，恢复后回到 2s。</li>
+  <li>起播：resolve-mpv → <code>loadfile</code>（directUrl 优先 + UA，回退 fallbackUrl）；每次异步响应检查 load generation。</li>
+  <li>远端状态应用必须启用回传抑制，避免 pause/play、seek、rate、loadfile 触发命令回环。</li>
+  <li>OSD 基础提示：加入成功/票据过期/协议不兼容/网络退避/直连回退/需要重新发射。</li>
+  <li><code>on_load</code> hook 预留 <code>watchparty://</code> 拦截（v2 再做系统注册）。</li>
+</ul>
+<p><strong>验收</strong>：网页点击“发射到 MPV”后生成带 5 分钟倒计时的一次性交接码；mpv 侧粘贴/按键加入，自动起播房间当前视频，失效或重复兑换有明确 OSD，字幕链路在阶段 3 验收。</p>
+
+<h2>阶段 2：同步与命令回路</h2>
+<p class="meta">预估 1 至 1.5 天 · 产物：与浏览器成员真正双向同步</p>
+<ul>
+  <li>property observer：用户确认 pause/play → <code>CMD:pause/play</code>；seek 结束后一次性 → <code>CMD:seek</code>；用户改变 playback-rate → <code>CMD:rate</code>。远端应用和插件内部恢复操作全部走抑制标记。</li>
+  <li>乐观执行本地操作；收到 <code>REVISION_CONFLICT</code> 静默让位服务端快照，并限制同一操作最多重试一次。</li>
+  <li>快照应用：先用 clock offset 计算理论时间；偏差 ≤250ms 忽略；250ms 至 1s 可短暂微调；超 1s 直接 seek。追帧期间不回传 seek。</li>
+  <li><code>end-file</code>（正常播完）→ 仅当当前加载代次和当前播放列表条目仍匹配时发送 <code>playlistNext</code>；错误结束进入有限状态机，禁止无限重试。</li>
+  <li>锁定房间收到 FORBIDDEN：OSD 提示一次，不刷屏；MPV 永远不能通过 command 获得 owner 权限。</li>
+</ul>
+<p><strong>验收</strong>：mpv 与浏览器同房互操作，暂停/seek/倍速/列表推进双向一致；双 MPV 并发播完同集不重复推进；远端状态应用不会产生命令回环；乱序快照和 revision 冲突最终收敛。该阶段同时锁定并测试 loop 与列表末尾语义。</p>
+
+<h2>阶段 3：双链与字幕（MPV 的核心价值）</h2>
+<p class="meta">预估 1 天 · 依赖：直链模式曾在 gate 实测通过，插件侧未验证</p>
+<ul>
+  <li>directUrl + <code>--user-agent=pan.baidu.com</code>（对直链与回退均为硬性要求，缺失时百度侧挂起，gate 实测确认）。</li>
+  <li>失败状态机：<code>DIRECT → DIRECT_RETRY → FALLBACK → FAILED</code>。连接错误/401/403/410 只允许重新 resolve-mpv 一次；再次失败后切 fallbackUrl + OSD“直连失败，已切换服务器中转”；每个媒体、每个加载代次独立维护状态，禁止无限循环。</li>
+  <li>直链过期行为补测（gate 未强测项，本阶段补）；同时记录 MPV 的 end-file reason、file-loaded 是否发生和是否为网络错误，不能只依赖一个 HTTP 状态字段。</li>
+  <li>直链与回退均显式设置 <code>--user-agent=pan.baidu.com</code>；实测确认重定向、动态 <code>loadfile</code>、深度 seek 是否继承 UA。插件不得把 token 或 Basic Auth 拼入 URL。</li>
+  <li>字幕：内嵌字幕使用 MPV 原生 <code>sid</code>；外挂字幕先通过带 Bearer 的 discovery/content API 下载到 UTF-8 临时 <code>.ass/.srt/.vtt</code> 文件，再执行 <code>sub-add</code>。退出、换片和启动时清理残留临时文件。</li>
+  <li><code>media_basic_auth</code> 仅存在插件内存，用 MPV 支持的 header 机制注入回退请求；不得写入 URL、日志、OSD、播放历史或命令行。</li>
+  <li>禁用缓存类选项：回退 <code>/p/</code> 深度 seek 在 <code>--no-cache</code> 下会挂起（gate 实测），插件不得设置。</li>
+</ul>
+<p><strong>验收</strong>：462MB 样片 MPV 直连起播与 seek；人为失效直链后按有限状态机自动回退且 OSD 提示；内嵌 PGS/ASS 与外挂 ASS/SRT/VTT 分别验证；中文和特殊字符文件名可播放。</p>
+
+<h2>阶段 4：打磨与分发</h2>
+<p class="meta">预估 0.5 至 1 天</p>
+<ul>
+  <li>重连：token 失效 → 停止轮询并 OSD 引导重新发射；网络暂时失败走退避；房间重启导致 <code>ROOM_NOT_FOUND</code> 时不得盲目重试旧 token。</li>
+  <li><code>watchparty://</code> 系统注册文档：Windows .reg / Linux .desktop 模板；可选对接社区 mpv-handler。第一版不把 ticket 放进系统命令行。</li>
+  <li>单文件分发 + 最低 mpv 版本声明；完成能力探测后再冻结下限，分别验证 <code>mp.command_native_async</code>、subprocess、observe_property、事件字段、剪贴板命令和 JSON API。</li>
+  <li>版本互检实测：篡改 PROTOCOL_VERSION 验证 426 拒绝；确认缺失/非法 protocol header 的错误一致。</li>
+</ul>
+
+<h2>阶段 5：部署 E2E（依赖 VPS 阶段）</h2>
+<ul>
+  <li>Caddy Basic Auth 之后的 fallbackUrl 播放与 seek（生产回退认证，当前未验证项）；确认凭据不会出现在 MPV 日志、进程列表、播放历史或 OSD。</li>
+  <li>直链过期恢复链路强测（gate 未强测项）；覆盖重定向、401、403、410 和 OpenList 暂时不可用。</li>
+  <li>双 MPV 并发长播观察：竞态、限速波动、重连、旧 end-file、服务端重启和房间回收。</li>
+  <li>验证大于 2GB 文件的 Range/seek、中文与特殊字符文件名，以及 Windows/macOS/Linux 三平台临时字幕清理。</li>
+</ul>
+
+<h2>实现顺序建议</h2>
+<ol>
+  <li><strong>先做后端 curl 闭环</strong>：handoff、MPV token、snapshot、command、resolve-mpv、错误码和版本校验全部先脱离 MPV 验证。</li>
+  <li><strong>再做 MPV 只读客户端</strong>：只读 snapshot、起播、暂停/倍速/追帧，不上报本地操作，先验证 direct/fallback。</li>
+  <li><strong>再加入本地操作回传</strong>：按 pause/play、seek、rate 的顺序逐项加入，重点验证回传抑制与 revision 冲突。</li>
+  <li><strong>最后加入字幕和分发</strong>：外挂字幕临时文件、剪贴板、OSD、URL Scheme 模板和最低版本能力探测。</li>
+</ol>
+
+<h2>补充验收矩阵</h2>
+<ul>
+  <li><strong>同步竞态</strong>：MPV 加载时浏览器换片；MPV 播完时浏览器换片；本地 seek 与远端 seek 同时发生；两个 MPV 同时播完；snapshot 乱序或 revision 跳跃。</li>
+  <li><strong>网络恢复</strong>：MPV 离线 30 秒后恢复；204 长时间返回；连续失败退避；服务端重启；token 失效；房间不存在；OpenList 502。</li>
+  <li><strong>媒体失败</strong>：direct 401/403/410、重定向、无效直链、fallback 需要 Basic Auth、UA 缺失、大于 2GB seek、中文/空格/引号/&amp; 文件名。</li>
+  <li><strong>字幕与生命周期</strong>：内嵌 sid、外挂 ASS/SRT/VTT、换片清理、异常退出后的残留清理、插件 reload 不重复注册 timer 和事件。</li>
+  <li><strong>安全隔离</strong>：浏览器 token 调 MPV endpoint、MPV token 调 owner 操作、票据重复兑换/跨房间兑换、protocol 错误、token/directUrl/Basic Auth 出现在日志或进程参数。</li>
+</ul>
+
+<h2>明确排除</h2>
+<ul>
+  <li>MPV 端管理 UI（创建房间、媒体库、成员管理）。</li>
+  <li>多房间同时连接、房间内 P2P、headless 转播端。</li>
+  <li>票据续期、刷新 token 和跨房间长期会话；配置中的 token 仅作为当前房间的短期重启便利，失效后必须重新发射。</li>
+  <li>URL scheme 注册的自动化安装（只给模板文档）。</li>
+</ul>
+
+<h2>技术要点与风险</h2>
+<table>
+  <tr><th>风险</th><th>现状</th><th>对策</th></tr>
+  <tr><td>mpv Lua 无内置 HTTP 客户端</td><td>未确认目标版本是否提供可靠异步 HTTP；ytdl-hook 同类方案走 subprocess</td><td>优先探测 <code>mp.command_native_async</code>；退路为参数数组调用 curl，设置 connect/overall timeout、限制响应体、读取并清理超时进程。禁止同步阻塞每 2s 轮询。</td></tr>
+  <tr><td>状态回环与旧回调</td><td>远端属性应用会触发本地 observer；异步 HTTP 和 MPV 事件可能乱序</td><td>统一 <code>applyingRemoteState</code>、<code>loadGeneration</code> 和有限状态机；所有回调先校验代次。</td></tr>
+  <tr><td>时钟偏移</td><td>仅使用 snapshot.serverTimeMs 会受本机时钟与 RTT 影响</td><td>加入后做 3 次中位数 clock probe，周期性微调；系统时钟跳变时暂缓强制 seek。</td></tr>
+  <tr><td>User-Agent 硬约束</td><td>gate 实测：缺省 UA 直链与 /p/ 深度 seek 均挂起</td><td>插件强制注入 <code>pan.baidu.com</code>，并对重定向、直链和回退分别做实测。</td></tr>
+  <tr><td>异步 subprocess 凭据泄漏</td><td>curl 参数可能出现在进程列表或 shell history</td><td>优先避免命令行传 token；使用 stdin/临时受保护文件或 MPV 内置异步能力，日志统一脱敏。</td></tr>
+  <tr><td>剪贴板跨平台</td><td>三套系统多种读取方式</td><td>按平台探测命令，失败时 OSD 提示手动粘贴到配置；ticket 不进入 URL 或命令历史。</td></tr>
+  <tr><td>外挂字幕鉴权</td><td><code>sub-add</code> 直接 URL 未必能携带 Bearer</td><td>插件带 token 下载到 UTF-8 临时文件后再 <code>sub-add</code>，退出/换片/启动时清理残留。</td></tr>
+  <tr><td>直链过期行为</td><td>gate 未强测（link_expiration=0 无过期）</td><td>阶段 3 补测；每媒体最多 re-resolve 一次，再进入 fallback，禁止无限重试。</td></tr>
+  <tr><td>多 MPV 竞态</td><td>revision 冲突能处理普通写入，但旧 end-file 仍可能推进错误条目</td><td>command 附带 expectedRevision 和当前条目标识；失败方静默，阶段 2 验收覆盖。</td></tr>
+  <tr><td>同 clientId 重连</td><td>当前成员按 clientId 去重，旧连接断开可能误删新连接</td><td>新连接顶替旧连接，或将连接身份与成员身份分离；阶段 0 明确并测试。</td></tr>
+</table>
+
+<h2>工作量汇总</h2>
+<p>阶段 0 约 1 至 1.5 天，阶段 1 约 1 至 1.5 天，阶段 2 约 1.5 至 2 天，阶段 3 约 1 至 1.5 天，阶段 4 约 0.5 至 1 天，阶段 5 随 VPS 部署。合计约 5 至 7 个工作日（不含阶段 5）。阶段 0 完成前，插件可先做壳与 OSD，网络层不动工。</p>
+
+<h2>决策记录索引</h2>
+<ul>
+  <li>两轮边界追问（Q1 至 Q19）结论已并入 spec 第 9 节；本计划不再重复论证。</li>
+  <li>gate 实测记录与双链契约：spec 3.2 注记与 9.6（commit 3f7e1f4b、ca1cff26）。</li>
+  <li>带宽模型与首期容量（3 观看者、1080p、不转码）：spec 第 5 节。</li>
+</ul>
+
+</body>
+</html>

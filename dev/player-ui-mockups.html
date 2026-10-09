@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WatchParty 播放页改版设计稿 A/B/C</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { background: #000; color: #fff; font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; margin: 0; padding: 1.5rem 1.25rem 4rem; max-width: 68rem; margin-inline: auto; }
+  h1 { font-size: 1.25rem; margin: 0 0 .2rem; }
+  .meta { color: #888; font-size: .85rem; margin-bottom: 1rem; }
+  h2 { font-size: 1rem; margin: 2.4rem 0 .3rem; }
+  h2 .tag { color: #7cc4ff; font-family: ui-monospace, monospace; margin-right: .5em; }
+  .desc { color: #999; font-size: .85rem; margin: 0 0 .6rem; max-width: 60rem; }
+  .desc b { color: #ccc; font-weight: 600; }
+
+  /* ===== 模拟播放器舞台 ===== */
+  .stage {
+    position: relative; width: 100%; aspect-ratio: 16/9; overflow: hidden;
+    background:
+      radial-gradient(120% 90% at 70% 20%, #2b4438 0%, transparent 55%),
+      radial-gradient(90% 70% at 20% 75%, #4a3226 0%, transparent 60%),
+      linear-gradient(160deg, #1c2b24 0%, #0e1512 55%, #191014 100%);
+    cursor: default; outline: 1px solid #222; outline-offset: 0;
+  }
+  /* 模拟画面内容：角色剪影 */
+  .stage::before { content: ""; position: absolute; inset: 0;
+    background:
+      radial-gradient(14% 26% at 38% 58%, #d9b8a0 0%, transparent 70%),
+      radial-gradient(18% 34% at 62% 55%, #c9a48c 0%, transparent 70%),
+      radial-gradient(30% 20% at 50% 92%, #5c4030 0%, transparent 75%);
+  }
+  /* 模拟字幕 */
+  .subs { position: absolute; left: 0; right: 0; bottom: 12%; text-align: center; z-index: 2;
+    font-size: clamp(14px, 2.2vw, 26px); font-weight: 700; color: #fff;
+    text-shadow: 0 0 4px #000, 0 2px 6px #000; pointer-events: none; }
+  .subs small { display: block; font-size: .62em; font-weight: 400; opacity: .85; margin-top: .15em; }
+
+  /* ===== 通用浮层行为：默认隐藏，呼出显示 ===== */
+  .osc { opacity: 0; transition: opacity .18s ease; }
+  .stage:hover .osc, .stage.hot .osc { opacity: 1; }
+  .grad-b { position: absolute; left: 0; right: 0; bottom: 0; height: 38%; z-index: 3; pointer-events: none;
+    background: linear-gradient(transparent, rgba(0,0,0,.88)); }
+  .grad-t { position: absolute; left: 0; right: 0; top: 0; height: 30%; z-index: 3; pointer-events: none;
+    background: linear-gradient(rgba(0,0,0,.82), transparent); }
+
+  /* ===== 控件基础 ===== */
+  button.ib { background: none; border: 0; padding: 4px 6px; color: #e8e8e8; cursor: pointer; line-height: 0; border-radius: 4px; }
+  button.ib:hover { color: #fff; background: rgba(255,255,255,.12); }
+  button.ib svg { width: 18px; height: 18px; }
+  button.ib.on { color: #7cc4ff; }
+  .chip { font-size: 11px; color: #ddd; background: rgba(20,20,20,.72); border: 1px solid #333; border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
+  .chip.blue { color: #7cc4ff; border-color: #2b5a7a; }
+  .chip .cnt { color: #7cc4ff; }
+  .badge { position: relative; }
+  .badge::after { content: attr(data-n); position: absolute; top: -2px; right: -3px; font-size: 9px; background: #2b5a7a; color: #bfe2ff; border-radius: 6px; padding: 0 4px; line-height: 12px; }
+  .t { font-variant-numeric: tabular-nums; font-size: 12px; color: #ccc; }
+
+  /* ===== 进度条 ===== */
+  .seek { position: relative; height: 4px; background: rgba(255,255,255,.18); border-radius: 2px; }
+  .seek .buf { position: absolute; inset: 0 auto 0 0; width: 34%; background: rgba(255,255,255,.28); border-radius: 2px; }
+  .seek .cur { position: absolute; inset: 0 auto 0 0; width: 4.3%; background: #7cc4ff; border-radius: 2px; }
+  .seek .dot { position: absolute; left: 4.3%; top: 50%; width: 11px; height: 11px; border-radius: 50%; background: #7cc4ff; transform: translate(-50%,-50%); }
+  .seek .mark { position: absolute; top: 50%; width: 7px; height: 7px; background: #ddd; transform: translate(-50%,-50%) rotate(45deg); }
+
+  /* ===== A：底部单栏 OSC ===== */
+  .a-top { position: absolute; left: 0; right: 0; top: 0; z-index: 4; padding: 10px 14px; display: flex; align-items: flex-start; gap: 8px; }
+  .a-title { min-width: 0; }
+  .a-title .name { font-size: 13px; font-weight: 600; color: #fff; text-shadow: 0 1px 3px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46vw; }
+  .a-title .src { margin-top: 3px; display: flex; gap: 6px; align-items: center; }
+  .a-bottom { position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; padding: 6px 14px 10px; }
+  .a-seekrow { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .a-seekrow .seek { flex: 1; }
+  .a-ctl { display: flex; align-items: center; gap: 2px; }
+  .a-ctl .sp { flex: 1; }
+  .speed { font-size: 11px; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 1px 7px; background: rgba(20,20,20,.72); }
+
+  /* ===== B：上下双浮层 ===== */
+  .b-top { position: absolute; left: 0; right: 0; top: 0; z-index: 4; padding: 8px 14px; display: flex; align-items: center; gap: 10px; }
+  .b-room { font-family: ui-monospace, monospace; font-size: 11px; color: #bbb; }
+  .b-live { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #8fd48f; }
+  .b-live i { width: 6px; height: 6px; border-radius: 50%; background: #4caf6d; display: inline-block; }
+  .b-title { position: absolute; left: 14px; top: 34px; z-index: 4; font-size: 12.5px; font-weight: 600; color: #fff; text-shadow: 0 1px 3px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60vw; }
+  .b-title .src { font-weight: 400; font-size: 10px; color: #7cc4ff; border: 1px solid #2b5a7a; border-radius: 3px; padding: 0 5px; margin-left: 8px; vertical-align: 1px; }
+  .b-sp { flex: 1; }
+  .b-bottom { position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; padding: 6px 14px 10px; }
+  .b-seekrow { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .b-seekrow .seek { flex: 1; }
+  .b-ctl { display: flex; align-items: center; gap: 2px; }
+  .b-ctl .sp { flex: 1; }
+
+  /* ===== C：四角 HUD ===== */
+  .c-tl { position: absolute; left: 14px; top: 10px; z-index: 4; max-width: 44vw; }
+  .c-tl .name { font-size: 13px; font-weight: 600; color: #fff; text-shadow: 0 1px 3px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .c-tl .row2 { display: flex; gap: 6px; margin-top: 4px; align-items: center; }
+  .c-tr { position: absolute; right: 14px; top: 10px; z-index: 4; display: flex; gap: 4px; align-items: center; }
+  .c-bl { position: absolute; left: 14px; bottom: 14px; z-index: 4; display: flex; align-items: center; gap: 6px; }
+  .c-br { position: absolute; right: 14px; bottom: 14px; z-index: 4; display: flex; align-items: center; gap: 4px; }
+  .c-seek { position: absolute; left: 14px; right: 14px; bottom: 52px; z-index: 4; }
+  .c-seekrow { display: flex; justify-content: space-between; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<h1>WatchParty 播放页改版设计稿</h1>
+<p class="meta">三个方案 · 鼠标移入播放区呼出控件，静止 2.5 秒自动收起 · 均不含常驻顶栏，顶栏与文件名并入呼出层 · 底图与字幕为占位模拟</p>
+
+<!-- ================= 方案 A ================= -->
+<h2><span class="tag">A</span>底部单栏 OSC：最接近你的 MPV</h2>
+<p class="desc">整个页面只有一条<b>底部控制栏</b>，呼出时同时浮现<b>左上角标题与来源</b>。房主锁、媒体库、播放清单、成员、倍速、字幕、音量、循环、全屏全部收进这一条栏。房间号与连接状态缩为标题下的一枚小字。屏占比最大，动线最像 MPV。</p>
+<div class="stage" id="sA">
+  <div class="subs">「有趣」是什么呢？<small>「面白い」って何だっけ？</small></div>
+  <div class="grad-b osc"></div>
+  <div class="grad-t osc"></div>
+  <div class="a-top osc">
+    <div class="a-title">
+      <div class="name">[云光字幕组]摇曳露营△ 第三季 Yuru Camp Season 3 [01][简体双语][1080p]招募翻译.mp4</div>
+      <div class="src">
+        <span class="chip">OPENLIST</span>
+        <span class="b-room">/room-09bd798ce03c5f59</span>
+        <span class="b-live"><i></i>已连接</span>
+      </div>
+    </div>
+  </div>
+  <div class="a-bottom osc">
+    <div class="a-seekrow">
+      <span class="t">00:31</span>
+      <div class="seek"><div class="buf"></div><div class="cur"></div><div class="dot"></div><div class="mark" style="left:58%"></div><div class="mark" style="left:81%"></div></div>
+      <span class="t">23:40</span>
+    </div>
+    <div class="a-ctl">
+      <button class="ib" title="播放/暂停"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+      <button class="ib" title="上一项"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6L18 6v12z"/></svg></button>
+      <button class="ib" title="下一项"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM6 6l8.5 6L6 18z"/></svg></button>
+      <span class="t" style="margin-left:6px">00:31 / 23:40</span>
+      <span class="sp"></span>
+      <button class="ib" title="字幕"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M13 15h4"/></svg><span class="chip blue" style="margin-left:4px">+0.0s</span></button>
+      <button class="ib" title="音量"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 10v4h4l5 5V5L7 10H3z"/></svg></button>
+      <input type="range" min="0" max="100" value="70" style="width:72px;accent-color:#7cc4ff">
+      <span class="sp"></span>
+      <button class="ib" title="倍速"><span class="speed">1.00x</span></button>
+      <button class="ib badge" data-n="2" title="播放清单"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h12M4 12h12M4 18h7"/><path d="M19 11l4 2.5-4 2.5z" fill="currentColor" stroke="none"/></svg></button>
+      <button class="ib badge" data-n="3" title="在线成员"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.4 3.4-5 6.5-5s5.7 1.6 6.5 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 15.2c2.6.2 4.7 1.6 5.5 4.3"/></svg></button>
+      <button class="ib on" title="房主锁（已开启）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
+      <button class="ib" title="点播媒体库"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>
+      <button class="ib" title="循环"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></button>
+      <button class="ib" title="全屏"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 方案 B ================= -->
+<h2><span class="tag">B</span>上下双浮层：保留顶部状态概念，但全部随呼出出现</h2>
+<p class="desc">呼出时<b>顶部一条薄状态带</b>（房间号、连接、锁、成员）与<b>底部控制栏</b>同时出现，标题单独一行位于状态带下方。与现结构最接近，迁移成本低；代价是呼出时顶部遮画比 A 多。</p>
+<div class="stage" id="sB">
+  <div class="subs">「有趣」是什么呢？<small>「面白い」って何だっけ？</small></div>
+  <div class="grad-b osc"></div>
+  <div class="grad-t osc"></div>
+  <div class="b-top osc">
+    <span class="b-room">/room-09bd798ce03c5f59</span>
+    <span class="b-live"><i></i>已连接</span>
+    <span class="sp b-sp"></span>
+    <button class="ib on" title="房主锁（已开启）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>锁已开启</button>
+    <button class="ib badge" data-n="3" title="在线成员"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.4 3.4-5 6.5-5s5.7 1.6 6.5 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 15.2c2.6.2 4.7 1.6 5.5 4.3"/></svg>在线 3</button>
+    <button class="ib" title="点播媒体库"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>媒体库</button>
+  </div>
+  <div class="b-title osc">[云光字幕组]摇曳露营△ 第三季 Yuru Camp Season 3 [01][简体双语][1080p]招募翻译.mp4<span class="src">OPENLIST</span></div>
+  <div class="b-bottom osc">
+    <div class="b-seekrow">
+      <span class="t">00:31</span>
+      <div class="seek"><div class="buf"></div><div class="cur"></div><div class="dot"></div></div>
+      <span class="t">23:40</span>
+    </div>
+    <div class="b-ctl">
+      <button class="ib" title="播放/暂停"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+      <button class="ib" title="上一项"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6L18 6v12z"/></svg></button>
+      <button class="ib" title="下一项"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM6 6l8.5 6L6 18z"/></svg></button>
+      <span class="t" style="margin-left:6px">00:31 / 23:40</span>
+      <span class="sp"></span>
+      <button class="ib" title="字幕"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M13 15h4"/></svg><span class="chip blue" style="margin-left:4px">+0.0s</span></button>
+      <button class="ib" title="音量"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 10v4h4l5 5V5L7 10H3z"/></svg></button>
+      <input type="range" min="0" max="100" value="70" style="width:64px;accent-color:#7cc4ff">
+      <button class="ib" title="倍速"><span class="speed">1.00x</span></button>
+      <button class="ib badge" data-n="2" title="播放清单"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h12M4 12h12M4 18h7"/><path d="M19 11l4 2.5-4 2.5z" fill="currentColor" stroke="none"/></svg></button>
+      <button class="ib" title="循环"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></button>
+      <button class="ib" title="全屏"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 方案 C ================= -->
+<h2><span class="tag">C</span>四角 HUD：画面中央永远无遮挡</h2>
+<p class="desc">呼出时信息贴<b>四角分布</b>：左上标题与来源、右上锁与成员与媒体库、左下传输控制、右下字幕倍速音量全屏，进度条贴底部一行（带章节菱形标记，同 MPV）。中央字幕区完全不压任何面板，信息密度最高、遮挡最小，但控件分散、单手到右下角距离更远。</p>
+<div class="stage" id="sC">
+  <div class="subs">「有趣」是什么呢？<small>「面白い」って何だっけ？</small></div>
+  <div class="grad-b osc"></div>
+  <div class="grad-t osc"></div>
+  <div class="c-tl osc">
+    <div class="name">[云光字幕组]摇曳露营△ 第三季 Yuru Camp S3 [01] [1080p].mp4</div>
+    <div class="row2">
+      <span class="chip">OPENLIST</span>
+      <span class="b-room">/room-09bd798ce03c5f59 · 已连接</span>
+    </div>
+  </div>
+  <div class="c-tr osc">
+    <button class="ib on" title="房主锁（已开启）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
+    <button class="ib badge" data-n="3" title="在线成员"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.4 3.4-5 6.5-5s5.7 1.6 6.5 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 15.2c2.6.2 4.7 1.6 5.5 4.3"/></svg></button>
+    <button class="ib badge" data-n="2" title="播放清单"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h12M4 12h12M4 18h7"/><path d="M19 11l4 2.5-4 2.5z" fill="currentColor" stroke="none"/></svg></button>
+    <button class="ib" title="点播媒体库"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>
+  </div>
+  <div class="c-seek osc">
+    <div class="seek"><div class="cur" style="width:4.3%"></div><div class="dot"></div><div class="mark" style="left:58%"></div><div class="mark" style="left:81%"></div></div>
+    <div class="c-seekrow"><span class="t">00:31</span><span class="t">23:40</span></div>
+  </div>
+  <div class="c-bl osc">
+    <button class="ib" title="播放/暂停"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+    <button class="ib" title="上一项"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6L18 6v12z"/></svg></button>
+    <button class="ib" title="下一项"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM6 6l8.5 6L6 18z"/></svg></button>
+    <button class="ib" title="循环"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></button>
+  </div>
+  <div class="c-br osc">
+    <button class="ib" title="字幕"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M13 15h4"/></svg><span class="chip blue" style="margin-left:4px">+0.0s</span></button>
+    <button class="ib" title="倍速"><span class="speed">1.00x</span></button>
+    <button class="ib" title="音量"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 10v4h4l5 5V5L7 10H3z"/></svg></button>
+    <input type="range" min="0" max="100" value="70" style="width:64px;accent-color:#7cc4ff">
+    <button class="ib" title="全屏"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>
+  </div>
+</div>
+
+<h2>取舍对照</h2>
+<table style="border-collapse:collapse;width:100%;font-size:.86rem">
+  <tr style="background:#141414">
+    <th style="border:1px solid #2a2a2a;padding:.4rem .6rem;text-align:left;color:#fff"></th>
+    <th style="border:1px solid #2a2a2a;padding:.4rem .6rem;text-align:left;color:#fff">A 单栏 OSC</th>
+    <th style="border:1px solid #2a2a2a;padding:.4rem .6rem;text-align:left;color:#fff">B 双浮层</th>
+    <th style="border:1px solid #2a2a2a;padding:.4rem .6rem;text-align:left;color:#fff">C 四角 HUD</th>
+  </tr>
+  <tr>
+    <td style="border:1px solid #2a2a2a;padding:.4rem .6rem;color:#ccc">呼出时遮画范围</td>
+    <td style="border:1px solid #2a2a2a;padding:.4rem .6rem;color:#ccc">底部 38% 渐变 + 左上小角</td>
+    <td style="border:1px solid #2a2a2a;padding:.4rem .6rem;color:#ccc">顶部 30% + 底部 38% 渐变，最大</td>
+    <td style="border:1px solid #2a2a2a;padding:.4rem .6rem;color:#ccc">仅四角与底边，中央不压</td>
+  </tr>
+  <tr>
+    <td style="border:1px solid #2a2a2a;padding:.4rem .6rem;color:#ccc">与 MPV 相似度</td>
+    <td style="border:1px solid #2a2a2a;padding:.4rem .6rem;color:#ccc">最高，单栏布局</td>
+    <td style="border:1px solid #2a2a2a;padding:.4rem .6rem;color:#ccc">中，保留顶栏概念</td>
+    <td style="border:1px solid #2a2a2a;padding:.4rem .6rem;color:#ccc">高，进度条章节标记同款</td>
+  </tr>
+  <tr>
+    <td style="border:1px solid #2a2a2a;padding:.4rem .6rem;color:#ccc">实现迁移量</td>
+    <td style="border:1px solid #2a2a2a;padding:.4rem .6rem;color:#ccc">顶栏全部下放底栏，中等</td>
+    <td style="border:1px solid #2a2a2a;padding:.4rem .6rem;color:#ccc">现有组件平移进浮层，最小</td>
+    <td style="border:1px solid #2a2a2a;padding:.4rem .6rem;color:#ccc">布局重排，最大</td>
+  </tr>
+  <tr>
+    <td style="border:1px solid #2a2a2a;padding:.4rem .6rem;color:#ccc">底栏拥挤风险</td>
+    <td style="border:1px solid #2a2a2a;padding:.4rem .6rem;color:#ccc">12 个控件，窄屏需折行</td>
+    <td style="border:1px solid #2a2a2a;padding:.4rem .6rem;color:#ccc">低，上下分摊</td>
+    <td style="border:1px solid #2a2a2a;padding:.4rem .6rem;color:#ccc">无</td>
+  </tr>
+</table>
+
+<p class="meta" style="margin-top:1.2rem">选定方案（或提出混合意见，例如"A 的底栏 + C 的章节标记"）后再动真实组件。</p>
+
+<script>
+  // 呼出演示：移入显示，静止 2.5s 收起；无 JS 时退化为本 CSS hover（已内置）。
+  document.querySelectorAll(".stage").forEach((stage) => {
+    let timer;
+    const wake = () => {
+      stage.classList.add("hot");
+      clearTimeout(timer);
+      timer = setTimeout(() => stage.classList.remove("hot"), 2500);
+    };
+    stage.addEventListener("pointermove", wake);
+    stage.addEventListener("pointerdown", wake);
+    stage.addEventListener("pointerleave", () => { clearTimeout(timer); stage.classList.remove("hot"); });
+  });
+</script>
+</body>
+</html>

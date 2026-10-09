@@ -1,0 +1,1989 @@
+{
+  "generatedAt": "2026-10-06T06:38:27.307Z",
+  "summary": {
+    "sampling": {
+      "requested": 50,
+      "successfullyProbed": 50,
+      "failed": 0,
+      "originalMissingByCategory": {
+        "Anime": 8,
+        "Film": 0,
+        "TV Shows": 0
+      },
+      "quotas": [
+        {
+          "category": "Anime",
+          "quota": 34
+        },
+        {
+          "category": "Film",
+          "quota": 1
+        },
+        {
+          "category": "TV Shows",
+          "quota": 15
+        }
+      ]
+    },
+    "codecFiles": {
+      "attachment:otf": 2,
+      "attachment:ttf": 2,
+      "audio:aac": 25,
+      "audio:ac3": 6,
+      "audio:eac3": 1,
+      "audio:flac": 23,
+      "subtitle:ass": 4,
+      "subtitle:hdmv_pgs_subtitle": 6,
+      "subtitle:subrip": 2,
+      "video:h264": 25,
+      "video:hevc": 22,
+      "video:mpeg2video": 3
+    },
+    "codecStreams": {
+      "attachment:otf": 5,
+      "attachment:ttf": 13,
+      "audio:aac": 26,
+      "audio:ac3": 6,
+      "audio:eac3": 1,
+      "audio:flac": 29,
+      "subtitle:ass": 8,
+      "subtitle:hdmv_pgs_subtitle": 15,
+      "subtitle:subrip": 4,
+      "video:h264": 25,
+      "video:hevc": 22,
+      "video:mpeg2video": 3
+    },
+    "videoProfiles": {
+      "h264|High 10|1440x1080|yuv420p10le|24000/1001": 2,
+      "h264|High 10|1920x1036|yuv420p10le|500/21": 1,
+      "h264|High|1280x720|yuv420p|24000/1001": 1,
+      "h264|High|1920x1032|yuv420p|24000/1001": 2,
+      "h264|High|1920x1080|yuv420p|24000/1001": 9,
+      "h264|High|1920x1080|yuv420p|30000/1001": 1,
+      "h264|High|688x572|yuv420p|25/1": 1,
+      "h264|High|696x570|yuv420p|25/1": 2,
+      "h264|High|696x572|yuv420p|25/1": 3,
+      "h264|Main|1920x1080|yuv420p|30/1": 3,
+      "hevc|Main 10|1440x1080|yuv420p10le|24000/1001": 1,
+      "hevc|Main 10|1492x1080|yuv420p10le|24000/1001": 1,
+      "hevc|Main 10|1920x1080|yuv420p10le|24000/1001": 16,
+      "hevc|Main 10|2880x2160|yuv420p10le|24000/1001": 1,
+      "hevc|Main 10|3840x1602|yuv420p10le|24000/1001": 1,
+      "hevc|Main 10|3840x2160|yuv420p10le|24000/1001": 2,
+      "mpeg2video|Main|720x480|yuv420p|30000/1001": 3
+    },
+    "audioProfiles": {
+      "aac|2ch stereo|44100": 8,
+      "aac|2ch stereo|48000": 17,
+      "aac|6ch 5.1|48000": 1,
+      "ac3|2ch stereo|48000": 3,
+      "ac3|6ch 5.1(side)|48000": 3,
+      "eac3|6ch 5.1(side)|48000": 1,
+      "flac|2ch stereo|48000": 24,
+      "flac|6ch 5.1(side)|48000": 4,
+      "flac|8ch 7.1|48000": 1
+    },
+    "embeddedSubtitleStreams": {
+      "ass": 8,
+      "hdmv_pgs_subtitle": 15,
+      "subrip": 4
+    },
+    "externalSubtitles": {
+      "matchedVideoFiles": 11,
+      "filesByExtension": {
+        ".srt": 2,
+        ".ass": 14
+      }
+    },
+    "rangeReads": {
+      "ffprobeBytesReported": 30901665,
+      "advertisedMediaBytes": 100765144167,
+      "samplesReadToAdvertisedSizeOrMore": 0,
+      "httpRequestsReported": 146
+    }
+  },
+  "results": [
+    {
+      "sampleIndex": 1,
+      "category": "Anime",
+      "relativePath": "Anime/[DBD-Raws][机动战士Z高达][01-50TV全集+SP+剧场版][1080P][BDRip][HEVC-10bit][简繁内封][FLAC][MKV]/[DBD-Raws][Mobile Suit Z Gundam][04][1080P][BDRip][HEVC-10bit][FLAC].mkv",
+      "ok": true,
+      "advertisedSize": 963392785,
+      "bytesReportedByFfprobe": 394721,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1492,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        },
+        {
+          "type": "subtitle",
+          "codec": "hdmv_pgs_subtitle",
+          "frameRate": "0/0",
+          "language": "jpn"
+        },
+        {
+          "type": "subtitle",
+          "codec": "hdmv_pgs_subtitle",
+          "frameRate": "0/0",
+          "language": "eng"
+        },
+        {
+          "type": "subtitle",
+          "codec": "hdmv_pgs_subtitle",
+          "frameRate": "0/0",
+          "language": "chi"
+        },
+        {
+          "type": "subtitle",
+          "codec": "hdmv_pgs_subtitle",
+          "frameRate": "0/0",
+          "language": "chi"
+        },
+        {
+          "type": "subtitle",
+          "codec": "hdmv_pgs_subtitle",
+          "frameRate": "0/0",
+          "language": "chi"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 2,
+      "category": "Anime",
+      "relativePath": "Anime/[DBD-Raws][吊带袜天使][01-13TV全集+SP+特典映像][1080P][BDRip][HEVC-10bit][日英双语][简繁外挂][FLACx2][MKV]/[DBD-Raws][Panty & Stocking with Garterbelt][06][1080P][BDRip][HEVC-10bit][FLACx2].mkv",
+      "ok": true,
+      "advertisedSize": 984445529,
+      "bytesReportedByFfprobe": 902511,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "eng"
+        },
+        {
+          "type": "subtitle",
+          "codec": "hdmv_pgs_subtitle",
+          "frameRate": "0/0",
+          "language": "eng"
+        },
+        {
+          "type": "subtitle",
+          "codec": "hdmv_pgs_subtitle",
+          "frameRate": "0/0",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 3,
+      "category": "Anime",
+      "relativePath": "Anime/[DBD-Raws][4K_HDR][攻壳机动队2：无罪][2160P][BDRip][HEVC-10bit][简体字幕外挂][FLAC][MKV]/[DBD-Raws][4K_HDR][攻壳机动队2：无罪][2160P][BDRip][HEVC-10bit][FLAC].mkv",
+      "ok": true,
+      "advertisedSize": 7034332438,
+      "bytesReportedByFfprobe": 114495,
+      "externalSubtitles": [
+        ".srt"
+      ],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 3840,
+          "height": 2160,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 8,
+          "channelLayout": "7.1",
+          "sampleRate": "48000",
+          "language": "jpn"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 4,
+      "category": "Anime",
+      "relativePath": "Anime/[VCB-Studio] MAWARU PENGUINDRUM [Ma10p_1080p]/[VCB-Studio] MAWARU PENGUINDRUM [08][Ma10p_1080p][x265_flac_aac].mkv",
+      "ok": true,
+      "advertisedSize": 1009874520,
+      "bytesReportedByFfprobe": 278280,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 5,
+      "category": "Anime",
+      "relativePath": "Anime/[POPGO][Stand_Alone_Complex][BDRIP][1080P]/[POPGO][Stand_Alone_Complex][08][1080P][BluRay][x264_FLACx2_AC3x1][chs_jpn][B1E952AB].mkv",
+      "ok": true,
+      "advertisedSize": 1107562652,
+      "bytesReportedByFfprobe": 472274,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 1920,
+          "height": 1032,
+          "pixelFormat": "yuv420p",
+          "frameRate": "24000/1001",
+          "language": "jpn"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 6,
+          "channelLayout": "5.1(side)",
+          "sampleRate": "48000",
+          "language": "jpn"
+        },
+        {
+          "type": "audio",
+          "codec": "ac3",
+          "frameRate": "0/0",
+          "channels": 6,
+          "channelLayout": "5.1(side)",
+          "sampleRate": "48000",
+          "language": "eng"
+        },
+        {
+          "type": "subtitle",
+          "codec": "ass",
+          "frameRate": "0/0",
+          "language": "chi"
+        },
+        {
+          "type": "subtitle",
+          "codec": "ass",
+          "frameRate": "0/0",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 6,
+      "category": "Anime",
+      "relativePath": "Anime/[KitaujiSub&VCB-Studio] BLUE GIANT [Ma10p_1080p]/[KitaujiSub&VCB-Studio] BLUE GIANT [Ma10p_1080p][x265_flac].mkv",
+      "ok": true,
+      "advertisedSize": 4862727203,
+      "bytesReportedByFfprobe": 278288,
+      "externalSubtitles": [
+        ".ass"
+      ],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        },
+        {
+          "type": "subtitle",
+          "codec": "hdmv_pgs_subtitle",
+          "frameRate": "0/0",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 7,
+      "category": "Anime",
+      "relativePath": "Anime/[Nekomoe kissaten&Airota&LoliHouse] Yuru Camp - 01-12 [WebRip 1920x1080 HEVC-yuv420p10 AAC]/[Nekomoe kissaten&Airota&LoliHouse] Yuru Camp - 08 [WebRip 1920x1080 HEVC-yuv420p10 AAC].mkv",
+      "ok": true,
+      "advertisedSize": 266714786,
+      "bytesReportedByFfprobe": 64857,
+      "externalSubtitles": [
+        ".ass",
+        ".ass"
+      ],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "44100",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 8,
+      "category": "Anime",
+      "relativePath": "Anime/[DBD-Raws][4K_HDR][攻壳机动队][1995版][2160P][BDRip][HEVC-10bit][日英双语][简体字幕外挂][FLAC][MKV]/[DBD-Raws][4K_HDR][攻壳机动队][1995版][2160P][BDRip][HEVC-10bit][日英双语][FLAC].mkv",
+      "ok": true,
+      "advertisedSize": 8193293283,
+      "bytesReportedByFfprobe": 65314,
+      "externalSubtitles": [
+        ".srt"
+      ],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 3840,
+          "height": 2160,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "eng"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 9,
+      "category": "Anime",
+      "relativePath": "Anime/[POPGO][Ghost_in_the_Shell][S.A.C._2nd_GIG][BDRIP][1080P]/[POPGO][Ghost_in_the_Shell][S.A.C._2nd_GIG][05][AVC_FLACx2+AC3][BDrip][1080p][631944DD].mkv",
+      "ok": true,
+      "advertisedSize": 1438463595,
+      "bytesReportedByFfprobe": 492110,
+      "externalSubtitles": [
+        ".ass"
+      ],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High 10",
+          "width": 1920,
+          "height": 1036,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "500/21"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 6,
+          "channelLayout": "5.1(side)",
+          "sampleRate": "48000",
+          "language": "jpn"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        },
+        {
+          "type": "audio",
+          "codec": "ac3",
+          "frameRate": "0/0",
+          "channels": 6,
+          "channelLayout": "5.1(side)",
+          "sampleRate": "48000"
+        },
+        {
+          "type": "subtitle",
+          "codec": "hdmv_pgs_subtitle",
+          "frameRate": "0/0",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 10,
+      "category": "Anime",
+      "relativePath": "Anime/[DBD-Raws][4K_HDR][机动战士高达0079剧场版三部曲合集][2160P][UHDBDRip][HEVC-10bit][简繁外挂][FLACx2][MKV]/PV/[DBD-Raws][4K][Mobile Suit Gundam The Movie I][PV][02][2160P][UHDBDRip][HEVC-10bit][FLAC].mkv",
+      "ok": true,
+      "advertisedSize": 508544442,
+      "bytesReportedByFfprobe": 64895,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 2880,
+          "height": 2160,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 11,
+      "category": "Anime",
+      "relativePath": "Anime/[TxxZ&POPGO&MGRT][Cowboy_Bebop][BDrip][1080p]/[TxxZ&POPGO&MGRT][Cowboy_Bebop][BDrip][01][1440x1080_x264Hi10P_flac][0CB3724A](1).mkv",
+      "ok": true,
+      "advertisedSize": 2224965692,
+      "bytesReportedByFfprobe": 32025,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High 10",
+          "width": 1440,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 12,
+      "category": "Anime",
+      "relativePath": "Anime/[Airota&Nekomoe kissaten&VCB-Studio] Machikado Mazoku [Ma10p_1080p]/[Airota&Nekomoe kissaten&VCB-Studio] Machikado Mazoku [04][Ma10p_1080p][x265_flac].mkv",
+      "ok": true,
+      "advertisedSize": 595714804,
+      "bytesReportedByFfprobe": 326856,
+      "externalSubtitles": [
+        ".ass",
+        ".ass"
+      ],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 13,
+      "category": "Anime",
+      "relativePath": "Anime/[UHA-WINGS&VCB-Studio] Machikado Mazoku 2-Choume [Ma10p_1080p]/[UHA-WINGS&VCB-Studio] Machikado Mazoku 2-Choume [02][Ma10p_1080p][x265_flac].mkv",
+      "ok": true,
+      "advertisedSize": 730136403,
+      "bytesReportedByFfprobe": 704583,
+      "externalSubtitles": [
+        ".ass",
+        ".ass"
+      ],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 14,
+      "category": "Anime",
+      "relativePath": "Anime/[LoliHouse] Boukyaku Battery [WebRip 1080p HEVC-10bit AAC SRTx2]/[LoliHouse] Boukyaku Battery - 07 [WebRip 1080p HEVC-10bit AAC SRTx2].mkv",
+      "ok": true,
+      "advertisedSize": 519977413,
+      "bytesReportedByFfprobe": 49023,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "44100",
+          "language": "jpn"
+        },
+        {
+          "type": "subtitle",
+          "codec": "subrip",
+          "frameRate": "0/0",
+          "language": "chi"
+        },
+        {
+          "type": "subtitle",
+          "codec": "subrip",
+          "frameRate": "0/0",
+          "language": "chi"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 15,
+      "category": "Anime",
+      "relativePath": "Anime/[SweetSub&VCB-Studio] RE：cycle of the PENGUINDRUM [Ma10p_1080p]/[SweetSub&VCB-Studio] RE：cycle of the PENGUINDRUM [01][Ma10p_1080p][x265_flac].mkv",
+      "ok": true,
+      "advertisedSize": 6175797314,
+      "bytesReportedByFfprobe": 64858,
+      "externalSubtitles": [
+        ".ass",
+        ".ass"
+      ],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 16,
+      "category": "Anime",
+      "relativePath": "Anime/[Nekome Kissaten & LoliHouse] Ruri no Houseki/[Nekomoe kissaten&LoliHouse] Ruri no Houseki - 02 [WebRip 1080p HEVC-10bit AAC ASSx2].mkv",
+      "ok": true,
+      "advertisedSize": 811625478,
+      "bytesReportedByFfprobe": 819752,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "44100",
+          "language": "jpn"
+        },
+        {
+          "type": "subtitle",
+          "codec": "ass",
+          "frameRate": "0/0",
+          "language": "chi"
+        },
+        {
+          "type": "subtitle",
+          "codec": "ass",
+          "frameRate": "0/0",
+          "language": "chi"
+        },
+        {
+          "type": "attachment",
+          "codec": "otf",
+          "frameRate": "0/0"
+        },
+        {
+          "type": "attachment",
+          "codec": "otf",
+          "frameRate": "0/0"
+        },
+        {
+          "type": "attachment",
+          "codec": "otf",
+          "frameRate": "0/0"
+        },
+        {
+          "type": "attachment",
+          "codec": "ttf",
+          "frameRate": "0/0"
+        },
+        {
+          "type": "attachment",
+          "codec": "ttf",
+          "frameRate": "0/0"
+        },
+        {
+          "type": "attachment",
+          "codec": "ttf",
+          "frameRate": "0/0"
+        },
+        {
+          "type": "attachment",
+          "codec": "ttf",
+          "frameRate": "0/0"
+        },
+        {
+          "type": "attachment",
+          "codec": "ttf",
+          "frameRate": "0/0"
+        },
+        {
+          "type": "attachment",
+          "codec": "ttf",
+          "frameRate": "0/0"
+        },
+        {
+          "type": "attachment",
+          "codec": "ttf",
+          "frameRate": "0/0"
+        },
+        {
+          "type": "attachment",
+          "codec": "ttf",
+          "frameRate": "0/0"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 17,
+      "category": "Anime",
+      "relativePath": "Anime/[Airota][Made in Abyss][BDRip 1080p AVC AAC][CHS]/[Airota][Made in Abyss][08][BDRip 1080p AVC AAC][CHS].mp4",
+      "ok": true,
+      "advertisedSize": 309708193,
+      "bytesReportedByFfprobe": 785799,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p",
+          "frameRate": "24000/1001",
+          "language": "und"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "und"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 18,
+      "category": "Anime",
+      "relativePath": "Anime/[云光字幕组]摇曳露营△ 第三季  Yuru Camp Season 3 [合集][简体双语][1080p]招募翻译/[云光字幕组]摇曳露营△ 第三季  Yuru Camp Season 3 [03][简体双语][1080p]招募翻译V2.mp4",
+      "ok": true,
+      "advertisedSize": 380486968,
+      "bytesReportedByFfprobe": 1064268,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p",
+          "frameRate": "24000/1001",
+          "language": "und"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "44100",
+          "language": "und"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 19,
+      "category": "Anime",
+      "relativePath": "Anime/[Lilith-Raws] Tenga Toppa Gurren Lagann 天元突破红莲/[Lilith-Raws] Tengen Toppa Gurren Lagann/[Lilith-Raws] Tengen Toppa Gurren Lagann - 02 [Baha][WEB-DL][1080p][AVC AAC][CHT][MP4].mp4",
+      "ok": true,
+      "advertisedSize": 544487310,
+      "bytesReportedByFfprobe": 925327,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p",
+          "frameRate": "24000/1001",
+          "language": "und"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "und"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 20,
+      "category": "Anime",
+      "relativePath": "Anime/[LoliHouse] Shoujo Kakumei Utena [BDRip]/[LoliHouse] Shoujo Kakumei Utena - 02 [BDRip 1440x1080 HEVC-10bit AACx2].mkv",
+      "ok": true,
+      "advertisedSize": 840634610,
+      "bytesReportedByFfprobe": 65093,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1440,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001",
+          "language": "jpn"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 6,
+          "channelLayout": "5.1",
+          "sampleRate": "48000",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 21,
+      "category": "Anime",
+      "relativePath": "Anime/[XKsub&VCB-Studio] SSSS.GRIDMAN [1080p][CHS]/[XKsub&VCB-Studio] SSSS.GRIDMAN [04][1080p][x264_aac][CHS].mkv",
+      "ok": true,
+      "advertisedSize": 385505519,
+      "bytesReportedByFfprobe": 146804,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 22,
+      "category": "Anime",
+      "relativePath": "Anime/[SweetSub] Made in Abyss - Dawn of the Deep Soul [BDRip][1080P][AVC 8bit][CHT]/SP/[SweetSub] Maruruk's Everyday - 04 [BDRip][1080P][AVC 8bit][CHT].mp4",
+      "ok": true,
+      "advertisedSize": 52611382,
+      "bytesReportedByFfprobe": 186908,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p",
+          "frameRate": "24000/1001",
+          "language": "und"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "und"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 23,
+      "category": "Anime",
+      "relativePath": "Anime/[Nekomoe kissaten&VCB-Studio] ODDTAXI [Ma10p_1080p]/[Nekomoe kissaten&VCB-Studio] ODDTAXI [05][Ma10p_1080p][x265_flac_aac](1).mkv",
+      "ok": true,
+      "advertisedSize": 949063429,
+      "bytesReportedByFfprobe": 2147176,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        },
+        {
+          "type": "subtitle",
+          "codec": "hdmv_pgs_subtitle",
+          "frameRate": "0/0",
+          "language": "eng"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 24,
+      "category": "Anime",
+      "relativePath": "Anime/[Sakurato] Yojouhan Time Machine Blues [01-06END][AVC-8bit 1080p AAC][CHS]/[Sakurato] Yojouhan Time Machine Blues [05][AVC-8bit 1080p AAC][CHS].mp4",
+      "ok": true,
+      "advertisedSize": 334256468,
+      "bytesReportedByFfprobe": 555710,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p",
+          "frameRate": "24000/1001",
+          "language": "und"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "und"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 25,
+      "category": "Anime",
+      "relativePath": "Anime/昭和元禄落语心中.2016.全两季.1080p.BluRay.x264.FLAC.CHS-LxyLab/03 昭和元禄落语心中 第一季.EP03.1080p.BluRay.x264.FLAC.CHS-LxyLab.mkv",
+      "ok": true,
+      "advertisedSize": 544098531,
+      "bytesReportedByFfprobe": 228798,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 26,
+      "category": "Anime",
+      "relativePath": "Anime/[Moozzi2] Samurai Champloo BD-BOX - TV + SP/[Moozzi2] Samurai Champloo - 03 (BD 1920x1080 x.264 Flac).mkv",
+      "ok": true,
+      "advertisedSize": 813243924,
+      "bytesReportedByFfprobe": 48537,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p",
+          "frameRate": "24000/1001",
+          "language": "jpn"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 27,
+      "category": "Anime",
+      "relativePath": "Anime/[Lilith-Raws] Aria the Natural/[Lilith-Raws] Aria the Natural - 08 [Baha][WEB-DL][1080p][AVC AAC][CHT][MP4].mp4",
+      "ok": true,
+      "advertisedSize": 343818288,
+      "bytesReportedByFfprobe": 1529464,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p",
+          "frameRate": "30000/1001",
+          "language": "und"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 28,
+      "category": "Anime",
+      "relativePath": "Anime/[XKsub&VCB-Studio] SSSS.GRIDMAN [1080p][CHS]/[XKsub&VCB-Studio] SSSS.GRIDMAN [01][1080p][x264_aac][CHS].mkv",
+      "ok": true,
+      "advertisedSize": 366867385,
+      "bytesReportedByFfprobe": 179572,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 29,
+      "category": "Anime",
+      "relativePath": "Anime/偶像大师 (2011)/Season 1/偶像大师 - S01E05 - 和大家过的暑假.mp4",
+      "ok": true,
+      "advertisedSize": 245516165,
+      "bytesReportedByFfprobe": 998789,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 1280,
+          "height": 720,
+          "pixelFormat": "yuv420p",
+          "frameRate": "24000/1001",
+          "language": "und"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "und"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 30,
+      "category": "Anime",
+      "relativePath": "Anime/[TxxZ&POPGO&MGRT][Cowboy_Bebop][BDrip][1080p]/[TxxZ&POPGO&MGRT][Cowboy_Bebop][BDrip][07][1440x1080_x264Hi10P_flac][2467C402].mkv",
+      "ok": true,
+      "advertisedSize": 1590081490,
+      "bytesReportedByFfprobe": 32028,
+      "externalSubtitles": [
+        ".ass"
+      ],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High 10",
+          "width": 1440,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 31,
+      "category": "Anime",
+      "relativePath": "Anime/[POPGO][Stand_Alone_Complex][BDRIP][1080P]/[POPGO][Stand_Alone_Complex][04][1080P][BluRay][x264_FLACx2_AC3x1][chs_jpn][68B45CF8].mkv",
+      "ok": true,
+      "advertisedSize": 1209930089,
+      "bytesReportedByFfprobe": 473839,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 1920,
+          "height": 1032,
+          "pixelFormat": "yuv420p",
+          "frameRate": "24000/1001",
+          "language": "jpn"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "jpn"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 6,
+          "channelLayout": "5.1(side)",
+          "sampleRate": "48000",
+          "language": "jpn"
+        },
+        {
+          "type": "audio",
+          "codec": "ac3",
+          "frameRate": "0/0",
+          "channels": 6,
+          "channelLayout": "5.1(side)",
+          "sampleRate": "48000",
+          "language": "eng"
+        },
+        {
+          "type": "subtitle",
+          "codec": "ass",
+          "frameRate": "0/0",
+          "language": "chi"
+        },
+        {
+          "type": "subtitle",
+          "codec": "ass",
+          "frameRate": "0/0",
+          "language": "jpn"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 32,
+      "category": "Anime",
+      "relativePath": "Anime/[LoliHouse-GreenTea] 穹庐下的魔女 - Tenmaku no Jaadugar/[Studio GreenTea&LoliHouse] Tenmaku no Jaadugar - 01 [WebRip 1080p HEVC-10bit AAC ASSx2].mkv",
+      "ok": true,
+      "advertisedSize": 800934856,
+      "bytesReportedByFfprobe": 1540874,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "44100",
+          "language": "jpn"
+        },
+        {
+          "type": "subtitle",
+          "codec": "ass",
+          "frameRate": "0/0",
+          "language": "chi"
+        },
+        {
+          "type": "subtitle",
+          "codec": "ass",
+          "frameRate": "0/0",
+          "language": "chi"
+        },
+        {
+          "type": "attachment",
+          "codec": "otf",
+          "frameRate": "0/0"
+        },
+        {
+          "type": "attachment",
+          "codec": "ttf",
+          "frameRate": "0/0"
+        },
+        {
+          "type": "attachment",
+          "codec": "otf",
+          "frameRate": "0/0"
+        },
+        {
+          "type": "attachment",
+          "codec": "ttf",
+          "frameRate": "0/0"
+        },
+        {
+          "type": "attachment",
+          "codec": "ttf",
+          "frameRate": "0/0"
+        },
+        {
+          "type": "attachment",
+          "codec": "ttf",
+          "frameRate": "0/0"
+        },
+        {
+          "type": "attachment",
+          "codec": "ttf",
+          "frameRate": "0/0"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 33,
+      "category": "Anime",
+      "relativePath": "Anime/[DBD-Raws][机动战士Z高达][01-50TV全集+SP+剧场版][1080P][BDRip][HEVC-10bit][简繁内封][FLAC][MKV]/[DBD-Raws][Mobile Suit Z Gundam A New Translation III - Love Is the Pulse of the Stars][1080P][BDRip][HEVC-10bit][FLAC].mkv",
+      "ok": true,
+      "advertisedSize": 7040015520,
+      "bytesReportedByFfprobe": 66946,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 6,
+          "channelLayout": "5.1(side)",
+          "sampleRate": "48000",
+          "language": "jpn"
+        },
+        {
+          "type": "subtitle",
+          "codec": "hdmv_pgs_subtitle",
+          "frameRate": "0/0",
+          "language": "jpn"
+        },
+        {
+          "type": "subtitle",
+          "codec": "hdmv_pgs_subtitle",
+          "frameRate": "0/0",
+          "language": "eng"
+        },
+        {
+          "type": "subtitle",
+          "codec": "hdmv_pgs_subtitle",
+          "frameRate": "0/0",
+          "language": "chi"
+        },
+        {
+          "type": "subtitle",
+          "codec": "hdmv_pgs_subtitle",
+          "frameRate": "0/0",
+          "language": "chi"
+        },
+        {
+          "type": "subtitle",
+          "codec": "hdmv_pgs_subtitle",
+          "frameRate": "0/0",
+          "language": "chi"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 34,
+      "category": "Anime",
+      "relativePath": "Anime/[DBD-Raws][四叠半神话大系][01-11TV全集+SP+特典映像][1080P][BDRip][HEVC-10bit][简繁日双语外挂][FLAC][MKV]/[DBD-Raws][The Tatami Galaxy][07][1080P][BDRip][HEVC-10bit][FLAC].mkv",
+      "ok": true,
+      "advertisedSize": 1112368579,
+      "bytesReportedByFfprobe": 40981,
+      "externalSubtitles": [
+        ".ass",
+        ".ass"
+      ],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 35,
+      "category": "Film",
+      "relativePath": "Film/Wicked.2024.Hybrid.2160p.WEB-DL.DV.HDR.DDP5.1.H265-AOC/Wicked.2024.Hybrid.2160p.WEB-DL.DV.HDR.DDP5.1.H265-AOC.mkv",
+      "ok": true,
+      "advertisedSize": 30649706235,
+      "bytesReportedByFfprobe": 65417,
+      "externalSubtitles": [
+        ".ass"
+      ],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 3840,
+          "height": 1602,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001",
+          "language": "eng"
+        },
+        {
+          "type": "audio",
+          "codec": "eac3",
+          "profile": "Dolby Digital Plus + Dolby Atmos",
+          "frameRate": "0/0",
+          "channels": 6,
+          "channelLayout": "5.1(side)",
+          "sampleRate": "48000",
+          "language": "eng"
+        },
+        {
+          "type": "subtitle",
+          "codec": "subrip",
+          "frameRate": "0/0",
+          "language": "eng"
+        },
+        {
+          "type": "subtitle",
+          "codec": "subrip",
+          "frameRate": "0/0",
+          "language": "eng"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 36,
+      "category": "TV Shows",
+      "relativePath": "TV Shows/是，首相/第一季/是，首相.Yes,Prime.Minister.S01E06.1986.D9.MiniSD-TLF.mp4",
+      "ok": true,
+      "advertisedSize": 118872975,
+      "bytesReportedByFfprobe": 793510,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 696,
+          "height": 570,
+          "pixelFormat": "yuv420p",
+          "frameRate": "25/1",
+          "language": "und"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "HE-AAC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "und"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 37,
+      "category": "TV Shows",
+      "relativePath": "TV Shows/是，大臣/第一季/是，大臣.Yes,Minister.S01E02.1980.D5.MiniSD-TLF_x264.mp4",
+      "ok": true,
+      "advertisedSize": 158061722,
+      "bytesReportedByFfprobe": 1298285,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 696,
+          "height": 572,
+          "pixelFormat": "yuv420p",
+          "frameRate": "25/1",
+          "language": "und"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "und"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 38,
+      "category": "TV Shows",
+      "relativePath": "TV Shows/克拉克森的农场/第一季 包含字幕和弹幕文件/S01E08 丰收.mp4",
+      "ok": true,
+      "advertisedSize": 1872541196,
+      "bytesReportedByFfprobe": 2743036,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "Main",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p",
+          "frameRate": "30/1",
+          "language": "eng"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "44100",
+          "language": "eng"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 39,
+      "category": "TV Shows",
+      "relativePath": "TV Shows/武林外传/武林外传第03集.mkv",
+      "ok": true,
+      "advertisedSize": 1793487429,
+      "bytesReportedByFfprobe": 81211,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "mpeg2video",
+          "profile": "Main",
+          "width": 720,
+          "height": 480,
+          "pixelFormat": "yuv420p",
+          "frameRate": "30000/1001",
+          "language": "eng"
+        },
+        {
+          "type": "audio",
+          "codec": "ac3",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "chi"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 40,
+      "category": "TV Shows",
+      "relativePath": "TV Shows/[DBD-Raws][泽塔奥特曼][01-25TV全集+特别篇+特典映像][1080P][BDRip][HEVC-10bit][FLAC][MKV]/[DBD-Raws][泽塔奥特曼][03][1080P][BDRip][HEVC-10bit][FLAC].mkv",
+      "ok": true,
+      "advertisedSize": 927406111,
+      "bytesReportedByFfprobe": 343476,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 41,
+      "category": "TV Shows",
+      "relativePath": "TV Shows/是，首相/第一季/是，首相.Yes,Prime.Minister.S01E01.1986.D9.MiniSD-TLF.mp4",
+      "ok": true,
+      "advertisedSize": 139421048,
+      "bytesReportedByFfprobe": 777457,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 696,
+          "height": 570,
+          "pixelFormat": "yuv420p",
+          "frameRate": "25/1",
+          "language": "und"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "HE-AAC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "und"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 42,
+      "category": "TV Shows",
+      "relativePath": "TV Shows/是，大臣/第一季/是，大臣.Yes,Minister.S01E01.1980.D5.MiniSD-TLF_x264.mp4",
+      "ok": true,
+      "advertisedSize": 150943510,
+      "bytesReportedByFfprobe": 1308020,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 688,
+          "height": 572,
+          "pixelFormat": "yuv420p",
+          "frameRate": "25/1",
+          "language": "und"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "und"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 43,
+      "category": "TV Shows",
+      "relativePath": "TV Shows/克拉克森的农场/第一季 包含字幕和弹幕文件/S01E04 野化.mp4",
+      "ok": true,
+      "advertisedSize": 1669264524,
+      "bytesReportedByFfprobe": 2463742,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "Main",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p",
+          "frameRate": "30/1",
+          "language": "eng"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "44100",
+          "language": "eng"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 44,
+      "category": "TV Shows",
+      "relativePath": "TV Shows/武林外传/武林外传第01集.mkv",
+      "ok": true,
+      "advertisedSize": 2010747166,
+      "bytesReportedByFfprobe": 64829,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "mpeg2video",
+          "profile": "Main",
+          "width": 720,
+          "height": 480,
+          "pixelFormat": "yuv420p",
+          "frameRate": "30000/1001",
+          "language": "eng"
+        },
+        {
+          "type": "audio",
+          "codec": "ac3",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "chi"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 45,
+      "category": "TV Shows",
+      "relativePath": "TV Shows/[DBD-Raws][泽塔奥特曼][01-25TV全集+特别篇+特典映像][1080P][BDRip][HEVC-10bit][FLAC][MKV]/[DBD-Raws][泽塔奥特曼][08][1080P][BDRip][HEVC-10bit][FLAC].mkv",
+      "ok": true,
+      "advertisedSize": 1123790865,
+      "bytesReportedByFfprobe": 146860,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 46,
+      "category": "TV Shows",
+      "relativePath": "TV Shows/是，首相/第一季/是，首相.Yes,Prime.Minister.S01E07.1986.D9.MiniSD-TLF.mp4",
+      "ok": true,
+      "advertisedSize": 116599947,
+      "bytesReportedByFfprobe": 793840,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 696,
+          "height": 572,
+          "pixelFormat": "yuv420p",
+          "frameRate": "25/1",
+          "language": "und"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "HE-AAC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "und"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 47,
+      "category": "TV Shows",
+      "relativePath": "TV Shows/是，大臣/第一季/是，大臣.Yes,Minister.S01E04.1980.D5.MiniSD-TLF_x264.mp4",
+      "ok": true,
+      "advertisedSize": 150845499,
+      "bytesReportedByFfprobe": 1334425,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "High",
+          "width": 696,
+          "height": 572,
+          "pixelFormat": "yuv420p",
+          "frameRate": "25/1",
+          "language": "und"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "und"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 48,
+      "category": "TV Shows",
+      "relativePath": "TV Shows/克拉克森的农场/第一季 包含字幕和弹幕文件/S01E05 恐怖的疫情.mp4",
+      "ok": true,
+      "advertisedSize": 1593667457,
+      "bytesReportedByFfprobe": 2350505,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "h264",
+          "profile": "Main",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p",
+          "frameRate": "30/1",
+          "language": "eng"
+        },
+        {
+          "type": "audio",
+          "codec": "aac",
+          "profile": "LC",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "44100",
+          "language": "eng"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 49,
+      "category": "TV Shows",
+      "relativePath": "TV Shows/武林外传/武林外传第05集.mkv",
+      "ok": true,
+      "advertisedSize": 1850248283,
+      "bytesReportedByFfprobe": 64829,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "mpeg2video",
+          "profile": "Main",
+          "width": 720,
+          "height": 480,
+          "pixelFormat": "yuv420p",
+          "frameRate": "30000/1001",
+          "language": "eng"
+        },
+        {
+          "type": "audio",
+          "codec": "ac3",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000",
+          "language": "chi"
+        }
+      ]
+    },
+    {
+      "sampleIndex": 50,
+      "category": "TV Shows",
+      "relativePath": "TV Shows/[DBD-Raws][泽塔奥特曼][01-25TV全集+特别篇+特典映像][1080P][BDRip][HEVC-10bit][FLAC][MKV]/[DBD-Raws][泽塔奥特曼][06][1080P][BDRip][HEVC-10bit][FLAC].mkv",
+      "ok": true,
+      "advertisedSize": 1148343157,
+      "bytesReportedByFfprobe": 130468,
+      "externalSubtitles": [],
+      "streams": [
+        {
+          "type": "video",
+          "codec": "hevc",
+          "profile": "Main 10",
+          "width": 1920,
+          "height": 1080,
+          "pixelFormat": "yuv420p10le",
+          "frameRate": "24000/1001"
+        },
+        {
+          "type": "audio",
+          "codec": "flac",
+          "frameRate": "0/0",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": "48000"
+        }
+      ]
+    }
+  ]
+}

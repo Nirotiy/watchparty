@@ -44,3 +44,10 @@ yarn-error.log*
 # 本地构建与验收产物（打包出的可执行包、截图复核、清理归档）
 # 用户 2026-09-25：清理过期构建时一并忽略，避免误提交
 /artifacts/
+
+# dev 本地媒体 e2e 与 Rust harness 的产物（脚本/配置照常入库）
+/dev/mpv-e2e/node_modules/
+/dev/mpv-e2e/*.log
+/dev/mpv-e2e/*.mp4
+/dev/mpv-e2e/mpvconf*/
+/dev/gate3-libmpv-harness/target/

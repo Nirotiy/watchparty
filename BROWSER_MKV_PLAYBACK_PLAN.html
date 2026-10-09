@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>浏览器 MKV 播放计划</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #000;
+      --surface: #080808;
+      --surface-2: #101010;
+      --line: #292929;
+      --line-strong: #464646;
+      --text: #fff;
+      --body: #d0d0d0;
+      --muted: #989898;
+      --dim: #696969;
+      --cyan: #63d8f4;
+      --green: #8ed8a1;
+      --amber: #efc477;
+      --red: #ff8888;
+    }
+
+    * { box-sizing: border-box; }
+    html { background: var(--bg); scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.65 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    a { color: var(--cyan); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    a:hover { color: #b7f1ff; }
+    header, main, footer, nav .inner { width: min(1120px, calc(100% - 40px)); margin-inline: auto; }
+    header { padding: 44px 0 24px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 900px; margin-bottom: 12px; font-size: 38px; line-height: 1.14; }
+    h2 { margin: 0 0 16px; padding-bottom: 9px; border-bottom: 1px solid var(--line); font-size: 20px; }
+    h3 { margin: 24px 0 8px; font-size: 16px; }
+    p { max-width: 84ch; margin-bottom: 13px; color: var(--body); }
+    ul, ol { margin: 8px 0 18px; padding-left: 23px; color: var(--body); }
+    li { margin: 6px 0; padding-left: 3px; }
+    code, .mono { color: #e0e0e0; font: 0.91em/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+    nav { position: sticky; top: 0; z-index: 3; border-block: 1px solid var(--line); background: #000; }
+    nav .inner { display: flex; gap: 18px; overflow-x: auto; padding: 10px 0; scrollbar-width: thin; }
+    nav a { flex: none; color: var(--muted); font-size: 13px; text-decoration: none; }
+    nav a:hover { color: var(--text); }
+    .lede { max-width: 900px; color: #d7d7d7; font-size: 17px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 22px; padding: 12px 0; border-block: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+    .meta strong { color: var(--green); font-weight: 600; }
+    main { padding-bottom: 60px; }
+    section { padding: 34px 0; border-bottom: 1px solid var(--line); scroll-margin-top: 52px; }
+    .callout { margin: 16px 0; padding: 13px 16px; border-left: 3px solid var(--cyan); background: var(--surface); color: var(--body); }
+    .callout.warning { border-color: var(--amber); }
+    .callout.stop { border-color: var(--red); }
+    .callout p:last-child { margin-bottom: 0; }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0 20px; background: #030303; }
+    th, td { padding: 10px 12px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: var(--surface-2); color: #eee; font-size: 13px; font-weight: 600; }
+    td { color: var(--body); }
+    td:first-child { color: var(--text); font-weight: 600; }
+    .status-native { color: var(--green); }
+    .status-best { color: var(--amber); }
+    .status-out { color: var(--red); }
+    .phase { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 15px; padding: 17px 0; border-top: 1px solid var(--line); }
+    .phase:first-of-type { border-top: 0; }
+    .phase-id { color: var(--cyan); font: 13px ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .phase h3 { margin: 0 0 6px; }
+    .phase p:last-child, .phase ul:last-child { margin-bottom: 0; }
+    .flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; margin: 18px 0; border: 1px solid var(--line); }
+    .flow div { position: relative; min-width: 0; padding: 12px; border-right: 1px solid var(--line); background: #050505; }
+    .flow div:last-child { border-right: 0; }
+    .flow b { display: block; margin-bottom: 5px; color: var(--text); font-size: 13px; }
+    .flow span { color: var(--muted); font-size: 12px; }
+    .small { color: var(--muted); font-size: 13px; }
+    footer { padding: 22px 0 48px; color: var(--dim); font-size: 12px; }
+    @media (max-width: 760px) {
+      header, main, footer, nav .inner { width: min(calc(100% - 26px), 1120px); }
+      header { padding-top: 32px; }
+      h1 { font-size: 29px; }
+      section { padding: 27px 0; }
+      .flow { grid-template-columns: 1fr; }
+      .flow div { border-right: 0; border-bottom: 1px solid var(--line); }
+      .flow div:last-child { border-bottom: 0; }
+      .phase { grid-template-columns: 56px minmax(0, 1fr); gap: 10px; }
+      table { display: block; min-width: 650px; overflow-x: auto; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>浏览器 MKV 播放计划</h1>
+    <p class="lede">在不增加服务端媒体代理、remux 或转码负担的前提下，让桌面浏览器直接读取 MKV。先验证真实媒体与设备，再决定产品集成。</p>
+    <div class="meta">
+      <span>阶段 <strong>阶段 0 复核中</strong></span>
+      <span>首发浏览器 <strong>Windows / macOS 桌面 Chrome、Edge</strong></span>
+      <span>更新时间 <strong>2026-10-06</strong></span>
+      <span>产品边界 <strong>浏览器解码，MPV 兜底</strong></span>
+    </div>
+  </header>
+
+  <nav aria-label="文档目录">
+    <div class="inner">
+      <a href="#decision">已确认边界</a>
+      <a href="#flow">播放流程</a>
+      <a href="#tracks">轨道与兼容</a>
+      <a href="#delivery">实施阶段</a>
+      <a href="#inventory">抽样证据</a>
+      <a href="#poc">POC 验收</a>
+      <a href="#risks">风险与开放项</a>
+      <a href="#jellyfin">Jellyfin 参考</a>
+      <a href="#sources">资料来源</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="decision">
+      <h2>已确认的产品边界</h2>
+      <p>目标是让浏览器承担 MKV 的增量读取、容器解析、解码和轨道呈现。第一阶段集中验证近 5 年的中端桌面电脑，移动端另行评估。</p>
+      <table>
+        <thead><tr><th>主题</th><th>决定</th><th>具体约束</th></tr></thead>
+        <tbody>
+          <tr><td>服务端处理</td><td>不运行 FFmpeg remux/transcode，不添加媒体代理。</td><td>2 核、2GB、无独显的服务器不承担媒体处理或额外媒体流量。</td></tr>
+          <tr><td>媒体读取</td><td>浏览器直连 OpenList 或媒体源。</td><td>使用短时签名 URL。必须支持 CORS、HTTP Range 和浏览器可发送的鉴权方式。</td></tr>
+          <tr><td>URL 留存</td><td>仅保存在内存中。</td><td>到期前刷新。不写 localStorage，不进入房间同步状态或日志。</td></tr>
+          <tr><td>首发平台</td><td>Windows、macOS 桌面 Chrome 和 Edge 当前稳定版。</td><td>基准设备为近 5 年中端电脑、4 核 CPU、8GB RAM、集成显卡。</td></tr>
+          <tr><td>优先解码</td><td>WebCodecs / 浏览器原生解码优先。</td><td>按照具体媒体轨道检测解码能力。容器识别不能代替 codec 能力检测。</td></tr>
+          <tr><td>软件解码</td><td>原生路径不支持时，先提示，再由观众确认加载多线程 WASM 解码器。</td><td>仅打开 MKV 时按需加载，显示下载进度并使用浏览器缓存。仅纳入 LGPL 组件，排除 GPL 和 nonfree 编解码组件。</td></tr>
+          <tr><td>媒体数据</td><td>必须 Range 增量读取，支持 seek。</td><td>只读取 demux 和当前播放窗口需要的数据，避免完整下载媒体。</td></tr>
+          <tr><td>画质目标</td><td>原生解码覆盖的常见编码以稳定 1080p30 为目标。</td><td>4K / 高帧率尽力支持。WASM-only 编码记录能力和负载，不要求全部达到 1080p30。</td></tr>
+          <tr><td>字幕</td><td>内嵌和外挂 SRT、VTT、ASS/SSA 可选轨。</td><td>ASS/SSA 尽量保留样式。首发不支持 PGS 等图像字幕，需说明原因。</td></tr>
+          <tr><td>音频</td><td>可切换内嵌音轨。</td><td>输出到浏览器常规音频链路，如立体声或系统混音。特殊编码可由浏览器软件解码后输出 PCM。</td></tr>
+          <tr><td>多人同步</td><td>房间时钟继续前进，不等待单个观众。</td><td>轨道选择仅对当前观众生效。缓冲或解码落后由本地追帧，必要时提示性能不足。</td></tr>
+          <tr><td>失败兜底</td><td>停止浏览器解码并说明原因，提供“交给 MPV”选项。</td><td>媒体源无法满足浏览器访问要求，或持续无法达到可用播放质量时，保留 MPV 播放路径。</td></tr>
+        </tbody>
+      </table>
+      <div class="callout warning">
+        <p>网页需评估并配置 COOP/COEP 跨源隔离响应头，以启用 SharedArrayBuffer 和 WASM threads。跨源字体、图片、脚本、媒体和其他资源要逐项核查 CORS/CORP，不能只验证播放器本身。</p>
+      </div>
+    </section>
+
+    <section id="flow">
+      <h2>端到端播放流程</h2>
+      <div class="flow" aria-label="播放决策流程">
+        <div><b>1. 获取临时地址</b><span>签名 URL 只在内存中使用，并在过期前刷新。</span></div>
+        <div><b>2. 验证源能力</b><span>检查 CORS、Range、鉴权和响应行为。</span></div>
+        <div><b>3. Range demux</b><span>读取容器与轨道元数据，建立可 seek 的增量读取。</span></div>
+        <div><b>4. 选择解码路径</b><span>先 WebCodecs / 原生。若不支持，征求同意后加载 WASM。</span></div>
+        <div><b>5. 播放或交给 MPV</b><span>保留房间时钟；无法持续播放时给出明确兜底。</span></div>
+      </div>
+
+      <ol>
+        <li>取得媒体源的短时签名地址。播放器在内存中保存地址和刷新所需状态，不把签名地址写入持久存储、房间状态或应用日志。</li>
+        <li>对源发起轻量请求，验证跨域策略、Range 请求和响应状态。确认浏览器能够用现有 URL 或标准授权机制访问。若必须依赖自定义 User-Agent 等浏览器不能设置的请求头，标记网页暂不可播。</li>
+        <li>以 Range 读取 Matroska 元数据和轨道信息。demuxer 按播放位置请求数据，seek 后读取新位置所需区间。网络层不可退化为先下载完整文件。</li>
+        <li>为每条视频、音频和字幕轨道建立能力结果。视频检查 WebCodecs 对具体 codec、profile、level、bit depth、分辨率等配置的支持；音频按实际 codec 和采样参数检查浏览器输出路径。不要仅以文件扩展名或 MIME 类型作结论。</li>
+        <li>选用观众本地支持的音轨和字幕轨。选择不写入房间同步状态。播放进度和同步时钟仍按房间现有机制共享。</li>
+        <li>若原生解码不能处理选中的轨道，说明将下载的软件解码组件及其状态，等待观众确认。确认后按需下载 WASM，显示进度，启动多线程软件解码。</li>
+        <li>解码后向浏览器视频和音频输出链路送帧或 PCM。持续观测解码耗时、缓冲、丢帧和音画同步。</li>
+        <li>网络或解码落后时，只让当前观众本地缓冲、跳帧或追赶。4K / 高帧率先降低实际显示帧率并保持音频与房间时钟。持续过载则停止并提示切换 MPV。</li>
+      </ol>
+    </section>
+
+    <section id="tracks">
+      <h2>轨道和兼容策略</h2>
+      <table>
+        <thead><tr><th>轨道 / 环节</th><th>处理要求</th><th>失败行为</th></tr></thead>
+        <tbody>
+          <tr><td>容器解析</td><td>从 Range 返回的数据中解析 Matroska EBML、Segment、Tracks、时间戳和 cue/index 信息。支持缺失或位于文件尾部的索引策略，并记录探测读取量。</td><td>元数据无法解析、索引不可用且不能在约束内定位时，标记该文件暂不支持网页播放。</td></tr>
+          <tr><td>视频</td><td>逐轨读取 codec ID 和必要参数。原生路径通过 WebCodecs / 浏览器能力探测及实际解码验证。稳定目标优先覆盖媒体库中占比最高的原生可解码组合。</td><td>原生能力不匹配时提示 WASM。WASM 负载超出持续播放能力时停止并提供 MPV。</td></tr>
+          <tr><td>音频</td><td>按需读取所选轨道，可切换内嵌音轨。保证输出浏览器可消费的 PCM 或其他常规输出格式，并正确处理时间戳、采样率和声道映射。</td><td>轨道不受当前解码后端支持时，告知观众并列出可选音轨；没有可用轨道时提供 MPV。</td></tr>
+          <tr><td>文本字幕</td><td>支持内嵌及外挂 SRT、VTT、ASS/SSA 作为本地可选轨。ASS/SSA 尽量保留定位、字体、颜色等样式。字幕时间相对于媒体时间轴渲染。</td><td>解析或样式能力不足时显示基本文本或说明降级，不影响其他观众和房间时钟。</td></tr>
+          <tr><td>图像字幕</td><td>PGS 等图像字幕不纳入首发必须支持范围。</td><td>在轨道选择处标记暂不支持，建议选择可用文本轨或交给 MPV。</td></tr>
+          <tr><td>外挂文件</td><td>外挂字幕也要满足浏览器跨域和访问要求。签名地址同样只在内存中保留，并处理过期刷新。</td><td>外挂文件无法跨域读取时，该字幕不可用；不增加服务端代理。</td></tr>
+          <tr><td>媒体源访问</td><td>检查 OPTIONS / 实际 Range 请求、允许来源、允许请求头、暴露的 Content-Range / Accept-Ranges / Content-Length 等响应字段和鉴权方式。</td><td>不能提供浏览器所需的 CORS、Range，或要求浏览器无法设置的特殊请求头时，标记该源网页暂不可播，保留 MPV。</td></tr>
+        </tbody>
+      </table>
+      <p class="small">Range 验证要确认服务端返回的是请求的区间，并检查 seek 是否发出新的区间请求。只看到响应头中有 <code>Accept-Ranges</code> 不能单独视作验证通过。</p>
+    </section>
+
+    <section id="delivery">
+      <h2>实施阶段</h2>
+      <div class="phase">
+        <div class="phase-id">阶段 0</div>
+        <div>
+          <h3>只读盘点真实媒体分布</h3>
+          <p>按媒体类型抽样现有媒体库。只使用 HTTP Range 读取容器头和轨道元数据，不完整下载，不修改媒体文件。记录 Matroska 版本和常见的视频、音频、字幕 codec、profile、bit depth、分辨率、帧率、声道及外挂字幕格式。</p>
+          <p>交付物是脱敏的编码分布表、样本来源能力表和候选测试样本清单。抽样规模及每类样本数量在实施时登记，避免把某个目录误当作全库分布。</p>
+        </div>
+      </div>
+      <div class="phase">
+        <div class="phase-id">阶段 1</div>
+        <div>
+          <h3>隔离浏览器 POC</h3>
+          <p>POC 与正式房间播放链路隔离。基于阶段 0 占比最高的真实组合验证 Range demux、轨道元数据、seek、WebCodecs 原生解码、观众确认后的 LGPL WASM 回退、字幕和音频轨切换、性能监控与 MPV 兜底。</p>
+          <p>桌面 Chrome / Edge 在 Windows、macOS 上分别跑样本。测试记录浏览器版本、操作系统、设备配置、媒体 codec 参数、网络条件和解码路径。</p>
+        </div>
+      </div>
+      <div class="phase">
+        <div class="phase-id">阶段 2</div>
+        <div>
+          <h3>验证部署隔离和资源访问</h3>
+          <p>在非生产测试环境启用 COOP/COEP，确认播放器页面可获得 SharedArrayBuffer 和 WASM threads。逐项检查身份认证、媒体源、字体、图片、脚本和其他跨源依赖，不以单个本地文件测试代替部署验证。</p>
+          <p>确认短时 URL 更新、内存清理、日志脱敏和浏览器缓存行为。验证跨域或 Range 不满足要求的源会明确转到 MPV 路径。</p>
+        </div>
+      </div>
+      <div class="phase">
+        <div class="phase-id">阶段 3</div>
+        <div>
+          <h3>根据 POC 结果做产品集成决策</h3>
+          <p>只有阶段 1 达到通过门槛，且阶段 2 的响应头与跨域依赖可部署，才进入产品集成。提交编码组合支持矩阵、已知限制、组件许可证和源码信息、WASM 下载大小及缓存策略、性能结果、失败原因列表和 MPV 兜底行为。</p>
+          <p>未通过的编码组合不默认为支持。可以缩小首发矩阵、替换组件或停止浏览器方案，再决定是否继续开发。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="inventory">
+      <h2>当前抽样结果与冻结的 POC 矩阵</h2>
+      <p>2026-10-06 通过本机 OpenList 刷新分层样本，配额为 Anime 34、Film 1、TV Shows 15。50 个样本均可访问并成功通过 HTTP Range ffprobe；相较旧 manifest，替换了 8 个失效 Anime 路径。样本路径无重复。这是按作品分类的覆盖样本，不按全库视频总量加权。</p>
+      <table>
+        <thead><tr><th>轨道观察</th><th>当前 50 个样本</th><th>POC 覆盖</th></tr></thead>
+        <tbody>
+          <tr><td>视频</td><td>H.264 25 个文件、HEVC 22 个、MPEG-2 3 个。HEVC Main 10 / 1920x1080 / 23.976 fps 有 16 个视频流；H.264 High 8-bit / 1920x1080 / 23.976 fps 有 9 个；H.264 Main 8-bit / 1920x1080 / 30 fps 有 3 个。</td><td>1080p30 原生基准优先用 H.264 Main 8-bit；同时跑常见 H.264 High 8-bit 和 HEVC Main 10。逐条调用 WebCodecs 能力探测，不把 demux 成功当成解码支持。</td></tr>
+          <tr><td>音频</td><td>AAC 25 个文件、FLAC 23 个、AC-3 6 个、E-AC-3 1 个，文件间有多轨重叠。常见轨道为 FLAC 2ch / 48 kHz（24 流）、AAC 2ch / 48 kHz（17 流）及 AAC 2ch / 44.1 kHz（8 流）。</td><td>核心覆盖 AAC 与 FLAC 立体声；另外记录 AAC 5.1、AC-3 / E-AC-3 5.1、FLAC 5.1 / 7.1 的切轨、原生能力或 PCM 回退。</td></tr>
+          <tr><td>内嵌字幕</td><td>ASS 8 流、PGS 15 流、SubRip 4 流。</td><td>ASS 和 SubRip 验证选择、时序与样式；PGS 验证识别并明确提示暂不支持。</td></tr>
+          <tr><td>外挂字幕</td><td>50 个视频中 11 个在同目录发现同名或语言后缀字幕，共 ASS 14 个、SRT 2 个；未发现 VTT、SSA、SUP、IDX/SUB。</td><td>优先测试 ASS 多语言侧车与 SRT；外挂轨选择仅本地生效。统计按同目录文件名主干关联，不覆盖放在其他目录或命名无法关联的字幕。</td></tr>
+          <tr><td>次级与高负载</td><td>H.264 High 10 2 流、MPEG-2 720x480 3 流；另有 HEVC 2160p 样本。</td><td>High 10、MPEG-2、4K HEVC 与多声道仅记录能力、WASM 负载和降帧行为，不作为首轮 1080p30 承诺门槛。</td></tr>
+        </tbody>
+      </table>
+      <div class="callout warning">
+        <p>分层配额沿用现有 Anime / Film / TV Shows 方案，不能直接推导全库占比。codec 文件数可能因多音轨、多字幕轨而重叠；profile 表按探测到的轨道统计。外挂字幕只统计同目录且名称主干匹配的文件。</p>
+      </div>
+      <h3>POC 首轮矩阵 v1（冻结）</h3>
+      <ol>
+        <li><strong>原生验收基线：</strong>H.264 Main 8-bit、1920x1080、30 fps，AAC 立体声；按已确认门槛连续播放 20 分钟。H.264 High 8-bit 1080p / 23.976 fps 作为样本覆盖对照。</li>
+        <li><strong>高频兼容路径：</strong>HEVC Main 10、1920x1080、23.976 fps，分别与 AAC 和 FLAC 立体声配对。先探测 WebCodecs；不支持时提示观众，确认后加载 WASM。WASM-only 结果单独记录，不纳入原生稳定承诺。</li>
+        <li><strong>音轨与字幕：</strong>AAC / FLAC 立体声切换；外挂 ASS、SRT 与内嵌 ASS、SubRip 的本地选择和同步；PGS 识别后提示暂不支持。多声道音轨记录原生支持或 PCM 回退。</li>
+        <li><strong>Best effort：</strong>H.264 High 10、MPEG-2 SD、2160p HEVC Main 10、AC-3 / E-AC-3 5.1、FLAC 5.1 / 7.1。记录能力、WASM 资源负载和过载行为，不设全项通过要求。</li>
+      </ol>
+      <p>矩阵优先级已冻结为：H.264 Main 1080p30 原生验收；H.264 High 8-bit 1080p 与 HEVC Main 10 1080p 做高覆盖对照；AAC / FLAC 立体声为主要音频；ASS / SRT 为可选字幕，PGS 仅提示不支持。任何轨道组合仍须在运行时单独探测，矩阵不构成设备兼容保证。</p>
+      <h3>探测与访问证据</h3>
+      <p>脚本只枚举 OpenList 目录、获取内存中的短时签名 URL，并让 ffprobe 读取容器与轨道元数据。配置为 2 MiB <code>probesize</code>、1 秒 <code>analyzeduration</code> 和 15 秒网络读超时；不解码视频、不保存媒体正文。凭据、token 和签名 URL 未写入仓库或结果文件。</p>
+      <table>
+        <thead><tr><th>检查项</th><th>结果</th><th>边界</th></tr></thead>
+        <tbody>
+          <tr><td>当前样本</td><td>50 / 50 可访问并成功解析；8 个失效 Anime 样本已替换；路径无重复。</td><td>配额仍为 Anime 34、Film 1、TV Shows 15，不是全库加权抽样。</td></tr>
+          <tr><td>Range 读取</td><td>50 个样本累计读取 30,901,665 字节；媒体声明大小合计 100,765,144,167 字节；146 次 HTTP 请求。</td><td>没有单个样本的 ffprobe 报告读取量达到该文件声明大小；未落地媒体内容。</td></tr>
+          <tr><td>外挂字幕</td><td>11 / 50 个样本视频关联到同目录同名字幕：ASS 14 个、SRT 2 个。</td><td>未扫描样本目录以外的外挂字幕，也未将未匹配文件归给具体视频。</td></tr>
+          <tr><td>浏览器 CORS</td><td>此前 42 条旧有效路径允许 <code>http://localhost:5173</code>；<code>Content-Range</code> 和 <code>Accept-Ranges</code> 未暴露。</td><td>本轮没有重测 8 个替换文件，也未验证部署 Origin。浏览器 POC 仍须实测实际跨域响应头。</td></tr>
+        </tbody>
+      </table>
+      <p class="small">当前数据：<code>dev/ffprobe-sample-20260904/sample-manifest-current.json</code>、<code>ffprobe-results-current.json</code>。复现脚本：<code>refresh-openlist-sample.mjs</code>。旧 manifest 与结果文件保留为历史基线。</p>
+    </section>
+
+    <section id="poc">
+      <h2>POC 通过门槛</h2>
+      <div class="callout">
+        <p>基准目标适用于 WebCodecs / 浏览器原生解码覆盖的常见编码组合。WASM-only 组合单独记录负载和可播放时长，不要求每种达到稳定 1080p30。</p>
+      </div>
+      <table>
+        <thead><tr><th>项目</th><th>通过标准</th><th>记录方法</th></tr></thead>
+        <tbody>
+          <tr><td>1080p30 连播</td><td>基准设备上连续播放 20 分钟。</td><td>记录每分钟解码帧、丢帧、缓冲、CPU / 内存和温度或降频迹象。丢帧率低于 1%。</td></tr>
+          <tr><td>音画同步</td><td>播放过程中的音画偏差小于 100 ms。</td><td>测量开始、运行中、seek 后及轨道切换后的偏差。</td></tr>
+          <tr><td>Range seek</td><td>跳转后 3 秒内恢复播放。</td><td>记录 seek 目标、Range 请求区间、请求耗时和首个恢复显示的视频帧时间。</td></tr>
+          <tr><td>增量读取</td><td>整个测试过程不完整下载媒体。</td><td>保存网络请求区间和累计读取量；确认播放窗口以外没有顺序下载到文件末尾。</td></tr>
+          <tr><td>原生能力判断</td><td>WebCodecs 能力结果与实际样本解码结果一致。</td><td>按 codec/profile/level/bit depth/尺寸等记录配置检查与真实解码错误，不仅记录 canPlayType 结果。</td></tr>
+          <tr><td>WASM 回退</td><td>未经观众确认不下载、不启动；确认后可看到进度并能取消或失败退出。</td><td>分开记录组件字节数、下载时间、缓存命中、线程数、CPU/内存、帧率和持续可播时间。</td></tr>
+          <tr><td>房间同步</td><td>单个客户端缓冲或解码过载不暂停全房间时钟。</td><td>验证本地追帧、跳帧与停止后 MPV 提示，不向其他观众同步个人音轨或字幕选择。</td></tr>
+        </tbody>
+      </table>
+      <p>验收前固定基准媒体样本及哈希、测试设备和 Chrome / Edge 版本。测试结果须能区分网络、容器解析、解码器和字幕渲染问题。</p>
+    </section>
+
+    <section id="fallback">
+      <h2>性能降级和失败处理</h2>
+      <table>
+        <thead><tr><th>情况</th><th>播放器动作</th><th>房间动作</th></tr></thead>
+        <tbody>
+          <tr><td>原生 decoder 不支持轨道</td><td>说明需要软件解码，等待观众确认后再加载 WASM。</td><td>其他观众继续播放。</td></tr>
+          <tr><td>网络缓冲</td><td>本地缓冲并恢复；seek 或追赶按当前 Range 能力执行。</td><td>房间播放时钟继续前进。</td></tr>
+          <tr><td>短时解码过载</td><td>视频可跳帧或降低实际显示帧率，优先保持音频和房间时钟。</td><td>不等待过载的观众。</td></tr>
+          <tr><td>持续解码过载</td><td>停止网页解码，说明当前设备无法维持播放，提供“交给 MPV”。</td><td>房间保持运行；个人切换不改变其他观众状态。</td></tr>
+          <tr><td>源不支持 CORS / Range / 所需鉴权</td><td>将此媒体源标记为网页暂不可播，说明失败条件。</td><td>允许观众使用 MPV。服务端不代取媒体字节。</td></tr>
+          <tr><td>字幕或音频轨不支持</td><td>指出具体轨道。允许选择其他可用轨道；图像字幕显示暂不支持。</td><td>轨道选择留在本地，不改变其他观众。</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="risks">
+      <h2>风险与开放实现项</h2>
+      <table>
+        <thead><tr><th>待验证项</th><th>影响</th><th>计划中的决策点</th></tr></thead>
+        <tbody>
+          <tr><td>真实 MKV 编码比例</td><td>决定首轮支持矩阵和优先样本。</td><td>阶段 0 完成后，以抽样占比和可获得样本定 POC 主矩阵。</td></tr>
+          <tr><td>Matroska demuxer 选型</td><td>影响 Range seek、索引处理、轨道元数据和 LGPL 义务。</td><td>对候选实现检查许可证、源码提供方式、随机读取能力和浏览器集成情况；POC 前不锁定库。</td></tr>
+          <tr><td>WASM 解码器选型</td><td>影响编码覆盖、包体、内存、CPU 负载和许可证边界。</td><td>只纳入 LGPL 且无 GPL / nonfree codec 的配置。审查实际编译开关、依赖和分发义务。</td></tr>
+          <tr><td>SharedArrayBuffer 部署</td><td>COOP/COEP 会改变跨源隔离要求，可能阻断未适配的依赖资源。</td><td>在隔离测试环境逐项验证资源响应头和认证流程，再定部署方案。</td></tr>
+          <tr><td>签名 URL 刷新</td><td>刷新时机或 Range 重试处理不当会中断播放；URL 也可能意外进入日志。</td><td>验证过期前刷新、续播和错误脱敏，确认媒体提供方允许该访问模式。</td></tr>
+          <tr><td>ASS/SSA 样式</td><td>浏览器文本轨不等同于完整 ASS 字幕渲染。</td><td>对现有样本检查 libass 或其他 LGPL 方案的可行性、字体获取和样式差异，再写入支持矩阵。</td></tr>
+          <tr><td>性能门槛与设备差异</td><td>WebCodecs 可用不代表指定设备能实时解码；WASM 性能更依赖浏览器和 CPU。</td><td>分别报告 Windows / macOS 以及 Chrome / Edge 的结果。只对明确覆盖的原生编码路径承诺 1080p30。</td></tr>
+          <tr><td>缓存与组件体积</td><td>首次启动等待时间可能较长，浏览器缓存策略和无痕模式行为不同。</td><td>测量实际下载体积、冷启动和缓存命中，不把外部 CDN 可用性当作前提。</td></tr>
+        </tbody>
+      </table>
+      <div class="callout stop">
+        <p>不在本阶段承诺“所有 MKV 任意编码必播”。最终可支持范围由真实媒体抽样、设备测试结果和可接受的客户端负载共同决定。</p>
+      </div>
+    </section>
+
+    <section id="jellyfin">
+      <h2>Jellyfin 的借鉴范围</h2>
+      <p>Jellyfin Web 会生成客户端 DeviceProfile，列出容器、视频和音频 codec、码率及字幕交付能力。服务端 StreamBuilder 据这些能力选择 Direct Play、Direct Stream 或 Transcode。其文档说明，容器、音频或字幕不兼容时可能 Direct Stream，视频编码不兼容时可能转码，字幕烧录还会增加较重的服务端处理。</p>
+      <table>
+        <thead><tr><th>Jellyfin 做法</th><th>本计划如何使用</th></tr></thead>
+        <tbody>
+          <tr><td>客户端按浏览器和设备生成能力 profile。</td><td>借鉴能力数据模型；本项目还需细化到每条轨道的 codec 参数和解码后端。</td></tr>
+          <tr><td>服务端统一评估容器、音视频和字幕组合。</td><td>借鉴失败原因分类和兼容矩阵表达。解码选择放在浏览器，媒体源访问条件在播放前验证。</td></tr>
+          <tr><td>用 FFmpeg remux / transcode 弥补客户端差异。</td><td>不采用。服务端资源预算和不增加媒体代理的产品边界不允许该回退。</td></tr>
+          <tr><td>通过服务器转换或烧录字幕。</td><td>不采用服务端转换。浏览器处理文本字幕；PGS 首发提示暂不支持。</td></tr>
+        </tbody>
+      </table>
+      <p>Jellyfin Web 的 MKV profile 仍把容器支持与音视频 codec profile 分开处理。因此不能把浏览器报告能播放 Matroska 当作任意 MKV 编码均可播。此处的设计要点是按轨道验证真实解码能力，并在 POC 中用真实文件确认。</p>
+    </section>
+
+    <section id="sources">
+      <h2>资料来源</h2>
+      <ul>
+        <li><a href="https://jellyfin.org/docs/general/clients/codec-support/" target="_blank" rel="noopener noreferrer">Jellyfin 官方 Codec Support 文档</a>，Direct Play、Direct Stream、Transcoding 与字幕行为说明。</li>
+        <li><a href="https://jellyfin.org/docs/general/post-install/transcoding/" target="_blank" rel="noopener noreferrer">Jellyfin 官方 Transcoding 文档</a>，服务端转码配置说明。</li>
+        <li><a href="https://github.com/jellyfin/jellyfin-web/blob/master/src/scripts/browserDeviceProfile.js" target="_blank" rel="noopener noreferrer">Jellyfin Web browserDeviceProfile.js</a>，浏览器能力探测与 profile 生成。</li>
+        <li><a href="https://github.com/jellyfin/jellyfin/blob/master/MediaBrowser.Model/Dlna/StreamBuilder.cs" target="_blank" rel="noopener noreferrer">Jellyfin StreamBuilder.cs</a>，服务端播放方式选择和字幕兼容判定。</li>
+        <li><a href="https://github.com/jellyfin/jellyfin/blob/master/Jellyfin.Api/Controllers/MediaInfoController.cs" target="_blank" rel="noopener noreferrer">Jellyfin MediaInfoController.cs</a>，PlaybackInfo API。</li>
+        <li><a href="https://github.com/jellyfin/jellyfin-web/blob/master/src/components/playback/playbackmanager.js" target="_blank" rel="noopener noreferrer">Jellyfin Web playbackmanager.js</a>，客户端提交播放能力、选择媒体源和轨道。</li>
+      </ul>
+      <p class="small">上游源码链接指向主分支，可能随 Jellyfin 更新而变化。本计划记录已讨论的产品决策，不代表这些上游实现就是本项目的依赖或选型。</p>
+    </section>
+  </main>
+
+  <footer>
+    WatchParty 浏览器 MKV 播放规划。实施顺序为媒体分布盘点、隔离 POC、跨源部署验证、通过门槛后再评估产品集成。
+  </footer>
+</body>
+</html>

@@ -1,0 +1,70 @@
+{
+  "generatedAt": "2026-09-04T14:59:53+08:00",
+  "platform": "Windows x86_64",
+  "artifact": {
+    "source": "zhongfly/mpv-winbuild release 2026-09-03-f5bcfb1954",
+    "package": "mpv-dev-lgpl-x86_64-20260903-git-f5bcfb1954.7z",
+    "packageSha256": "05bee13e04189f1be59a84fcb5f57993584240302de047b57b368cd63f255e31",
+    "dllSha256": "42097b72b9175c980cdbdfd10cf2c7111e39645f639d8502ff34171d01224ae8",
+    "localRuntimePath": "%LOCALAPPDATA%/WatchParty/runtime/libmpv-2.dll"
+  },
+  "method": {
+    "surface": "real Tauri native Window HWND passed to libmpv wid",
+    "videoOutput": "gpu-next",
+    "hardwareDecodePolicy": "auto-safe",
+    "mediaReadPolicy": "two representative cloud-mounted samples; header, 0.25 second playback, one 10 second seek, then stop; natural EOF uses the repository's 4 second local fixture"
+  },
+  "samples": [
+    {
+      "relativePath": "Anime/[POPGO][Ghost_in_the_Shell][S.A.C._2nd_GIG][BDRIP][1080P]/[POPGO][Ghost_in_the_Shell][S.A.C._2nd_GIG][05][AVC_FLACx2+AC3][BDrip][1080p][631944DD].mkv",
+      "fileLoaded": true,
+      "playAdvanced": true,
+      "pauseApplied": true,
+      "seekApplied": true,
+      "rateApplied": true,
+      "volumeApplied": true,
+      "endFile": "stopped",
+      "videoCodec": "h264",
+      "pixelFormat": "yuv420p10",
+      "resolution": "1920x1036",
+      "audioCodecs": ["flac", "ac3"],
+      "subtitleTracks": ["ass", "hdmv_pgs_subtitle"],
+      "subtitleSelectionVerified": ["ass", "hdmv_pgs_subtitle"],
+      "activeHardwareDecoder": null
+    },
+    {
+      "relativePath": "Anime/[DBD-Raws][4K_HDR][攻壳机动队2：无罪][2160P][BDRip][HEVC-10bit][简体字幕外挂][FLAC][MKV]/[DBD-Raws][4K_HDR][攻壳机动队2：无罪][2160P][BDRip][HEVC-10bit][FLAC].mkv",
+      "fileLoaded": true,
+      "playAdvanced": true,
+      "pauseApplied": true,
+      "seekApplied": true,
+      "rateApplied": true,
+      "volumeApplied": true,
+      "endFile": "stopped",
+      "videoCodec": "hevc",
+      "pixelFormat": "d3d11",
+      "resolution": "3840x2160",
+      "hdr": true,
+      "audioCodecs": ["flac"],
+      "activeHardwareDecoder": "d3d11va"
+    }
+  ],
+  "extraChecks": {
+    "localFixtureAutoDiscovery": true,
+    "naturalEof": {
+      "fixture": "dev/mpv-e2e/short.mp4",
+      "result": "MPV_EVENT_END_FILE with eof reason passed after changing keep-open from yes to no"
+    },
+    "cloudTailSeek": "the optional 4K tail-seek EOF attempt timed out before the keep-open defect was identified; no second cloud tail read was performed",
+    "processExitWarning": "Chromium emitted Win32 error 1412 while the smoke process tore down its hidden WebView; exit code remained 0 and this was not emitted by libmpv"
+  },
+  "verification": {
+    "cargoFmt": "passed",
+    "cargoClippyAllTargetsDenyWarnings": "passed",
+    "cargoTests": "28 passed, 1 ignored by the default command",
+    "desktopHttpLiveNodeIntegration": "passed separately",
+    "backendNodeTests": "51 passed",
+    "desktopApplicationBuild": "passed",
+    "gitDiffCheck": "passed"
+  }
+}

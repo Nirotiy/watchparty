@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>浏览器自托管端与桌面端差异 handoff</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, "Noto Sans SC", system-ui, sans-serif; background: #000; color: #f4f4f5; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #000; color: #f4f4f5; line-height: 1.62; }
+    main { width: min(1120px, 100%); margin: 0 auto; padding: 32px 24px 64px; }
+    h1 { font-size: 28px; line-height: 1.25; margin: 0 0 8px; }
+    h2 { font-size: 19px; margin: 32px 0 10px; padding-top: 12px; border-top: 1px solid #333; }
+    h3 { font-size: 15px; margin: 20px 0 6px; }
+    p { margin: 8px 0; }
+    .meta { color: #a1a1aa; font-size: 13px; }
+    .callout { margin: 20px 0; padding: 12px 16px; border-left: 3px solid #38bdf8; background: #101214; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+    th, td { text-align: left; vertical-align: top; border-bottom: 1px solid #303030; padding: 9px 10px; }
+    th { color: #d4d4d8; background: #111; font-weight: 600; }
+    code { color: #e4e4e7; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .93em; overflow-wrap: anywhere; }
+    ol, ul { padding-left: 22px; }
+    li { margin: 6px 0; }
+    .tag { color: #7dd3fc; }
+    .warn { color: #fbbf24; }
+    @media (max-width: 720px) {
+      main { padding: 24px 16px 48px; }
+      h1 { font-size: 23px; }
+      table { display: block; overflow-x: auto; white-space: normal; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>浏览器自托管端与桌面端差异</h1>
+  <p class="meta">交接文档 · 扫描快照：分支 <code>feat/tauri-desktop-gate0-3</code>，HEAD <code>c068eae2f</code> · 2026-10-07</p>
+
+  <div class="callout">
+    <strong>结论。</strong>网页端没有在桌面开发后整体停摆。Next.js 网页仍由当前自托管部署构建和运行，桌面基线之后还新增了网页媒体库标题墙、草稿审批和房间权限修复。已确认的主要功能缺口是：浏览器 MKV POC 仍隔离在 <code>dev/browser-mkv-poc/</code>，而正式网页播放器仍把 OpenList MKV 交给桌面端。仓库同时留着更早的根目录 Vite 客户端，不能把它与当前生产网页混称为同一前端。
+  </div>
+
+  <h2>这次扫描覆盖了什么</h2>
+  <p>只读检查了根目录 Vite 客户端、<code>web/</code> Next.js 客户端、<code>desktop-shell/</code>、房间与媒体服务端路由、Docker/Caddy 部署文件、网页目录的提交历史，以及浏览器 MKV POC 结果。没有编辑应用代码、运行部署或访问 VPS。</p>
+  <p>工作区在扫描开始时已有大量未提交改动。后续 session 应先运行 <code>git status --short</code> 并保留这些改动；当前手记以已提交代码和可读的 POC 结果为依据，不代表那些未提交部署/服务端改动已验证。</p>
+
+  <h2>仓库内的三套浏览器相关代码</h2>
+  <table>
+    <thead><tr><th>区域</th><th>职责与证据</th><th>当前判断</th></tr></thead>
+    <tbody>
+      <tr><td><code>src/</code> + 根 <code>vite.config.ts</code></td><td>原始 WatchParty React/Vite 客户端，包含旧式 <code>/watch/:roomId</code> 房间、聊天、YouTube、WebTorrent、HLS 和 WebRTC 视频聊天入口。根 <code>README.md</code> 仍描述这个版本的启动方式和功能。</td><td>仍在仓库，CI 仍执行根 <code>npm run build</code>。但生产 <code>Dockerfile.frontend</code> 不构建它；README 的无数据库/无登录等叙述也与当前服务端能力不符。尚未验证旧客户端是否仍能与当前服务端协议完整互通，不应直接认定它就是当前可用的自托管网页。</td></tr>
+      <tr><td><code>web/</code></td><td>当前 Next.js 房间及媒体库网页，支持建房/入房、PIN 门禁、Socket.IO 同步、OpenList 浏览和搜索、标题墙、草稿审核/应用/撤回、字幕与 MPV/桌面交接。<code>web/README.md</code> 与部署配置都指向此应用。</td><td>当前自托管网页生产前端。Next 通过 <code>/api/*</code> rewrite 连接后端；生产 Caddy 分别路由 API、Socket.IO、媒体代理和 Next 页面。</td></tr>
+      <tr><td><code>dev/browser-mkv-poc/</code></td><td>独立 Vite POC，含 libav.js Matroska demux、Range 读取、WebCodecs 视频/音频、字幕渲染、指标和多线程隔离头验证。</td><td>验证项目，不是生产页面；结果明确记载尚未接入房间播放器。</td></tr>
+    </tbody>
+  </table>
+
+  <h2>桌面转向前后发生了什么</h2>
+  <ul>
+    <li><code>4aa37ab45</code>（2026-09-03）加入 Next.js 网页房间客户端。网页负责浏览器原生可播媒体、OpenList、房间状态和播放控制。</li>
+    <li><code>91f7b6489</code>（2026-09-05）建立桌面端基线。该提交对网页做了小范围适配：为桌面专属媒体加选片回调；OpenList MKV 不再由网页解析/播放，改显示桌面交接提示；MPV 交接文案改成通用桌面交接。差异见该提交对 <code>web/components/room-player.tsx</code> 和 <code>web/components/openlist-modal.tsx</code> 的修改。</li>
+    <li>网页之后仍有独立进展：<code>f155241d5</code>（9 月 26 日）切换媒体源契约；<code>ee3fafb9b</code>、<code>2ed666589</code>、<code>8e2add76a</code>（9 月 29-30 日）补标题墙、草稿编辑、批准应用和撤回；<code>d3a46f815</code>、<code>69d173bf3</code>（10 月 3 日）修房间控制权限和媒体库访问授权。</li>
+    <li>因此当前证据支持“网页端继续维护，但 MKV 能力按桌面专属处理”，不支持“桌面转向后网页端全部功能停止跟进”。</li>
+  </ul>
+
+  <h2>能力对照</h2>
+  <table>
+    <thead><tr><th>能力</th><th>Next 网页端</th><th>桌面端</th><th>差异说明</th></tr></thead>
+    <tbody>
+      <tr><td>房间创建、加入、受保护房间</td><td>支持，网页本地保存访问 token 和最近房间</td><td>支持，通过桌面会话与服务端桌面路由</td><td>两套客户端入口和会话模型不同；房间快照与共享播放仍由同一 WatchParty 后端提供。</td></tr>
+      <tr><td>共享播放状态、播放列表和成员控制</td><td>通过 Socket.IO 操作房间播放状态、队列、成员和权限</td><td>经桌面适配器/本地宿主驱动原生播放器</td><td>服务端状态共用，渲染/解码路径不同。桌面有本地播放器桥接和会话恢复，网页用 HTML 媒体播放器。</td></tr>
+      <tr><td>OpenList 媒体浏览与目录/标题管理</td><td>文件列表、搜索、目录批量加入、标题墙、草稿审核与批准流程</td><td>媒体库列表/搜索、目录导航、标题墙、草稿/排除管理</td><td>并非桌面独占。两端视图实现不同，应逐端核对近期审批、撤回、权限错误和边界行为，不能只因桌面版本更新就假设网页缺失。</td></tr>
+      <tr><td>普通浏览器可播放视频</td><td>依赖浏览器原生支持及 HLS/字幕适配</td><td>由 libmpv/native playback 处理</td><td>网页设备兼容性受浏览器解码器与跨源媒体头限制。</td></tr>
+      <tr><td>MKV</td><td><span class="warn">正式播放器当前明确要求桌面端</span>；OpenList 解析器也把 MKV 标为 browser unsupported</td><td>libmpv 原生播放</td><td>明确的产品缺口。POC 成果未进入 <code>web/components/room-player.tsx</code>，而且 POC 尚有基准机、WASM 回退、物理 A/V 与许可审查待办。</td></tr>
+      <tr><td>字幕</td><td>外挂字幕列表、SRT 转 VTT、ASS 由 JASSUB 渲染；轨道和延迟是本地状态</td><td>原生播放器字幕轨和外挂字幕</td><td>网页 POC 已验证容器内 SubRip/ASS 的提取/渲染样本，但正式网页还没有接入这段流水线。</td></tr>
+      <tr><td>MPV / 桌面兜底</td><td>可签发一次性交接码，页面不把交接凭证放 URL</td><td>桌面端或 MPV 插件接收并继续同房间播放</td><td>当前网页保留兜底，不是完整浏览器能力。</td></tr>
+      <tr><td>桌面设置与设备能力</td><td>无原生设备、证书信任和 libmpv 设置页</td><td>有连接配置、证书信任、后端 readiness、libmpv/native capability 和本地设置</td><td>这些属于桌面运行环境，除非产品要支持浏览器连接多个服务，否则不是网页漏移植项。</td></tr>
+    </tbody>
+  </table>
+
+  <h2>当前自托管部署判断</h2>
+  <ul>
+    <li><code>Dockerfile.frontend</code> 复制 <code>web/</code>、Next 构建产物及其依赖；也复制 <code>desktop-shell/shared</code>，因为网页构建共享其中部分纯逻辑。镜像不是桌面壳。</li>
+    <li><code>deploy/compose.vps.yml</code> 以 Next <code>npm start</code> 在 loopback 13000 运行前端，后端在 18080；本地 Compose 默认映射到 3000 和 8080。</li>
+    <li><code>deploy/Caddyfile.vps</code> 把 <code>/api/*</code>、<code>/socket.io/*</code>、<code>/p/*</code> 分别接到后端/OpenList，其他页面请求到 Next。浏览器 MPV 交接与目录批准 API 仍由此网页部署链提供。</li>
+    <li>VPS 配置与工作区有未提交变更。这里只核对了仓库文本，不表示已部署或生产环境已应用当前工作区版本。</li>
+  </ul>
+
+  <h2>MKV POC 已知状态</h2>
+  <p><code>dev/browser-mkv-poc/RESULTS-libavjs.md</code> 记载 libav.js + WebCodecs 路径、Chrome 非静音 5 分钟播放、Range 增量读取和本机回环测量结果。20 分钟测试曾通过，但测试机是 i7-14650HX、32GB、RTX 4060，高于原定 4 核、8GB、集显基准，不等同于基准机验收。</p>
+  <ul>
+    <li><strong>未完成：</strong>基准机 1080p30 20 分钟；显示与 WASAPI 音频共同时间轴的物理 A/V 偏差测量；WASM 软件解码用户确认后的下载/运行路径；当前树 Edge 呈递异常；分发许可证和源码材料。</li>
+    <li><strong>已知范围：</strong>MPEG-2 已决定由媒体源转码；E-AC-3 和其他未覆盖编码目前保留 MPV 兜底。不要把 POC 的样本通过描述成任意 MKV 已覆盖。</li>
+    <li><strong>生产集成尚未做：</strong>签名 URL 生命周期、刷新、轨道偏好本地隔离、错误后的 MPV 兜底及房间播放状态衔接需在网页真实房间中实现和验证。</li>
+  </ul>
+
+  <h2>新 session 建议顺序</h2>
+  <ol>
+    <li>先固定目标：确认要恢复/维护的是根目录旧 Vite 客户端，还是当前 Next 自托管网页。默认从 <code>web/</code> 开始，因为它是 Docker 与 VPS 实际部署的前端；将旧 Vite 另列迁移/下线问题。</li>
+    <li>以服务端路由和客户端调用做一次契约盘点：比较 <code>web/lib/api.ts</code>、<code>web/lib/socket.ts</code> 与 <code>server/app.ts</code>、<code>server/core/http/</code>、<code>server/core/socket/</code>；分别标出网页用到、仅桌面用到、未被任何客户端承接的服务端能力。</li>
+    <li>对照桌面提交序列，优先检查网页在 9 月 26 日后的媒体源契约、9 月底目录草稿批准、10 月初 owner/member 权限是否与桌面行为一致；现有提交证据显示网页已跟进这些主题，重点应是验收差异，不是预设遗漏。</li>
+    <li>单独审查旧 Vite 客户端的构建与服务端协议兼容性。根 README 的部署描述陈旧，CI 仍构建其 bundle，但 Docker 前端镜像只部署 Next。未完成端到端兼容检查前，不要删掉旧入口或把它作为受支持部署方式宣传。</li>
+    <li>再评估 MKV POC 产品化门槛。先补 POC 未完成的验证，再决定将 libav.js 流水线接入 <code>web/components/room-player.tsx</code>；保持房间共享播放状态不变，音轨/字幕偏好本地保存，失败时继续提供桌面/MPV 兜底。</li>
+    <li>每阶段输出：代码差异表、复现或测试命令、明确通过标准、是否需要改部署。未经明确指示不要触碰 VPS 或应用生产环境。</li>
+  </ol>
+
+  <h2>证据索引</h2>
+  <table>
+    <thead><tr><th>主题</th><th>代码/文档位置</th></tr></thead>
+    <tbody>
+      <tr><td>旧 Vite 应用和旧部署说明</td><td><code>src/index.tsx</code>、<code>src/components/App/App.tsx</code>、<code>README.md</code>、<code>vite.config.ts</code></td></tr>
+      <tr><td>当前网页房间、播放和媒体选择</td><td><code>web/app/page.tsx</code>、<code>web/app/room/[id]/page.tsx</code>、<code>web/components/room-player.tsx</code>、<code>web/components/player-adapter.tsx</code>、<code>web/components/openlist-modal.tsx</code></td></tr>
+      <tr><td>网页目录审核</td><td><code>web/components/catalog-draft.tsx</code>、<code>web/components/catalog-exclusion-controls.tsx</code>、<code>web/lib/api.ts</code></td></tr>
+      <tr><td>浏览器/桌面兼容分类与媒体服务</td><td><code>server/media/library-browser.ts</code>、<code>server/media/watchparty-media.ts</code>、<code>server/core/http/library-routes.ts</code>、<code>server/core/http/native-routes.ts</code></td></tr>
+      <tr><td>桌面导航、原生播放器和媒体库</td><td><code>desktop-shell/src/App.tsx</code>、<code>desktop-shell/src/components/room-view.tsx</code>、<code>desktop-shell/shared/player.ts</code>、<code>desktop-shell/src/lib/ipc.ts</code></td></tr>
+      <tr><td>当前自托管构建/部署</td><td><code>Dockerfile.frontend</code>、<code>deploy/compose.vps.yml</code>、<code>docker-compose.local.yml</code>、<code>deploy/Caddyfile.vps</code>、<code>web/README.md</code></td></tr>
+      <tr><td>MKV POC 实测与待办</td><td><code>dev/browser-mkv-poc/RESULTS-libavjs.md</code>、<code>dev/browser-mkv-poc/src/main.ts</code></td></tr>
+    </tbody>
+  </table>
+</main>
+</body>
+</html>

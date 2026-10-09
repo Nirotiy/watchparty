@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WatchParty 媒体库 ffprobe 抽样报告</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,"Segoe UI",sans-serif;background:#000;color:#f5f5f5}*{box-sizing:border-box}body{margin:0;background:#000;color:#f5f5f5}main{max-width:1500px;margin:auto;padding:28px}h1{font-size:26px;margin:0 0 8px}h2{font-size:18px;margin:30px 0 10px;border-bottom:1px solid #333;padding-bottom:8px}p,li{line-height:1.55;color:#d2d2d2}code{font-family:"Cascadia Code",monospace;color:#87d7ff}.meta{color:#8b8b8b;font-size:13px}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));border:1px solid #2a2a2a}.metric{padding:14px;border-right:1px solid #2a2a2a}.metric:last-child{border-right:0}.metric strong{display:block;font-size:25px;color:#fff}.metric span{font-size:12px;color:#969696}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}.panel{border-top:1px solid #444;padding-top:8px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;vertical-align:top;padding:7px 8px;border-bottom:1px solid #242424}th{position:sticky;top:0;background:#080808;color:#aaa}.table-wrap{overflow:auto;max-height:70vh;border:1px solid #242424}.path{min-width:360px;max-width:680px;overflow-wrap:anywhere}.ok{color:#71dc9b}.bad{color:#ff8585}.note{border-left:3px solid #5aa9e6;padding:8px 12px;background:#090d10}ul{padding-left:20px}@media(max-width:700px){main{padding:16px}.metric{border-bottom:1px solid #2a2a2a}.path{min-width:260px}}
+</style></head><body><main>
+<h1>WatchParty 媒体库 ffprobe 抽样报告</h1>
+<p class="meta">生成时间：2026-09-04T06:18:47.644Z　ffprobe：ffprobe version 8.1.2-full_build-www.gyan.dev Copyright (c) 2007-2026 the FFmpeg developers</p>
+<div class="metrics">
+  <div class="metric"><strong>50</strong><span>抽样文件</span></div>
+  <div class="metric"><strong>50</strong><span>成功探测</span></div>
+  <div class="metric"><strong>0</strong><span>失败/超时</span></div>
+  <div class="metric"><strong>21</strong><span>HEVC 视频流</span></div>
+  <div class="metric"><strong>23</strong><span>10 bit 或更高信号</span></div>
+  <div class="metric"><strong>3</strong><span>HDR transfer 信号</span></div>
+</div>
+<h2>方法与边界</h2>
+<div class="note"><p>这是面向播放兼容性判断的分层样本，不是库存占比统计。配额为 Anime 34、Film 1、TV Shows 15；Film 当前仅发现 1 个视频文件，因此把剩余名额转给 Anime。优先跨一级目录取样，再在目录内补足。目录遍历和每个目录候选数均有限制。</p></div>
+<ul><li>ffprobe 串行运行，<code>probesize=2 MiB</code>、<code>analyzeduration=1 s</code>、单文件 45 秒超时。</li><li>不解码整段视频、不计帧、不计算文件哈希、不读取媒体正文作内容识别。</li><li>云盘驱动仍可能为了 MP4 尾部 moov 或容器索引执行 Range 读取；此成本由容器布局和挂载实现决定。</li><li>报告仅保存媒体库相对路径，不保存挂载地址。</li></ul>
+<h2>格式概览</h2><div class="grid">
+<section class="panel"><h3>扩展名</h3><table><tbody><tr><td><code>.mkv</code></td><td>31</td></tr><tr><td><code>.mp4</code></td><td>19</td></tr></tbody></table></section>
+<section class="panel"><h3>视频编码</h3><table><tbody><tr><td><code>h264</code></td><td>26</td></tr><tr><td><code>hevc</code></td><td>21</td></tr><tr><td><code>mpeg2video</code></td><td>3</td></tr></tbody></table></section>
+<section class="panel"><h3>音频编码</h3><table><tbody><tr><td><code>aac</code></td><td>29</td></tr><tr><td><code>flac</code></td><td>24</td></tr><tr><td><code>ac3</code></td><td>5</td></tr><tr><td><code>eac3</code></td><td>3</td></tr></tbody></table></section>
+<section class="panel"><h3>内封字幕编码</h3><table><tbody><tr><td><code>subrip</code></td><td>41</td></tr><tr><td><code>hdmv_pgs_subtitle</code></td><td>10</td></tr><tr><td><code>ass</code></td><td>8</td></tr></tbody></table></section>
+</div>
+<h2>逐文件结果</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>分类</th><th>相对路径</th><th>封装</th><th>主视频流</th><th>主音频流</th><th>内封字幕</th><th>状态</th></tr></thead><tbody><tr>
+        <td>1</td><td>Anime</td>
+        <td class="path">Anime/[DBD-Raws][机动战士Z高达][01-50TV全集+SP+剧场版][1080P][BDRip][HEVC-10bit][简繁内封][FLAC][MKV]/[DBD-Raws][Mobile Suit Z Gundam][04][1080P][BDRip][HEVC-10bit][FLAC].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 1492×1080</td><td>flac stereo</td><td>hdmv_pgs_subtitle, hdmv_pgs_subtitle, hdmv_pgs_subtitle, hdmv_pgs_subtitle, hdmv_pgs_subtitle</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>2</td><td>Anime</td>
+        <td class="path">Anime/[DBD-Raws][吊带袜天使][01-13TV全集+SP+特典映像][1080P][BDRip][HEVC-10bit][日英双语][简繁外挂][FLACx2][MKV]/[DBD-Raws][Panty &amp; Stocking with Garterbelt][06][1080P][BDRip][HEVC-10bit][FLACx2].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 1920×1080</td><td>flac stereo</td><td>hdmv_pgs_subtitle, hdmv_pgs_subtitle</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>3</td><td>Anime</td>
+        <td class="path">Anime/[DBD-Raws][4K_HDR][攻壳机动队2：无罪][2160P][BDRip][HEVC-10bit][简体字幕外挂][FLAC][MKV]/[DBD-Raws][4K_HDR][攻壳机动队2：无罪][2160P][BDRip][HEVC-10bit][FLAC].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 3840×2160</td><td>flac 7.1</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>4</td><td>Anime</td>
+        <td class="path">Anime/[VCB-Studio] MAWARU PENGUINDRUM [Ma10p_1080p]/[VCB-Studio] MAWARU PENGUINDRUM [08][Ma10p_1080p][x265_flac_aac].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 1920×1080</td><td>flac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>5</td><td>Anime</td>
+        <td class="path">Anime/[Prejudice-Studio] 我们不可能成为恋人！绝对不行。〜再次闪耀！〜 Watanare 〜Next Sunshine〜 - OVA04 [WebRip 1080P AVC 8bit AAC MP4][简体内嵌].mp4</td><td>.mp4</td>
+        <td>h264 High yuv420p 1920×1080</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>6</td><td>Anime</td>
+        <td class="path">Anime/[POPGO][Stand_Alone_Complex][BDRIP][1080P]/[POPGO][Stand_Alone_Complex][08][1080P][BluRay][x264_FLACx2_AC3x1][chs_jpn][B1E952AB].mkv</td><td>.mkv</td>
+        <td>h264 High yuv420p 1920×1032</td><td>flac stereo</td><td>ass, ass</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>7</td><td>Anime</td>
+        <td class="path">Anime/[KitaujiSub&amp;VCB-Studio] BLUE GIANT [Ma10p_1080p]/[KitaujiSub&amp;VCB-Studio] BLUE GIANT [Ma10p_1080p][x265_flac].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 1920×1080</td><td>flac stereo</td><td>hdmv_pgs_subtitle</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>8</td><td>Anime</td>
+        <td class="path">Anime/[Nekomoe kissaten&amp;Airota&amp;LoliHouse] Yuru Camp - 01-12 [WebRip 1920x1080 HEVC-yuv420p10 AAC]/[Nekomoe kissaten&amp;Airota&amp;LoliHouse] Yuru Camp - 08 [WebRip 1920x1080 HEVC-yuv420p10 AAC].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 1920×1080</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>9</td><td>Anime</td>
+        <td class="path">Anime/[DBD-Raws][4K_HDR][攻壳机动队][1995版][2160P][BDRip][HEVC-10bit][日英双语][简体字幕外挂][FLAC][MKV]/[DBD-Raws][4K_HDR][攻壳机动队][1995版][2160P][BDRip][HEVC-10bit][日英双语][FLAC].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 3840×2160</td><td>flac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>10</td><td>Anime</td>
+        <td class="path">Anime/[POPGO][Ghost_in_the_Shell][S.A.C._2nd_GIG][BDRIP][1080P]/[POPGO][Ghost_in_the_Shell][S.A.C._2nd_GIG][05][AVC_FLACx2+AC3][BDrip][1080p][631944DD].mkv</td><td>.mkv</td>
+        <td>h264 High 10 yuv420p10le 1920×1036</td><td>flac 5.1(side)</td><td>hdmv_pgs_subtitle</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>11</td><td>Anime</td>
+        <td class="path">Anime/[Prejudice-Studio] 我们不可能成为恋人！绝对不行。〜再次闪耀！〜 Watanare 〜Next Sunshine〜 - OVA02 [WebRip 1080P AVC 8bit AAC MP4][简体内嵌].mp4</td><td>.mp4</td>
+        <td>h264 High yuv420p 1920×1080</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>12</td><td>Anime</td>
+        <td class="path">Anime/[DBD-Raws][4K_HDR][机动战士高达0079剧场版三部曲合集][2160P][UHDBDRip][HEVC-10bit][简繁外挂][FLACx2][MKV]/PV/[DBD-Raws][4K][Mobile Suit Gundam The Movie I][PV][02][2160P][UHDBDRip][HEVC-10bit][FLAC].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 2880×2160</td><td>flac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>13</td><td>Anime</td>
+        <td class="path">Anime/[TxxZ&amp;POPGO&amp;MGRT][Cowboy_Bebop][BDrip][1080p]/[TxxZ&amp;POPGO&amp;MGRT][Cowboy_Bebop][BDrip][01][1440x1080_x264Hi10P_flac][0CB3724A](1).mkv</td><td>.mkv</td>
+        <td>h264 High 10 yuv420p10le 1440×1080</td><td>flac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>14</td><td>Anime</td>
+        <td class="path">Anime/[Airota&amp;Nekomoe kissaten&amp;VCB-Studio] Machikado Mazoku [Ma10p_1080p]/[Airota&amp;Nekomoe kissaten&amp;VCB-Studio] Machikado Mazoku [04][Ma10p_1080p][x265_flac].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 1920×1080</td><td>flac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>15</td><td>Anime</td>
+        <td class="path">Anime/[UHA-WINGS&amp;VCB-Studio] Machikado Mazoku 2-Choume [Ma10p_1080p]/[UHA-WINGS&amp;VCB-Studio] Machikado Mazoku 2-Choume [02][Ma10p_1080p][x265_flac].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 1920×1080</td><td>flac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>16</td><td>Anime</td>
+        <td class="path">Anime/[LoliHouse] Boukyaku Battery [WebRip 1080p HEVC-10bit AAC SRTx2]/[LoliHouse] Boukyaku Battery - 07 [WebRip 1080p HEVC-10bit AAC SRTx2].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 1920×1080</td><td>aac stereo</td><td>subrip, subrip</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>17</td><td>Anime</td>
+        <td class="path">Anime/[SweetSub&amp;VCB-Studio] RE：cycle of the PENGUINDRUM [Ma10p_1080p]/[SweetSub&amp;VCB-Studio] RE：cycle of the PENGUINDRUM [01][Ma10p_1080p][x265_flac].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 1920×1080</td><td>flac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>18</td><td>Anime</td>
+        <td class="path">Anime/[Nekome Kissaten &amp; LoliHouse] Ruri no Houseki/[Nekomoe kissaten&amp;LoliHouse] Ruri no Houseki - 02 [WebRip 1080p HEVC-10bit AAC ASSx2].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 1920×1080</td><td>aac stereo</td><td>ass, ass</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>19</td><td>Anime</td>
+        <td class="path">Anime/[Prejudice-Studio] 我怎么可能成为你的恋人 不行不行？不行不行（⁕不是不可能？） Watanare - OVA01 [WebRip 1080P AVC 8bit AAC MP4][简体内嵌][V2].mp4</td><td>.mp4</td>
+        <td>h264 High yuv420p 1920×1080</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>20</td><td>Anime</td>
+        <td class="path">Anime/[Airota][Made in Abyss][BDRip 1080p AVC AAC][CHS]/[Airota][Made in Abyss][08][BDRip 1080p AVC AAC][CHS].mp4</td><td>.mp4</td>
+        <td>h264 High yuv420p 1920×1080</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>21</td><td>Anime</td>
+        <td class="path">Anime/[Nekomoe kissaten&amp;LoliHouse] Apocalypse Hotel WebRip 1080p HEVC-10bit AAC ASSx2]/[Nekomoe kissaten&amp;LoliHouse] Apocalypse Hotel - 06 [WebRip 1080p HEVC-10bit AAC ASSx2].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 1920×1080</td><td>aac stereo</td><td>ass, ass</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>22</td><td>Anime</td>
+        <td class="path">Anime/[云光字幕组]摇曳露营△ 第三季  Yuru Camp Season 3 [合集][简体双语][1080p]招募翻译/[云光字幕组]摇曳露营△ 第三季  Yuru Camp Season 3 [03][简体双语][1080p]招募翻译V2.mp4</td><td>.mp4</td>
+        <td>h264 High yuv420p 1920×1080</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>23</td><td>Anime</td>
+        <td class="path">Anime/[Lilith-Raws] Tenga Toppa Gurren Lagann 天元突破红莲/[Lilith-Raws] Tengen Toppa Gurren Lagann/[Lilith-Raws] Tengen Toppa Gurren Lagann - 02 [Baha][WEB-DL][1080p][AVC AAC][CHT][MP4].mp4</td><td>.mp4</td>
+        <td>h264 High yuv420p 1920×1080</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>24</td><td>Anime</td>
+        <td class="path">Anime/[LoliHouse] Shoujo Kakumei Utena [BDRip]/[LoliHouse] Shoujo Kakumei Utena - 02 [BDRip 1440x1080 HEVC-10bit AACx2].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 1440×1080</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>25</td><td>Anime</td>
+        <td class="path">Anime/[XKsub&amp;VCB-Studio] SSSS.GRIDMAN [1080p][CHS]/[XKsub&amp;VCB-Studio] SSSS.GRIDMAN [04][1080p][x264_aac][CHS].mkv</td><td>.mkv</td>
+        <td>h264 High yuv420p 1920×1080</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>26</td><td>Anime</td>
+        <td class="path">Anime/[202601]超时空辉夜姬！ 超かぐや姫！/超时空辉耀姬！「超かぐや姫！」Cosmic Princess Kaguya.mkv</td><td>.mkv</td>
+        <td>h264 Main yuv420p 1920×1080</td><td>eac3 5.1(side)</td><td>subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip, subrip</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>27</td><td>Anime</td>
+        <td class="path">Anime/[Prejudice-Studio] 我们不可能成为恋人！绝对不行。〜再次闪耀！〜 Watanare 〜Next Sunshine〜 - OVA05 [WebRip 1080P AVC 8bit AAC MP4][简体内嵌].mp4</td><td>.mp4</td>
+        <td>h264 High yuv420p 1920×1080</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>28</td><td>Anime</td>
+        <td class="path">Anime/[SweetSub] Made in Abyss - Dawn of the Deep Soul [BDRip][1080P][AVC 8bit][CHT]/SP/[SweetSub] Maruruk&#39;s Everyday - 04 [BDRip][1080P][AVC 8bit][CHT].mp4</td><td>.mp4</td>
+        <td>h264 High yuv420p 1920×1080</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>29</td><td>Anime</td>
+        <td class="path">Anime/[Nekomoe kissaten&amp;VCB-Studio] ODDTAXI [Ma10p_1080p]/[Nekomoe kissaten&amp;VCB-Studio] ODDTAXI [05][Ma10p_1080p][x265_flac_aac](1).mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 1920×1080</td><td>flac stereo</td><td>hdmv_pgs_subtitle</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>30</td><td>Anime</td>
+        <td class="path">Anime/[Sakurato] Yojouhan Time Machine Blues [01-06END][AVC-8bit 1080p AAC][CHS]/[Sakurato] Yojouhan Time Machine Blues [05][AVC-8bit 1080p AAC][CHS].mp4</td><td>.mp4</td>
+        <td>h264 High yuv420p 1920×1080</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>31</td><td>Anime</td>
+        <td class="path">Anime/［LoliHouse］Kamiina Botan, Yoeru Sugata wa Yuri no Hana - 上伊那牡丹，醉姿如百合/[Nekomoe kissaten&amp;LoliHouse] Kamiina Botan, Yoeru Sugata wa Yuri no Hana - 02 [WebRip 1080p HEVC-10bit AAC ASSx2].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 1920×1080</td><td>aac stereo</td><td>ass, ass</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>32</td><td>Anime</td>
+        <td class="path">Anime/[Prejudice-Studio] 我们不可能成为恋人！绝对不行。〜再次闪耀！〜 Watanare 〜Next Sunshine〜 - OVA03 [WebRip 1080P AVC 8bit AAC MP4][简体内嵌].mp4</td><td>.mp4</td>
+        <td>h264 High yuv420p 1920×1080</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>33</td><td>Anime</td>
+        <td class="path">Anime/昭和元禄落语心中.2016.全两季.1080p.BluRay.x264.FLAC.CHS-LxyLab/03 昭和元禄落语心中 第一季.EP03.1080p.BluRay.x264.FLAC.CHS-LxyLab.mkv</td><td>.mkv</td>
+        <td>h264 High yuv420p 1920×1080</td><td>flac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>34</td><td>Anime</td>
+        <td class="path">Anime/[Moozzi2] Samurai Champloo BD-BOX - TV + SP/[Moozzi2] Samurai Champloo - 03 (BD 1920x1080 x.264 Flac).mkv</td><td>.mkv</td>
+        <td>h264 High yuv420p 1920×1080</td><td>flac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>35</td><td>Film</td>
+        <td class="path">Film/Wicked.2024.Hybrid.2160p.WEB-DL.DV.HDR.DDP5.1.H265-AOC/Wicked.2024.Hybrid.2160p.WEB-DL.DV.HDR.DDP5.1.H265-AOC.mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 3840×1602</td><td>eac3 5.1(side)</td><td>subrip, subrip</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>36</td><td>TV Shows</td>
+        <td class="path">TV Shows/是，首相/第一季/是，首相.Yes,Prime.Minister.S01E06.1986.D9.MiniSD-TLF.mp4</td><td>.mp4</td>
+        <td>h264 High yuv420p 696×570</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>37</td><td>TV Shows</td>
+        <td class="path">TV Shows/是，大臣/第一季/是，大臣.Yes,Minister.S01E02.1980.D5.MiniSD-TLF_x264.mp4</td><td>.mp4</td>
+        <td>h264 High yuv420p 696×572</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>38</td><td>TV Shows</td>
+        <td class="path">TV Shows/克拉克森的农场/第一季 包含字幕和弹幕文件/S01E08 丰收.mp4</td><td>.mp4</td>
+        <td>h264 Main yuv420p 1920×1080</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>39</td><td>TV Shows</td>
+        <td class="path">TV Shows/武林外传/武林外传第03集.mkv</td><td>.mkv</td>
+        <td>mpeg2video Main yuv420p 720×480</td><td>ac3 stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>40</td><td>TV Shows</td>
+        <td class="path">TV Shows/[DBD-Raws][泽塔奥特曼][01-25TV全集+特别篇+特典映像][1080P][BDRip][HEVC-10bit][FLAC][MKV]/[DBD-Raws][泽塔奥特曼][03][1080P][BDRip][HEVC-10bit][FLAC].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 1920×1080</td><td>flac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>41</td><td>TV Shows</td>
+        <td class="path">TV Shows/是，首相/第一季/是，首相.Yes,Prime.Minister.S01E01.1986.D9.MiniSD-TLF.mp4</td><td>.mp4</td>
+        <td>h264 High yuv420p 696×570</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>42</td><td>TV Shows</td>
+        <td class="path">TV Shows/是，大臣/第一季/是，大臣.Yes,Minister.S01E01.1980.D5.MiniSD-TLF_x264.mp4</td><td>.mp4</td>
+        <td>h264 High yuv420p 688×572</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>43</td><td>TV Shows</td>
+        <td class="path">TV Shows/克拉克森的农场/第一季 包含字幕和弹幕文件/S01E04 野化.mp4</td><td>.mp4</td>
+        <td>h264 Main yuv420p 1920×1080</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>44</td><td>TV Shows</td>
+        <td class="path">TV Shows/武林外传/武林外传第01集.mkv</td><td>.mkv</td>
+        <td>mpeg2video Main yuv420p 720×480</td><td>ac3 stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>45</td><td>TV Shows</td>
+        <td class="path">TV Shows/[DBD-Raws][泽塔奥特曼][01-25TV全集+特别篇+特典映像][1080P][BDRip][HEVC-10bit][FLAC][MKV]/[DBD-Raws][泽塔奥特曼][08][1080P][BDRip][HEVC-10bit][FLAC].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 1920×1080</td><td>flac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>46</td><td>TV Shows</td>
+        <td class="path">TV Shows/是，首相/第一季/是，首相.Yes,Prime.Minister.S01E07.1986.D9.MiniSD-TLF.mp4</td><td>.mp4</td>
+        <td>h264 High yuv420p 696×572</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>47</td><td>TV Shows</td>
+        <td class="path">TV Shows/是，大臣/第一季/是，大臣.Yes,Minister.S01E04.1980.D5.MiniSD-TLF_x264.mp4</td><td>.mp4</td>
+        <td>h264 High yuv420p 696×572</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>48</td><td>TV Shows</td>
+        <td class="path">TV Shows/克拉克森的农场/第一季 包含字幕和弹幕文件/S01E05 恐怖的疫情.mp4</td><td>.mp4</td>
+        <td>h264 Main yuv420p 1920×1080</td><td>aac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>49</td><td>TV Shows</td>
+        <td class="path">TV Shows/武林外传/武林外传第05集.mkv</td><td>.mkv</td>
+        <td>mpeg2video Main yuv420p 720×480</td><td>ac3 stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr><tr>
+        <td>50</td><td>TV Shows</td>
+        <td class="path">TV Shows/[DBD-Raws][泽塔奥特曼][01-25TV全集+特别篇+特典映像][1080P][BDRip][HEVC-10bit][FLAC][MKV]/[DBD-Raws][泽塔奥特曼][06][1080P][BDRip][HEVC-10bit][FLAC].mkv</td><td>.mkv</td>
+        <td>hevc Main 10 yuv420p10le 1920×1080</td><td>flac stereo</td><td>无</td><td><span class="ok">成功</span></td>
+      </tr></tbody></table></div>
+</main></body></html>

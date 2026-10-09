@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Next 自托管网页 API 契约盘点</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, "Noto Sans SC", system-ui, sans-serif; background: #000; color: #f4f4f5; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #000; color: #f4f4f5; line-height: 1.58; }
+    main { width: min(1180px, 100%); margin: 0 auto; padding: 28px 22px 56px; }
+    h1 { font-size: 26px; line-height: 1.3; margin: 0 0 8px; }
+    h2 { font-size: 18px; margin: 30px 0 9px; padding-top: 12px; border-top: 1px solid #333; }
+    p { margin: 8px 0; }
+    .meta { color: #a1a1aa; font-size: 13px; }
+    .finding { border-left: 3px solid #f59e0b; padding: 9px 13px; margin: 16px 0; background: #101010; }
+    table { width: 100%; border-collapse: collapse; margin: 11px 0; font-size: 13px; }
+    th, td { border-bottom: 1px solid #303030; padding: 8px 9px; text-align: left; vertical-align: top; }
+    th { color: #d4d4d8; background: #101010; font-weight: 600; }
+    code { color: #e4e4e7; font: .94em ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+    .status { white-space: nowrap; color: #86efac; }
+    .warn { color: #fbbf24; }
+    ul, ol { padding-left: 22px; }
+    li { margin: 5px 0; }
+    @media (max-width: 720px) {
+      main { padding: 22px 14px 42px; }
+      h1 { font-size: 22px; }
+      table { display: block; min-width: 760px; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Next 自托管网页 API 契约盘点</h1>
+  <p class="meta">只读静态盘点 · 2026-10-07 · 代码基线 <code>c068eae2f</code> · 分支 <code>feat/tauri-desktop-gate0-3</code></p>
+
+  <h2>目标边界</h2>
+  <p>之后的功能改动、缺口补强和验收都以 <code>web/</code> Next.js 自托管网页为目标。根目录 Vite 客户端已经从源码、根构建、CI、README 和通用 Dockerfile 中移除；<code>/api/media/roots</code> 等桌面兼容能力仍保留。共享逻辑来自 <code>desktop-shell/shared/</code>，修改前需要确认桌面影响范围。</p>
+  <p>当前工作区有大量既存未提交改动。盘点针对当前检出的代码和可读文件，不覆盖这些改动的运行时效果，也不表示相关部署配置已上线。<code>web/</code> 本身当前没有已报告的工作区改动。</p>
+
+  <h2>批准设置与签发路径</h2>
+  <p>批准设置与人类认证由 Next Node Route Handler 承接：<code>web/app/api/catalog-approval/settings/route.ts</code> 和 <code>web/app/api/catalog-approval/libraries/[libraryId]/approval/route.ts</code>。签发处理器把凭证以 <code>X-WatchParty-Approval</code> 转发到后端 <code>POST /api/admin/media-libraries/:id/approval</code>。VPS Compose 将独立配置文件挂载给 Next 容器，客户端默认 secret 模式有明确实现；这不是服务端缺路由。之前把代理入口误当作后端路由，结论已更正。</p>
+
+  <h2>Next 网页 HTTP 使用面</h2>
+  <table>
+    <thead><tr><th>能力</th><th>网页请求</th><th>服务端对应</th><th>判断</th></tr></thead>
+    <tbody>
+      <tr><td>房间创建与准入</td><td><code>POST /api/rooms</code><br><code>GET /api/rooms/:roomId</code><br><code>POST /api/rooms/:roomId/access</code></td><td><code>server/core/http/routes.ts</code></td><td class="status">网页已承接</td></tr>
+      <tr><td>媒体能力、库、目录與搜索</td><td><code>GET /api/media/capabilities</code><br><code>GET /api/media/libraries</code><br><code>GET /api/media/list</code><br><code>GET /api/media/search</code></td><td><code>server/core/http/library-routes.ts</code>；旧式 roots/list/search 另在 <code>routes.ts</code></td><td class="status">网页使用 libraryId 契约</td></tr>
+      <tr><td>标题墙与候选审阅</td><td><code>/api/media/catalog</code> 列表/详情<br><code>POST .../:id/confirm</code><br><code>POST .../:id/reject</code><br><code>GET /api/media/bangumi/search</code></td><td><code>library-routes.ts</code> 同路径注册；另有 posters/artwork 图片端点</td><td class="status">网页已承接</td></tr>
+      <tr><td>草稿、扫描与刮削</td><td><code>/api/admin/media-libraries/:id/{classify,scan,scrape,judge,apply}</code><br><code>/draft/{edit,confirm,unconfirm,merge,split,keep-binding}</code><br><code>/exclusions</code> 与 <code>/draft/{exclude,unexclude}</code></td><td><code>library-routes.ts</code></td><td class="status">网页已承接</td></tr>
+      <tr><td>批准、应用与撤回</td><td><code>/api/catalog-approval/*</code>（Next route handlers）或 <code>/api/admin/media-libraries/:id/approval</code>（loopback 管理模式）；<code>apply-approved</code>、<code>rollback</code>、<code>approvals</code></td><td>Next Route Handler 认证后代理到 <code>library-routes.ts</code> 的管理员签发端点</td><td class="status">契约分层明确，已有辅助逻辑测试；新增端到端 handler 测试</td></tr>
+      <tr><td>播放源与字幕</td><td><code>POST /api/rooms/:roomId/media/resolve</code><br><code>GET .../media/subtitles</code><br><code>GET .../media/subtitle</code></td><td><code>server/core/http/routes.ts</code></td><td class="status">网页已承接</td></tr>
+      <tr><td>桌面 / MPV 交接签发</td><td><code>POST /api/rooms/:roomId/handoff</code>，目标为 <code>desktop</code> 或 <code>mpv</code></td><td><code>server/core/http/native-routes.ts</code>；票据由对应 native handoff 路由兑换</td><td class="status">浏览器签发，原生端兑换</td></tr>
+      <tr><td>批准密钥设置</td><td><code>GET/POST /api/catalog-approval/settings</code></td><td>Next Node Route Handler 读取/原子写入独立配置；仅回传 configured 与 mask</td><td class="status">Next 承接，需以 web 测试验证</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Socket.IO 房间契约</h2>
+  <table>
+    <thead><tr><th>方向</th><th>事件</th><th>用途与归属</th></tr></thead>
+    <tbody>
+      <tr><td>连接上行</td><td>认证字段：<code>roomId</code>、<code>clientId</code>、<code>accessToken</code>、可选 <code>ownerToken</code>、<code>clientProtocol: 2</code></td><td><code>web/lib/socket.ts</code> 建连；服务端 <code>bindRooms.ts</code> 校验并加入房间。</td></tr>
+      <tr><td>服务端下行</td><td><code>REC:snapshot</code>、<code>REC:members</code>、<code>REC:ownerToken</code>、<code>REC:error</code></td><td>初始/更新房间状态、成员、owner token 交付和协议错误；网页均有处理器。</td></tr>
+      <tr><td>客户端命令</td><td><code>CMD:name</code>、<code>CMD:clockSync</code>、<code>CMD:play</code>、<code>CMD:pause</code>、<code>CMD:seek</code>、<code>CMD:rate</code>、<code>CMD:loop</code>、<code>CMD:lock</code>、<code>CMD:mediaSet</code></td><td>成员名称、时钟对齐和播放状态控制；网页通过 acknowledgement 接收命令结果。</td></tr>
+      <tr><td>客户端命令</td><td><code>CMD:playlistAdd</code>、<code>CMD:playlistRemove</code>、<code>CMD:playlistMove</code>、<code>CMD:playlistPlay</code>、<code>CMD:playlistNext</code>、<code>CMD:playlistAutoNext</code>、<code>CMD:transferOwner</code></td><td>共享队列、自动下一项及房主转移；服务端对桌面接收者有专门 owner grant 交付路径。</td></tr>
+      <tr><td>传输分工</td><td>网页使用 Socket.IO；当前桌面 Tauri adapter 使用 HTTP native 路由。</td><td>共享 Room 语义和状态，传输协议不同。没有找到桌面 shell 使用上述 <code>CMD:*</code> Socket 命令的调用。</td></tr>
+    </tbody>
+  </table>
+
+  <h2>桌面专用服务端能力</h2>
+  <table>
+    <thead><tr><th>路由族</th><th>能力</th><th>使用方</th></tr></thead>
+    <tbody>
+      <tr><td><code>/api/desktop/health</code><br><code>/api/desktop/capabilities</code><br><code>/api/desktop/readiness</code></td><td>桌面宿主健康、原生能力和配置/依赖 readiness。<code>/api/readiness</code> 是兼容别名。</td><td>桌面设置与连接探测；Next 网页没有调用。</td></tr>
+      <tr><td><code>/api/desktop/rooms</code><br><code>/api/desktop/rooms/:roomId/access</code></td><td>建立 desktop 身份并准入受保护房间。</td><td>桌面专用生命周期。</td></tr>
+      <tr><td><code>/api/rooms/:roomId/desktop/session</code><br><code>DELETE .../desktop/session</code><br><code>GET .../desktop/snapshot</code><br><code>GET .../desktop/members</code><br><code>POST .../desktop/command</code></td><td>桌面 session generation、状态轮询、成员和原生命令。</td><td>桌面专用；网页走 Socket.IO。</td></tr>
+      <tr><td><code>POST .../desktop/owner-grant/claim</code><br><code>POST .../desktop/media/resolve</code></td><td>桌面领取一次性 owner grant、解析原生媒体。</td><td>桌面专用。</td></tr>
+      <tr><td><code>/api/desktop/handoff</code><br><code>/api/mpv/handoff</code><br><code>.../mpv/snapshot</code><br><code>.../mpv/command</code><br><code>/api/rooms/:roomId/media/resolve-mpv</code></td><td>兑换一次性交接票据和 MPV 原生播放控制/解析。</td><td>桌面应用或 MPV 插件；票据签发则由网页共用 handoff API。</td></tr>
+    </tbody>
+  </table>
+
+  <h2>网页与桌面共用的 HTTP 表面</h2>
+  <p><code>/api/media/capabilities</code>、<code>/api/media/libraries</code>、<code>/api/media/list</code>、<code>/api/media/search</code> 和主要标题库读取路径同时出现在 Next API wrapper 与桌面 IPC adapter 中。媒体库和标题墙不是桌面独占能力。两端共享后端服务和数据，但 UI、授权头及房间传输不同。目录审批部分桌面侧存在管理员 API 调用/校验，网页也有交互；必须逐端核对对应路径与鉴权，不应从同一服务端能力推断 UI 行为完全一致。</p>
+
+  <h2>不由 Next 或桌面 UI 承接的能力与待确认项</h2>
+  <table>
+    <thead><tr><th>能力 / 路径</th><th>静态调用扫描结果</th><th>建议归类</th></tr></thead>
+    <tbody>
+      <tr><td><code>/api/admin/media-libraries/:id/import/*</code> 离线 bundle export/check/stage、preview、structure</td><td><code>server/mcp/catalog-mcp.ts</code> 有明确调用；Next 与桌面 UI 未见直接调用。</td><td>MCP/运维工作流承接，不应称为无人使用。</td></tr>
+      <tr><td><code>/api/admin/media-sources</code> GET/POST/PATCH/DELETE</td><td>Next API wrapper 中无调用；当前桌面 IPC/UI 调用未找到明确路径。</td><td>潜在未被客户端 UI 承接；先确认是否保留给运维或旧部署工具。</td></tr>
+      <tr><td><code>/api/media/roots</code> 与不带 <code>libraryId</code> 的旧式媒体列表/搜索</td><td>Next 走 libraryId 流程。桌面 Electron 的 media-check/smoke 脚本仍探测 roots；旧列表/搜索也有服务端集成测试。</td><td>保留。只可在桌面验收调用迁移并确认外部客户端不依赖后再移除。</td></tr>
+      <tr><td><code>GET /ping</code></td><td>VPS Compose 后端健康检查使用。</td><td>保留，属于部署探针。</td></tr>
+      <tr><td><code>GET /generateName</code></td><td>旧 Vite 的 <code>src/utils/generateName.ts</code> 调用；其余全仓没有调用。</td><td>随旧客户端和旧服务端静态托管清除。</td></tr>
+      <tr><td><code>/api/admin/media-catalog</code> 别名与管理员目录写接口</td><td>服务端为兼容/管理暴露；MCP catalog 工具有相应调用，Next主要走 <code>/api/media/catalog</code>。</td><td>按 MCP 和管理调用保留，不属于 Next 页面必需接口。</td></tr>
+    </tbody>
+  </table>
+
+  <h2>实施顺序</h2>
+  <ol>
+    <li>批准设置和签发由 Next Route Handler 承接，后端只负责管理员签发。新增测试锁住 Next handler 到后端端点的完整转发。</li>
+    <li>补充自动化契约测试：至少覆盖 Next 使用的批准设置/签发、房间、媒体解析与 handoff 路径，并验证 Socket 命令和事件名；测试应以当前生产自托管 Next 为基线。</li>
+    <li>对 Vite 进行单独下线盘点：找出 build/CI/README/部署和服务端兼容路由依赖，再逐项移除已证明无用的部分。</li>
+    <li>后续产品功能与补强只改 <code>web/</code>。当前网页导入了 <code>desktop-shell/shared/catalog-refresh</code> 与 <code>desktop-shell/shared/catalog-exclusions</code>；需要改共享逻辑时应先确认不会把桌面端纳入本轮功能范围。</li>
+  </ol>
+
+  <p class="meta">方法：静态比对 <code>web/lib/api.ts</code>、<code>web/lib/socket.ts</code>、网页调用点、<code>server/app.ts</code> 路由注册、<code>server/core/http/</code>、<code>server/core/socket/bindRooms.ts</code>，并搜索桌面 adapter 与 MCP catalog 调用。没有运行端到端请求，也没有访问线上环境。</p>
+</main>
+</body>
+</html>
