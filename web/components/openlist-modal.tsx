@@ -601,7 +601,15 @@ export function OpenListModal({
         return;
       }
       if (fullPage) onClose();
+      return;
     }
+    // ↑↓/⏎ 原本只挂在搜索框上（搜索优先，打开时自动聚焦）。但点过一次海报之后
+    // 焦点就跑到海报按钮上了，键盘导航会静默失效。这里给非输入目标补上同一套；
+    // 搜索框自己那套在 handleSearchKeyDown，不在这里重复处理。
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); moveKbSelection(1); return; }
+    if (e.key === "ArrowUp") { e.preventDefault(); moveKbSelection(-1); return; }
+    if (e.key === "Enter") { e.preventDefault(); activateSelection(e.altKey); return; }
   };
 
   // 一键入队当前目录全部可由任一正式客户端播放的文件。
