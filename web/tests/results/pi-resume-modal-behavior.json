@@ -1,0 +1,47 @@
+{
+  "startedAt": "2026-10-09T04:21:02.282Z",
+  "origin": "http://127.0.0.1:4000",
+  "checks": [
+    {
+      "label": "wall-rendered",
+      "ok": true,
+      "ms": 1614
+    },
+    {
+      "label": "no-rail-before-selection",
+      "ok": true,
+      "value": {
+        "rail": false,
+        "loading": false,
+        "placeholderText": false
+      }
+    },
+    {
+      "label": "loading-feedback-appears-immediately",
+      "ok": true,
+      "value": {
+        "clicked": "clicked",
+        "immediateMs": 6
+      }
+    },
+    {
+      "label": "rail-arrives",
+      "ok": true,
+      "ms": 4464
+    },
+    {
+      "label": "keyboard-loads-detail",
+      "ok": true,
+      "ms": 0
+    },
+    {
+      "label": "keyboard-moves-and-loads",
+      "ok": true,
+      "value": {
+        "before": "FLCL",
+        "after": "Cowboy Bebop"
+      }
+    }
+  ],
+  "pass": true
+}

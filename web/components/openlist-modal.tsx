@@ -517,19 +517,19 @@ export function OpenListModal({
   const moveKbSelection = (delta: number) => {
     const length = mode === "titles" ? wallCards.length : visibleItems.length;
     if (!length) return;
-    setKbIndex((prev) => {
-      const next = prev < 0 ? (delta > 0 ? 0 : length - 1) : Math.max(0, Math.min(prev + delta, length - 1));
-      if (mode === "titles") {
-        const card = wallCards[next];
-        if (card) {
-          setSelectedId(card.id);
-          document.querySelector(`[data-card-id="${CSS.escape(card.id)}"]`)?.scrollIntoView({ block: "nearest" });
-        }
-      } else {
-        document.querySelector(`[data-kb-row="${next}"]`)?.scrollIntoView({ block: "nearest" });
-      }
-      return next;
-    });
+    const next = kbIndex < 0
+      ? (delta > 0 ? 0 : length - 1)
+      : Math.max(0, Math.min(kbIndex + delta, length - 1));
+    setKbIndex(next);
+    if (mode === "titles") {
+      const card = wallCards[next];
+      if (!card) return;
+      // 键盘游标和右栏必须指向同一条目；只挪高亮会让高亮和详情对不上。
+      void openWallDetail(card.id);
+      document.querySelector(`[data-card-id="${CSS.escape(card.id)}"]`)?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    document.querySelector(`[data-kb-row="${next}"]`)?.scrollIntoView({ block: "nearest" });
   };
 
   const activateSelection = (queueInstead: boolean) => {
@@ -653,6 +653,37 @@ export function OpenListModal({
     clearSearch(false);
     onClose();
   };
+
+  // 右栏只在"详情已到"或"详情在路上"时占位。没选中就把整幅宽度让给标题墙，
+  // 不留空框、也不写"选一张海报…"那类解释句（DESIGN.md §9.1）。
+  // （放在 handleClose 之后：回调引用它，避免前向引用触发 React Compiler 报错。）
+  const railLoading = catalogBusy && wallDetail === null;
+  // 点下去到详情回来之间必须有可见变化：详情走一趟可能要几秒，只把海报边框
+  // 提亮一下，看起来就是"点了没反应"。
+  const rail = wallDetail ? (
+    <CatalogRail
+      detail={wallDetail}
+      busy={catalogBusy}
+      roomless={roomless}
+      onConfirm={(candidateId) => void reviewCandidate("confirm", candidateId)}
+      onReject={(candidateId) => void reviewCandidate("reject", candidateId)}
+      onPlay={async (media) => { if (await onPlayNow(media) !== false) handleClose(); }}
+      onAddToQueue={(media) => { void addToQueue(media); }}
+      onPlayDesktop={onPlayOnDesktop ? async (media) => { if (await onPlayOnDesktop(media) !== false) handleClose(); } : undefined}
+    />
+  ) : railLoading ? (
+    <aside
+      className="flex min-h-0 flex-col gap-3 rounded-lg border border-border bg-card p-3.5"
+      aria-busy="true"
+      aria-label="标题详情读取中"
+    >
+      <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+        <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground" aria-hidden="true" />
+        正在读取详情
+      </p>
+    </aside>
+  ) : null;
+  const railVisible = rail !== null;
 
   const panel = (
     <div className="relative flex min-h-0 flex-1 flex-col" onKeyDown={handlePanelKeyDown}>
@@ -877,28 +908,20 @@ export function OpenListModal({
             ) : null}
 
             {wall ? (
-              <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px]">
-                {/* 只有墙滚；右栏固定在自己的高度里（产品负责人 2026-09-27）。 */}
-                <div className="min-h-0 overflow-y-auto pr-1">
-                  <CatalogWall cards={wallCards} selectedId={selectedId} onSelect={openCard} />
+              wallCards.length === 0 ? (
+                <div className="flex flex-1 items-center gap-2 text-sm text-muted-foreground" role="status">
+                  <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground" aria-hidden="true" />
+                  这个库还没有标题
                 </div>
-                {wallDetail ? (
-                  <CatalogRail
-                    detail={wallDetail}
-                    busy={catalogBusy}
-                    roomless={roomless}
-                    onConfirm={(candidateId) => void reviewCandidate("confirm", candidateId)}
-                    onReject={(candidateId) => void reviewCandidate("reject", candidateId)}
-                    onPlay={async (media) => { if (await onPlayNow(media) !== false) handleClose(); }}
-                    onAddToQueue={(media) => { void addToQueue(media); }}
-                    onPlayDesktop={onPlayOnDesktop ? async (media) => { if (await onPlayOnDesktop(media) !== false) handleClose(); } : undefined}
-                  />
-                ) : (
-                  <aside className="flex min-h-0 flex-col gap-3 rounded-lg border border-border bg-card p-3.5 text-sm text-muted-foreground">
-                    {wallCards.length ? "选一张海报看详情与候选" : "这个库还没有标题"}
-                  </aside>
-                )}
-              </div>
+              ) : (
+                <div className={cn("grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden", railVisible && "lg:grid-cols-[minmax(0,1fr)_320px]")}>
+                  {/* 只有墙滚；右栏固定在自己的高度里（产品负责人 2026-09-27）。 */}
+                  <div className="min-h-0 overflow-y-auto pr-1">
+                    <CatalogWall cards={wallCards} selectedId={selectedId} onSelect={openCard} />
+                  </div>
+                  {rail}
+                </div>
+              )
             ) : (
               <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">正在读取标题库…</div>
             )}
@@ -1211,14 +1234,16 @@ export function OpenListModal({
   );
 
   if (fullPage) {
-    return <div className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-background">{panel}</div>;
+    return <div className="fixed inset-0 z-50 flex flex-col items-center overflow-hidden bg-background">
+      <div className="flex min-h-0 w-full max-w-[1680px] flex-1 flex-col">{panel}</div>
+    </div>;
   }
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !switchingShellRef.current) handleClose(); }}>
       <DialogContent
         showCloseButton={false}
         aria-describedby={undefined}
-        className="flex h-[620px] max-h-[92dvh] w-full max-w-4xl flex-col gap-0 overflow-hidden border-border bg-card p-0 sm:max-w-4xl"
+        className="flex h-[min(80dvh,780px)] w-full max-w-6xl flex-col gap-0 overflow-hidden border-border bg-card p-0 sm:max-w-6xl"
       >
         {panel}
       </DialogContent>
