@@ -329,6 +329,13 @@ export type LibraryService = {
 };
 
 const HEALTH_TTL_MS = 5000;
+/**
+ * 卡片详情最多花在“等 Bangumi 集名”上的时间。上游连不上时以前要等满
+ * BEST_EFFORT_TIMEOUT_MS（4s）才返回；集名只是装饰性的补充，不该把读路径拖住。
+ */
+const EPISODE_ENRICH_BUDGET_MS = 300;
+/** 集名取不到后的冷却期：这期间不再等上游，直接先返回（兼做负缓存）。 */
+const EPISODE_DEFERRED_TTL_MS = 5 * 60 * 1000;
 /** 人工批准的结构变更凭证有效期（文档 §8：created_at + 48h）。 */
 /** 撤回窗口就是凭证有效期：过期只清 undo，审计行留着。默认 48 小时。 */
 const DEFAULT_APPROVAL_TTL_MS = 48 * 60 * 60 * 1000;
@@ -463,7 +470,57 @@ export function createLibraryService(options: {
     return left.length === right.length && timingSafeEqual(left, right);
   };
   const bangumiSearcher = options.bangumi ?? createBangumiClient(fetch, cfg.bangumiToken);
-  const episodeCache = new Map<string, Promise<Map<number, string>>>();
+  // 集名富集的三个表：命中 / 在飞 / “已知等不到”。
+  // 以前只有一个 promise 表，失败就删，于是上游连不上时每次点开卡片都白等满
+  // 一个 BEST_EFFORT_TIMEOUT_MS（4s），而且是永远重来。现在：读路径最多等
+  // EPISODE_ENRICH_BUDGET_MS，等不到就先返回，后台那次继续把缓存填上。
+  // deferred 兼管负缓存：超时那一刻就记一笔（不是等上游真报错，那要 4s），
+  // 于是只有第一次点击付 300ms，后面直接秒回。成功时清掉。
+  const episodeTitlesCached = new Map<string, Map<number, string>>();
+  const episodeInFlight = new Map<string, Promise<Map<number, string>>>();
+  const episodeDeferred = new Map<string, number>();
+  /**
+   * 取某条目的集名表。命中就秒回；没命中最多等 budgetMs；等不到返回 undefined。
+   * 拿不到集名不是错误 —— 调用方拿到的详情只是少了 episodeTitle 这一层。
+   */
+  const episodeTitlesWithin = async (subjectId: string, budgetMs: number): Promise<Map<number, string> | undefined> => {
+    const cached = episodeTitlesCached.get(subjectId);
+    if (cached) return cached;
+    const deferredAt = episodeDeferred.get(subjectId);
+    if (deferredAt !== undefined && Date.now() - deferredAt < EPISODE_DEFERRED_TTL_MS) return undefined;
+    const search = bangumiSearcher.episodeTitles;
+    if (!search) return undefined;
+    let pending = episodeInFlight.get(subjectId);
+    if (!pending) {
+      pending = search.call(bangumiSearcher, subjectId)
+        .then(
+          (titles) => {
+            episodeTitlesCached.set(subjectId, titles);
+            episodeDeferred.delete(subjectId);
+            return titles;
+          },
+          (error: unknown) => {
+            episodeDeferred.set(subjectId, Date.now());
+            throw error;
+          },
+        )
+        .finally(() => episodeInFlight.delete(subjectId));
+      episodeInFlight.set(subjectId, pending);
+    }
+    // 超时分支也要把 pending 的拒绝吞掉，否则会变成 unhandled rejection；
+    // 这里挂了处理器之后，后台那次失败只会落到 deferred 上。
+    return Promise.race([
+      pending,
+      new Promise<undefined>((resolve) => {
+        const timer = setTimeout(() => {
+          episodeDeferred.set(subjectId, Date.now());
+          resolve(undefined);
+        }, budgetMs);
+        // 竞速赢家是谁都行，别让定时器把进程留住。
+        timer.unref?.();
+      }),
+    ]).catch(() => undefined);
+  };
   const worker = createCatalogWorker({
     catalog,
     bangumi: bangumiSearcher,
@@ -984,18 +1041,8 @@ export function createLibraryService(options: {
       if (detail.children.every(child => "episodeTitle" in child)) return detail;
       if (detail.status !== "confirmed" || detail.externalDb !== "bangumi" || !detail.externalId || !bangumiSearcher.episodeTitles) return detail;
       const subjectId = detail.externalId;
-      let request = episodeCache.get(subjectId);
-      if (!request) {
-        request = bangumiSearcher.episodeTitles(subjectId);
-        episodeCache.set(subjectId, request);
-      }
-      let titles: Map<number, string>;
-      try {
-        titles = await request;
-      } catch {
-        episodeCache.delete(subjectId);
-        return detail;
-      }
+      const titles = await episodeTitlesWithin(subjectId, EPISODE_ENRICH_BUDGET_MS);
+      if (!titles) return detail;
       return {
         ...detail,
         children: detail.children.map((child) => ({
