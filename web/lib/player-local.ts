@@ -42,3 +42,15 @@ export type EmbeddedTracks = {
   audioId: number | null;
   subtitleId: number | null;
 };
+
+/** Read FFmpeg's AV_DISPOSITION_DEFAULT when a decoder build exposes it. */
+export function hasDefaultDisposition(value: unknown): boolean {
+  if (!record(value)) return false;
+  const disposition = value.disposition;
+  if (typeof disposition === "number") return (disposition & 1) !== 0;
+  return record(disposition) && disposition.default === true;
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}

@@ -1,10 +1,10 @@
 {
-  "startedAt": "2026-10-09T17:04:36.604Z",
+  "startedAt": "2026-10-09T17:33:54.943Z",
   "scope": "追加设置三模式/外观/步长/缩放/存储/重启恢复；真实 MKV 引擎；本地 fixture 房间",
   "checks": [
     {
       "label": "first-paused-frame",
-      "elapsedMs": 803
+      "elapsedMs": 856
     },
     {
       "label": "media-default-missing-marker-falls-closed",
@@ -19,7 +19,7 @@
     },
     {
       "label": "preview-drawn",
-      "elapsedMs": 6
+      "elapsedMs": 7
     },
     {
       "label": "preview-bold",
@@ -27,15 +27,15 @@
     },
     {
       "label": "preview-cyan",
-      "elapsedMs": 3
+      "elapsedMs": 1
     },
     {
       "label": "preview-thick-outline",
-      "elapsedMs": 3
+      "elapsedMs": 4
     },
     {
       "label": "preview-strong-shadow",
-      "elapsedMs": 6
+      "elapsedMs": 5
     },
     {
       "label": "preview-half-background",
@@ -54,15 +54,15 @@
     },
     {
       "label": "settings-closed",
-      "elapsedMs": 256
+      "elapsedMs": 249
     },
     {
       "label": "room-reloaded",
-      "elapsedMs": 460
+      "elapsedMs": 462
     },
     {
       "label": "prefer-list-selects-japanese",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "label": "cue-JP M02-at-10.25",
@@ -79,15 +79,15 @@
     },
     {
       "label": "room-reloaded",
-      "elapsedMs": 475
+      "elapsedMs": 474
     },
     {
       "label": "prefer-list-empty-falls-to-engine-default",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "label": "cue-EN M02-at-10.25",
-      "elapsedMs": 139
+      "elapsedMs": 136
     },
     {
       "label": "prefer-list-empty-engine-default",
@@ -100,7 +100,7 @@
     },
     {
       "label": "room-reloaded",
-      "elapsedMs": 525
+      "elapsedMs": 508
     },
     {
       "label": "media-default-list-fallback",
@@ -114,7 +114,7 @@
     },
     {
       "label": "room-reloaded",
-      "elapsedMs": 442
+      "elapsedMs": 432
     },
     {
       "label": "off-mode-keeps-subtitles-off",
@@ -122,11 +122,11 @@
     },
     {
       "label": "subtitle-menu-open",
-      "elapsedMs": 2
+      "elapsedMs": 1
     },
     {
       "label": "manual-reselect-clears-off",
-      "elapsedMs": 4
+      "elapsedMs": 3
     },
     {
       "label": "off-priority-and-reselect-clears",
@@ -137,19 +137,19 @@
     },
     {
       "label": "room-reloaded",
-      "elapsedMs": 495
+      "elapsedMs": 477
     },
     {
       "label": "cue-EXT M02-at-10.25",
-      "elapsedMs": 139
+      "elapsedMs": 140
     },
     {
       "label": "room-reloaded",
-      "elapsedMs": 520
+      "elapsedMs": 430
     },
     {
       "label": "cue-JP M02-at-10.25",
-      "elapsedMs": 138
+      "elapsedMs": 124
     },
     {
       "label": "cross-source-tie-break",
@@ -160,12 +160,12 @@
         "embeddedCue": [
           "JP M02"
         ],
-        "uploadedId": "e259914e-4e55-4c26-8381-594f58d54cd4"
+        "uploadedId": "e5653ddf-0459-45d1-b0b5-65ee71d3cf35"
       }
     },
     {
       "label": "room-reloaded",
-      "elapsedMs": 522
+      "elapsedMs": 461
     },
     {
       "label": "styled-subtitle-tracks",
@@ -173,7 +173,7 @@
     },
     {
       "label": "cue-JP M02-at-10.25",
-      "elapsedMs": 138
+      "elapsedMs": 139
     },
     {
       "label": "appearance-applies-to-mkv-canvas",
@@ -190,27 +190,27 @@
     },
     {
       "label": "fit-cover",
-      "elapsedMs": 2
-    },
-    {
-      "label": "settings-closed",
-      "elapsedMs": 254
-    },
-    {
-      "label": "cue-JP M02-at-10.25",
-      "elapsedMs": 137
-    },
-    {
-      "label": "settings-open",
-      "elapsedMs": 2
-    },
-    {
-      "label": "fit-contain",
       "elapsedMs": 1
     },
     {
       "label": "settings-closed",
-      "elapsedMs": 258
+      "elapsedMs": 252
+    },
+    {
+      "label": "cue-JP M02-at-10.25",
+      "elapsedMs": 140
+    },
+    {
+      "label": "settings-open",
+      "elapsedMs": 1
+    },
+    {
+      "label": "fit-contain",
+      "elapsedMs": 2
+    },
+    {
+      "label": "settings-closed",
+      "elapsedMs": 259
     },
     {
       "label": "picture-fit-cover-contain-fullscreen",
@@ -222,23 +222,23 @@
     },
     {
       "label": "youtube-source-active",
-      "elapsedMs": 15
+      "elapsedMs": 1
     },
     {
       "label": "settings-open",
-      "elapsedMs": 2
+      "elapsedMs": 1
     },
     {
       "label": "fit-not-applicable-note",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "label": "settings-closed",
-      "elapsedMs": 254
+      "elapsedMs": 256
     },
     {
       "label": "media-restored",
-      "elapsedMs": 142
+      "elapsedMs": 261
     },
     {
       "label": "youtube-fit-not-applicable",
@@ -257,7 +257,7 @@
     },
     {
       "label": "persisted-mode-chip",
-      "elapsedMs": 1
+      "elapsedMs": 0
     },
     {
       "label": "persisted-appearance",
@@ -265,7 +265,7 @@
     },
     {
       "label": "settings-closed",
-      "elapsedMs": 258
+      "elapsedMs": 256
     },
     {
       "label": "reload-restores-preferences",
@@ -281,15 +281,15 @@
     },
     {
       "label": "settings-open",
-      "elapsedMs": 6
+      "elapsedMs": 7
     },
     {
       "label": "storage-unavailable-notice",
-      "elapsedMs": 1
+      "elapsedMs": 0
     },
     {
       "label": "settings-closed",
-      "elapsedMs": 249
+      "elapsedMs": 252
     },
     {
       "label": "storage-unavailable-notice",
@@ -301,7 +301,7 @@
     },
     {
       "label": "reset-defaults",
-      "elapsedMs": 1
+      "elapsedMs": 0
     },
     {
       "label": "settings-closed",
@@ -317,31 +317,31 @@
     },
     {
       "label": "browser-becomes-owner",
-      "elapsedMs": 14
+      "elapsedMs": 13
     },
     {
       "label": "settings-open",
-      "elapsedMs": 2
+      "elapsedMs": 1
     },
     {
       "label": "skip-steps-persisted",
-      "elapsedMs": 2
+      "elapsedMs": 0
     },
     {
       "label": "settings-closed",
-      "elapsedMs": 254
+      "elapsedMs": 252
     },
     {
       "label": "skip-forward-30",
-      "elapsedMs": 12
+      "elapsedMs": 13
     },
     {
       "label": "local-media-time-syncs-forward",
-      "elapsedMs": 124
+      "elapsedMs": 123
     },
     {
       "label": "keyboard-skip-back-5",
-      "elapsedMs": 13
+      "elapsedMs": 14
     },
     {
       "label": "local-media-time-syncs-back",
@@ -354,9 +354,9 @@
     {
       "label": "skip-steps-and-room-seek",
       "value": {
-        "revisionBeforeSettings": 46,
-        "revisionDuringSettings": 46,
-        "revisionAfterSkip": 47,
+        "revisionBeforeSettings": 69,
+        "revisionDuringSettings": 69,
+        "revisionAfterSkip": 70,
         "forward30": 30,
         "keyboardBack": -5,
         "keyboardForward": 30
@@ -372,7 +372,7 @@
     },
     {
       "label": "ownership-returned",
-      "elapsedMs": 1
+      "elapsedMs": 11
     },
     {
       "label": "ownership-handed-back",

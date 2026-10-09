@@ -1,9 +1,9 @@
 {
-  "startedAt": "2026-10-09T17:03:43.280Z",
+  "startedAt": "2026-10-09T17:34:25.823Z",
   "checks": [
     {
       "label": "first-paused-frame",
-      "elapsedMs": 811
+      "elapsedMs": 953
     },
     {
       "label": "geometry-ui-360",
@@ -190,11 +190,11 @@
     },
     {
       "label": "reload-blocked-audio",
-      "elapsedMs": 479
+      "elapsedMs": 507
     },
     {
       "label": "audio-chip-unlock",
-      "elapsedMs": 122
+      "elapsedMs": 124
     },
     {
       "label": "audio-chip-gone",
@@ -203,17 +203,17 @@
     {
       "label": "audio-chip-local-unlock",
       "value": {
-        "revisionBeforeUnlock": 19,
-        "revisionAfterUnlock": 19
+        "revisionBeforeUnlock": 74,
+        "revisionAfterUnlock": 74
       }
     },
     {
       "label": "audio-menu-opens",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "label": "audio-track-switched",
-      "elapsedMs": 1
+      "elapsedMs": 3
     },
     {
       "label": "subtitle-menu-opens",
@@ -221,11 +221,11 @@
     },
     {
       "label": "embedded-subtitle-selected",
-      "elapsedMs": 2
+      "elapsedMs": 3
     },
     {
       "label": "subtitles-off",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "label": "embedded-subtitle-reselected",
@@ -234,13 +234,13 @@
     {
       "label": "track-menus-local-only",
       "value": {
-        "revisionBeforeTracks": 19,
-        "revisionAfterTracks": 19
+        "revisionBeforeTracks": 74,
+        "revisionAfterTracks": 74
       }
     },
     {
       "label": "cue-at-10.25",
-      "elapsedMs": 260
+      "elapsedMs": 248
     },
     {
       "label": "subtitle-safe-area",
@@ -257,15 +257,15 @@
     },
     {
       "label": "playing-before-stall",
-      "elapsedMs": 1008
+      "elapsedMs": 1013
     },
     {
       "label": "buffering-status-visible",
-      "elapsedMs": 521
+      "elapsedMs": 518
     },
     {
       "label": "buffering-recovered",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "label": "buffering-status-local",
@@ -276,23 +276,23 @@
     },
     {
       "label": "retry-panel-visible",
-      "elapsedMs": 137
+      "elapsedMs": 140
     },
     {
       "label": "retry-refetches-same-media",
-      "elapsedMs": 0
+      "elapsedMs": 5
     },
     {
       "label": "retry-panel-returns",
-      "elapsedMs": 3
+      "elapsedMs": 0
     },
     {
       "label": "desktop-handoff-dialog",
-      "elapsedMs": 2
+      "elapsedMs": 1
     },
     {
       "label": "fixture-media-restored",
-      "elapsedMs": 261
+      "elapsedMs": 266
     },
     {
       "label": "same-media-retry-panel",
@@ -337,11 +337,11 @@
     },
     {
       "label": "fullscreen-controls-visible",
-      "elapsedMs": 3
+      "elapsedMs": 0
     },
     {
       "label": "fullscreen-menu-visible",
-      "elapsedMs": 2
+      "elapsedMs": 1
     },
     {
       "label": "fullscreen-dialog-visible",
@@ -381,11 +381,11 @@
     },
     {
       "label": "playing-for-touch",
-      "elapsedMs": 264
+      "elapsedMs": 263
     },
     {
       "label": "second-tap-toggles",
-      "elapsedMs": 6
+      "elapsedMs": 2
     },
     {
       "label": "touch-first-tap-reveals-only",

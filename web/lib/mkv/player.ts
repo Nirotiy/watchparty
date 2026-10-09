@@ -3,7 +3,7 @@ import { LibavSession, packetDecodeSeconds, packetSeconds, type MediaStream } fr
 import { MediaClock } from "./media-clock";
 import { RangeFile } from "./range-file";
 import { paintSubtitleLines, subtitleMarginPx } from "./subtitle-paint";
-import type { EmbeddedTrack, PlayerLocalState, EmbeddedTracks } from "../player-local";
+import { hasDefaultDisposition, type EmbeddedTrack, type PlayerLocalState, type EmbeddedTracks } from "../player-local";
 import { DEFAULT_SUBTITLE_APPEARANCE, type SubtitleAppearance } from "../player-preferences";
 
 export type EmbeddedSubtitle = { header: string; fonts: Uint8Array[]; index: number };
@@ -215,7 +215,8 @@ export class MkvPlayer {
 
   private describeTrack(track: MediaStream, kind: EmbeddedTrack["kind"], supported: boolean): EmbeddedTrack {
     return { id: track.index, kind, codec: track.codec, label: track.metadata?.title ?? `${kind} ${track.index}`,
-      language: track.metadata?.language, supported };
+      language: track.metadata?.language, supported,
+      ...(hasDefaultDisposition(track) ? { default: true } : {}) };
   }
 
   private notifyTracks() {

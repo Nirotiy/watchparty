@@ -6,11 +6,23 @@ import { fileURLToPath } from "node:url";
 const bundle = await build({ entryPoints: [fileURLToPath(new URL("../lib/player-preferences.ts", import.meta.url))],
   bundle: true, write: false, platform: "browser", format: "esm" });
 const preferences = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString("base64")}`);
+const localBundle = await build({ entryPoints: [fileURLToPath(new URL("../lib/player-local.ts", import.meta.url))],
+  bundle: true, write: false, platform: "browser", format: "esm" });
+const playerLocal = await import(`data:text/javascript;base64,${Buffer.from(localBundle.outputFiles[0].text).toString("base64")}`);
 function storage() {
   const values = new Map();
   return { values, getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value),
     removeItem: (key) => { values.delete(key); } };
 }
+
+test("default disposition is optional and only accepts the FFmpeg default bit", () => {
+  assert.equal(playerLocal.hasDefaultDisposition({ disposition: 1 }), true);
+  assert.equal(playerLocal.hasDefaultDisposition({ disposition: 3 }), true);
+  assert.equal(playerLocal.hasDefaultDisposition({ disposition: 0 }), false);
+  assert.equal(playerLocal.hasDefaultDisposition({ disposition: { default: true } }), true);
+  assert.equal(playerLocal.hasDefaultDisposition({ disposition: { default: false } }), false);
+  assert.equal(playerLocal.hasDefaultDisposition({ metadata: { language: "eng" } }), false);
+});
 const KEY = "watchparty.player-preferences.v1";
 const DEFAULT_APPEARANCE = { fontScale: 100, color: "white", fontWeight: "normal", outline: "thin", shadow: "none", backgroundOpacity: 0, bottomRaisePercent: 0 };
 
