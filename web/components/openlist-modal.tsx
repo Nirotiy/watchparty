@@ -24,7 +24,9 @@ import {
   MediaLibraryItem,
   MediaLibraryKind,
   MediaSource,
+  YouTubePlaybackCapabilities,
 } from "@/lib/contracts";
+import { classifyYouTubeInput } from "@/lib/youtube";
 import { mediaErrorText } from "@/lib/media-error-text";
 import { isNonMedia, toDetail, toWall, type Wall, type WallDetail } from "@/lib/catalog-view";
 import { CatalogRail, CatalogWall, UnmatchedLine } from "@/components/catalog-wall";
@@ -41,6 +43,15 @@ const KIND_LABEL: Record<MediaLibraryKind, string> = {
   tv: "剧集",
   other: "其他",
 };
+
+/** YouTube 识别标记（来源说明，不引入品牌色）。 */
+function YouTubeChip() {
+  return (
+    <span className="shrink-0 rounded-[4px] border border-border px-1.5 text-[10px] text-muted-foreground">
+      YouTube
+    </span>
+  );
+}
 
 // 草稿编辑页已下线（2026-10-08）：片源管理交由 MCP/agent，网页端只保留浏览与点播。
 const MODE_LABEL: Record<"titles" | "files", string> = {
@@ -75,24 +86,6 @@ function ArtworkThumb({ posterId, fallback }: { posterId?: string | null; fallba
   );
 }
 
-function parseYouTubeVideoId(value: string): string | null {
-  try {
-    const url = new URL(value);
-    const hostname = url.hostname.replace(/^www\./, "").toLowerCase();
-    let candidate: string | null = null;
-    if (hostname === "youtu.be") candidate = url.pathname.split("/").filter(Boolean)[0] ?? null;
-    if (hostname === "youtube.com" || hostname === "m.youtube.com") {
-      candidate =
-        url.searchParams.get("v") ??
-        url.pathname.match(/^\/(?:embed|shorts)\/([^/?]+)/)?.[1] ??
-        null;
-    }
-    return candidate && /^[a-zA-Z0-9_-]{11}$/.test(candidate) ? candidate : null;
-  } catch {
-    return null;
-  }
-}
-
 export function OpenListModal({
   isOpen,
   onClose,
@@ -109,6 +102,7 @@ export function OpenListModal({
   // 多源库（phase 1）：能力位为真走 /api/media/libraries + list?libraryId=，
   // 顺序、面包屑路径都按服务端返回渲染，客户端不排序、不拼路径。
   const [libraries, setLibraries] = useState<MediaLibrary[]>([]);
+  const [youtubeCapability, setYoutubeCapability] = useState<YouTubePlaybackCapabilities | null>(null);
   const [activeLibraryId, setActiveLibraryId] = useState<string | null>(null);
   const [currentPath, setCurrentPath] = useState<string>("/");
   const [breadcrumbs, setBreadcrumbs] = useState<MediaBreadcrumb[]>([]);
@@ -206,6 +200,14 @@ export function OpenListModal({
 
   // 直链粘贴识别：搜索框里出现 https:// 即切换为"直链识别"视图（渲染期派生，无需状态）。
   const pendingLink = searchQuery.trim().startsWith("https://") ? searchQuery.trim() : null;
+  // YouTube 契约分类（镜像后端规则）：watch?v= / youtu.be / 裸 11 位 ID；片单/频道/Shorts/embed 就地说明不支持。
+  const pendingLinkKind = pendingLink ? classifyYouTubeInput(pendingLink) : null;
+  const bareQuery = pendingLink ? "" : searchQuery.trim();
+  const bareQueryKind = bareQuery && !/\s/.test(bareQuery) ? classifyYouTubeInput(bareQuery) : null;
+  const bareYouTubeId = bareQueryKind?.kind === "video" ? bareQueryKind.videoId : null;
+  const youtubeLinkNote = pendingLinkKind?.kind === "video" && youtubeCapability?.requiresBrowserAccess === true
+    ? `浏览器内嵌播放 · 需能访问 youtube.com${youtubeCapability.requiresPlaybackApiKey === false ? " · 无需 API key" : ""}`
+    : null;
 
   const activeLibrary = libraries.find((library) => library.id === activeLibraryId) ?? null;
 
@@ -310,6 +312,10 @@ export function OpenListModal({
           const listed = await api.getMediaLibraries();
           if (!live) return;
           setLibraries(listed);
+          // 播放平台契约只作展示说明（内嵌/无需 key/需能访问 youtube）；旧后端缺字段不阻塞任何流程。
+          void api.getMediaCapabilities().then((capabilities) => {
+            if (live) setYoutubeCapability(capabilities.platforms?.youtube ?? null);
+          }).catch(() => { if (live) setYoutubeCapability(null); });
           const first = listed[0];
           if (!first) {
             setItems([]);
@@ -549,15 +555,26 @@ export function OpenListModal({
     else void playNow(media);
   };
 
+  /** YouTube 提交：规范化 {kind:"youtube", videoId, title}；服务端仍做最终校验。 */
+  const submitYouTube = async (videoId: string, play: boolean) => {
+    const media: MediaSource = { kind: "youtube", videoId, title: "YouTube 视频" };
+    if (play) {
+      await playNow(media);
+      return;
+    }
+    if (!await addToQueue(media)) return;
+    handleClose();
+  };
+
   const submitLink = async (url: string, play: boolean) => {
+    const classified = classifyYouTubeInput(url);
+    if (classified?.kind === "video") return submitYouTube(classified.videoId, play);
+    if (classified?.kind === "unsupported") return; // 该形态后端拒绝：行内已给出原因，不发请求。
     if (!url.startsWith("https://")) return;
-    const youtubeVideoId = parseYouTubeVideoId(url);
     const isHls = url.toLowerCase().includes(".m3u8");
-    const media: MediaSource = youtubeVideoId
-      ? { kind: "youtube", videoId: youtubeVideoId, title: "YouTube 视频" }
-      : isHls
-        ? { kind: "hls", url, title: "HLS 实时流" }
-        : { kind: "http", url, title: "HTTPS 媒体直链" };
+    const media: MediaSource = isHls
+      ? { kind: "hls", url, title: "HLS 实时流" }
+      : { kind: "http", url, title: "HTTPS 媒体直链" };
     if (play) {
       await playNow(media);
       return;
@@ -854,6 +871,25 @@ export function OpenListModal({
           </div>
         )}
 
+        {/* 裸 11 位 ID：不打断搜索，内联与直链一致的 YouTube 动作 */}
+        {bareYouTubeId ? (
+          <div className="shrink-0 border-b border-border px-4 py-2" data-testid="youtube-id-row">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="flex items-center gap-1.5 rounded-full bg-secondary px-2 py-0.5 font-mono text-[11px] text-foreground/80">
+                <YouTubeChip />
+                {bareYouTubeId}
+              </span>
+              <span className="flex-1" />
+              <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => void submitYouTube(bareYouTubeId, true)}>
+                播放
+              </Button>
+              <Button size="sm" variant="secondary" className="h-7 text-xs" disabled={roomless} onClick={() => void submitYouTube(bareYouTubeId, false)}>
+                加入清单
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
         {/* ================= 直链识别：粘贴 https:// 后的行内动作 ================= */}
         {pendingLink ? (
           <div className="flex-1 overflow-y-auto p-4">
@@ -861,24 +897,36 @@ export function OpenListModal({
               <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
                 <LinkIcon className="size-3.5 shrink-0" aria-hidden="true" />
                 <span className="truncate font-mono">{pendingLink}</span>
+                {pendingLinkKind?.kind === "video" ? <YouTubeChip /> : null}
               </div>
-              <button
-                type="button"
-                onClick={() => void submitLink(pendingLink, true)}
-                className="flex w-full items-center justify-between rounded-sm px-2 py-2 text-sm transition-colors hover:bg-accent"
-              >
-                <span>播放此链接</span>
-                <Keycap>⏎</Keycap>
-              </button>
-              <button
-                type="button"
-                disabled={roomless}
-                onClick={() => void submitLink(pendingLink, false)}
-                className="flex w-full items-center justify-between rounded-sm px-2 py-2 text-sm transition-colors enabled:hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
-              >
-                <span>加入播放清单</span>
-                {roomless ? null : <Keycap>⌥⏎</Keycap>}
-              </button>
+              {pendingLinkKind?.kind === "unsupported" ? (
+                <p role="alert" className="px-2 py-1.5 text-sm text-destructive">
+                  {pendingLinkKind.reason}
+                </p>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void submitLink(pendingLink, true)}
+                    className="flex w-full items-center justify-between rounded-sm px-2 py-2 text-sm transition-colors hover:bg-accent"
+                  >
+                    <span>播放此链接</span>
+                    <Keycap>⏎</Keycap>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={roomless}
+                    onClick={() => void submitLink(pendingLink, false)}
+                    className="flex w-full items-center justify-between rounded-sm px-2 py-2 text-sm transition-colors enabled:hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    <span>加入播放清单</span>
+                    {roomless ? null : <Keycap>⌥⏎</Keycap>}
+                  </button>
+                  {youtubeLinkNote ? (
+                    <p className="px-2 py-1 text-[10px] text-muted-foreground">{youtubeLinkNote}</p>
+                  ) : null}
+                </>
+              )}
             </div>
           </div>
         ) : mode === "titles" ? (

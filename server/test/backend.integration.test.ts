@@ -28,6 +28,7 @@ async function boot(
     OPENLIST_URL: "http://127.0.0.1:1",
     OPENLIST_USERNAME: "",
     OPENLIST_PASSWORD: "",
+    YOUTUBE_API_KEY: "",
     ...overrides,
   });
   const backend = createBackend({ host: "127.0.0.1", port: 0, pruneIntervalMs: 0, config });
@@ -83,6 +84,37 @@ test("health and room lifecycle use the new API contract", async () => {
   const info = await (await fetch(`${origin(backend)}/api/rooms/${created.roomId}`)).json() as Record<string, unknown>;
   assert.deepEqual(info, { roomId: created.roomId, isProtected: false });
   assert.equal((await fetch(`${origin(backend)}/api/rooms/missing`)).status, 404);
+});
+
+test("YouTube playback capabilities need no API key and remain outside room snapshots", async () => {
+  const backend = await boot();
+  const response = await fetch(`${origin(backend)}/api/media/capabilities`);
+  assert.equal(response.status, 200);
+  const { platforms } = await response.json() as {
+    platforms: { youtube: import("../core/protocol.ts").YouTubePlaybackCapabilities };
+  };
+  const youtube = platforms.youtube;
+  assert.equal(youtube.engine, "youtube-iframe");
+  assert.equal(youtube.serverMediaProxy, false);
+  assert.equal(youtube.requiresPlaybackApiKey, false);
+  assert.equal(youtube.availability, "client-observed");
+  assert.equal(youtube.stateScope, "client-local");
+  assert.equal(youtube.distinguishesRegionRestriction, false);
+  assert.equal(youtube.distinguishesNetworkFailure, false);
+  assert.deepEqual(youtube.errors.YOUTUBE_EMBED_FORBIDDEN.iframeErrorCodes, [101, 150]);
+  assert.deepEqual(youtube.errors.YOUTUBE_CLIENT_IDENTITY_REQUIRED.iframeErrorCodes, [153]);
+
+  const clientId = randomUUID();
+  const createdResponse = await fetch(`${origin(backend)}/api/rooms`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ clientId, nickname: "Owner", initialMedia: "https://youtu.be/dQw4w9WgXcQ" }),
+  });
+  assert.equal(createdResponse.status, 200);
+  const created = await createdResponse.json() as { roomId: string };
+  const snapshot = backend.registry.get(created.roomId)!.snapshot();
+  assert.deepEqual(snapshot.source, { kind: "youtube", videoId: "dQw4w9WgXcQ" });
+  assert.equal("platforms" in snapshot, false);
+  assert.equal("capabilities" in snapshot, false);
 });
 
 test("HTTP 空闲窗口比桌面侧车的连接池长：服务端不许先悄悄关掉 keep-alive", async () => {
@@ -312,6 +344,72 @@ test("root namespace sends snapshots and members; commands use Ack and revisions
   assert.equal(current.source?.kind, "http");
   const conflict = await command(ownerSocket, "CMD:play", { expectedRevision: 0 });
   assert.deepEqual(conflict, { ok: false, error: { code: "REVISION_CONFLICT", message: "房间状态已更新，请重新同步后重试" } });
+});
+
+test("YouTube commands preserve permissions and revisions and broadcast normalized snapshots", async () => {
+  const backend = await boot();
+  const created = await createRoom(backend);
+  const guestId = randomUUID();
+  const accessResponse = await fetch(`${origin(backend)}/api/rooms/${created.roomId}/access`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ clientId: guestId, nickname: "Guest" }),
+  });
+  const access = await accessResponse.json() as { accessToken: string };
+  const ownerSocket = connect(backend, created.roomId, created.clientId, created.accessToken, created.ownerToken);
+  const guestSocket = connect(backend, created.roomId, guestId, access.accessToken);
+  await Promise.all([connected(ownerSocket), connected(guestSocket)]);
+  const room = backend.registry.get(created.roomId)!;
+  const youtube = { kind: "youtube" as const, videoId: "dQw4w9WgXcQ", title: "Video", cookie: "synthetic", authorization: "synthetic", manifest: "synthetic" };
+  const normalized = { kind: "youtube", videoId: youtube.videoId, title: "Video" };
+  const broadcasts: RoomSnapshot[] = [];
+  guestSocket.on("REC:snapshot", (snapshot) => broadcasts.push(snapshot));
+
+  async function successfulCommand<K extends keyof ClientToServerEvents>(socket: TestSocket, event: K, payload: Parameters<ClientToServerEvents[K]>[0]) {
+    const revision = room.snapshot().revision;
+    const ownerSnapshot = nextEvent(ownerSocket, "REC:snapshot");
+    const guestSnapshot = nextEvent(guestSocket, "REC:snapshot");
+    const ack = await command(socket, event, payload);
+    assert.deepEqual(ack, { ok: true, revision: revision + 1 });
+    const [ownerView, guestView] = await Promise.all([ownerSnapshot, guestSnapshot]);
+    assert.deepEqual({ ...ownerView, serverTimeMs: 0 }, { ...guestView, serverTimeMs: 0 });
+    assert.equal(ownerView.revision, revision + 1);
+    return guestView;
+  }
+
+  assert.deepEqual((await successfulCommand(ownerSocket, "CMD:mediaSet", { media: youtube, expectedRevision: 0 })).source, normalized);
+  for (const [event, payload] of [
+    ["CMD:seek", { positionSeconds: 12, expectedRevision: 1 }],
+    ["CMD:rate", { rate: 1.5, expectedRevision: 1 }],
+    ["CMD:mediaSet", { media: youtube, expectedRevision: 1 }],
+  ] as const) {
+    const before = room.snapshot();
+    const count = broadcasts.length;
+    const ack = await command(guestSocket, event, payload);
+    assert.equal(ack.ok, false);
+    if (!ack.ok) assert.equal(ack.error.code, "FORBIDDEN");
+    assert.deepEqual({ ...room.snapshot(), serverTimeMs: 0 }, { ...before, serverTimeMs: 0 });
+    assert.equal(broadcasts.length, count);
+  }
+  for (const [event, payload] of [
+    ["CMD:seek", { positionSeconds: 12, expectedRevision: 0 }],
+    ["CMD:rate", { rate: 1.5, expectedRevision: 0 }],
+    ["CMD:mediaSet", { media: youtube, expectedRevision: 0 }],
+    ["CMD:playlistAdd", { media: youtube, expectedRevision: 0 }],
+  ] as const) {
+    const ack = await command(ownerSocket, event, payload);
+    assert.equal(ack.ok, false);
+    if (!ack.ok) assert.equal(ack.error.code, "REVISION_CONFLICT");
+    assert.equal(room.snapshot().revision, 1);
+  }
+  const seeked = await successfulCommand(ownerSocket, "CMD:seek", { positionSeconds: 12, expectedRevision: 1 });
+  assert.equal(seeked.positionSeconds, 12);
+  const rated = await successfulCommand(ownerSocket, "CMD:rate", { rate: 1.5, expectedRevision: 2 });
+  assert.equal(rated.playbackRate, 1.5);
+  // Existing shared play/pause and queue-add permissions apply to YouTube too.
+  const queued = await successfulCommand(guestSocket, "CMD:playlistAdd", { media: youtube, expectedRevision: 3 });
+  assert.deepEqual(queued.playlist[0]?.media, normalized);
+  assert.equal((await successfulCommand(guestSocket, "CMD:play", { expectedRevision: 4 })).paused, false);
+  assert.equal((await successfulCommand(guestSocket, "CMD:pause", { expectedRevision: 5 })).paused, true);
 });
 
 test("ownership transfer rotates the owner token without a room-wide lock", async () => {

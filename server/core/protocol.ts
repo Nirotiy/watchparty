@@ -12,6 +12,36 @@ export type MediaSource =
   | { kind: "hls"; url: string; title?: string }
   | { kind: "youtube"; videoId: string; title?: string };
 
+/** Static adapter contract, not a probe of any browser or video's availability. */
+export const YOUTUBE_PLAYBACK_CAPABILITIES = {
+  engine: "youtube-iframe",
+  playbackLocation: "browser",
+  serverMediaProxy: false,
+  requiresBrowserAccess: true,
+  requiresPlaybackApiKey: false,
+  availability: "client-observed",
+  stateScope: "client-local",
+  controls: ["play", "pause", "seek", "rate"],
+  states: ["loading", "ready", "playing", "paused", "buffering", "ended", "error"],
+  errors: {
+    YOUTUBE_INVALID_VIDEO: { message: "YouTube 视频标识无效", iframeErrorCodes: [2] },
+    YOUTUBE_PLAYBACK_FAILED: { message: "YouTube 播放失败", iframeErrorCodes: [5] },
+    YOUTUBE_VIDEO_UNAVAILABLE: { message: "YouTube 视频不存在、已移除或为私密视频", iframeErrorCodes: [100] },
+    YOUTUBE_EMBED_FORBIDDEN: { message: "该 YouTube 视频不允许嵌入播放", iframeErrorCodes: [101, 150] },
+    YOUTUBE_CLIENT_IDENTITY_REQUIRED: { message: "YouTube 无法确认嵌入客户端身份", iframeErrorCodes: [153] },
+    YOUTUBE_API_UNAVAILABLE: { message: "YouTube 播放器接口加载失败，请检查浏览器网络或代理", iframeErrorCodes: [] },
+    YOUTUBE_CONTROL_UNAVAILABLE: { message: "YouTube 播放器控制暂不可用", iframeErrorCodes: [] },
+    YOUTUBE_UNKNOWN_ERROR: { message: "YouTube 播放器发生未知错误", iframeErrorCodes: [] },
+  },
+  // IFrame API errors cannot reliably identify a region restriction or network outage.
+  distinguishesRegionRestriction: false,
+  distinguishesNetworkFailure: false,
+} as const;
+
+export type YouTubePlaybackCapabilities = typeof YOUTUBE_PLAYBACK_CAPABILITIES;
+export type YouTubePlaybackErrorCode = keyof YouTubePlaybackCapabilities["errors"];
+export type YouTubePlaybackState = YouTubePlaybackCapabilities["states"][number];
+
 export type PlaylistItem = {
   id: string;
   media: MediaSource;

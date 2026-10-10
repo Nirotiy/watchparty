@@ -5,6 +5,7 @@ import { createBackend, type Backend } from "../app.ts";
 import { loadConfig, type AppConfig } from "../config.ts";
 import { OpenlistServiceError, type OpenlistClient } from "../media/openlist.ts";
 import type { StoredSource } from "../media/library-store.ts";
+import { YOUTUBE_PLAYBACK_CAPABILITIES } from "../core/protocol.ts";
 
 const backends: Backend[] = [];
 const FILM = "/media/openlist-bdyun/Multimedia/Film";
@@ -146,7 +147,7 @@ test("seeded libraries stay free of secrets and absolute browse paths", async ()
   const roomHeaders = { "x-watchparty-room": room.roomId, "x-watchparty-token": room.accessToken };
   const capabilities = await (await fetch(`${base}/api/media/capabilities`)).json() as { libraries: boolean; artwork: boolean; catalog: boolean; mediaAdmin: boolean; catalogApproval: string };
   // catalogApproval 如实报边界强度：没配第二把密钥就是 loopback-admin（软边界）。
-  assert.deepEqual(capabilities, { libraries: true, artwork: true, catalog: true, mediaAdmin: true, catalogApproval: "loopback-admin" });
+  assert.deepEqual(capabilities, { libraries: true, artwork: true, catalog: true, mediaAdmin: true, catalogApproval: "loopback-admin", platforms: { youtube: YOUTUBE_PLAYBACK_CAPABILITIES } });
   const listed = await (await fetch(`${base}/api/media/libraries`, { headers: roomHeaders })).json() as { libraries: Array<{ id: string; name: string; kind: string; sourceId: string; health: string }> };
   assert.deepEqual(listed.libraries.map((library) => [library.id, library.name, library.kind, library.sourceId, library.health]), [
     ["lib_anime", "Anime", "anime", "src_default", "ok"],

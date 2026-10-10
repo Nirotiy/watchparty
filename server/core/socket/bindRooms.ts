@@ -171,14 +171,16 @@ function bindCommands(
     run(payload, { type: "lock", locked: payload.locked }, ack);
   });
   socket.on("CMD:mediaSet", (payload, ack) => {
-    if (!isRecord(payload) || !validateMediaSource(payload.media))
+    const media = isRecord(payload) ? validateMediaSource(payload.media) : undefined;
+    if (!media)
       return ack(errorResult("INVALID_REQUEST"));
-    run(payload, { type: "mediaSet", media: payload.media }, ack);
+    run(payload, { type: "mediaSet", media }, ack);
   });
   socket.on("CMD:playlistAdd", (payload, ack) => {
-    if (!isRecord(payload) || !validateMediaSource(payload.media))
+    const media = isRecord(payload) ? validateMediaSource(payload.media) : undefined;
+    if (!media)
       return ack(errorResult("INVALID_REQUEST"));
-    run(payload, { type: "playlistAdd", media: payload.media }, ack);
+    run(payload, { type: "playlistAdd", media }, ack);
   });
   socket.on("CMD:playlistRemove", (payload, ack) => {
     if (!isRecord(payload) || typeof payload.itemId !== "string")

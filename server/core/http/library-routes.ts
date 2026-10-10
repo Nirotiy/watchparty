@@ -5,6 +5,7 @@ import { LibraryRequestError, type LibraryService } from "../../media/library-se
 import { sendError, requestIp, requireRoomAccess, requireMediaRead, GUEST_SESSION_PATH } from "./shared.ts";
 import type { RoomRegistry } from "../room/registry.ts";
 import type { GuestAccessStore } from "../guest-access.ts";
+import { YOUTUBE_PLAYBACK_CAPABILITIES } from "../protocol.ts";
 
 /**
  * Media-library routes. Registered before the legacy core routes so
@@ -32,7 +33,10 @@ export function registerLibraryHttp(
     if (req.method === "GET" || req.method === "HEAD" || requireAdmin(library, req, res)) next();
   });
   app.get("/api/media/capabilities", (req, res) => {
-    res.json(library.capabilities(library.allowsAdmin(requestIp(req), headerValue(req, "x-watchparty-admin"))));
+    res.json({
+      ...library.capabilities(library.allowsAdmin(requestIp(req), headerValue(req, "x-watchparty-admin"))),
+      platforms: { youtube: YOUTUBE_PLAYBACK_CAPABILITIES },
+    });
   });
 
   // 游客凭据签发：一次性短时效、只读、不绑定房间。无 body（客户端契约如此）。

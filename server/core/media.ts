@@ -2,11 +2,13 @@ import { isValidUUID, type MediaSource } from "./protocol.ts";
 
 const HTTPS = /^https:\/\//i;
 const YOUTUBE_ID = /^[a-zA-Z0-9_-]{11}$/;
+const YOUTUBE_HOSTS = new Set(["youtube.com", "www.youtube.com", "m.youtube.com"]);
 // `strm` is a one-line pointer, not a container: the peer resolves it server-side and
 // plays whatever URL comes back, so the id still identifies the library file.
 const CONTAINERS = new Set(["mp4", "webm", "mkv", "mov", "m4v", "ogv", "m3u8", "strm"]);
 
 export function validateMediaSource(value: unknown): MediaSource | undefined {
+  if (typeof value === "string") return normalizeYouTubeSource(value);
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const media = value as Record<string, unknown>;
   if (media.kind === "openlist") {
@@ -43,14 +45,52 @@ export function validateMediaSource(value: unknown): MediaSource | undefined {
       ...(typeof media.title === "string" ? { title: media.title.slice(0, 500) } : {}),
     };
   }
-  if (media.kind === "youtube" && typeof media.videoId === "string" && YOUTUBE_ID.test(media.videoId)) {
-    return {
-      kind: "youtube",
-      videoId: media.videoId,
-      ...(typeof media.title === "string" ? { title: media.title.slice(0, 500) } : {}),
-    };
-  }
+  if (media.kind === "youtube") return normalizeYouTubeSource(media);
   return undefined;
+}
+
+/** Normalize a browser-facing YouTube source without retaining URL credentials or query data. */
+export function normalizeYouTubeSource(value: unknown): MediaSource | undefined {
+  if (typeof value === "string") return youtubeSourceFromIdOrUrl(value);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const source = value as Record<string, unknown>;
+  const raw = typeof source.videoId === "string"
+    ? source.videoId
+    : typeof source.url === "string" ? source.url : undefined;
+  const videoId = raw === undefined ? undefined : youtubeVideoId(raw);
+  if (!videoId) return undefined;
+  return {
+    kind: "youtube",
+    videoId,
+    ...(typeof source.title === "string" && source.title.length > 0
+      ? { title: source.title.slice(0, 500) }
+      : {}),
+  };
+}
+
+function youtubeSourceFromIdOrUrl(value: string): MediaSource | undefined {
+  const videoId = youtubeVideoId(value);
+  return videoId ? { kind: "youtube", videoId } : undefined;
+}
+
+function youtubeVideoId(value: string): string | undefined {
+  const candidate = value.trim();
+  if (YOUTUBE_ID.test(candidate)) return candidate;
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== "https:" || url.username || url.password) return undefined;
+  const host = url.hostname.toLowerCase();
+  if (host === "youtu.be") {
+    const parts = url.pathname.split("/").filter(Boolean);
+    return parts.length === 1 && YOUTUBE_ID.test(parts[0]!) ? parts[0] : undefined;
+  }
+  if (!YOUTUBE_HOSTS.has(host) || url.pathname !== "/watch") return undefined;
+  const videoId = url.searchParams.get("v");
+  return videoId && YOUTUBE_ID.test(videoId) ? videoId : undefined;
 }
 
 export function validateNickname(value: unknown): value is string {

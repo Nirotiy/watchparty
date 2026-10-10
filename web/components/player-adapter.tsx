@@ -10,6 +10,7 @@ import { bufferedAheadSeconds, type PlayerLocalState, type EmbeddedTracks, type 
 import { DEFAULT_SUBTITLE_APPEARANCE, type PictureFit, type SubtitleAppearance } from "@/lib/player-preferences";
 import { parseSubtitleCues } from "@/lib/subtitle-parser";
 import { paintSubtitleLines, subtitleMarginPx } from "@/lib/mkv/subtitle-paint";
+import { youtubeErrorCode, youtubeErrorMessage } from "@/lib/youtube";
 
 type YouTubePlayer = {
   destroy: () => void;
@@ -27,6 +28,7 @@ type YouTubePlayer = {
 
 type YouTubePlayerEvent = { target: YouTubePlayer };
 type YouTubeStateEvent = YouTubePlayerEvent & { data: number };
+type YouTubeErrorEvent = YouTubePlayerEvent & { data?: unknown };
 type YouTubeNamespace = {
   Player: new (
     element: HTMLElement,
@@ -36,7 +38,7 @@ type YouTubeNamespace = {
       events: {
         onReady: (event: YouTubePlayerEvent) => void;
         onStateChange: (event: YouTubeStateEvent) => void;
-        onError: () => void;
+        onError: (event: YouTubeErrorEvent) => void;
         onAutoplayBlocked: () => void;
       };
     },
@@ -155,6 +157,9 @@ const NativePlayerAdapter = forwardRef<PlayerAdapterHandle, PlayerAdapterProps>(
     const subtitleCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const youtubePlayerRef = useRef<YouTubePlayer | null>(null);
     const youtubeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    /** 本机 YouTube 是否已确定不可用（接口加载失败/构造失败）；控制调用据此上报 CONTROL_UNAVAILABLE。 */
+    const youtubeFailedRef = useRef(false);
+    const youtubeControlReportedRef = useRef(false);
     const assRendererRef = useRef<JASSUB | null>(null);
     const callbacksRef = useRef(props);
     callbacksRef.current = props;
@@ -190,9 +195,20 @@ const NativePlayerAdapter = forwardRef<PlayerAdapterHandle, PlayerAdapterProps>(
         : local.current.phase === "playing" ? "running" : "unknown" });
     }, [reportState]);
 
+    /** 只在本机播放器已确定不可用时上报（加载窗口内的控制在 onReady 后会重放，不算失败），每次挂载至多一次。 */
+    const reportYouTubeControlUnavailable = useCallback(() => {
+      if (youtubePlayerRef.current || !youtubeFailedRef.current || youtubeControlReportedRef.current) return;
+      youtubeControlReportedRef.current = true;
+      callbacksRef.current.onError?.({
+        code: "YOUTUBE_CONTROL_UNAVAILABLE",
+        message: youtubeErrorMessage("YOUTUBE_CONTROL_UNAVAILABLE"),
+      });
+    }, []);
+
     const playLocal = useCallback(async () => {
-      if (youtubePlayerRef.current) {
-        youtubePlayerRef.current.playVideo();
+      if (isYouTube) {
+        if (youtubePlayerRef.current) youtubePlayerRef.current.playVideo();
+        else reportYouTubeControlUnavailable();
         return;
       }
       const video = videoRef.current;
@@ -207,7 +223,7 @@ const NativePlayerAdapter = forwardRef<PlayerAdapterHandle, PlayerAdapterProps>(
           callbacksRef.current.onError?.({ code: "MEDIA_PLAY_ERROR", message: error instanceof Error ? error.message : "Playback failed" });
         }
       }
-    }, [reportState, reportAudio]);
+    }, [isYouTube, reportState, reportAudio, reportYouTubeControlUnavailable]);
 
     useEffect(() => {
       if (previousSourceKey.current !== sourceKey) {
@@ -229,19 +245,25 @@ const NativePlayerAdapter = forwardRef<PlayerAdapterHandle, PlayerAdapterProps>(
         },
         pause: () => {
           controls.current.playing = false;
-          if (isYouTube) youtubePlayerRef.current?.pauseVideo();
-          else videoRef.current?.pause();
+          if (isYouTube) {
+            if (youtubePlayerRef.current) youtubePlayerRef.current.pauseVideo();
+            else reportYouTubeControlUnavailable();
+          } else videoRef.current?.pause();
         },
         seek: (seconds) => {
           if (!Number.isFinite(seconds)) return;
           controls.current.position = Math.max(0, seconds);
-          if (isYouTube) youtubePlayerRef.current?.seekTo(seconds, true);
-          else if (videoRef.current?.readyState) videoRef.current.currentTime = Math.max(0, seconds);
+          if (isYouTube) {
+            if (youtubePlayerRef.current) youtubePlayerRef.current.seekTo(seconds, true);
+            else reportYouTubeControlUnavailable();
+          } else if (videoRef.current?.readyState) videoRef.current.currentTime = Math.max(0, seconds);
         },
         setPlaybackRate: (rate) => {
           controls.current.rate = rate;
-          if (isYouTube) youtubePlayerRef.current?.setPlaybackRate(rate);
-          else if (videoRef.current) videoRef.current.playbackRate = rate;
+          if (isYouTube) {
+            if (youtubePlayerRef.current) youtubePlayerRef.current.setPlaybackRate(rate);
+            else reportYouTubeControlUnavailable();
+          } else if (videoRef.current) videoRef.current.playbackRate = rate;
         },
         setVolume: (volume) => {
           const normalizedVolume = Math.max(0, Math.min(100, volume));
@@ -293,7 +315,7 @@ const NativePlayerAdapter = forwardRef<PlayerAdapterHandle, PlayerAdapterProps>(
           }).finally(() => { if (retryPending.current === retry) retryPending.current = null; });
         },
       }),
-      [isYouTube, playLocal, reportAudio, reportState, sourceKey, sourceKind, streamUrl],
+      [isYouTube, playLocal, reportAudio, reportState, reportYouTubeControlUnavailable, sourceKey, sourceKind, streamUrl],
     );
 
     useEffect(() => {
@@ -305,71 +327,83 @@ const NativePlayerAdapter = forwardRef<PlayerAdapterHandle, PlayerAdapterProps>(
       sourceGeneration.current += 1;
       retryPending.current = null;
       audioBlocked.current = false;
+      youtubeFailedRef.current = false;
+      youtubeControlReportedRef.current = false;
       reportState({ phase: "loading", audio: "unknown", presentedTime: 0, bufferedAheadSeconds: 0 });
 
       void loadYouTubeApi()
         .then((youtube) => {
           if (cancelled || !youtubeContainerRef.current) return;
-          youtubePlayerRef.current = new youtube.Player(mount, {
-            videoId: youtubeVideoId,
-            playerVars: {
-              autoplay: 0,
-              controls: 0,
-              disablekb: 1,
-              fs: 0,
-              modestbranding: 1,
-              rel: 0,
-              enablejsapi: 1,
-            },
-            events: {
-              onReady: ({ target }) => {
-                if (cancelled) return;
-                const state = controls.current;
-                target.setVolume(state.volume);
-                if (state.muted) target.mute(); else target.unMute();
-                target.setPlaybackRate(state.rate);
-                if (state.position) target.seekTo(state.position, true);
-                reportState({ phase: "ready" });
-                callbacksRef.current.onLoadedMetadata?.(target.getDuration() || 0);
-                if (controls.current.playing) target.playVideo(); else target.pauseVideo();
-                youtubeTimerRef.current = setInterval(() => {
-                  const player = youtubePlayerRef.current;
-                  if (!player) return;
-                  callbacksRef.current.onTimeUpdate?.(
-                    player.getCurrentTime() || 0,
-                    player.getDuration() || 0,
-                    (player.getVideoLoadedFraction() || 0) * 100,
-                  );
-                  reportState();
-                }, 250);
+          try {
+            youtubePlayerRef.current = new youtube.Player(mount, {
+              videoId: youtubeVideoId,
+              playerVars: {
+                autoplay: 0,
+                controls: 0,
+                disablekb: 1,
+                fs: 0,
+                modestbranding: 1,
+                rel: 0,
+                enablejsapi: 1,
               },
-              onStateChange: ({ data }) => {
-                if (cancelled) return;
-                const phase = data === 0 ? "ended" : data === 1 ? "playing" : data === 2 ? "paused"
-                  : data === 3 ? "buffering" : data === 5 ? "ready" : "loading";
-                if (data === 1) audioBlocked.current = false;
-                reportState({ phase });
-                reportAudio();
-                if (data === 0) { controls.current.playing = false; callbacksRef.current.onEnded?.(); }
+              events: {
+                onReady: ({ target }) => {
+                  if (cancelled) return;
+                  const state = controls.current;
+                  target.setVolume(state.volume);
+                  if (state.muted) target.mute(); else target.unMute();
+                  target.setPlaybackRate(state.rate);
+                  if (state.position) target.seekTo(state.position, true);
+                  reportState({ phase: "ready" });
+                  callbacksRef.current.onLoadedMetadata?.(target.getDuration() || 0);
+                  if (controls.current.playing) target.playVideo(); else target.pauseVideo();
+                  youtubeTimerRef.current = setInterval(() => {
+                    const player = youtubePlayerRef.current;
+                    if (!player) return;
+                    callbacksRef.current.onTimeUpdate?.(
+                      player.getCurrentTime() || 0,
+                      player.getDuration() || 0,
+                      (player.getVideoLoadedFraction() || 0) * 100,
+                    );
+                    reportState();
+                  }, 250);
+                },
+                onStateChange: ({ data }) => {
+                  if (cancelled) return;
+                  const phase = data === 0 ? "ended" : data === 1 ? "playing" : data === 2 ? "paused"
+                    : data === 3 ? "buffering" : data === 5 ? "ready" : "loading";
+                  if (data === 1) audioBlocked.current = false;
+                  reportState({ phase });
+                  reportAudio();
+                  if (data === 0) { controls.current.playing = false; callbacksRef.current.onEnded?.(); }
+                },
+                onAutoplayBlocked: () => { if (!cancelled) { audioBlocked.current = true; reportAudio(); } },
+                onError: ({ data }) => {
+                  if (cancelled) return;
+                  // IFrame 错误码 → 契约错误码；未知码一律 UNKNOWN，不臆断地区限制/网络故障。
+                  const code = youtubeErrorCode(data);
+                  reportState({ phase: "error" });
+                  callbacksRef.current.onError?.({ code, message: youtubeErrorMessage(code) });
+                },
               },
-              onAutoplayBlocked: () => { if (!cancelled) { audioBlocked.current = true; reportAudio(); } },
-              onError: () => {
-                if (cancelled) return;
-                reportState({ phase: "error" });
-                callbacksRef.current.onError?.({
-                  code: "YOUTUBE_ERROR",
-                  message: "YouTube 视频无法播放或受地区限制",
-                });
-              },
-            },
-          });
+            });
+          } catch {
+            if (cancelled) return;
+            youtubeFailedRef.current = true;
+            reportState({ phase: "error" });
+            callbacksRef.current.onError?.({
+              code: "YOUTUBE_UNKNOWN_ERROR",
+              message: youtubeErrorMessage("YOUTUBE_UNKNOWN_ERROR"),
+            });
+          }
         })
-        .catch((error: unknown) => {
+        .catch(() => {
           if (cancelled) return;
+          youtubeFailedRef.current = true;
           reportState({ phase: "error" });
           callbacksRef.current.onError?.({
-            code: "YOUTUBE_API_ERROR",
-            message: error instanceof Error ? error.message : "YouTube IFrame API 加载失败",
+            code: "YOUTUBE_API_UNAVAILABLE",
+            message: youtubeErrorMessage("YOUTUBE_API_UNAVAILABLE"),
           });
         });
 

@@ -75,7 +75,7 @@ export class Room {
     this.now = options.now ?? Date.now;
     this.stateChangedAtMs = this.now();
     this.lastUpdateTime = new Date(this.stateChangedAtMs);
-    this.source = options.initialMedia ?? null;
+    this.source = options.initialMedia ? validateMediaSource(options.initialMedia) ?? null : null;
     this.snapshotInterval = setInterval(() => {
       if (this.source && !this.paused) this.emitSnapshot();
     }, 2_000);
@@ -182,8 +182,11 @@ export class Room {
         this.locked = command.locked;
         break;
       case "mediaSet":
-        if (!validateMediaSource(command.media)) return this.invalidRequest();
-        this.source = command.media;
+        {
+          const media = validateMediaSource(command.media);
+          if (!media) return this.invalidRequest();
+          this.source = media;
+        }
         this.currentPlaylistItemId = undefined;
         this.positionSeconds = 0;
         this.paused = true;
@@ -192,16 +195,19 @@ export class Room {
         this.stateChangedAtMs = this.now();
         break;
       case "playlistAdd":
-        if (!validateMediaSource(command.media)) return this.invalidRequest();
-        if (this.playlist.length >= MAX_PLAYLIST_ITEMS)
-          return errorResult("PLAYLIST_FULL");
-        this.playlist.push({
-          id: randomUUID(),
-          media: command.media,
-          addedByClientId: clientId,
-          addedAtMs: this.now(),
-        });
-        break;
+        {
+          const media = validateMediaSource(command.media);
+          if (!media) return this.invalidRequest();
+          if (this.playlist.length >= MAX_PLAYLIST_ITEMS)
+            return errorResult("PLAYLIST_FULL");
+          this.playlist.push({
+            id: randomUUID(),
+            media,
+            addedByClientId: clientId,
+            addedAtMs: this.now(),
+          });
+          break;
+        }
       case "playlistRemove": {
         const index = this.playlist.findIndex(
           (item) => item.id === command.itemId,

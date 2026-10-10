@@ -1,0 +1,147 @@
+{
+  "startedAt": "2026-10-10T04:26:33.485Z",
+  "scope": "真实房间 + 媒体库入口；YouTube iframe 网络可达性因机器而异，不作播放声明",
+  "checks": [
+    {
+      "label": "room-ready",
+      "elapsedMs": 951
+    },
+    {
+      "label": "browser-is-owner",
+      "elapsedMs": 14
+    },
+    {
+      "label": "library-closed-settled",
+      "elapsedMs": 2
+    },
+    {
+      "label": "library-opened",
+      "elapsedMs": 7
+    },
+    {
+      "label": "link-row-visible",
+      "elapsedMs": 10
+    },
+    {
+      "label": "capability-note",
+      "elapsedMs": 1
+    },
+    {
+      "label": "watch-link-source",
+      "elapsedMs": 15
+    },
+    {
+      "label": "watch-url-entry-normalized",
+      "value": {
+        "source": {
+          "kind": "youtube",
+          "videoId": "WO6aRHKe7_c",
+          "title": "YouTube 视频"
+        },
+        "revisionBefore": 70,
+        "revisionAfter": 71
+      }
+    },
+    {
+      "label": "no-api-key-requests",
+      "value": {
+        "keyedRequests": [],
+        "sampleFetches": [
+          "http://127.0.0.1:18983/media?generation=21",
+          "http://127.0.0.1:18983/media?generation=21",
+          "http://127.0.0.1:18983/media?generation=21",
+          "/api/media/libraries",
+          "/api/media/capabilities",
+          "/api/media/catalog?libraryId=lib_anime"
+        ]
+      }
+    },
+    {
+      "label": "library-closed-settled",
+      "elapsedMs": 1
+    },
+    {
+      "label": "library-opened",
+      "elapsedMs": 2
+    },
+    {
+      "label": "invalid-id-row",
+      "elapsedMs": 3
+    },
+    {
+      "label": "invalid-video-source",
+      "elapsedMs": 7
+    },
+    {
+      "label": "local-failure-surfaced",
+      "elapsedMs": 503
+    },
+    {
+      "label": "single-client-failure-keeps-room",
+      "value": {
+        "revision": 72,
+        "paused": true,
+        "messageShown": true
+      }
+    },
+    {
+      "label": "library-closed-settled",
+      "elapsedMs": 2
+    },
+    {
+      "label": "library-opened",
+      "elapsedMs": 2
+    },
+    {
+      "label": "bare-id-row",
+      "elapsedMs": 2
+    },
+    {
+      "label": "bare-id-source",
+      "elapsedMs": 7
+    },
+    {
+      "label": "bare-id-entry",
+      "value": {
+        "videoId": "WO6aRHKe7_c",
+        "revisionDelta": 1
+      }
+    },
+    {
+      "label": "library-closed-settled",
+      "elapsedMs": 4
+    },
+    {
+      "label": "library-opened",
+      "elapsedMs": 3
+    },
+    {
+      "label": "shorts-rejected",
+      "elapsedMs": 2
+    },
+    {
+      "label": "unsupported-shape-rejected-locally",
+      "value": {
+        "axis": "shorts",
+        "revisionUnchanged": true
+      }
+    },
+    {
+      "label": "handback-modal-open",
+      "elapsedMs": 4
+    },
+    {
+      "label": "handback-confirm",
+      "elapsedMs": 2
+    },
+    {
+      "label": "ownership-returned",
+      "elapsedMs": 12
+    },
+    {
+      "label": "fixture-restored",
+      "elapsedMs": 7
+    }
+  ],
+  "pass": true
+}

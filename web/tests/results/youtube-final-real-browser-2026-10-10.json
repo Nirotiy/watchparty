@@ -1,0 +1,437 @@
+{
+  "checkedAt": "2026-10-10T04:52:54.198Z",
+  "scope": "Real YouTube iframe on isolated backend 19091, no API key",
+  "observations": [
+    {
+      "role": "owner",
+      "rig": {
+        "snapshot": {
+          "revision": 0,
+          "source": {
+            "kind": "youtube",
+            "videoId": "M7lc1UVf-VE"
+          },
+          "positionSeconds": 0,
+          "serverTimeMs": 1791607974620,
+          "paused": true,
+          "playbackRate": 1,
+          "loop": false,
+          "locked": true,
+          "ownerClientId": "9a108bcc-2bf4-4631-845c-bdb5fc540780",
+          "playlist": []
+        },
+        "errors": [],
+        "connected": true,
+        "duration": 1344,
+        "currentTime": 0,
+        "phases": [
+          "loading",
+          "ready"
+        ],
+        "lastState": {
+          "phase": "ready",
+          "audio": "unknown",
+          "presentedTime": 0,
+          "bufferedAheadSeconds": 0
+        }
+      },
+      "iframe": "https://www.youtube.com/embed/M7lc1UVf-VE?autoplay=0&controls=0&disablekb=1&fs=0&modestbranding=1&rel=0&enablejsapi=1&origin=http%3A%2F%2F127.0.0.1%3A19091&widgetid=1&forigin=http%3A%2F%2F127.0.0.1%3A19091%2F%3Frole%3Downer&aoriginsup=1&vf=6",
+      "body": "Isolated real YouTube acceptance\n\nPlayPauseSeek 30Rate 1.5",
+      "exceptions": [
+        "TypeError: youtubePlayerRef.current?.getCurrentTime is not a function\n    at Object.getCurrentTime (http://127.0.0.1:19091/harness.js:51515:69)\n    at http://127.0.0.1:19091/harness.js:55553:41",
+        "TypeError: youtubePlayerRef.current?.getCurrentTime is not a function\n    at Object.getCurrentTime (http://127.0.0.1:19091/harness.js:51515:69)\n    at http://127.0.0.1:19091/harness.js:55553:41",
+        "TypeError: youtubePlayerRef.current?.getCurrentTime is not a function\n    at Object.getCurrentTime (http://127.0.0.1:19091/harness.js:51515:69)\n    at http://127.0.0.1:19091/harness.js:55553:41",
+        "TypeError: youtubePlayerRef.current?.getCurrentTime is not a function\n    at Object.getCurrentTime (http://127.0.0.1:19091/harness.js:51515:69)\n    at http://127.0.0.1:19091/harness.js:55553:41",
+        "TypeError: youtubePlayerRef.current?.getCurrentTime is not a function\n    at Object.getCurrentTime (http://127.0.0.1:19091/harness.js:51515:69)\n    at http://127.0.0.1:19091/harness.js:55553:41",
+        "TypeError: youtubePlayerRef.current?.getCurrentTime is not a function\n    at Object.getCurrentTime (http://127.0.0.1:19091/harness.js:51515:69)\n    at http://127.0.0.1:19091/harness.js:55553:41",
+        "TypeError: youtubePlayerRef.current?.getCurrentTime is not a function\n    at Object.getCurrentTime (http://127.0.0.1:19091/harness.js:51515:69)\n    at http://127.0.0.1:19091/harness.js:55553:41"
+      ]
+    },
+    {
+      "role": "guest",
+      "rig": {
+        "snapshot": {
+          "revision": 0,
+          "source": {
+            "kind": "youtube",
+            "videoId": "M7lc1UVf-VE"
+          },
+          "positionSeconds": 0,
+          "serverTimeMs": 1791607974974,
+          "paused": true,
+          "playbackRate": 1,
+          "loop": false,
+          "locked": true,
+          "ownerClientId": "9a108bcc-2bf4-4631-845c-bdb5fc540780",
+          "playlist": []
+        },
+        "errors": [],
+        "connected": true,
+        "duration": 1344,
+        "currentTime": 0,
+        "phases": [
+          "loading",
+          "ready"
+        ],
+        "lastState": {
+          "phase": "ready",
+          "audio": "unknown",
+          "presentedTime": 0,
+          "bufferedAheadSeconds": 0
+        }
+      },
+      "iframe": "https://www.youtube.com/embed/M7lc1UVf-VE?autoplay=0&controls=0&disablekb=1&fs=0&modestbranding=1&rel=0&enablejsapi=1&origin=http%3A%2F%2F127.0.0.1%3A19091&widgetid=1&forigin=http%3A%2F%2F127.0.0.1%3A19091%2F%3Frole%3Dguest&aoriginsup=1&vf=6",
+      "body": "Isolated real YouTube acceptance\n\nPlayPauseSeek 30Rate 1.5",
+      "exceptions": [
+        "TypeError: youtubePlayerRef.current?.getCurrentTime is not a function\n    at Object.getCurrentTime (http://127.0.0.1:19091/harness.js:51515:69)\n    at http://127.0.0.1:19091/harness.js:55553:41",
+        "TypeError: youtubePlayerRef.current?.getCurrentTime is not a function\n    at Object.getCurrentTime (http://127.0.0.1:19091/harness.js:51515:69)\n    at http://127.0.0.1:19091/harness.js:55553:41",
+        "TypeError: youtubePlayerRef.current?.getCurrentTime is not a function\n    at Object.getCurrentTime (http://127.0.0.1:19091/harness.js:51515:69)\n    at http://127.0.0.1:19091/harness.js:55553:41",
+        "TypeError: youtubePlayerRef.current?.getCurrentTime is not a function\n    at Object.getCurrentTime (http://127.0.0.1:19091/harness.js:51515:69)\n    at http://127.0.0.1:19091/harness.js:55553:41",
+        "TypeError: youtubePlayerRef.current?.getCurrentTime is not a function\n    at Object.getCurrentTime (http://127.0.0.1:19091/harness.js:51515:69)\n    at http://127.0.0.1:19091/harness.js:55553:41",
+        "TypeError: youtubePlayerRef.current?.getCurrentTime is not a function\n    at Object.getCurrentTime (http://127.0.0.1:19091/harness.js:51515:69)\n    at http://127.0.0.1:19091/harness.js:55553:41",
+        "TypeError: youtubePlayerRef.current?.getCurrentTime is not a function\n    at Object.getCurrentTime (http://127.0.0.1:19091/harness.js:51515:69)\n    at http://127.0.0.1:19091/harness.js:55553:41",
+        "TypeError: youtubePlayerRef.current?.getCurrentTime is not a function\n    at Object.getCurrentTime (http://127.0.0.1:19091/harness.js:51515:69)\n    at http://127.0.0.1:19091/harness.js:55553:41",
+        "TypeError: youtubePlayerRef.current?.getCurrentTime is not a function\n    at Object.getCurrentTime (http://127.0.0.1:19091/harness.js:51515:69)\n    at http://127.0.0.1:19091/harness.js:55553:41"
+      ]
+    },
+    {
+      "command": "Play",
+      "clients": [
+        {
+          "snapshot": {
+            "revision": 1,
+            "source": {
+              "kind": "youtube",
+              "videoId": "M7lc1UVf-VE"
+            },
+            "positionSeconds": 1.613,
+            "serverTimeMs": 1791607988500,
+            "paused": false,
+            "playbackRate": 1,
+            "loop": false,
+            "locked": true,
+            "ownerClientId": "9a108bcc-2bf4-4631-845c-bdb5fc540780",
+            "playlist": []
+          },
+          "errors": [],
+          "connected": true,
+          "duration": 1344,
+          "currentTime": 1.839133948501587,
+          "lastAck": {
+            "ok": true,
+            "revision": 1
+          },
+          "phases": [
+            "loading",
+            "ready",
+            "buffering",
+            "playing"
+          ],
+          "lastState": {
+            "phase": "playing",
+            "audio": "muted",
+            "presentedTime": 1.8651339713897706,
+            "bufferedAheadSeconds": 0
+          }
+        },
+        {
+          "snapshot": {
+            "revision": 1,
+            "source": {
+              "kind": "youtube",
+              "videoId": "M7lc1UVf-VE"
+            },
+            "positionSeconds": 1.613,
+            "serverTimeMs": 1791607988500,
+            "paused": false,
+            "playbackRate": 1,
+            "loop": false,
+            "locked": true,
+            "ownerClientId": "9a108bcc-2bf4-4631-845c-bdb5fc540780",
+            "playlist": []
+          },
+          "errors": [],
+          "connected": true,
+          "duration": 1344,
+          "currentTime": 1.6145,
+          "phases": [
+            "loading",
+            "ready",
+            "buffering",
+            "playing"
+          ],
+          "lastState": {
+            "phase": "playing",
+            "audio": "muted",
+            "presentedTime": 1.8300870209808349,
+            "bufferedAheadSeconds": 0
+          }
+        }
+      ]
+    },
+    {
+      "command": "Seek 30",
+      "clients": [
+        {
+          "snapshot": {
+            "revision": 2,
+            "source": {
+              "kind": "youtube",
+              "videoId": "M7lc1UVf-VE"
+            },
+            "positionSeconds": 31.609,
+            "serverTimeMs": 1791607990501,
+            "paused": false,
+            "playbackRate": 1,
+            "loop": false,
+            "locked": true,
+            "ownerClientId": "9a108bcc-2bf4-4631-845c-bdb5fc540780",
+            "playlist": []
+          },
+          "errors": [],
+          "connected": true,
+          "duration": 1344,
+          "currentTime": 31.790728175476076,
+          "lastAck": {
+            "ok": true,
+            "revision": 2
+          },
+          "phases": [
+            "loading",
+            "ready",
+            "buffering",
+            "playing"
+          ],
+          "lastState": {
+            "phase": "playing",
+            "audio": "muted",
+            "presentedTime": 31.806727969482424,
+            "bufferedAheadSeconds": 0
+          }
+        },
+        {
+          "snapshot": {
+            "revision": 2,
+            "source": {
+              "kind": "youtube",
+              "videoId": "M7lc1UVf-VE"
+            },
+            "positionSeconds": 31.609,
+            "serverTimeMs": 1791607990501,
+            "paused": false,
+            "playbackRate": 1,
+            "loop": false,
+            "locked": true,
+            "ownerClientId": "9a108bcc-2bf4-4631-845c-bdb5fc540780",
+            "playlist": []
+          },
+          "errors": [],
+          "connected": true,
+          "duration": 1344,
+          "currentTime": 31.544714825763702,
+          "phases": [
+            "loading",
+            "ready",
+            "buffering",
+            "playing"
+          ],
+          "lastState": {
+            "phase": "playing",
+            "audio": "muted",
+            "presentedTime": 31.602218124168395,
+            "bufferedAheadSeconds": 0
+          }
+        }
+      ]
+    },
+    {
+      "command": "Rate 1.5",
+      "clients": [
+        {
+          "snapshot": {
+            "revision": 3,
+            "source": {
+              "kind": "youtube",
+              "videoId": "M7lc1UVf-VE"
+            },
+            "positionSeconds": 34.412,
+            "serverTimeMs": 1791607992502,
+            "paused": false,
+            "playbackRate": 1.5,
+            "loop": false,
+            "locked": true,
+            "ownerClientId": "9a108bcc-2bf4-4631-845c-bdb5fc540780",
+            "playlist": []
+          },
+          "errors": [],
+          "connected": true,
+          "duration": 1344,
+          "currentTime": 34.72441797997284,
+          "lastAck": {
+            "ok": true,
+            "revision": 3
+          },
+          "phases": [
+            "loading",
+            "ready",
+            "buffering",
+            "playing"
+          ],
+          "lastState": {
+            "phase": "playing",
+            "audio": "muted",
+            "presentedTime": 34.746918137329104,
+            "bufferedAheadSeconds": 0
+          }
+        },
+        {
+          "snapshot": {
+            "revision": 3,
+            "source": {
+              "kind": "youtube",
+              "videoId": "M7lc1UVf-VE"
+            },
+            "positionSeconds": 34.412,
+            "serverTimeMs": 1791607992502,
+            "paused": false,
+            "playbackRate": 1.5,
+            "loop": false,
+            "locked": true,
+            "ownerClientId": "9a108bcc-2bf4-4631-845c-bdb5fc540780",
+            "playlist": []
+          },
+          "errors": [],
+          "connected": true,
+          "duration": 1344,
+          "currentTime": 34.52644012588501,
+          "phases": [
+            "loading",
+            "ready",
+            "buffering",
+            "playing"
+          ],
+          "lastState": {
+            "phase": "playing",
+            "audio": "muted",
+            "presentedTime": 34.61794028896332,
+            "bufferedAheadSeconds": 0
+          }
+        }
+      ]
+    },
+    {
+      "command": "Pause",
+      "clients": [
+        {
+          "snapshot": {
+            "revision": 4,
+            "source": {
+              "kind": "youtube",
+              "videoId": "M7lc1UVf-VE"
+            },
+            "positionSeconds": 35.018,
+            "serverTimeMs": 1791607992906,
+            "paused": true,
+            "playbackRate": 1.5,
+            "loop": false,
+            "locked": true,
+            "ownerClientId": "9a108bcc-2bf4-4631-845c-bdb5fc540780",
+            "playlist": []
+          },
+          "errors": [],
+          "connected": true,
+          "duration": 1344,
+          "currentTime": 35.018,
+          "lastAck": {
+            "ok": true,
+            "revision": 4
+          },
+          "phases": [
+            "loading",
+            "ready",
+            "buffering",
+            "playing",
+            "paused"
+          ],
+          "lastState": {
+            "phase": "paused",
+            "audio": "muted",
+            "presentedTime": 35.018,
+            "bufferedAheadSeconds": 0
+          }
+        },
+        {
+          "snapshot": {
+            "revision": 4,
+            "source": {
+              "kind": "youtube",
+              "videoId": "M7lc1UVf-VE"
+            },
+            "positionSeconds": 35.018,
+            "serverTimeMs": 1791607992906,
+            "paused": true,
+            "playbackRate": 1.5,
+            "loop": false,
+            "locked": true,
+            "ownerClientId": "9a108bcc-2bf4-4631-845c-bdb5fc540780",
+            "playlist": []
+          },
+          "errors": [],
+          "connected": true,
+          "duration": 1344,
+          "currentTime": 35.018,
+          "phases": [
+            "loading",
+            "ready",
+            "buffering",
+            "playing",
+            "paused"
+          ],
+          "lastState": {
+            "phase": "paused",
+            "audio": "muted",
+            "presentedTime": 35.018,
+            "bufferedAheadSeconds": 0
+          }
+        }
+      ]
+    },
+    {
+      "reconnect": {
+        "snapshot": {
+          "revision": 4,
+          "source": {
+            "kind": "youtube",
+            "videoId": "M7lc1UVf-VE"
+          },
+          "positionSeconds": 35.018,
+          "serverTimeMs": 1791607994919,
+          "paused": true,
+          "playbackRate": 1.5,
+          "loop": false,
+          "locked": true,
+          "ownerClientId": "9a108bcc-2bf4-4631-845c-bdb5fc540780",
+          "playlist": []
+        },
+        "errors": [],
+        "connected": true,
+        "duration": 1344,
+        "currentTime": 35.018,
+        "phases": [
+          "loading",
+          "ready",
+          "buffering",
+          "playing",
+          "paused"
+        ],
+        "lastState": {
+          "phase": "paused",
+          "audio": "muted",
+          "presentedTime": 35.018,
+          "bufferedAheadSeconds": 0
+        }
+      }
+    }
+  ],
+  "realPlaybackVerified": true
+}

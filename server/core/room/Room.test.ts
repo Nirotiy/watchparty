@@ -48,6 +48,28 @@ test("shared playback advances from the server clock", () => {
   assert.equal(room.snapshot().positionSeconds, 2);
 });
 
+test("media commands store normalized YouTube sources only", () => {
+  const { room } = createRoom();
+  const source = {
+    kind: "youtube" as const,
+    url: "https://youtu.be/dQw4w9WgXcQ?si=tracking",
+    title: "Video",
+    cookie: "must-not-survive",
+  } as unknown as { kind: "youtube"; videoId: string; title?: string };
+  const result = room.execute(owner, { type: "mediaSet", media: source }, 0, true);
+  assert.equal(result.ok, true);
+  assert.deepEqual(room.snapshot().source, { kind: "youtube", videoId: "dQw4w9WgXcQ", title: "Video" });
+  assert.equal(room.execute(owner, { type: "playlistAdd", media: source }, 1, true).ok, true);
+  assert.deepEqual(room.snapshot().playlist[0]?.media, room.snapshot().source);
+});
+
+test("initial YouTube source drops fields outside the media contract", () => {
+  const initialMedia = { kind: "youtube" as const, videoId: "dQw4w9WgXcQ", cookie: "synthetic", manifest: "synthetic" };
+  const room = new Room("initial-room", owner, { initialMedia });
+  rooms.push(room);
+  assert.deepEqual(room.snapshot().source, { kind: "youtube", videoId: "dQw4w9WgXcQ" });
+});
+
 test("guests can use shared controls while owner-only commands stay protected", () => {
   const { room } = createRoom();
   room.join(owner, "Owner");

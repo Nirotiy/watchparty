@@ -141,6 +141,27 @@ export interface MediaCapabilities {
   mediaAdmin: boolean;
   /** 结构 apply 的批准边界：配了第二把密钥是 "secret"，否则是"本机 admin 就能批"的软边界。 */
   catalogApproval: "secret" | "loopback-admin";
+  /** 播放平台契约（后端 platforms.youtube）；旧后端缺字段，消费方需容忍 undefined。 */
+  platforms?: {
+    youtube?: YouTubePlaybackCapabilities;
+  };
+}
+
+/** 静态适配器契约（镜像后端 protocol.ts）；字段全可选以兼容旧后端。 */
+export interface YouTubePlaybackCapabilities {
+  engine?: string;
+  playbackLocation?: string;
+  serverMediaProxy?: boolean;
+  requiresBrowserAccess?: boolean;
+  /** 契约声明 iframe 播放无需播放 API key；前端不得索要或依赖 key。 */
+  requiresPlaybackApiKey?: boolean;
+  availability?: string;
+  stateScope?: string;
+  controls?: readonly string[];
+  states?: readonly string[];
+  errors?: Record<string, { message?: string; iframeErrorCodes?: readonly number[] }>;
+  distinguishesRegionRestriction?: boolean;
+  distinguishesNetworkFailure?: boolean;
 }
 
 export type CompatibilityStatus = "supported" | "maybe" | "unsupported";

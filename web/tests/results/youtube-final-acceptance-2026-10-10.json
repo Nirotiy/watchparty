@@ -1,0 +1,47 @@
+{
+  "checkedAt": "2026-10-10T04:54:47.057Z",
+  "scope": "YouTube browser iframe integration; Bilibili excluded",
+  "backend": {
+    "tests": 293,
+    "passed": 293,
+    "typecheck": true,
+    "readinessRerun": {
+      "tests": 12,
+      "passed": 12
+    },
+    "firstRun": {
+      "passed": 291,
+      "failed": 2,
+      "note": "readiness random ports: fetch bad port / degraded; isolated and full rerun passed"
+    }
+  },
+  "frontend": {
+    "tests": 30,
+    "passed": 30,
+    "typecheck": true,
+    "changedFilesEslint": true,
+    "fullDirectoryLint": false,
+    "fullDirectoryLintNote": "Generated .next-fixture-18982 output scanned; 1608 errors, 41402 warnings. No global lint pass claimed."
+  },
+  "priorCurrentTreeBrowserEvidence": [
+    "youtube-adapter-2026-10-10.json",
+    "youtube-room-entry-2026-10-10.json"
+  ],
+  "realBrowser": {
+    "passed": true,
+    "videoId": "M7lc1UVf-VE",
+    "muted": true,
+    "trustedOwnerClick": true,
+    "noApiKey": true,
+    "commands": [
+      "play",
+      "seek",
+      "rate",
+      "pause"
+    ],
+    "reconnect": true,
+    "maximumObservedClientDeltaSeconds": 0.2460133497123742,
+    "evidence": "youtube-final-real-browser-2026-10-10.json"
+  },
+  "deploymentPerformed": false
+}

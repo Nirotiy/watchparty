@@ -36,7 +36,7 @@ HTMLMediaElement.prototype.play = function () {
 type YoutubeOptions = { events: {
   onReady: (event: { target: FakeYouTube }) => void;
   onStateChange: (event: { target: FakeYouTube; data: number }) => void;
-  onError: () => void;
+  onError: (event?: { target: FakeYouTube; data?: number }) => void;
   onAutoplayBlocked: () => void;
 } };
 const youtubeInstances: FakeYouTube[] = [];

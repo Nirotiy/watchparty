@@ -1,0 +1,112 @@
+{
+  "startedAt": "2026-10-10T04:11:34.094Z",
+  "scope": "YouTube 契约前端：iframe 错误映射/API 不可用/控制不可用/旧回调失效；SDK 为确定性 fake，不涉真实播放声明",
+  "checks": [
+    {
+      "label": "harness-ready",
+      "elapsedMs": 169
+    },
+    {
+      "label": "api-unavailable-reported",
+      "elapsedMs": 1
+    },
+    {
+      "label": "control-unavailable-reported",
+      "elapsedMs": 1
+    },
+    {
+      "label": "api-and-control-unavailable",
+      "value": {
+        "codes": [
+          "YOUTUBE_API_UNAVAILABLE",
+          "YOUTUBE_CONTROL_UNAVAILABLE"
+        ],
+        "apiDetail": "YouTube 播放器接口加载失败，请检查浏览器网络或代理",
+        "controlDeduped": true
+      }
+    },
+    {
+      "label": "harness-ready-2",
+      "elapsedMs": 118
+    },
+    {
+      "label": "first-player-paused",
+      "elapsedMs": 1
+    },
+    {
+      "label": "iframe-error-mapping",
+      "value": {
+        "mapping": [
+          {
+            "data": 2,
+            "code": "YOUTUBE_INVALID_VIDEO",
+            "message": "YouTube 视频标识无效"
+          },
+          {
+            "data": 5,
+            "code": "YOUTUBE_PLAYBACK_FAILED",
+            "message": "YouTube 播放失败"
+          },
+          {
+            "data": 100,
+            "code": "YOUTUBE_VIDEO_UNAVAILABLE",
+            "message": "YouTube 视频不存在、已移除或为私密视频"
+          },
+          {
+            "data": 101,
+            "code": "YOUTUBE_EMBED_FORBIDDEN",
+            "message": "该 YouTube 视频不允许嵌入播放"
+          },
+          {
+            "data": 150,
+            "code": "YOUTUBE_EMBED_FORBIDDEN",
+            "message": "该 YouTube 视频不允许嵌入播放"
+          },
+          {
+            "data": 153,
+            "code": "YOUTUBE_CLIENT_IDENTITY_REQUIRED",
+            "message": "YouTube 无法确认嵌入客户端身份"
+          }
+        ],
+        "unknownMessage": "YouTube 播放器发生未知错误"
+      }
+    },
+    {
+      "label": "errors-stay-local",
+      "value": {
+        "playCalls": 0,
+        "lastPhase": "error"
+      }
+    },
+    {
+      "label": "second-player-paused",
+      "elapsedMs": 0
+    },
+    {
+      "label": "stale-callbacks-ignored-after-source-switch",
+      "value": {
+        "instances": 2,
+        "eventsBefore": 4,
+        "phasesAfter": [
+          "loading",
+          "ready",
+          "paused",
+          "paused",
+          "paused"
+        ],
+        "errors": []
+      }
+    },
+    {
+      "label": "youtube-plays",
+      "elapsedMs": 1
+    },
+    {
+      "label": "play-without-api-key",
+      "value": {
+        "plays": 1
+      }
+    }
+  ],
+  "pass": true
+}
