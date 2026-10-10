@@ -1,26 +1,26 @@
 {
-  "startedAt": "2026-10-09T17:35:03.031Z",
+  "startedAt": "2026-10-10T07:56:34.528Z",
   "scope": "两名浏览器客户端同房、不同本机偏好；真实 MKV 引擎；本地 fixture 房间",
   "checks": [
     {
       "label": "A-loaded",
-      "elapsedMs": 802
+      "elapsedMs": 1584
     },
     {
       "label": "B-loaded",
-      "elapsedMs": 802
+      "elapsedMs": 1827
     },
     {
       "label": "A-subtitle-selected",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "label": "B-subtitle-selected",
-      "elapsedMs": 1
+      "elapsedMs": 0
     },
     {
       "label": "A-styled-cue",
-      "elapsedMs": 140
+      "elapsedMs": 251
     },
     {
       "label": "B-plain-cue",
@@ -28,19 +28,19 @@
     },
     {
       "label": "A-is-owner",
-      "elapsedMs": 13
+      "elapsedMs": 4
     },
     {
       "label": "A-skip-forward-30",
-      "elapsedMs": 11
+      "elapsedMs": 2
     },
     {
       "label": "A-playing-advances",
-      "elapsedMs": 870
+      "elapsedMs": 859
     },
     {
       "label": "B-follows-room-sync",
-      "elapsedMs": 3
+      "elapsedMs": 2
     },
     {
       "label": "independent-preferences-and-synced-room",
@@ -91,15 +91,15 @@
     },
     {
       "label": "handback-modal-open",
-      "elapsedMs": 5
+      "elapsedMs": 3
     },
     {
       "label": "handback-confirm",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "label": "ownership-returned",
-      "elapsedMs": 8
+      "elapsedMs": 2
     }
   ],
   "pass": true

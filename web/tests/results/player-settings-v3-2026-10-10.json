@@ -1,10 +1,10 @@
 {
-  "startedAt": "2026-10-09T17:33:54.943Z",
+  "startedAt": "2026-10-10T07:55:26.220Z",
   "scope": "追加设置三模式/外观/步长/缩放/存储/重启恢复；真实 MKV 引擎；本地 fixture 房间",
   "checks": [
     {
       "label": "first-paused-frame",
-      "elapsedMs": 856
+      "elapsedMs": 1702
     },
     {
       "label": "media-default-missing-marker-falls-closed",
@@ -19,27 +19,27 @@
     },
     {
       "label": "preview-drawn",
-      "elapsedMs": 7
+      "elapsedMs": 11
     },
     {
       "label": "preview-bold",
-      "elapsedMs": 4
+      "elapsedMs": 9
     },
     {
       "label": "preview-cyan",
-      "elapsedMs": 1
+      "elapsedMs": 8
     },
     {
       "label": "preview-thick-outline",
-      "elapsedMs": 4
+      "elapsedMs": 7
     },
     {
       "label": "preview-strong-shadow",
-      "elapsedMs": 5
+      "elapsedMs": 13
     },
     {
       "label": "preview-half-background",
-      "elapsedMs": 2
+      "elapsedMs": 7
     },
     {
       "label": "appearance-preview-live-levels",
@@ -54,11 +54,11 @@
     },
     {
       "label": "settings-closed",
-      "elapsedMs": 249
+      "elapsedMs": 254
     },
     {
       "label": "room-reloaded",
-      "elapsedMs": 462
+      "elapsedMs": 1712
     },
     {
       "label": "prefer-list-selects-japanese",
@@ -66,7 +66,7 @@
     },
     {
       "label": "cue-JP M02-at-10.25",
-      "elapsedMs": 139
+      "elapsedMs": 262
     },
     {
       "label": "prefer-list-language-hit",
@@ -79,7 +79,7 @@
     },
     {
       "label": "room-reloaded",
-      "elapsedMs": 474
+      "elapsedMs": 1524
     },
     {
       "label": "prefer-list-empty-falls-to-engine-default",
@@ -87,7 +87,7 @@
     },
     {
       "label": "cue-EN M02-at-10.25",
-      "elapsedMs": 136
+      "elapsedMs": 256
     },
     {
       "label": "prefer-list-empty-engine-default",
@@ -100,7 +100,7 @@
     },
     {
       "label": "room-reloaded",
-      "elapsedMs": 508
+      "elapsedMs": 1323
     },
     {
       "label": "media-default-list-fallback",
@@ -114,7 +114,7 @@
     },
     {
       "label": "room-reloaded",
-      "elapsedMs": 432
+      "elapsedMs": 1539
     },
     {
       "label": "off-mode-keeps-subtitles-off",
@@ -126,7 +126,7 @@
     },
     {
       "label": "manual-reselect-clears-off",
-      "elapsedMs": 3
+      "elapsedMs": 6
     },
     {
       "label": "off-priority-and-reselect-clears",
@@ -137,19 +137,19 @@
     },
     {
       "label": "room-reloaded",
-      "elapsedMs": 477
+      "elapsedMs": 1521
     },
     {
       "label": "cue-EXT M02-at-10.25",
-      "elapsedMs": 140
+      "elapsedMs": 128
     },
     {
       "label": "room-reloaded",
-      "elapsedMs": 430
+      "elapsedMs": 1515
     },
     {
       "label": "cue-JP M02-at-10.25",
-      "elapsedMs": 124
+      "elapsedMs": 126
     },
     {
       "label": "cross-source-tie-break",
@@ -160,20 +160,20 @@
         "embeddedCue": [
           "JP M02"
         ],
-        "uploadedId": "e5653ddf-0459-45d1-b0b5-65ee71d3cf35"
+        "uploadedId": "09c46389-a08b-405b-9b99-8dc7ef81cbb7"
       }
     },
     {
       "label": "room-reloaded",
-      "elapsedMs": 461
+      "elapsedMs": 1305
     },
     {
       "label": "styled-subtitle-tracks",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "label": "cue-JP M02-at-10.25",
-      "elapsedMs": 139
+      "elapsedMs": 127
     },
     {
       "label": "appearance-applies-to-mkv-canvas",
@@ -186,19 +186,19 @@
     },
     {
       "label": "settings-open",
-      "elapsedMs": 2
+      "elapsedMs": 3
     },
     {
       "label": "fit-cover",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "label": "settings-closed",
-      "elapsedMs": 252
+      "elapsedMs": 247
     },
     {
       "label": "cue-JP M02-at-10.25",
-      "elapsedMs": 140
+      "elapsedMs": 129
     },
     {
       "label": "settings-open",
@@ -210,7 +210,7 @@
     },
     {
       "label": "settings-closed",
-      "elapsedMs": 259
+      "elapsedMs": 245
     },
     {
       "label": "picture-fit-cover-contain-fullscreen",
@@ -222,11 +222,11 @@
     },
     {
       "label": "youtube-source-active",
-      "elapsedMs": 1
+      "elapsedMs": 4
     },
     {
       "label": "settings-open",
-      "elapsedMs": 1
+      "elapsedMs": 3
     },
     {
       "label": "fit-not-applicable-note",
@@ -234,11 +234,11 @@
     },
     {
       "label": "settings-closed",
-      "elapsedMs": 256
+      "elapsedMs": 243
     },
     {
       "label": "media-restored",
-      "elapsedMs": 261
+      "elapsedMs": 147
     },
     {
       "label": "youtube-fit-not-applicable",
@@ -249,7 +249,7 @@
     },
     {
       "label": "room-reloaded",
-      "elapsedMs": 489
+      "elapsedMs": 1363
     },
     {
       "label": "settings-open",
@@ -257,15 +257,15 @@
     },
     {
       "label": "persisted-mode-chip",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "label": "persisted-appearance",
-      "elapsedMs": 7
+      "elapsedMs": 8
     },
     {
       "label": "settings-closed",
-      "elapsedMs": 256
+      "elapsedMs": 243
     },
     {
       "label": "reload-restores-preferences",
@@ -281,7 +281,7 @@
     },
     {
       "label": "settings-open",
-      "elapsedMs": 7
+      "elapsedMs": 8
     },
     {
       "label": "storage-unavailable-notice",
@@ -289,7 +289,7 @@
     },
     {
       "label": "settings-closed",
-      "elapsedMs": 252
+      "elapsedMs": 243
     },
     {
       "label": "storage-unavailable-notice",
@@ -297,15 +297,15 @@
     },
     {
       "label": "settings-open",
-      "elapsedMs": 4
+      "elapsedMs": 5
     },
     {
       "label": "reset-defaults",
-      "elapsedMs": 0
+      "elapsedMs": 2
     },
     {
       "label": "settings-closed",
-      "elapsedMs": 253
+      "elapsedMs": 243
     },
     {
       "label": "reset-reapplies-rules",
@@ -317,7 +317,7 @@
     },
     {
       "label": "browser-becomes-owner",
-      "elapsedMs": 13
+      "elapsedMs": 1
     },
     {
       "label": "settings-open",
@@ -325,38 +325,38 @@
     },
     {
       "label": "skip-steps-persisted",
-      "elapsedMs": 0
+      "elapsedMs": 1
     },
     {
       "label": "settings-closed",
-      "elapsedMs": 252
+      "elapsedMs": 243
     },
     {
       "label": "skip-forward-30",
-      "elapsedMs": 13
+      "elapsedMs": 3
     },
     {
       "label": "local-media-time-syncs-forward",
-      "elapsedMs": 123
+      "elapsedMs": 127
     },
     {
       "label": "keyboard-skip-back-5",
-      "elapsedMs": 14
+      "elapsedMs": 3
     },
     {
       "label": "local-media-time-syncs-back",
-      "elapsedMs": 124
+      "elapsedMs": 123
     },
     {
       "label": "keyboard-skip-forward-30",
-      "elapsedMs": 15
+      "elapsedMs": 1
     },
     {
       "label": "skip-steps-and-room-seek",
       "value": {
-        "revisionBeforeSettings": 69,
-        "revisionDuringSettings": 69,
-        "revisionAfterSkip": 70,
+        "revisionBeforeSettings": 158,
+        "revisionDuringSettings": 158,
+        "revisionAfterSkip": 159,
         "forward30": 30,
         "keyboardBack": -5,
         "keyboardForward": 30
@@ -364,7 +364,7 @@
     },
     {
       "label": "members-modal-open",
-      "elapsedMs": 2
+      "elapsedMs": 12
     },
     {
       "label": "transfer-confirm-visible",
@@ -372,12 +372,12 @@
     },
     {
       "label": "ownership-returned",
-      "elapsedMs": 11
+      "elapsedMs": 4
     },
     {
       "label": "ownership-handed-back",
       "value": {
-        "ownerId": "ffe6095e-a531-4433-af79-0edf4e95e41d"
+        "ownerId": "44b15d4f-e5db-407f-b0bf-bf859cff63f7"
       }
     }
   ],

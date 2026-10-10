@@ -1,26 +1,26 @@
 {
-  "startedAt": "2026-10-10T04:26:33.485Z",
+  "startedAt": "2026-10-10T07:53:53.284Z",
   "scope": "真实房间 + 媒体库入口；YouTube iframe 网络可达性因机器而异，不作播放声明",
   "checks": [
     {
       "label": "room-ready",
-      "elapsedMs": 951
+      "elapsedMs": 1723
     },
     {
       "label": "browser-is-owner",
-      "elapsedMs": 14
-    },
-    {
-      "label": "library-closed-settled",
       "elapsedMs": 2
     },
     {
+      "label": "library-closed-settled",
+      "elapsedMs": 10
+    },
+    {
       "label": "library-opened",
-      "elapsedMs": 7
+      "elapsedMs": 13
     },
     {
       "label": "link-row-visible",
-      "elapsedMs": 10
+      "elapsedMs": 16
     },
     {
       "label": "capability-note",
@@ -28,7 +28,7 @@
     },
     {
       "label": "watch-link-source",
-      "elapsedMs": 15
+      "elapsedMs": 2
     },
     {
       "label": "watch-url-entry-normalized",
@@ -38,8 +38,8 @@
           "videoId": "WO6aRHKe7_c",
           "title": "YouTube 视频"
         },
-        "revisionBefore": 70,
-        "revisionAfter": 71
+        "revisionBefore": 133,
+        "revisionAfter": 134
       }
     },
     {
@@ -47,13 +47,59 @@
       "value": {
         "keyedRequests": [],
         "sampleFetches": [
-          "http://127.0.0.1:18983/media?generation=21",
-          "http://127.0.0.1:18983/media?generation=21",
-          "http://127.0.0.1:18983/media?generation=21",
+          "http://127.0.0.1:18983/media?generation=41",
+          "http://127.0.0.1:18983/media?generation=41",
+          "http://127.0.0.1:18983/media?generation=41",
           "/api/media/libraries",
           "/api/media/capabilities",
           "/api/media/catalog?libraryId=lib_anime"
         ]
+      }
+    },
+    {
+      "label": "youtube-iframe-mounted",
+      "elapsedMs": 491
+    },
+    {
+      "label": "youtube-player-ready",
+      "elapsedMs": 124
+    },
+    {
+      "label": "youtube-iframe-fills-stage",
+      "value": {
+        "before": {
+          "frame": {
+            "w": 1264,
+            "h": 805,
+            "x": 0,
+            "y": 0
+          },
+          "host": {
+            "w": 1264,
+            "h": 805,
+            "x": 0,
+            "y": 0
+          },
+          "attrW": "100%",
+          "attrH": "100%"
+        },
+        "resized": {
+          "frame": {
+            "w": 1000,
+            "h": 700,
+            "x": 0,
+            "y": 0
+          },
+          "host": {
+            "w": 1000,
+            "h": 700,
+            "x": 0,
+            "y": 0
+          },
+          "attrW": "100%",
+          "attrH": "100%"
+        },
+        "screenshot": "%TEMP%/wp-youtube-fill.png"
       }
     },
     {
@@ -62,43 +108,43 @@
     },
     {
       "label": "library-opened",
-      "elapsedMs": 2
+      "elapsedMs": 4
     },
     {
       "label": "invalid-id-row",
-      "elapsedMs": 3
+      "elapsedMs": 6
     },
     {
       "label": "invalid-video-source",
-      "elapsedMs": 7
+      "elapsedMs": 3
     },
     {
       "label": "local-failure-surfaced",
-      "elapsedMs": 503
+      "elapsedMs": 497
     },
     {
       "label": "single-client-failure-keeps-room",
       "value": {
-        "revision": 72,
+        "revision": 137,
         "paused": true,
         "messageShown": true
       }
     },
     {
       "label": "library-closed-settled",
-      "elapsedMs": 2
+      "elapsedMs": 1
     },
     {
       "label": "library-opened",
-      "elapsedMs": 2
+      "elapsedMs": 6
     },
     {
       "label": "bare-id-row",
-      "elapsedMs": 2
+      "elapsedMs": 4
     },
     {
       "label": "bare-id-source",
-      "elapsedMs": 7
+      "elapsedMs": 3
     },
     {
       "label": "bare-id-entry",
@@ -109,15 +155,15 @@
     },
     {
       "label": "library-closed-settled",
-      "elapsedMs": 4
+      "elapsedMs": 24
     },
     {
       "label": "library-opened",
-      "elapsedMs": 3
+      "elapsedMs": 7
     },
     {
       "label": "shorts-rejected",
-      "elapsedMs": 2
+      "elapsedMs": 3
     },
     {
       "label": "unsupported-shape-rejected-locally",
@@ -128,19 +174,19 @@
     },
     {
       "label": "handback-modal-open",
-      "elapsedMs": 4
+      "elapsedMs": 5
     },
     {
       "label": "handback-confirm",
-      "elapsedMs": 2
+      "elapsedMs": 1
     },
     {
       "label": "ownership-returned",
-      "elapsedMs": 12
+      "elapsedMs": 2
     },
     {
       "label": "fixture-restored",
-      "elapsedMs": 7
+      "elapsedMs": 2
     }
   ],
   "pass": true

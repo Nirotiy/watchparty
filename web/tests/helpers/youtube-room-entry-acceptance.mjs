@@ -114,6 +114,48 @@ try {
   assert.deepEqual(keyed, [], "no API-key requests from the page");
   result.checks.push({ label: "no-api-key-requests", value: { keyedRequests: keyed, sampleFetches: (await evaluate(`window.__ytRig.fetches.slice(-6)`)) } });
 
+  // ---- 1.5 iframe 铺满：真实 iframe 填满舞台并随视口缩放（浏览器无法访问 YouTube 时显式记跳过） ----
+  let iframeMounted = false;
+  try {
+    await until("youtube-iframe-mounted", async () => (await evaluate(`Boolean(document.querySelector('iframe'))`)) === true, 20000);
+    iframeMounted = true;
+  } catch { /* 记录跳过 */ }
+  if (iframeMounted) {
+    const measureFit = () => evaluate(`(()=>{const frame=document.querySelector('iframe');
+      const host=frame?.parentElement;
+      if(!frame||!host)return null;
+      const fr=frame.getBoundingClientRect();const hr=host.getBoundingClientRect();
+      return {frame:{w:Math.round(fr.width),h:Math.round(fr.height),x:Math.round(fr.x),y:Math.round(fr.y)},
+        host:{w:Math.round(hr.width),h:Math.round(hr.height),x:Math.round(hr.x),y:Math.round(hr.y)},
+        attrW:frame.getAttribute('width'),attrH:frame.getAttribute('height')};})()`);
+    const before = await measureFit();
+    assert.equal(before.attrW, "100%", `iframe width attr: ${JSON.stringify(before)}`);
+    assert.equal(before.attrH, "100%", `iframe height attr: ${JSON.stringify(before)}`);
+    assert.ok(Math.abs(before.frame.w - before.host.w) <= 2 && Math.abs(before.frame.h - before.host.h) <= 2,
+      `iframe must fill the stage: ${JSON.stringify(before)}`);
+    await browser.send("Emulation.setDeviceMetricsOverride", { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false });
+    await sleep(500);
+    const resized = await measureFit();
+    await browser.send("Emulation.clearDeviceMetricsOverride");
+    await sleep(300);
+    assert.ok(Math.abs(resized.frame.w - resized.host.w) <= 2 && Math.abs(resized.frame.h - resized.host.h) <= 2,
+      `iframe must follow viewport resize: ${JSON.stringify(resized)}`);
+    assert.ok(resized.host.w <= 1002, `stage shrank with viewport: ${JSON.stringify(resized)}`);
+    // 截图留给人看：等播放器就绪 → 点播放跑出画面 → 再拍（失败也拍）。
+    try {
+      await until("youtube-player-ready", async () => (await evaluate(`!document.body.innerText.includes('加载中')`)) === true, 15000);
+      await evaluate(`document.querySelector('button[aria-label="播放"]')?.click()`);
+      await sleep(4500);
+      await evaluate(`document.querySelector('button[aria-label="暂停"]')?.click()`);
+      await sleep(400);
+    } catch { /* 截图仍拍 */ }
+    const shot = await browser.send("Page.captureScreenshot", { format: "png" });
+    await writeFile(path.join(process.env.TEMP ?? ".", "wp-youtube-fill.png"), Buffer.from(shot.data, "base64"));
+    result.checks.push({ label: "youtube-iframe-fills-stage", value: { before, resized, screenshot: "%TEMP%/wp-youtube-fill.png" } });
+  } else {
+    result.checks.push({ label: "youtube-iframe-fills-stage", value: { skipped: "iframe 未在 20s 内挂载（浏览器无法访问 YouTube？）" }, skipped: true });
+  }
+
   // ---- 2. 单客户端失败不改房间：无效视频（浏览器提交）→ 契约消息出现，revision/paused 不变 ----
   const youtubeMessages = ["YouTube 视频标识无效", "YouTube 播放失败", "YouTube 视频不存在、已移除或为私密视频",
     "该 YouTube 视频不允许嵌入播放", "YouTube 无法确认嵌入客户端身份", "YouTube 播放器接口加载失败，请检查浏览器网络或代理", "YouTube 播放器发生未知错误"];
@@ -126,8 +168,9 @@ try {
     return source?.kind === "youtube" && source.videoId === "zzzzzzzzzzz";
   }, 8000);
   const failureBaseline = (await room()).snapshot;
+  // YT embed 对不存在视频的报错偶发迟滞（本机实测 0.4–20s+），给足窗口。
   await until("local-failure-surfaced", async () =>
-    (await evaluate(`document.body.innerText`)).split("\n").some((line) => youtubeMessages.some((message) => line.includes(message))), 20000);
+    (await evaluate(`document.body.innerText`)).split("\n").some((line) => youtubeMessages.some((message) => line.includes(message))), 26000);
   await sleep(1500);
   const failureAfter = (await room()).snapshot;
   assert.equal(failureAfter.revision, failureBaseline.revision, "local failure must not send room commands");

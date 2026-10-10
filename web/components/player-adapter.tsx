@@ -34,6 +34,9 @@ type YouTubeNamespace = {
     element: HTMLElement,
     options: {
       videoId: string;
+      /** 缺省为 640×360；传 "100%" 让 iframe 随容器铺满。 */
+      width?: number | string;
+      height?: number | string;
       playerVars: Record<string, number>;
       events: {
         onReady: (event: YouTubePlayerEvent) => void;
@@ -337,6 +340,9 @@ const NativePlayerAdapter = forwardRef<PlayerAdapterHandle, PlayerAdapterProps>(
           try {
             youtubePlayerRef.current = new youtube.Player(mount, {
               videoId: youtubeVideoId,
+              // 缺省 640×360 会把 iframe 钉死在左上角；按百分比铺满舞台，比例由 YouTube 内部保持。
+              width: "100%",
+              height: "100%",
               playerVars: {
                 autoplay: 0,
                 controls: 0,

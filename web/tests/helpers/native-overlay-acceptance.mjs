@@ -83,14 +83,15 @@ try {
   const containState = await evaluate(`document.querySelector('video').className`);
   assert.ok(containState.includes("object-contain"), `contain fit: ${containState}`);
 
-  // 偏移：+2s 后 3.6s 处应显示 1–3s 的 cue；-0.5s 后 4.2s 处应仍显示 4–6s 的 cue。
+  // 偏移：+2s 后 3.6s 处应显示 1–3s 的 cue；-0.5s 时 4.2s 处应显示 4–6s 的 cue、且 1–3s 的 cue 已出窗。
   await clearDraws();
   await evaluate(`rig.render({ subtitleOffsetSeconds: 2 })`);
   await until("offset-positive-shows-earlier-cue", async () => (await overlayDraws()).some((entry) => entry.text === "NATIVE CUE 01"));
   await clearDraws();
   await evaluate(`rig.render({ subtitleOffsetSeconds: -0.5 })`);
   await evaluate(`rig.ref.current.seek(4.2)`);
-  await until("offset-negative-hides-shifted-cue", async () => (await overlayDraws()).filter((entry) => entry.text === "NATIVE CUE 02").length === 0);
+  await until("offset-negative-keeps-current-cue", async () => (await overlayDraws()).some((entry) => entry.text === "NATIVE CUE 02"));
+  assert.ok(!(await overlayDraws()).some((entry) => entry.text === "NATIVE CUE 01"), "earlier cue must fall outside the shifted window");
   result.checks.push({ label: "native-overlay-offset-and-contain", value: { gapHidden: true, offsetShift: true, contain: true } });
 
   assert.deepEqual(await evaluate(`window.__adRig.errors`), [], "no page errors");

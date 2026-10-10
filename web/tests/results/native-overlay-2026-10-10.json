@@ -1,18 +1,18 @@
 {
-  "startedAt": "2026-10-09T17:35:09.198Z",
+  "startedAt": "2026-10-10T07:57:17.116Z",
   "scope": "原生 <video> 路径：VTT 覆盖层外观/偏移/缩放（本地 MP4，无物理渲染声明）",
   "checks": [
     {
       "label": "video-ready",
-      "elapsedMs": 383
+      "elapsedMs": 135
     },
     {
       "label": "overlay-canvas-sized",
-      "elapsedMs": 1
+      "elapsedMs": 106
     },
     {
       "label": "cue-drawn-with-style",
-      "elapsedMs": 118
+      "elapsedMs": 19
     },
     {
       "label": "native-overlay-style-and-cover",
@@ -30,11 +30,11 @@
     },
     {
       "label": "offset-positive-shows-earlier-cue",
-      "elapsedMs": 108
+      "elapsedMs": 109
     },
     {
-      "label": "offset-negative-hides-shifted-cue",
-      "elapsedMs": 0
+      "label": "offset-negative-keeps-current-cue",
+      "elapsedMs": 1
     },
     {
       "label": "native-overlay-offset-and-contain",

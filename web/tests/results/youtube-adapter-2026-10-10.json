@@ -1,14 +1,14 @@
 {
-  "startedAt": "2026-10-10T04:11:34.094Z",
+  "startedAt": "2026-10-10T07:54:54.862Z",
   "scope": "YouTube 契约前端：iframe 错误映射/API 不可用/控制不可用/旧回调失效；SDK 为确定性 fake，不涉真实播放声明",
   "checks": [
     {
       "label": "harness-ready",
-      "elapsedMs": 169
+      "elapsedMs": 285
     },
     {
       "label": "api-unavailable-reported",
-      "elapsedMs": 1
+      "elapsedMs": 4
     },
     {
       "label": "control-unavailable-reported",
@@ -99,7 +99,7 @@
     },
     {
       "label": "youtube-plays",
-      "elapsedMs": 1
+      "elapsedMs": 2
     },
     {
       "label": "play-without-api-key",
